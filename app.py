@@ -33,6 +33,7 @@ import io
 import time
 import re
 import socket
+import base64
 import importlib.util
 import xml.etree.ElementTree as ET
 
@@ -105,10 +106,13 @@ class IPv4SMTP_SSL(smtplib.SMTP_SSL):
 class Config:
     # --- Email (disabled by default; enable via config_local.py) ---
     EMAIL_ENABLED = _env_bool("EMAIL_ENABLED", False)
+    EMAIL_DELIVERY_METHOD = os.getenv("EMAIL_DELIVERY_METHOD", "SMTP").strip().upper()  # SMTP | BREVO
     SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = _env_int("SMTP_PORT", 465)   # 465=SSL (preferred on Railway), 587=STARTTLS
     SMTP_TIMEOUT_SECONDS = _env_int("SMTP_TIMEOUT_SECONDS", 30)
     SMTP_FORCE_IPV4 = _env_bool("SMTP_FORCE_IPV4", True)
+    BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+    BREVO_API_URL = os.getenv("BREVO_API_URL", "https://api.brevo.com/v3/smtp/email")
     EMAIL_SENDER = os.getenv("EMAIL_SENDER", "nilesh.shah1807@gmail.com")
     EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")  # Gmail APP password
     EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "nilesh.shah1807@gmail.com")
@@ -1384,13 +1388,71 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 msg.attach(part)
         return msg
 
+    def _build_brevo_payload(self, html_content, date_str, csv_path):
+        payload = {
+            "sender": {
+                "email": self.config.EMAIL_SENDER,
+                "name": self.config.EMAIL_SUBJECT_PREFIX,
+            },
+            "to": [{"email": email.strip()} for email in self.config.EMAIL_RECEIVER.split(",") if email.strip()],
+            "subject": f"{self.config.EMAIL_SUBJECT_PREFIX} - {date_str}",
+            "htmlContent": html_content,
+        }
+        if csv_path and os.path.exists(csv_path) and self.config.ATTACH_CSV:
+            with open(csv_path, "rb") as f:
+                payload["attachment"] = [{
+                    "name": os.path.basename(csv_path),
+                    "content": base64.b64encode(f.read()).decode("ascii"),
+                }]
+        return payload
+
+    def _send_email_brevo(self, html_content, date_str, csv_path=None):
+        if not self.config.BREVO_API_KEY:
+            logger.error("Brevo email not sent: BREVO_API_KEY is required when EMAIL_DELIVERY_METHOD=BREVO.")
+            return False
+
+        payload = self._build_brevo_payload(html_content, date_str, csv_path)
+        if not payload["to"]:
+            logger.error("Brevo email not sent: EMAIL_RECEIVER must contain at least one email address.")
+            return False
+
+        try:
+            response = requests.post(
+                self.config.BREVO_API_URL,
+                headers={
+                    "accept": "application/json",
+                    "api-key": self.config.BREVO_API_KEY,
+                    "content-type": "application/json",
+                },
+                json=payload,
+                timeout=self.config.SMTP_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as e:
+            logger.error(f"Brevo email network/API request failed: {e}")
+            return False
+
+        if 200 <= response.status_code < 300:
+            logger.info(f"Email sent to {self.config.EMAIL_RECEIVER} via Brevo HTTP API")
+            return True
+
+        logger.error(f"Brevo email failed: HTTP {response.status_code} {response.text[:500]}")
+        return False
+
     def send_email(self, html_content, date_str, csv_path=None):
         if not self.config.EMAIL_ENABLED:
             logger.info("Email disabled; set EMAIL_ENABLED=True in config_local.py to send")
             return False
-        if not self.config.EMAIL_SENDER or not self.config.EMAIL_RECEIVER or not self.config.EMAIL_PASSWORD:
+        if not self.config.EMAIL_SENDER or not self.config.EMAIL_RECEIVER:
+            logger.error("Email not sent: EMAIL_SENDER and EMAIL_RECEIVER are required.")
+            return False
+        if self.config.EMAIL_DELIVERY_METHOD == "BREVO":
+            return self._send_email_brevo(html_content, date_str, csv_path)
+        if self.config.EMAIL_DELIVERY_METHOD != "SMTP":
+            logger.error(f"Unsupported EMAIL_DELIVERY_METHOD={self.config.EMAIL_DELIVERY_METHOD!r}; use SMTP or BREVO.")
+            return False
+        if not self.config.EMAIL_PASSWORD:
             logger.error(
-                "Email not sent: EMAIL_SENDER, EMAIL_RECEIVER and EMAIL_PASSWORD are required. "
+                "SMTP email not sent: EMAIL_PASSWORD is required. "
                 "For Gmail, use an app password via environment variable or config_local.py."
             )
             return False

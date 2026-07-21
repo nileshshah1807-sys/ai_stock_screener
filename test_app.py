@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -80,6 +81,34 @@ class TestReverseDCF(unittest.TestCase):
             self.assertFalse(result)
         finally:
             os.unlink(csv_path)
+
+    @patch("app.requests.post")
+    def test_brevo_email_posts_payload_with_attachment(self, mock_post):
+        class Response:
+            status_code = 201
+            text = '{"messageId":"abc"}'
+
+        mock_post.return_value = Response()
+        self.config.EMAIL_ENABLED = True
+        self.config.EMAIL_DELIVERY_METHOD = "BREVO"
+        self.config.BREVO_API_KEY = "test-key"
+        self.config.EMAIL_SENDER = "sender@example.com"
+        self.config.EMAIL_RECEIVER = "one@example.com,two@example.com"
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+            tmp.write(b"Symbol,Rating\nTEST,BUY\n")
+            csv_path = tmp.name
+        try:
+            result = EmailReporter(self.config).send_email("<html>ok</html>", "21-07-2026", csv_path)
+            self.assertTrue(result)
+        finally:
+            os.unlink(csv_path)
+
+        _, kwargs = mock_post.call_args
+        self.assertEqual(kwargs["headers"]["api-key"], "test-key")
+        self.assertEqual(kwargs["json"]["to"], [{"email": "one@example.com"}, {"email": "two@example.com"}])
+        self.assertEqual(kwargs["json"]["attachment"][0]["name"], os.path.basename(csv_path))
+        self.assertTrue(kwargs["json"]["attachment"][0]["content"])
 
 
 if __name__ == "__main__":

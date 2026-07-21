@@ -15,12 +15,28 @@ PRICE_CACHE_MAX_AGE_HOURS=18
 
 Without a Railway Volume, cache files are lost when the container is rebuilt or redeployed.
 
+## Email on Railway
+
+HTTP email APIs are usually more reliable on Railway than direct SMTP. For Brevo:
+
+```text
+EMAIL_ENABLED=True
+EMAIL_DELIVERY_METHOD=BREVO
+EMAIL_SENDER=your-verified-sender@gmail.com
+EMAIL_RECEIVER=your-address@gmail.com
+BREVO_API_KEY=your_brevo_api_key
+ATTACH_CSV=True
+```
+
+Verify `EMAIL_SENDER` inside Brevo before deploying.
+
 ## Gmail SMTP on Railway
 
 Use a Gmail app password, not your normal Google password:
 
 ```text
 EMAIL_ENABLED=True
+EMAIL_DELIVERY_METHOD=SMTP
 EMAIL_SENDER=your-address@gmail.com
 EMAIL_RECEIVER=your-address@gmail.com
 EMAIL_PASSWORD=your_gmail_app_password
