@@ -1,0 +1,22 @@
+# Local secrets
+config_local.py
+.env
+*.env
+
+# Generated reports and logs
+reports_advanced/
+*.log
+scheduler.log
+stock_screener_advanced.log
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
