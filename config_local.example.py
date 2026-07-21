@@ -11,6 +11,7 @@ SMTP_PORT = 465
 SMTP_TIMEOUT_SECONDS = 30
 SMTP_FORCE_IPV4 = True
 
+
 OUTPUT_DIR = "reports_advanced"
 YFINANCE_CACHE_DIR = "reports_advanced/yfinance_cache"
 FUND_CACHE_MAX_AGE_DAYS = 30
