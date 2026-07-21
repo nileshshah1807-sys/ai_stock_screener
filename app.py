@@ -89,8 +89,8 @@ def _env_list(name, default):
 class Config:
     # --- Email (disabled by default; enable via config_local.py) ---
     EMAIL_ENABLED = _env_bool("EMAIL_ENABLED", False)
-    SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-    SMTP_PORT = _env_int("SMTP_PORT", 465)   # 465=SSL (preferred on Railway), 587=STARTTLS
+    SMTP_SERVER = "smtp.gmail.com"
+    SMTP_PORT = 587
     EMAIL_SENDER = os.getenv("EMAIL_SENDER", "nilesh.shah1807@gmail.com")
     EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")  # Gmail APP password
     EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "nilesh.shah1807@gmail.com")
@@ -1336,21 +1336,6 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 </body></html>"""
         return html
 
-    def _build_message(self, html_content, date_str, csv_path):
-        msg = MIMEMultipart()
-        msg["From"] = self.config.EMAIL_SENDER
-        msg["To"] = self.config.EMAIL_RECEIVER
-        msg["Subject"] = f"{self.config.EMAIL_SUBJECT_PREFIX} - {date_str}"
-        msg.attach(MIMEText(html_content, "html"))
-        if csv_path and os.path.exists(csv_path) and self.config.ATTACH_CSV:
-            with open(csv_path, "rb") as f:
-                part = MIMEBase("application", "octet-stream")
-                part.set_payload(f.read())
-                encoders.encode_base64(part)
-                part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(csv_path)}")
-                msg.attach(part)
-        return msg
-
     def send_email(self, html_content, date_str, csv_path=None):
         if not self.config.EMAIL_ENABLED:
             logger.info("Email disabled; set EMAIL_ENABLED=True in config_local.py to send")
@@ -1361,32 +1346,28 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 "For Gmail, use an app password via environment variable or config_local.py."
             )
             return False
-        msg = self._build_message(html_content, date_str, csv_path)
-        # Try port 465 (SSL) first — works on most cloud hosts including Railway.
-        # Fall back to port 587 (STARTTLS) if 465 is unreachable.
-        attempts = [
-            (465, "SSL"),
-            (587, "STARTTLS"),
-        ]
-        for port, mode in attempts:
-            try:
-                if mode == "SSL":
-                    with smtplib.SMTP_SSL(self.config.SMTP_SERVER, port) as server:
-                        server.login(self.config.EMAIL_SENDER, self.config.EMAIL_PASSWORD)
-                        server.send_message(msg)
-                else:
-                    with smtplib.SMTP(self.config.SMTP_SERVER, port) as server:
-                        server.ehlo()
-                        server.starttls()
-                        server.ehlo()
-                        server.login(self.config.EMAIL_SENDER, self.config.EMAIL_PASSWORD)
-                        server.send_message(msg)
-                logger.info(f"Email sent to {self.config.EMAIL_RECEIVER} via port {port} ({mode})")
-                return True
-            except Exception as e:
-                logger.warning(f"Email attempt port {port} ({mode}) failed: {e}")
-        logger.error("Email failed on all ports (465 SSL and 587 STARTTLS). Check Railway outbound firewall or Gmail app password.")
-        return False
+        try:
+            msg = MIMEMultipart()
+            msg["From"] = self.config.EMAIL_SENDER
+            msg["To"] = self.config.EMAIL_RECEIVER
+            msg["Subject"] = f"{self.config.EMAIL_SUBJECT_PREFIX} - {date_str}"
+            msg.attach(MIMEText(html_content, "html"))
+            if csv_path and os.path.exists(csv_path) and self.config.ATTACH_CSV:
+                with open(csv_path, "rb") as f:
+                    part = MIMEBase("application", "octet-stream")
+                    part.set_payload(f.read())
+                    encoders.encode_base64(part)
+                    part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(csv_path)}")
+                    msg.attach(part)
+            with smtplib.SMTP(self.config.SMTP_SERVER, self.config.SMTP_PORT) as server:
+                server.starttls()
+                server.login(self.config.EMAIL_SENDER, self.config.EMAIL_PASSWORD)
+                server.send_message(msg)
+            logger.info(f"Email sent to {self.config.EMAIL_RECEIVER}")
+            return True
+        except Exception as e:
+            logger.error(f"Email failed: {e}")
+            raise
 
 # =====================================================
 # WHATSAPP REPORTER (self-contained: Twilio / CallMeBot / PyWhatKit)
@@ -1547,11 +1528,14 @@ def run_daily_analysis():
     # Dashboard
     dashboard_path = InteractiveDashboard.generate(scored_df, date_str, config.OUTPUT_DIR)
 
-    # Email (send_email handles its own retries and returns False on failure; no re-raise)
+    # Email
     if config.EMAIL_ENABLED:
-        reporter = EmailReporter(config)
-        html = reporter.create_html_report(scored_df, date_str)
-        reporter.send_email(html, date_str, csv_path if config.ATTACH_CSV else None)
+        try:
+            reporter = EmailReporter(config)
+            html = reporter.create_html_report(scored_df, date_str)
+            reporter.send_email(html, date_str, csv_path if config.ATTACH_CSV else None)
+        except Exception as e:
+            logger.error(f"Email failed: {e}")
 
     # WhatsApp
     if config.WHATSAPP_ENABLED:
