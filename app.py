@@ -119,7 +119,7 @@ class Config:
     WHATSAPP_TOP_COUNT = _env_int("WHATSAPP_TOP_COUNT", 10)
     NEWS_SENTIMENT_TOP_N = _env_int("NEWS_SENTIMENT_TOP_N", 20)     # fetch news sentiment for top N picks only
     PRICE_CACHE_MAX_AGE_HOURS = _env_int("PRICE_CACHE_MAX_AGE_HOURS", 18)
-    FUND_CACHE_MAX_AGE_DAYS = _env_int("FUND_CACHE_MAX_AGE_DAYS", 7)   # P1: fundamentals expire after a week
+    FUND_CACHE_MAX_AGE_DAYS = _env_int("FUND_CACHE_MAX_AGE_DAYS", 30)   # fundamentals change slowly; keep cached data longer on Railway
 
     # --- P3: liquidity pre-filter (applied before the slow fundamentals stage) ---
     LIQUIDITY_FILTER_ENABLED = _env_bool("LIQUIDITY_FILTER_ENABLED", True)
@@ -144,7 +144,8 @@ class Config:
     REVERSE_DCF_MIN_TERMINAL_GROWTH = _env_float("REVERSE_DCF_MIN_TERMINAL_GROWTH", -0.05)
     REVERSE_DCF_MAX_TERMINAL_GROWTH = _env_float("REVERSE_DCF_MAX_TERMINAL_GROWTH", 0.09)
 
-    OUTPUT_DIR = Path("reports_advanced")
+    OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "reports_advanced"))
+    YFINANCE_CACHE_DIR = Path(os.getenv("YFINANCE_CACHE_DIR", str(OUTPUT_DIR / "yfinance_cache")))
 
 # Load external config overrides (config_local.py sits next to this file)
 config_local_path = Path(__file__).with_name("config_local.py")
@@ -159,6 +160,20 @@ if config_local_path.exists():
     logger.info("Loaded settings from config_local.py")
 else:
     logger.info("No config_local.py found; using default Config values")
+
+def configure_runtime_cache(config):
+    """Prepare persistent cache folders for price/fundamental data and yfinance metadata."""
+    try:
+        config.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        config.YFINANCE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        if hasattr(yf, "set_tz_cache_location"):
+            yf.set_tz_cache_location(str(config.YFINANCE_CACHE_DIR))
+        logger.info(
+            f"Cache directories ready: OUTPUT_DIR={config.OUTPUT_DIR}, "
+            f"YFINANCE_CACHE_DIR={config.YFINANCE_CACHE_DIR}"
+        )
+    except Exception as e:
+        logger.warning(f"Cache directory setup failed: {e}")
 
 # =====================================================
 # ALTERNATIVE DATA
@@ -351,7 +366,7 @@ class BacktestEngine:
     """Log daily scores; compute simple score stats by rating over time."""
     def __init__(self, output_dir):
         self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.history_file = self.output_dir / "backtest_history.csv"
 
     def log_run(self, date_str, scored_df):
@@ -1473,7 +1488,7 @@ def run_daily_analysis():
     logger.info("STARTING ADVANCED STOCK ANALYSIS (v2.2)")
     logger.info("=" * 60)
     config = Config()
-    config.OUTPUT_DIR.mkdir(exist_ok=True)
+    configure_runtime_cache(config)
     date_str = datetime.now().strftime("%d-%m-%Y")
     logger.info(f"Analysis date: {date_str}")
 
