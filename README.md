@@ -14,4 +14,23 @@ PRICE_CACHE_MAX_AGE_HOURS=18
 ```
 
 Without a Railway Volume, cache files are lost when the container is rebuilt or redeployed.
+
+## Gmail SMTP on Railway
+
+Use a Gmail app password, not your normal Google password:
+
+```text
+EMAIL_ENABLED=True
+EMAIL_SENDER=your-address@gmail.com
+EMAIL_RECEIVER=your-address@gmail.com
+EMAIL_PASSWORD=your_gmail_app_password
+SMTP_SERVER=smtp.gmail.com
+SMTP_PORT=465
+SMTP_FORCE_IPV4=True
+SMTP_TIMEOUT_SECONDS=30
+```
+
+`[Errno 101] Network is unreachable` means the container could not reach Gmail before
+authentication, so it is not a password rejection. `SMTP_FORCE_IPV4=True` avoids cloud
+containers choosing an unreachable IPv6 SMTP route.
   

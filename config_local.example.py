@@ -6,6 +6,10 @@ EMAIL_SENDER = "nilesh.shah1807@gmail.com"
 EMAIL_RECEIVER = "nilesh.shah1807@gmail.com"
 EMAIL_PASSWORD = "YOUR_GMAIL_APP_PASSWORD"
 ATTACH_CSV = True
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 465
+SMTP_TIMEOUT_SECONDS = 30
+SMTP_FORCE_IPV4 = True
 
 OUTPUT_DIR = "reports_advanced"
 YFINANCE_CACHE_DIR = "reports_advanced/yfinance_cache"

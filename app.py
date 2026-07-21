@@ -32,6 +32,7 @@ import logging
 import io
 import time
 import re
+import socket
 import importlib.util
 import xml.etree.ElementTree as ET
 
@@ -83,6 +84,21 @@ def _env_list(name, default):
         return default
     return [item.strip().upper() for item in value.split(",") if item.strip()]
 
+
+class IPv4SMTP(smtplib.SMTP):
+    def _get_socket(self, host, port, timeout):
+        addr = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)[0][4]
+        return socket.create_connection(addr, timeout, self.source_address)
+
+
+class IPv4SMTP_SSL(smtplib.SMTP_SSL):
+    def _get_socket(self, host, port, timeout):
+        if self.debuglevel > 0:
+            self._print_debug("connect:", (host, port))
+        addr = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)[0][4]
+        new_socket = socket.create_connection(addr, timeout, self.source_address)
+        return self.context.wrap_socket(new_socket, server_hostname=host)
+
 # =====================================================
 # CONFIGURATION
 # =====================================================
@@ -91,6 +107,8 @@ class Config:
     EMAIL_ENABLED = _env_bool("EMAIL_ENABLED", False)
     SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = _env_int("SMTP_PORT", 465)   # 465=SSL (preferred on Railway), 587=STARTTLS
+    SMTP_TIMEOUT_SECONDS = _env_int("SMTP_TIMEOUT_SECONDS", 30)
+    SMTP_FORCE_IPV4 = _env_bool("SMTP_FORCE_IPV4", True)
     EMAIL_SENDER = os.getenv("EMAIL_SENDER", "nilesh.shah1807@gmail.com")
     EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")  # Gmail APP password
     EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "nilesh.shah1807@gmail.com")
@@ -1379,18 +1397,22 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
         msg = self._build_message(html_content, date_str, csv_path)
         # Try port 465 (SSL) first — works on most cloud hosts including Railway.
         # Fall back to port 587 (STARTTLS) if 465 is unreachable.
+        configured_port = self.config.SMTP_PORT
+        fallback_port = 587 if configured_port == 465 else 465
         attempts = [
-            (465, "SSL"),
-            (587, "STARTTLS"),
+            (configured_port, "SSL" if configured_port == 465 else "STARTTLS"),
+            (fallback_port, "SSL" if fallback_port == 465 else "STARTTLS"),
         ]
+        smtp_ssl_class = IPv4SMTP_SSL if self.config.SMTP_FORCE_IPV4 else smtplib.SMTP_SSL
+        smtp_class = IPv4SMTP if self.config.SMTP_FORCE_IPV4 else smtplib.SMTP
         for port, mode in attempts:
             try:
                 if mode == "SSL":
-                    with smtplib.SMTP_SSL(self.config.SMTP_SERVER, port) as server:
+                    with smtp_ssl_class(self.config.SMTP_SERVER, port, timeout=self.config.SMTP_TIMEOUT_SECONDS) as server:
                         server.login(self.config.EMAIL_SENDER, self.config.EMAIL_PASSWORD)
                         server.send_message(msg)
                 else:
-                    with smtplib.SMTP(self.config.SMTP_SERVER, port) as server:
+                    with smtp_class(self.config.SMTP_SERVER, port, timeout=self.config.SMTP_TIMEOUT_SECONDS) as server:
                         server.ehlo()
                         server.starttls()
                         server.ehlo()
@@ -1398,9 +1420,24 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                         server.send_message(msg)
                 logger.info(f"Email sent to {self.config.EMAIL_RECEIVER} via port {port} ({mode})")
                 return True
+            except smtplib.SMTPAuthenticationError as e:
+                logger.error(
+                    f"Email authentication failed on port {port} ({mode}). "
+                    "Your Gmail app password, sender address, or Google account settings are invalid. "
+                    f"SMTP response: {e.smtp_code} {e.smtp_error!r}"
+                )
+                return False
+            except OSError as e:
+                logger.warning(
+                    f"Email network attempt port {port} ({mode}) failed: {e}. "
+                    f"SMTP_FORCE_IPV4={self.config.SMTP_FORCE_IPV4}"
+                )
             except Exception as e:
                 logger.warning(f"Email attempt port {port} ({mode}) failed: {e}")
-        logger.error("Email failed on all ports (465 SSL and 587 STARTTLS). Check Railway outbound firewall or Gmail app password.")
+        logger.error(
+            "Email failed on all SMTP attempts. If the error is network-related, check Railway outbound "
+            "connectivity/firewall; if it says authentication failed, regenerate the Gmail app password."
+        )
         return False
 
 # =====================================================
