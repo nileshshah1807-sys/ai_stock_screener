@@ -106,13 +106,18 @@ class IPv4SMTP_SSL(smtplib.SMTP_SSL):
 class Config:
     # --- Email (disabled by default; enable via config_local.py) ---
     EMAIL_ENABLED = _env_bool("EMAIL_ENABLED", False)
-    EMAIL_DELIVERY_METHOD = os.getenv("EMAIL_DELIVERY_METHOD", "SMTP").strip().upper()  # SMTP | BREVO
+    EMAIL_DELIVERY_METHOD = os.getenv("EMAIL_DELIVERY_METHOD", "SMTP").strip().upper()  # SMTP | BREVO | GMAIL_API
     SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT = _env_int("SMTP_PORT", 465)   # 465=SSL (preferred on Railway), 587=STARTTLS
     SMTP_TIMEOUT_SECONDS = _env_int("SMTP_TIMEOUT_SECONDS", 30)
     SMTP_FORCE_IPV4 = _env_bool("SMTP_FORCE_IPV4", True)
     BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
     BREVO_API_URL = os.getenv("BREVO_API_URL", "https://api.brevo.com/v3/smtp/email")
+    GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "")
+    GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
+    GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN", "")
+    GMAIL_TOKEN_URL = os.getenv("GMAIL_TOKEN_URL", "https://oauth2.googleapis.com/token")
+    GMAIL_SEND_URL = os.getenv("GMAIL_SEND_URL", "https://gmail.googleapis.com/gmail/v1/users/me/messages/send")
     EMAIL_SENDER = os.getenv("EMAIL_SENDER", "nilesh.shah1807@gmail.com")
     EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")  # Gmail APP password
     EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "nilesh.shah1807@gmail.com")
@@ -1438,6 +1443,69 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
         logger.error(f"Brevo email failed: HTTP {response.status_code} {response.text[:500]}")
         return False
 
+    def _get_gmail_api_access_token(self):
+        missing = [
+            name for name in ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN")
+            if not getattr(self.config, name)
+        ]
+        if missing:
+            logger.error(f"Gmail API email not sent: missing {', '.join(missing)}.")
+            return None
+
+        try:
+            response = requests.post(
+                self.config.GMAIL_TOKEN_URL,
+                data={
+                    "client_id": self.config.GMAIL_CLIENT_ID,
+                    "client_secret": self.config.GMAIL_CLIENT_SECRET,
+                    "refresh_token": self.config.GMAIL_REFRESH_TOKEN,
+                    "grant_type": "refresh_token",
+                },
+                timeout=self.config.SMTP_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as e:
+            logger.error(f"Gmail API token refresh failed: {e}")
+            return None
+
+        if 200 <= response.status_code < 300:
+            token = response.json().get("access_token")
+            if token:
+                return token
+            logger.error(f"Gmail API token refresh response did not include access_token: {response.text[:500]}")
+            return None
+
+        logger.error(f"Gmail API token refresh failed: HTTP {response.status_code} {response.text[:500]}")
+        return None
+
+    def _send_email_gmail_api(self, html_content, date_str, csv_path=None):
+        token = self._get_gmail_api_access_token()
+        if not token:
+            return False
+
+        msg = self._build_message(html_content, date_str, csv_path)
+        raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
+        try:
+            response = requests.post(
+                self.config.GMAIL_SEND_URL,
+                headers={
+                    "authorization": f"Bearer {token}",
+                    "content-type": "application/json",
+                },
+                json={"raw": raw_message},
+                timeout=self.config.SMTP_TIMEOUT_SECONDS,
+            )
+        except requests.RequestException as e:
+            logger.error(f"Gmail API send request failed: {e}")
+            return False
+
+        if 200 <= response.status_code < 300:
+            message_id = response.json().get("id", "unknown")
+            logger.info(f"Email sent to {self.config.EMAIL_RECEIVER} via Gmail API; message id={message_id}")
+            return True
+
+        logger.error(f"Gmail API send failed: HTTP {response.status_code} {response.text[:500]}")
+        return False
+
     def send_email(self, html_content, date_str, csv_path=None):
         if not self.config.EMAIL_ENABLED:
             logger.info("Email disabled; set EMAIL_ENABLED=True in config_local.py to send")
@@ -1447,8 +1515,13 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
             return False
         if self.config.EMAIL_DELIVERY_METHOD == "BREVO":
             return self._send_email_brevo(html_content, date_str, csv_path)
+        if self.config.EMAIL_DELIVERY_METHOD == "GMAIL_API":
+            return self._send_email_gmail_api(html_content, date_str, csv_path)
         if self.config.EMAIL_DELIVERY_METHOD != "SMTP":
-            logger.error(f"Unsupported EMAIL_DELIVERY_METHOD={self.config.EMAIL_DELIVERY_METHOD!r}; use SMTP or BREVO.")
+            logger.error(
+                f"Unsupported EMAIL_DELIVERY_METHOD={self.config.EMAIL_DELIVERY_METHOD!r}; "
+                "use SMTP, BREVO, or GMAIL_API."
+            )
             return False
         if not self.config.EMAIL_PASSWORD:
             logger.error(

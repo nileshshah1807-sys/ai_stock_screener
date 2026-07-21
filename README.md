@@ -17,7 +17,33 @@ Without a Railway Volume, cache files are lost when the container is rebuilt or 
 
 ## Email on Railway
 
-HTTP email APIs are usually more reliable on Railway than direct SMTP. For Brevo:
+Use Gmail API for Railway. It sends over HTTPS, so it avoids Railway SMTP
+network restrictions and avoids shared-domain deliverability problems from
+third-party email APIs.
+
+```text
+EMAIL_ENABLED=True
+EMAIL_DELIVERY_METHOD=GMAIL_API
+EMAIL_SENDER=your-gmail-address@gmail.com
+EMAIL_RECEIVER=your-address@gmail.com
+GMAIL_CLIENT_ID=your_google_oauth_client_id
+GMAIL_CLIENT_SECRET=your_google_oauth_client_secret
+GMAIL_REFRESH_TOKEN=your_google_oauth_refresh_token
+ATTACH_CSV=True
+```
+
+Generate the refresh token locally:
+
+```powershell
+python tools/generate_gmail_refresh_token.py
+```
+
+Authorize the same Gmail account used by `EMAIL_SENDER`.
+
+### Brevo Alternative
+
+Brevo also sends over HTTPS, but Gmail can rate-limit Brevo's shared sender
+domain unless you authenticate your own domain.
 
 ```text
 EMAIL_ENABLED=True
@@ -27,8 +53,6 @@ EMAIL_RECEIVER=your-address@gmail.com
 BREVO_API_KEY=your_brevo_api_key
 ATTACH_CSV=True
 ```
-
-Verify `EMAIL_SENDER` inside Brevo before deploying.
 
 ## Gmail SMTP on Railway
 

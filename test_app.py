@@ -110,6 +110,41 @@ class TestReverseDCF(unittest.TestCase):
         self.assertEqual(kwargs["json"]["attachment"][0]["name"], os.path.basename(csv_path))
         self.assertTrue(kwargs["json"]["attachment"][0]["content"])
 
+    @patch("app.requests.post")
+    def test_gmail_api_refreshes_token_and_sends_raw_message(self, mock_post):
+        class TokenResponse:
+            status_code = 200
+            text = '{"access_token":"access-token"}'
+
+            def json(self):
+                return {"access_token": "access-token"}
+
+        class SendResponse:
+            status_code = 200
+            text = '{"id":"message-id"}'
+
+            def json(self):
+                return {"id": "message-id"}
+
+        mock_post.side_effect = [TokenResponse(), SendResponse()]
+        self.config.EMAIL_ENABLED = True
+        self.config.EMAIL_DELIVERY_METHOD = "GMAIL_API"
+        self.config.GMAIL_CLIENT_ID = "client-id"
+        self.config.GMAIL_CLIENT_SECRET = "client-secret"
+        self.config.GMAIL_REFRESH_TOKEN = "refresh-token"
+        self.config.EMAIL_SENDER = "sender@gmail.com"
+        self.config.EMAIL_RECEIVER = "receiver@gmail.com"
+
+        result = EmailReporter(self.config).send_email("<html>ok</html>", "21-07-2026")
+
+        self.assertTrue(result)
+        self.assertEqual(mock_post.call_count, 2)
+        token_call = mock_post.call_args_list[0]
+        send_call = mock_post.call_args_list[1]
+        self.assertEqual(token_call.kwargs["data"]["grant_type"], "refresh_token")
+        self.assertEqual(send_call.kwargs["headers"]["authorization"], "Bearer access-token")
+        self.assertIn("raw", send_call.kwargs["json"])
+
 
 if __name__ == "__main__":
     unittest.main()
