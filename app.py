@@ -37,6 +37,16 @@ import base64
 import importlib.util
 import xml.etree.ElementTree as ET
 
+try:
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
 warnings.filterwarnings("ignore")
 
 logging.basicConfig(
@@ -125,6 +135,7 @@ class Config:
     # split/parse this consistently). No group-name/mailing-list feature is needed.
     EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "nilesh.shah1807@gmail.com")
     ATTACH_CSV = _env_bool("ATTACH_CSV", True)  # attach results CSV to the email
+    ATTACH_PDF = _env_bool("ATTACH_PDF", True)  # attach a formatted PDF report to the email
     EMAIL_SUBJECT_PREFIX = "Advanced Stock Analysis"
 
     # --- WhatsApp (disabled by default) ---
@@ -872,13 +883,15 @@ class InteractiveDashboard:
                 dcf_rows_html += (
                     f"<tr><td>{int(r['Rank'])}</td><td><b>{r['Symbol']}</b></td>"
                     f"<td>{r.get('DCF_Sector', 'Unknown')}</td>"
+                    f"<td>\u20b9{r['Current_Price']:,.0f}</td>"
                     f"<td>{fmt_cr(r.get('DCF_Market_Cap'), 0)}</td>"
                     f"<td>{fmt_pct(r.get('DCF_FCF_Yield'), 1)}</td>"
                     f"<td>{fmt_pct(r.get('DCF_Expected_Growth'), 1)}</td>"
                     f"<td>{fmt_pct(r.get('DCF_Implied_FCF_CAGR'), 1)}</td>"
                     f"<td>{fmt_pct(r.get('DCF_Implied_Terminal_Growth'), 1)}</td>"
                     f"<td>{fmt_pct(r.get('DCF_Base_Case_Upside'), 1)}</td>"
-                    f"<td>{r.get('DCF_Assessment', '-')}</td></tr>"
+                    f"<td>{r.get('DCF_Assessment', '-')}</td>"
+                    f"<td><span class='tag {tag_class}'>{r['Rating']}</span></td></tr>"
                 )
 
             # Score distribution histogram (5-point buckets, fixed-width SVG)
@@ -942,7 +955,7 @@ tr:hover {{ background-color: #f8f9ff; }}
 {rows_html}
 </table></div>
 <div class="card"><h2>🔎 Reverse DCF</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Sector</th><th>Market Cap</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows_html}
 </table>
 <div style="font-size:12px;color:#777;margin-top:8px;">Reverse DCF solves the market-implied assumptions behind today's market cap using a 5-year DCF model. "Expected Growth" is a sector- and size-aware benchmark (not a single flat rate) used as the explicit growth assumption; "Implied 5Y FCF CAGR" is what the market is actually pricing in.</div>
@@ -1151,16 +1164,25 @@ class StockDataCollector:
     # -------------------------------------------------
     # P1: fundamentals cache with per-row TTL
     # -------------------------------------------------
+    # Columns that must exist in the cache schema. If a cache file predates one
+    # of these (e.g. was written before Sector/Industry were added), every row
+    # in it is missing that data forever unless we force a one-time re-fetch.
+    REQUIRED_FUND_COLUMNS = ("Sector", "Industry", "Total_Debt", "Total_Cash")
+
     @staticmethod
     def _split_cache(cached_df, max_age_days):
         """Split cached fundamentals into (fresh_records, stale_symbols) using
-        the per-row Cached_Date. Legacy caches without that column are treated
-        as fully stale (one-off full refresh on first run after upgrade)."""
+        the per-row Cached_Date. Legacy caches without that column, or without
+        one of REQUIRED_FUND_COLUMNS (schema upgrade), are treated as fully
+        stale (one-off full refresh on first run after upgrade)."""
         if cached_df is None or cached_df.empty or "Symbol" not in cached_df.columns:
             return [], set()
         df = cached_df.copy()
         df["Symbol"] = df["Symbol"].astype(str)
-        if "Cached_Date" in df.columns:
+        missing_columns = [c for c in StockDataCollector.REQUIRED_FUND_COLUMNS if c not in df.columns]
+        if missing_columns:
+            fresh_mask = pd.Series(False, index=df.index)
+        elif "Cached_Date" in df.columns:
             dates = pd.to_datetime(df["Cached_Date"], errors="coerce")
             cutoff = pd.Timestamp(datetime.now().date()) - pd.Timedelta(days=max_age_days)
             fresh_mask = dates >= cutoff
@@ -1180,6 +1202,12 @@ class StockDataCollector:
                     logger.info(
                         "Legacy fundamentals cache has no Cached_Date column - "
                         "scheduling a one-off full refresh."
+                    )
+                missing_cols = [c for c in self.REQUIRED_FUND_COLUMNS if c not in cached_df.columns]
+                if missing_cols and not cached_df.empty:
+                    logger.info(
+                        f"Fundamentals cache is missing columns {missing_cols} - "
+                        "scheduling a one-off full refresh to backfill them."
                     )
                 fresh_records, stale_symbols = self._split_cache(
                     cached_df, self.config.FUND_CACHE_MAX_AGE_DAYS
@@ -1564,6 +1592,7 @@ class EmailReporter:
             dcf_rows += (
                 f"<tr><td>{int(r['Rank'])}</td><td><b>{r['Symbol']}</b></td>"
                 f"<td>{r.get('DCF_Sector', 'Unknown')}</td>"
+                f"<td>\u20b9{r['Current_Price']:,.0f}</td>"
                 f"<td>{fmt_cr(r.get('DCF_Market_Cap'), 0)}</td>"
                 f"<td>{fmt_cr(r.get('DCF_Base_FCF'), 0)}</td>"
                 f"<td>{fmt_pct(r.get('DCF_FCF_Yield'), 1)}</td>"
@@ -1571,7 +1600,8 @@ class EmailReporter:
                 f"<td>{fmt_pct(r.get('DCF_Implied_FCF_CAGR'), 1)}</td>"
                 f"<td>{fmt_pct(r.get('DCF_Implied_Terminal_Growth'), 1)}</td>"
                 f"<td>{fmt_pct(r.get('DCF_Base_Case_Upside'), 1)}</td>"
-                f"<td>{r.get('DCF_Assessment', '-')}</td></tr>"
+                f"<td>{r.get('DCF_Assessment', '-')}</td>"
+                f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
 
         html = f"""<html><head><style>
@@ -1603,14 +1633,109 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
 <p>Model uses a 5-year explicit forecast and a {fmt_pct(self.config.REVERSE_DCF_DISCOUNT_RATE)} discount rate. "Expected Growth" is a sector- and size-aware benchmark (mature/mega-cap sectors get a lower bar, high-growth/small-cap names get a higher one) used as the explicit growth assumption; {fmt_pct(self.config.REVERSE_DCF_TERMINAL_GROWTH)} fixed terminal growth is used when solving for implied FCF CAGR.</p>
-<table><tr><th>Rank</th><th>Symbol</th><th>Sector</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows}
 </table></div>
 <div class="card"><p><b>Note:</b> Fundamentals &amp; technicals normalized to 0–100, blended with volatility-adaptive weights. Reverse DCF compares market cap to discounted free cash flow and solves for assumptions implied by today's price. * = rating capped at HOLD due to insufficient fundamental data. Not investment advice — consult a SEBI-registered advisor.</p></div>
 </body></html>"""
         return html
 
-    def _build_message(self, html_content, date_str, csv_path):
+    def create_pdf_report(self, df, date_str):
+        """Render the same Top-N + Reverse DCF data shown in the email as a
+        formatted PDF, using reportlab (pure Python, no OS-level dependencies).
+        Returns the output path, or None if reportlab isn't installed or the
+        PDF could not be built."""
+        if not REPORTLAB_AVAILABLE:
+            logger.warning("PDF report skipped: reportlab is not installed (add it to requirements.txt).")
+            return None
+        try:
+            top = df.head(self.config.TOP_STOCKS_COUNT)
+            pdf_path = self.config.OUTPUT_DIR / f"stock_report_{date_str.replace('-', '')}.pdf"
+
+            styles = getSampleStyleSheet()
+            story = [
+                Paragraph("Advanced Stock Screener Report", styles["Title"]),
+                Paragraph(f"Date: {date_str}", styles["Normal"]),
+                Spacer(1, 0.4 * cm),
+            ]
+
+            top_header = ["Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Score", "Rating"]
+            top_rows = [top_header]
+            for _, r in top.iterrows():
+                top_rows.append([
+                    int(r["Rank"]),
+                    r["Symbol"],
+                    f"\u20b9{r['Current_Price']:,.0f}",
+                    fmt_f(r.get("PE_Ratio"), 1),
+                    f"{r['Fundamental_Score']:.0f}",
+                    f"{r['Technical_Score']:.0f}",
+                    f"{r['Combined_Score']:.1f}",
+                    r["Rating"],
+                ])
+            story.append(Paragraph(f"Top {self.config.TOP_STOCKS_COUNT} Stocks", styles["Heading2"]))
+            story.append(self._pdf_table(top_rows, [1.4, 2.6, 2.0, 1.6, 1.6, 1.6, 1.6, 2.2]))
+            story.append(Spacer(1, 0.6 * cm))
+
+            dcf_header = [
+                "Rank", "Symbol", "Sector", "CMP", "Mkt Cap", "FCF Yield",
+                "Exp Growth", "Impl 5Y CAGR", "Impl Term Growth", "Upside", "Assessment", "Rating",
+            ]
+            dcf_rows = [dcf_header]
+            for _, r in top.iterrows():
+                dcf_rows.append([
+                    int(r["Rank"]),
+                    r["Symbol"],
+                    r.get("DCF_Sector", "Unknown"),
+                    f"\u20b9{r['Current_Price']:,.0f}",
+                    fmt_cr(r.get("DCF_Market_Cap"), 0),
+                    fmt_pct(r.get("DCF_FCF_Yield"), 1),
+                    fmt_pct(r.get("DCF_Expected_Growth"), 1),
+                    fmt_pct(r.get("DCF_Implied_FCF_CAGR"), 1),
+                    fmt_pct(r.get("DCF_Implied_Terminal_Growth"), 1),
+                    fmt_pct(r.get("DCF_Base_Case_Upside"), 1),
+                    r.get("DCF_Assessment", "-"),
+                    r["Rating"],
+                ])
+            story.append(Paragraph("Reverse DCF: Market-Implied Expectations", styles["Heading2"]))
+            story.append(self._pdf_table(
+                dcf_rows,
+                [1.1, 2.0, 2.2, 1.8, 2.0, 1.8, 1.8, 2.0, 2.1, 1.6, 2.2, 1.8],
+            ))
+            story.append(Spacer(1, 0.4 * cm))
+            story.append(Paragraph(
+                "Not investment advice - consult a SEBI-registered advisor.",
+                styles["Italic"],
+            ))
+
+            doc = SimpleDocTemplate(
+                str(pdf_path),
+                pagesize=landscape(A4),
+                topMargin=1.2 * cm, bottomMargin=1.2 * cm, leftMargin=1.2 * cm, rightMargin=1.2 * cm,
+            )
+            doc.build(story)
+            return pdf_path
+        except Exception as e:
+            logger.warning(f"PDF report generation failed: {e}")
+            return None
+
+    @staticmethod
+    def _pdf_table(rows, col_widths_cm):
+        table = Table(rows, colWidths=[w * cm for w in col_widths_cm], repeatRows=1)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a237e")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("FONTSIZE", (0, 0), (-1, 0), 7.5),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f7fa")]),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        return table
+
+    def _build_message(self, html_content, date_str, csv_path, pdf_path=None):
         recipients = [addr.strip() for addr in self.config.EMAIL_RECEIVER.split(",") if addr.strip()]
         msg = MIMEMultipart()
         msg["From"] = self.config.EMAIL_SENDER
@@ -1624,9 +1749,16 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 encoders.encode_base64(part)
                 part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(csv_path)}")
                 msg.attach(part)
+        if pdf_path and os.path.exists(pdf_path) and self.config.ATTACH_PDF:
+            with open(pdf_path, "rb") as f:
+                part = MIMEBase("application", "pdf")
+                part.set_payload(f.read())
+                encoders.encode_base64(part)
+                part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(pdf_path)}")
+                msg.attach(part)
         return msg
 
-    def _build_brevo_payload(self, html_content, date_str, csv_path):
+    def _build_brevo_payload(self, html_content, date_str, csv_path, pdf_path=None):
         payload = {
             "sender": {
                 "email": self.config.EMAIL_SENDER,
@@ -1636,20 +1768,29 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
             "subject": f"{self.config.EMAIL_SUBJECT_PREFIX} - {date_str}",
             "htmlContent": html_content,
         }
+        attachments = []
         if csv_path and os.path.exists(csv_path) and self.config.ATTACH_CSV:
             with open(csv_path, "rb") as f:
-                payload["attachment"] = [{
+                attachments.append({
                     "name": os.path.basename(csv_path),
                     "content": base64.b64encode(f.read()).decode("ascii"),
-                }]
+                })
+        if pdf_path and os.path.exists(pdf_path) and self.config.ATTACH_PDF:
+            with open(pdf_path, "rb") as f:
+                attachments.append({
+                    "name": os.path.basename(pdf_path),
+                    "content": base64.b64encode(f.read()).decode("ascii"),
+                })
+        if attachments:
+            payload["attachment"] = attachments
         return payload
 
-    def _send_email_brevo(self, html_content, date_str, csv_path=None):
+    def _send_email_brevo(self, html_content, date_str, csv_path=None, pdf_path=None):
         if not self.config.BREVO_API_KEY:
             logger.error("Brevo email not sent: BREVO_API_KEY is required when EMAIL_DELIVERY_METHOD=BREVO.")
             return False
 
-        payload = self._build_brevo_payload(html_content, date_str, csv_path)
+        payload = self._build_brevo_payload(html_content, date_str, csv_path, pdf_path)
         if not payload["to"]:
             logger.error("Brevo email not sent: EMAIL_RECEIVER must contain at least one email address.")
             return False
@@ -1710,12 +1851,12 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
         logger.error(f"Gmail API token refresh failed: HTTP {response.status_code} {response.text[:500]}")
         return None
 
-    def _send_email_gmail_api(self, html_content, date_str, csv_path=None):
+    def _send_email_gmail_api(self, html_content, date_str, csv_path=None, pdf_path=None):
         token = self._get_gmail_api_access_token()
         if not token:
             return False
 
-        msg = self._build_message(html_content, date_str, csv_path)
+        msg = self._build_message(html_content, date_str, csv_path, pdf_path)
         raw_message = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
         try:
             response = requests.post(
@@ -1739,7 +1880,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
         logger.error(f"Gmail API send failed: HTTP {response.status_code} {response.text[:500]}")
         return False
 
-    def send_email(self, html_content, date_str, csv_path=None):
+    def send_email(self, html_content, date_str, csv_path=None, pdf_path=None):
         if not self.config.EMAIL_ENABLED:
             logger.info("Email disabled; set EMAIL_ENABLED=True in config_local.py to send")
             return False
@@ -1747,9 +1888,9 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
             logger.error("Email not sent: EMAIL_SENDER and EMAIL_RECEIVER are required.")
             return False
         if self.config.EMAIL_DELIVERY_METHOD == "BREVO":
-            return self._send_email_brevo(html_content, date_str, csv_path)
+            return self._send_email_brevo(html_content, date_str, csv_path, pdf_path)
         if self.config.EMAIL_DELIVERY_METHOD == "GMAIL_API":
-            return self._send_email_gmail_api(html_content, date_str, csv_path)
+            return self._send_email_gmail_api(html_content, date_str, csv_path, pdf_path)
         if self.config.EMAIL_DELIVERY_METHOD != "SMTP":
             logger.error(
                 f"Unsupported EMAIL_DELIVERY_METHOD={self.config.EMAIL_DELIVERY_METHOD!r}; "
@@ -1762,7 +1903,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 "For Gmail, use an app password via environment variable or config_local.py."
             )
             return False
-        msg = self._build_message(html_content, date_str, csv_path)
+        msg = self._build_message(html_content, date_str, csv_path, pdf_path)
         # Try port 465 (SSL) first — works on most cloud hosts including Railway.
         # Fall back to port 587 (STARTTLS) if 465 is unreachable.
         configured_port = self.config.SMTP_PORT
@@ -1971,7 +2112,13 @@ def run_daily_analysis():
     if config.EMAIL_ENABLED:
         reporter = EmailReporter(config)
         html = reporter.create_html_report(scored_df, date_str)
-        reporter.send_email(html, date_str, csv_path if config.ATTACH_CSV else None)
+        pdf_path = reporter.create_pdf_report(scored_df, date_str) if config.ATTACH_PDF else None
+        reporter.send_email(
+            html,
+            date_str,
+            csv_path if config.ATTACH_CSV else None,
+            pdf_path if config.ATTACH_PDF else None,
+        )
 
     # WhatsApp
     if config.WHATSAPP_ENABLED:
