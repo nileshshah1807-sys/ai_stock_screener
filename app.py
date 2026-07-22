@@ -120,6 +120,9 @@ class Config:
     GMAIL_SEND_URL = os.getenv("GMAIL_SEND_URL", "https://gmail.googleapis.com/gmail/v1/users/me/messages/send")
     EMAIL_SENDER = os.getenv("EMAIL_SENDER", "nilesh.shah1807@gmail.com")
     EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")  # Gmail APP password
+    # Comma-separated list of recipients, e.g. "a@x.com,b@y.com,c@z.com" - acts as a
+    # "group": every address in the list gets the same report (all methods below
+    # split/parse this consistently). No group-name/mailing-list feature is needed.
     EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER", "nilesh.shah1807@gmail.com")
     ATTACH_CSV = _env_bool("ATTACH_CSV", True)  # attach results CSV to the email
     EMAIL_SUBJECT_PREFIX = "Advanced Stock Analysis"
@@ -1608,9 +1611,10 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
         return html
 
     def _build_message(self, html_content, date_str, csv_path):
+        recipients = [addr.strip() for addr in self.config.EMAIL_RECEIVER.split(",") if addr.strip()]
         msg = MIMEMultipart()
         msg["From"] = self.config.EMAIL_SENDER
-        msg["To"] = self.config.EMAIL_RECEIVER
+        msg["To"] = ", ".join(recipients)
         msg["Subject"] = f"{self.config.EMAIL_SUBJECT_PREFIX} - {date_str}"
         msg.attach(MIMEText(html_content, "html"))
         if csv_path and os.path.exists(csv_path) and self.config.ATTACH_CSV:
