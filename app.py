@@ -921,7 +921,7 @@ class InteractiveDashboard:
                     f"<td>{fmt_f(r.get('PE_Ratio'), 1)}</td>"
                     f"<td>{r['Fundamental_Score']:.0f}</td>"
                     f"<td>{r['Technical_Score']:.0f}</td>"
-                    f"<td><b>{r['Combined_Score']:.1f}</b></td>"
+                    f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                     f"<td>{sentiment}</td>"
                     f"<td><span class='tag {tag_class}'>{r['Rating']}</span></td></tr>"
                 )
@@ -1417,7 +1417,7 @@ def sector_relative_fund_scores(merged_df, min_peers=5):
 
 class StockScorer:
     MAX_FUND_SCORE = 100.0
-    MAX_TECH_SCORE = 132.0  # sum of max component scores below
+    MAX_TECH_SCORE = 142.0  # sum of max component scores below
 
     def __init__(self, config=None):
         self.config = config or Config
@@ -1564,12 +1564,15 @@ class StockScorer:
         elif vol_ratio > 0.7: scores["VOL"] = 7
         else: scores["VOL"] = 4
 
+        # Momentum was previously capped at 10/132 (~7.6%) raw weight - too
+        # small to move the needle even when 1-month momentum is a strong,
+        # distinct signal from RSI/MACD. Doubled to 20/142 (~14%).
         pct_1m = s(row.get("Pct_Change_1M"), 0) or 0
-        if 5 <= pct_1m <= 15: scores["MOM"] = 10
-        elif 0 <= pct_1m < 5 or 15 < pct_1m <= 25: scores["MOM"] = 7
-        elif -5 <= pct_1m < 0: scores["MOM"] = 5
-        elif pct_1m > 25: scores["MOM"] = 4
-        else: scores["MOM"] = 3
+        if 5 <= pct_1m <= 15: scores["MOM"] = 20
+        elif 0 <= pct_1m < 5 or 15 < pct_1m <= 25: scores["MOM"] = 14
+        elif -5 <= pct_1m < 0: scores["MOM"] = 10
+        elif pct_1m > 25: scores["MOM"] = 8
+        else: scores["MOM"] = 6
 
         bb_pos = s(row.get("BB_Position"), 0.5)
         if bb_pos is None: bb_pos = 0.5
@@ -1594,8 +1597,19 @@ class StockScorer:
 
         stoch_rsi = s(row.get("StochRSI_14"), 50)
         if stoch_rsi is None: stoch_rsi = 50
-        if stoch_rsi > 80: scores["STOCH"] = 5
-        elif stoch_rsi < 20: scores["STOCH"] = 12
+        if stoch_rsi <= 0 or stoch_rsi >= 100:
+            # Exact 0/100 readings are usually degenerate (illiquid names with
+            # near-zero price variance over the lookback window) rather than
+            # a genuine reversal signal - score neutrally instead of
+            # rewarding/penalizing at the extreme.
+            scores["STOCH"] = 6
+        elif stoch_rsi > 80: scores["STOCH"] = 5
+        elif stoch_rsi < 20:
+            # "Oversold" is only a genuine mean-reversion signal when the
+            # stock isn't already confirmed to be in a strong downtrend (see
+            # +DI/-DI above) - a falling knife isn't a buy signal just
+            # because StochRSI is low.
+            scores["STOCH"] = 6 if is_downtrend else 12
         elif 30 <= stoch_rsi <= 70: scores["STOCH"] = 8
         else: scores["STOCH"] = 6
 
@@ -1710,6 +1724,19 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
                     continue
                 scores[key] = round(scores[key] * (1 - weight) + sector_score * weight, 2)
 
+    # Value-trap guard: a low PE/PB only reflects genuine undervaluation if the
+    # business isn't actively shrinking. When BOTH revenue and earnings are
+    # contracting, cap the reward for a "cheap" multiple - it's priced that way
+    # for a reason, not because the market is missing a bargain. Applied after
+    # sector-relative blending so it's a hard final cap regardless of how the
+    # stock compares to its (possibly also-struggling) sector peers.
+    is_shrinking = (eg is not None and eg < 0) and (rg is not None and rg < 0)
+    if is_shrinking:
+        if pe is not None and 0 < pe < 15:
+            scores["PE"] = min(scores["PE"], 8)
+        if pb is not None and 0 < pb < 2:
+            scores["PB"] = min(scores["PB"], 5)
+
     return sum(scores.values())
 
 # =====================================================
@@ -1745,7 +1772,7 @@ class EmailReporter:
                 f"<td>{fmt_f(r.get('ADX_14'), 1)}</td>"
                 f"<td>{fmt_f(r.get('StochRSI_14'), 1)}</td>"
                 f"<td>{fmt_f(r.get('ATR_14'), 2)}</td>"
-                f"<td><b>{r['Combined_Score']:.1f}</b></td>"
+                f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
             dcf_rows += (
@@ -1828,7 +1855,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                     fmt_f(r.get("PE_Ratio"), 1),
                     f"{r['Fundamental_Score']:.0f}",
                     f"{r['Technical_Score']:.0f}",
-                    f"{r['Combined_Score']:.1f}",
+                    f"{r.get('Final_Score', r['Combined_Score']):.1f}",
                     r["Rating"],
                 ])
             story.append(Paragraph(f"Top {self.config.TOP_STOCKS_COUNT} Stocks", styles["Heading2"]))
@@ -2126,7 +2153,7 @@ class WhatsAppReporter:
         for _, r in top.iterrows():
             msg += (
                 f"{int(r['Rank'])}. {r['Symbol']} ₹{r['Current_Price']:,.0f} "
-                f"Score:{r['Combined_Score']:.0f} {r['Rating']} ADX:{fmt_f(r.get('ADX_14'), 0)}\n"
+                f"Score:{r.get('Final_Score', r['Combined_Score']):.0f} {r['Rating']} ADX:{fmt_f(r.get('ADX_14'), 0)}\n"
             )
         msg += "\nDisclaimer: Not investment advice. Consult a SEBI-registered advisor."
         return msg
