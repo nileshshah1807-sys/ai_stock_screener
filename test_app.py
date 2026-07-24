@@ -130,6 +130,8 @@ class TestReverseDCF(unittest.TestCase):
 
         self.assertIn("Reverse DCF: Market-Implied Expectations", html)
         self.assertIn("Implied 5Y FCF CAGR", html)
+        self.assertIn("<th>Base</th><th>DCF</th><th>Final</th>", html)
+        self.assertIn("<th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>SB Gate</th>", html)
         self.assertIn("TEST", html)
 
     def test_disabled_email_does_not_send(self):

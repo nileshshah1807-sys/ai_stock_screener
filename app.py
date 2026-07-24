@@ -996,6 +996,8 @@ class InteractiveDashboard:
                     f"<td>{fmt_f(r.get('PE_Ratio'), 1)}</td>"
                     f"<td>{r['Fundamental_Score']:.0f}</td>"
                     f"<td>{r['Technical_Score']:.0f}</td>"
+                    f"<td>{r['Combined_Score']:.1f}</td>"
+                    f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                     f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                     f"<td>{sentiment}</td>"
                     f"<td><span class='tag {tag_class}'>{r['Rating']}</span></td></tr>"
@@ -1071,7 +1073,7 @@ tr:hover {{ background-color: #f8f9ff; }}
 </div>
 </div>
 <div class="card"><h2>🏆 Top 10 Picks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Score</th><th>News</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>News</th><th>Rating</th></tr>
 {rows_html}
 </table></div>
 <div class="card"><h2>🔎 Reverse DCF</h2>
@@ -1900,6 +1902,14 @@ class EmailReporter:
                 f"<td>{fmt_f(r.get('ADX_14'), 1)}</td>"
                 f"<td>{fmt_f(r.get('StochRSI_14'), 1)}</td>"
                 f"<td>{fmt_f(r.get('ATR_14'), 2)}</td>"
+                f"<td>{fmt_pct(r.get('Revenue_Growth'), 1)}</td>"
+                f"<td>{fmt_pct(r.get('Earnings_Growth'), 1)}</td>"
+                f"<td>{fmt_f(r.get('Pct_Change_3M'), 1)}%</td>"
+                f"<td>{fmt_f(r.get('MA50_Slope_Pct'), 1)}%</td>"
+                f"<td>{fmt_f(r.get('ADX_Plus_DI'), 1)} / {fmt_f(r.get('ADX_Minus_DI'), 1)}</td>"
+                f"<td>{r.get('Strong_Buy_Gate_Reason') or 'passed'}</td>"
+                f"<td>{r['Combined_Score']:.1f}</td>"
+                f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                 f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
@@ -1923,7 +1933,7 @@ body{{font-family:Arial,sans-serif;margin:20px;background:#f5f7fa;}}
 .card{{background:white;border-radius:12px;padding:25px;margin-bottom:20px;box-shadow:0 4px 18px rgba(0,0,0,0.06);}}
 h1{{color:#1a237e;margin:0;font-size:26px;}}
 h2{{color:#303f9f;border-bottom:3px solid #e8eaf6;padding-bottom:10px;margin-top:0;}}
-table{{border-collapse:collapse;width:100%;font-size:13px;}}
+table{{border-collapse:collapse;width:100%;font-size:11px;}}
 th{{background:#1a237e;color:white;padding:10px;text-align:center;}}
 td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 .tag-strong-buy{{color:#1b5e20;font-weight:bold;}}
@@ -1942,7 +1952,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
 <div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>StochRSI</th><th>ATR</th><th>Score</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>StochRSI</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>SB Gate</th><th>Base</th><th>DCF</th><th>Final</th><th>Rating</th></tr>
 {rows}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
@@ -1950,7 +1960,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <table><tr><th>Rank</th><th>Symbol</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows}
 </table></div>
-<div class="card"><p><b>Note:</b> Fundamentals &amp; technicals normalized to 0–100, blended with volatility-adaptive weights. Reverse DCF compares market cap to discounted free cash flow and solves for assumptions implied by today's price. * = rating capped at HOLD due to insufficient fundamental data. Not investment advice — consult a SEBI-registered advisor.</p></div>
+<div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported FCF produces a valid DCF result; otherwise Final equals Base. Reverse DCF compares market cap to discounted free cash flow and solves for assumptions implied by today's price. * = rating capped at HOLD due to insufficient fundamental data. Not investment advice — consult a SEBI-registered advisor.</p></div>
 </body></html>"""
         return html
 
@@ -1973,7 +1983,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 Spacer(1, 0.4 * cm),
             ]
 
-            top_header = ["Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Score", "Rating"]
+            top_header = ["Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Base", "DCF", "Final", "Rating"]
             top_rows = [top_header]
             for _, r in top.iterrows():
                 top_rows.append([
@@ -1983,11 +1993,13 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                     fmt_f(r.get("PE_Ratio"), 1),
                     f"{r['Fundamental_Score']:.0f}",
                     f"{r['Technical_Score']:.0f}",
+                    f"{r['Combined_Score']:.1f}",
+                    fmt_f(r.get("DCF_Valuation_Score"), 1),
                     f"{r.get('Final_Score', r['Combined_Score']):.1f}",
                     r["Rating"],
                 ])
             story.append(Paragraph(f"Top {self.config.TOP_STOCKS_COUNT} Stocks", styles["Heading2"]))
-            story.append(self._pdf_table(top_rows, [1.4, 2.6, 2.0, 1.6, 1.6, 1.6, 1.6, 2.2]))
+            story.append(self._pdf_table(top_rows, [1.1, 2.3, 1.8, 1.4, 1.3, 1.3, 1.4, 1.3, 1.4, 2.0]))
             story.append(Spacer(1, 0.6 * cm))
 
             dcf_header = [
