@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from app import Config, EmailReporter, ReverseDCFModel
+from app import Config, EmailReporter, ReverseDCFModel, StockScorer, score_fundamentals
 
 
 class TestReverseDCF(unittest.TestCase):
@@ -64,6 +64,65 @@ class TestReverseDCF(unittest.TestCase):
         self.assertEqual(enriched.loc[0, "DCF_Status"], "OK")
         self.assertEqual(enriched.loc[1, "DCF_FCF_Source"], "revenue_margin_fallback")
         self.assertGreater(enriched.loc[0, "DCF_Base_Case_Value"], 0)
+
+    def test_flat_or_trendless_stock_cannot_receive_strong_buy(self):
+        row = {
+            "Symbol": "FLAT",
+            "Current_Price": 100.0,
+            "MA20": 100.0,
+            "MA50": 100.0,
+            "MA50_Slope_Pct": -0.2,
+            "RSI_14": 50.0,
+            "MACD": 0.0,
+            "MACD_Signal": 0.0,
+            "Vol_Ratio": 1.0,
+            "Pct_Change_1M": 0.0,
+            "Pct_Change_3M": 0.0,
+            "BB_Position": 0.5,
+            "ADX_14": 14.0,
+            "ADX_Plus_DI": 18.0,
+            "ADX_Minus_DI": 19.0,
+            "StochRSI_14": 50.0,
+            "ATR_14": 1.0,
+            "PE_Ratio": 10.0,
+            "PB_Ratio": 1.0,
+            "ROE": 0.25,
+            "ROA": 0.10,
+            "Debt_to_Equity": 20.0,
+            "Current_Ratio": 2.0,
+            "Profit_Margin": 0.20,
+            "Revenue_Growth": 0.011,
+            "Earnings_Growth": 0.02,
+            "Dividend_Yield": 0.03,
+            "EV_EBITDA": 8.0,
+            "Market_Cap": 10_000_000_000.0,
+            "Free_CashFlow": 1_500_000_000.0,
+            "Total_Revenue": 8_000_000_000.0,
+            "Total_Debt": 0.0,
+            "Total_Cash": 0.0,
+            "Sector": "Industrials",
+        }
+        scored = StockScorer(self.config).score_all_stocks(pd.DataFrame([row]))
+        self.assertEqual(scored.loc[0, "Rating"], "BUY")
+        self.assertFalse(scored.loc[0, "Strong_Buy_Eligible"])
+        self.assertEqual(scored.loc[0, "Strong_Buy_Gate_Reason"], "growth below threshold")
+
+        enriched = ReverseDCFModel(self.config).enrich(scored)
+        self.assertNotEqual(enriched.loc[0, "Rating"], "STRONG BUY")
+
+    def test_missing_fundamentals_do_not_receive_neutral_points(self):
+        self.assertEqual(score_fundamentals({}), 0)
+
+    def test_financial_services_is_not_generic_dcf_ranked(self):
+        row = self.sample_scored_df().iloc[0].copy()
+        row["Sector"] = "Financial Services"
+        row["Total_Debt"] = 1_000_000_000.0
+        row["Total_Cash"] = 500_000_000.0
+
+        result = ReverseDCFModel(self.config).analyze_row(row)
+
+        self.assertEqual(result["DCF_Status"], "sector_not_supported")
+        self.assertTrue(pd.isna(result["DCF_Implied_FCF_CAGR"]))
 
     def test_email_html_contains_reverse_dcf_table(self):
         enriched = ReverseDCFModel(self.config).enrich(self.sample_scored_df())

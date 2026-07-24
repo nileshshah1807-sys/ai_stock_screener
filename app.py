@@ -174,6 +174,14 @@ class Config:
     REQUIRE_FUND_DATA_FOR_BUY = _env_bool("REQUIRE_FUND_DATA_FOR_BUY", True)
     MIN_FUND_KEY_FIELDS = _env_int("MIN_FUND_KEY_FIELDS", 3)       # of: PE_Ratio, ROE, Profit_Margin, Revenue_Growth
 
+    # A STRONG BUY is a high-conviction label, not merely a high blended score.
+    # Require independent evidence of both an operating-growth tailwind and a
+    # confirmed price trend. These gates do not remove a stock from the ranking;
+    # they cap an otherwise-high score at BUY when that evidence is absent.
+    STRONG_BUY_MIN_GROWTH = _env_float("STRONG_BUY_MIN_GROWTH", 0.05)
+    STRONG_BUY_MIN_TECH_SCORE = _env_float("STRONG_BUY_MIN_TECH_SCORE", 55.0)
+    STRONG_BUY_MIN_ADX = _env_float("STRONG_BUY_MIN_ADX", 20.0)
+
     # --- Sector-relative fundamental scoring ---
     # Blend each fundamental ratio's fixed absolute-threshold score with its
     # percentile rank against same-sector peers in the current scan, so e.g. a PE
@@ -197,6 +205,10 @@ class Config:
     REVERSE_DCF_MAX_TERMINAL_GROWTH = _env_float("REVERSE_DCF_MAX_TERMINAL_GROWTH", 0.09)
     REVERSE_DCF_MIN_VALID_FCF_YIELD = _env_float("REVERSE_DCF_MIN_VALID_FCF_YIELD", 0.005)
     REVERSE_DCF_RANKING_WEIGHT = _env_float("REVERSE_DCF_RANKING_WEIGHT", 0.20)
+
+    # A snapshot score is not a backtest. Measure the realized return after a
+    # fixed holding period before making any claim about rating performance.
+    BACKTEST_HORIZON_DAYS = _env_int("BACKTEST_HORIZON_DAYS", 30)
 
     OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "reports_advanced"))
     YFINANCE_CACHE_DIR = Path(os.getenv("YFINANCE_CACHE_DIR", str(OUTPUT_DIR / "yfinance_cache")))
@@ -441,7 +453,7 @@ class PriceCache:
 # BACKTEST ENGINE
 # =====================================================
 class BacktestEngine:
-    """Log daily scores; compute simple score stats by rating over time."""
+    """Log score snapshots and measure realized forward returns by rating."""
     def __init__(self, output_dir):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -453,7 +465,10 @@ class BacktestEngine:
                 ["Symbol", "Current_Price", "Rating", "Combined_Score",
                  "Fundamental_Score", "Technical_Score"]
             ].copy()
+            if "Final_Score" in scored_df:
+                snapshot["Final_Score"] = scored_df["Final_Score"]
             snapshot["Run_Date"] = date_str
+            snapshot["Forward_Return_Pct"] = np.nan
             if self.history_file.exists():
                 existing = pd.read_csv(self.history_file)
                 # drop any earlier rows from the same run date, then append
@@ -461,6 +476,28 @@ class BacktestEngine:
                 combined = pd.concat([existing, snapshot], ignore_index=True)
             else:
                 combined = snapshot
+
+            # Fill each position once, on the first available snapshot at or
+            # beyond the requested horizon. This produces an actual out-of-
+            # sample price return rather than circularly averaging model scores.
+            run_dates = pd.to_datetime(combined["Run_Date"], dayfirst=True, errors="coerce")
+            current_prices = snapshot.set_index("Symbol")["Current_Price"]
+            horizon = int(getattr(Config, "BACKTEST_HORIZON_DAYS", 30))
+            eligible = (
+                combined["Forward_Return_Pct"].isna()
+                & run_dates.notna()
+                & ((datetime.now() - run_dates).dt.days >= horizon)
+                & combined["Symbol"].isin(current_prices.index)
+            )
+            if eligible.any():
+                entry_price = pd.to_numeric(combined.loc[eligible, "Current_Price"], errors="coerce")
+                exit_price = combined.loc[eligible, "Symbol"].map(current_prices)
+                valid_prices = entry_price > 0
+                combined.loc[eligible, "Forward_Return_Pct"] = np.where(
+                    valid_prices,
+                    ((exit_price / entry_price) - 1) * 100,
+                    np.nan,
+                )
             combined.to_csv(self.history_file, index=False)
             logger.info(f"Backtest log saved: {len(combined)} total records")
         except Exception as e:
@@ -471,7 +508,17 @@ class BacktestEngine:
             if not self.history_file.exists():
                 return None
             df = pd.read_csv(self.history_file)
-            return df.groupby("Rating")["Combined_Score"].mean().round(2).to_dict()
+            if "Forward_Return_Pct" not in df:
+                return None
+            realized = df.dropna(subset=["Forward_Return_Pct"])
+            if realized.empty:
+                return None
+            return realized.groupby("Rating")["Forward_Return_Pct"].agg(
+                observations="count",
+                average_return_pct="mean",
+                median_return_pct="median",
+                hit_rate_pct=lambda returns: (returns > 0).mean() * 100,
+            ).round(2).to_dict("index")
         except Exception as e:
             logger.warning(f"Backtest analysis failed: {e}")
             return None
@@ -545,6 +592,7 @@ class ReverseDCFModel:
     DEFAULT_SECTOR_GROWTH = 0.15  # unknown/missing sector - matches prior flat assumption
     EXPECTED_GROWTH_FLOOR = 0.05
     EXPECTED_GROWTH_CAP = 0.25
+    UNSUPPORTED_DCF_SECTORS = {"Financial Services", "Real Estate"}
 
     def __init__(self, config):
         self.config = config
@@ -681,6 +729,16 @@ class ReverseDCFModel:
         sector = sector.strip() if isinstance(sector, str) and sector.strip() else None
         expected_growth = self._expected_growth(sector, market_cap)
 
+        # A generic FCF-to-EV DCF is not a decision-useful valuation method for
+        # banks/insurers (deposits and debt are operating inputs) or most real
+        # estate companies (asset/NAV and project cash-flow timing dominate).
+        # Leave these rankings to the main model until a sector-specific model
+        # is added; do not publish a false-precision DCF assessment.
+        if sector in self.UNSUPPORTED_DCF_SECTORS:
+            return self._empty_result(
+                "sector_not_supported", fcf, fcf_source, market_cap, revenue, sector, expected_growth
+            )
+
         if (fcf is None or fcf <= 0) and revenue and revenue > 0:
             fcf = revenue * self.config.REVERSE_DCF_FCF_MARGIN_FALLBACK
             fcf_source = "revenue_margin_fallback"
@@ -752,7 +810,15 @@ class ReverseDCFModel:
         base_case_value = (base_case_ev - net_debt) if base_case_ev is not None else None
         value_to_market = (base_case_value / market_cap) if base_case_value is not None and market_cap > 0 else None
         valuation_gap = (value_to_market - 1) if value_to_market is not None else None
-        status = "OK" if implied_fcf_growth is not None else "growth_above_model_range"
+        # Revenue times a fixed margin is a rough research placeholder, not
+        # reported cash flow. Show the implied assumptions for transparency but
+        # never use an estimated FCF result to move the investment ranking.
+        if implied_fcf_growth is None:
+            status = "growth_above_model_range"
+        elif fcf_source == "reported":
+            status = "OK"
+        else:
+            status = "estimated_fcf"
         valuation_score = self._valuation_score(status, implied_fcf_growth, implied_terminal_growth, fcf_yield, expected_growth)
 
         return {
@@ -897,6 +963,15 @@ class ReverseDCFModel:
                 enriched["Rating"] = enriched["Final_Score"].apply(self._rating_from_score)
                 if "Rating_Capped" in enriched:
                     enriched.loc[enriched["Rating_Capped"] == True, "Rating"] = "HOLD"
+                # Keep the pre-DCF high-conviction gate intact. Without this,
+                # a favorable DCF score can resurrect STRONG BUY for a flat or
+                # trendless stock that StockScorer intentionally capped at BUY.
+                if "Strong_Buy_Eligible" in enriched:
+                    enriched.loc[
+                        (enriched["Rating"] == "STRONG BUY")
+                        & (enriched["Strong_Buy_Eligible"] != True),
+                        "Rating",
+                    ] = "BUY"
         ok_count = int((enriched["DCF_Status"] == "OK").sum())
         logger.info(f"Reverse DCF: {ok_count}/{len(enriched)} stocks modeled")
         return enriched
@@ -1398,6 +1473,10 @@ def sector_relative_fund_scores(merged_df, min_peers=5):
     if sector is None:
         sector = pd.Series("Unknown", index=merged_df.index)
     sector = sector.fillna("Unknown").astype(str).str.strip().replace("", "Unknown")
+    # "Unknown" is not a sector. Ranking every missing-sector company against
+    # every other missing-sector company silently compares banks, manufacturers,
+    # and microcaps as if they were peers; fall back to absolute scoring instead.
+    valid_sector = sector != "Unknown"
 
     out = pd.DataFrame(index=merged_df.index)
     for column, (_, max_pts, higher_is_better) in SECTOR_RELATIVE_FIELDS.items():
@@ -1410,14 +1489,14 @@ def sector_relative_fund_scores(merged_df, min_peers=5):
         if not higher_is_better:
             pct_rank = 1.0 - pct_rank
         score = pct_rank * max_pts
-        score = score.where(group_size >= min_peers)
+        score = score.where((group_size >= min_peers) & valid_sector)
         out[column] = score
     return out
 
 
 class StockScorer:
     MAX_FUND_SCORE = 100.0
-    MAX_TECH_SCORE = 142.0  # sum of max component scores below
+    MAX_TECH_SCORE = 132.0  # sum of max component scores below
 
     def __init__(self, config=None):
         self.config = config or Config
@@ -1485,6 +1564,48 @@ class StockScorer:
             if rating_capped:
                 rating = "HOLD"
 
+            # A high score assembled from valuation ratios and neutral indicators
+            # is not a high-conviction buy. Require both real business growth and
+            # a confirmed uptrend before awarding STRONG BUY. This prevents names
+            # such as XCHANGING - flat sales and no visible trend/participation -
+            # from qualifying solely because they are cheap or mean-reverting.
+            growth_floor = float(getattr(self.config, "STRONG_BUY_MIN_GROWTH", 0.05))
+            tech_floor = float(getattr(self.config, "STRONG_BUY_MIN_TECH_SCORE", 55.0))
+            adx_floor = float(getattr(self.config, "STRONG_BUY_MIN_ADX", 20.0))
+            revenue_growth = StockScorer.safe_float(row.get("Revenue_Growth"))
+            earnings_growth = StockScorer.safe_float(row.get("Earnings_Growth"))
+            has_growth = (
+                (revenue_growth is not None and revenue_growth >= growth_floor)
+                or (earnings_growth is not None and earnings_growth >= growth_floor)
+            )
+            ma50 = StockScorer.safe_float(row.get("MA50"))
+            ma50_slope = StockScorer.safe_float(row.get("MA50_Slope_Pct"))
+            pct_3m = StockScorer.safe_float(row.get("Pct_Change_3M"))
+            adx = StockScorer.safe_float(row.get("ADX_14"))
+            plus_di = StockScorer.safe_float(row.get("ADX_Plus_DI"))
+            minus_di = StockScorer.safe_float(row.get("ADX_Minus_DI"))
+            trend_confirmed = all([
+                price > 0 and ma50 is not None and price > ma50,
+                ma50_slope is not None and ma50_slope >= 0,
+                pct_3m is not None and pct_3m > 0,
+                adx is not None and adx >= adx_floor,
+                plus_di is not None and minus_di is not None and plus_di > minus_di,
+            ])
+            strong_buy_eligible = bool(
+                has_growth and trend_confirmed and t_score >= tech_floor and not rating_capped
+            )
+            strong_buy_gate_reason = ""
+            if not has_growth:
+                strong_buy_gate_reason = "growth below threshold"
+            elif not trend_confirmed:
+                strong_buy_gate_reason = "trend not confirmed"
+            elif t_score < tech_floor:
+                strong_buy_gate_reason = "technical score below threshold"
+            elif rating_capped:
+                strong_buy_gate_reason = "insufficient fundamental data"
+            if rating == "STRONG BUY" and not strong_buy_eligible:
+                rating = "BUY"
+
             merged_df.at[idx, "Fundamental_Score"] = f_score
             merged_df.at[idx, "Technical_Score"] = t_score
             merged_df.at[idx, "ATR_Pct"] = round(atr_pct, 2)
@@ -1494,6 +1615,8 @@ class StockScorer:
             merged_df.at[idx, "Fund_Fields_Present"] = fields_present
             merged_df.at[idx, "Data_Quality"] = data_quality
             merged_df.at[idx, "Rating_Capped"] = rating_capped
+            merged_df.at[idx, "Strong_Buy_Eligible"] = strong_buy_eligible
+            merged_df.at[idx, "Strong_Buy_Gate_Reason"] = strong_buy_gate_reason
             merged_df.at[idx, "Rating"] = rating
 
         merged_df = merged_df.sort_values("Combined_Score", ascending=False).reset_index(drop=True)
@@ -1510,11 +1633,14 @@ class StockScorer:
         scores = {}
 
         rsi = s(row.get("RSI_14"), 50)
-        if 40 <= rsi <= 60: scores["RSI"] = 20
-        elif 30 <= rsi < 40 or 60 < rsi <= 70: scores["RSI"] = 15
-        elif 20 <= rsi < 30 or 70 < rsi <= 80: scores["RSI"] = 8
-        elif rsi < 20: scores["RSI"] = 12
-        else: scores["RSI"] = 5
+        # Mid-range RSI is neutral, not a bullish signal. The prior 20-point
+        # reward was the largest technical component and let directionless names
+        # score well simply for not being overbought or oversold.
+        if 40 <= rsi <= 60: scores["RSI"] = 12
+        elif 30 <= rsi < 40 or 60 < rsi <= 70: scores["RSI"] = 10
+        elif 20 <= rsi < 30 or 70 < rsi <= 80: scores["RSI"] = 6
+        elif rsi < 20: scores["RSI"] = 4
+        else: scores["RSI"] = 3
 
         price = s(row.get("Current_Price"), 0) or 0
         ma20 = s(row.get("MA20"), price) or price
@@ -1564,19 +1690,21 @@ class StockScorer:
         elif vol_ratio > 0.7: scores["VOL"] = 7
         else: scores["VOL"] = 4
 
-        # Momentum was previously capped at 10/132 (~7.6%) raw weight - too
-        # small to move the needle even when 1-month momentum is a strong,
-        # distinct signal from RSI/MACD. Doubled to 20/142 (~14%).
+        # Momentum must distinguish actual gains from a flat price. Previously
+        # 0% to +5% received almost the same reward as a healthy +5% to +15%
+        # move, which inflated directionless charts.
         pct_1m = s(row.get("Pct_Change_1M"), 0) or 0
         if 5 <= pct_1m <= 15: scores["MOM"] = 20
-        elif 0 <= pct_1m < 5 or 15 < pct_1m <= 25: scores["MOM"] = 14
-        elif -5 <= pct_1m < 0: scores["MOM"] = 10
+        elif 0 < pct_1m < 5 or 15 < pct_1m <= 25: scores["MOM"] = 14
+        elif pct_1m == 0: scores["MOM"] = 8
+        elif -5 <= pct_1m < 0: scores["MOM"] = 6
         elif pct_1m > 25: scores["MOM"] = 8
-        else: scores["MOM"] = 6
+        else: scores["MOM"] = 2
 
         bb_pos = s(row.get("BB_Position"), 0.5)
         if bb_pos is None: bb_pos = 0.5
-        if 0.3 <= bb_pos <= 0.7: scores["BB"] = 10
+        # The middle of the Bollinger range is neutral; it is not a breakout.
+        if 0.3 <= bb_pos <= 0.7: scores["BB"] = 6
         elif 0.1 <= bb_pos < 0.3: scores["BB"] = 8
         elif 0.7 < bb_pos <= 0.9: scores["BB"] = 6
         elif bb_pos < 0.1: scores["BB"] = 7
@@ -1636,21 +1764,21 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
     scores = {}
 
     pe = s(row.get("PE_Ratio"))
-    if pe is None or pe <= 0: scores["PE"] = 6
+    if pe is None or pe <= 0: scores["PE"] = 0
     elif pe < 15: scores["PE"] = 15
     elif pe < 25: scores["PE"] = 12
     elif pe < 40: scores["PE"] = 8
     else: scores["PE"] = 4
 
     pb = s(row.get("PB_Ratio"))
-    if pb is None or pb <= 0: scores["PB"] = 4
+    if pb is None or pb <= 0: scores["PB"] = 0
     elif pb < 2: scores["PB"] = 8
     elif pb < 4: scores["PB"] = 6
     elif pb < 8: scores["PB"] = 4
     else: scores["PB"] = 2
 
     roe = s(row.get("ROE"))
-    if roe is None: scores["ROE"] = 6
+    if roe is None: scores["ROE"] = 0
     elif roe >= 0.25: scores["ROE"] = 15
     elif roe >= 0.15: scores["ROE"] = 12
     elif roe >= 0.10: scores["ROE"] = 8
@@ -1658,28 +1786,28 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
     else: scores["ROE"] = 2
 
     roa = s(row.get("ROA"))
-    if roa is None: scores["ROA"] = 3
+    if roa is None: scores["ROA"] = 0
     elif roa >= 0.10: scores["ROA"] = 5
     elif roa >= 0.05: scores["ROA"] = 4
     elif roa >= 0: scores["ROA"] = 3
     else: scores["ROA"] = 1
 
     de = s(row.get("Debt_to_Equity"))  # yfinance reports this as a percentage
-    if de is None: scores["DE"] = 5
+    if de is None: scores["DE"] = 0
     elif de < 30: scores["DE"] = 10
     elif de < 70: scores["DE"] = 8
     elif de < 150: scores["DE"] = 5
     else: scores["DE"] = 2
 
     cr = s(row.get("Current_Ratio"))
-    if cr is None: scores["CR"] = 4
+    if cr is None: scores["CR"] = 0
     elif cr >= 2: scores["CR"] = 7
     elif cr >= 1.2: scores["CR"] = 5
     elif cr >= 1: scores["CR"] = 4
     else: scores["CR"] = 2
 
     pm = s(row.get("Profit_Margin"))
-    if pm is None: scores["PM"] = 5
+    if pm is None: scores["PM"] = 0
     elif pm >= 0.20: scores["PM"] = 10
     elif pm >= 0.10: scores["PM"] = 8
     elif pm >= 0.05: scores["PM"] = 6
@@ -1687,7 +1815,7 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
     else: scores["PM"] = 1
 
     rg = s(row.get("Revenue_Growth"))
-    if rg is None: scores["RG"] = 5
+    if rg is None: scores["RG"] = 0
     elif rg >= 0.20: scores["RG"] = 10
     elif rg >= 0.10: scores["RG"] = 8
     elif rg >= 0.05: scores["RG"] = 6
@@ -1695,7 +1823,7 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
     else: scores["RG"] = 2
 
     eg = s(row.get("Earnings_Growth"))
-    if eg is None: scores["EG"] = 5
+    if eg is None: scores["EG"] = 0
     elif eg >= 0.25: scores["EG"] = 10
     elif eg >= 0.15: scores["EG"] = 8
     elif eg >= 0.05: scores["EG"] = 6
@@ -1703,13 +1831,13 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
     else: scores["EG"] = 2
 
     dy = s(row.get("Dividend_Yield"))
-    if dy is None or dy <= 0: scores["DY"] = 2
+    if dy is None or dy <= 0: scores["DY"] = 0
     elif dy >= 0.03: scores["DY"] = 5
     elif dy >= 0.015: scores["DY"] = 4
     else: scores["DY"] = 3
 
     ev = s(row.get("EV_EBITDA"))
-    if ev is None or ev <= 0: scores["EV"] = 3
+    if ev is None or ev <= 0: scores["EV"] = 0
     elif ev < 10: scores["EV"] = 5
     elif ev < 18: scores["EV"] = 4
     elif ev < 30: scores["EV"] = 2
