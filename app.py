@@ -330,7 +330,10 @@ class TechnicalEnhancer:
 
     @staticmethod
     def calculate_adx(high, low, close, window=14):
-        """Proper Wilder ADX."""
+        """Proper Wilder ADX. Returns (adx, plus_di, minus_di) - ADX alone only
+        measures trend STRENGTH, not direction (a strong downtrend produces just
+        as high a reading as a strong uptrend), so callers that want to reward
+        "strong trend" only for uptrends need +DI/-DI too."""
         try:
             high, low, close = high.astype(float), low.astype(float), close.astype(float)
             plus_dm = high.diff()
@@ -351,9 +354,15 @@ class TechnicalEnhancer:
             dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
             adx = dx.ewm(alpha=1 / window, min_periods=window).mean()
             val = adx.iloc[-1]
-            return float(val) if not pd.isna(val) else 25.0
+            plus_di_val = plus_di.iloc[-1]
+            minus_di_val = minus_di.iloc[-1]
+            return (
+                float(val) if not pd.isna(val) else 25.0,
+                float(plus_di_val) if not pd.isna(plus_di_val) else 25.0,
+                float(minus_di_val) if not pd.isna(minus_di_val) else 25.0,
+            )
         except Exception:
-            return 25.0
+            return 25.0, 25.0, 25.0
 
     @staticmethod
     def calculate_stoch_rsi(close, window=14, k_window=3, d_window=3):
@@ -395,7 +404,7 @@ class PriceCache:
     # of these (e.g. was written before Avg_Turnover_INR was added), every row
     # in it is missing that data and any filter relying on it would silently
     # drop everything - so treat such a cache as stale and force a refresh.
-    REQUIRED_COLUMNS = ("Avg_Turnover_INR",)
+    REQUIRED_COLUMNS = ("Avg_Turnover_INR", "MA50_Slope_Pct", "ADX_Plus_DI", "ADX_Minus_DI")
 
     @staticmethod
     def save(cache_path, records):
@@ -1135,7 +1144,16 @@ class StockDataCollector:
                             failed.append(clean_sym)
                             continue
                         ma20 = float(closes.rolling(20).mean().iloc[-1])
-                        ma50 = float(closes.rolling(50).mean().iloc[-1])
+                        ma50_series = closes.rolling(50).mean()
+                        ma50 = float(ma50_series.iloc[-1])
+                        # MA50 slope (now vs ~20 trading days ago) - price sitting close to a
+                        # still-FALLING MA50 is not the same as genuine strength, it just means
+                        # price has caught up to a declining average. Used to adjust the MA50
+                        # distance score in score_technical() instead of rewarding closeness blindly.
+                        if len(ma50_series) >= 21 and pd.notna(ma50_series.iloc[-21]) and ma50_series.iloc[-21] != 0:
+                            ma50_slope_pct = ((ma50 / float(ma50_series.iloc[-21])) - 1) * 100
+                        else:
+                            ma50_slope_pct = 0.0
                         rsi_series = TechnicalEnhancer._rsi(closes, 14)
                         current_rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50.0
                         ema12 = closes.ewm(span=12).mean()
@@ -1158,7 +1176,7 @@ class StockDataCollector:
                         vol_ratio = last_volume / vol_avg_20 if vol_avg_20 and vol_avg_20 > 0 else 1.0
                         high = price_data["High"].dropna()
                         low = price_data["Low"].dropna()
-                        adx_val = TechnicalEnhancer.calculate_adx(high, low, closes, 14)
+                        adx_val, adx_plus_di, adx_minus_di = TechnicalEnhancer.calculate_adx(high, low, closes, 14)
                         stoch_rsi_val = TechnicalEnhancer.calculate_stoch_rsi(closes, 14)
                         atr_val = TechnicalEnhancer.calculate_atr(high, low, closes, 14)
                         results.append({
@@ -1166,10 +1184,13 @@ class StockDataCollector:
                             "Current_Price": round(current_price, 2),
                             "MA20": round(ma20, 2),
                             "MA50": round(ma50, 2),
+                            "MA50_Slope_Pct": round(ma50_slope_pct, 2),
                             "RSI_14": round(current_rsi, 2),
                             "MACD": round(float(macd.iloc[-1]), 4),
                             "MACD_Signal": round(float(signal.iloc[-1]), 4),
                             "ADX_14": round(adx_val, 2),
+                            "ADX_Plus_DI": round(adx_plus_di, 2),
+                            "ADX_Minus_DI": round(adx_minus_di, 2),
                             "StochRSI_14": round(stoch_rsi_val, 2),
                             "ATR_14": round(atr_val, 2),
                             "High_6M": round(float(closes.max()), 2),
@@ -1516,6 +1537,19 @@ class StockScorer:
         else:
             scores["MA50"] = 8
 
+        # MA50 slope: being close to the MA only means genuine strength if that MA
+        # is itself rising. A stock that has simply caught up to a still-FALLING
+        # MA50 (e.g. after a sharp decline) should not get the same reward as one
+        # consolidating near a rising MA50 - adjust the distance score above instead
+        # of rewarding "closeness" blindly.
+        ma50_slope = s(row.get("MA50_Slope_Pct"), 0) or 0
+        if ma50_slope < -3:
+            scores["MA50"] = max(1, scores["MA50"] - 6)
+        elif ma50_slope < 0:
+            scores["MA50"] = max(1, scores["MA50"] - 3)
+        elif ma50_slope > 3:
+            scores["MA50"] = min(15, scores["MA50"] + 2)
+
         macd = s(row.get("MACD"), 0) or 0
         signal = s(row.get("MACD_Signal"), 0) or 0
         if macd > signal and macd > 0: scores["MACD"] = 15
@@ -1546,9 +1580,16 @@ class StockScorer:
         else: scores["BB"] = 3
 
         adx_val = s(row.get("ADX_14"), 25) or 25
-        if adx_val > 40: scores["ADX"] = 12
-        elif adx_val > 30: scores["ADX"] = 10
-        elif adx_val > 20: scores["ADX"] = 7
+        plus_di = s(row.get("ADX_Plus_DI"))
+        minus_di = s(row.get("ADX_Minus_DI"))
+        # ADX measures trend STRENGTH only, not direction - a strong downtrend
+        # produces just as high an ADX reading as a strong uptrend. Use +DI/-DI to
+        # tell them apart: only reward strength when bulls are in control
+        # (+DI > -DI); flip it into a matching penalty when bears are in control.
+        is_downtrend = plus_di is not None and minus_di is not None and minus_di > plus_di
+        if adx_val > 40: scores["ADX"] = 1 if is_downtrend else 12
+        elif adx_val > 30: scores["ADX"] = 2 if is_downtrend else 10
+        elif adx_val > 20: scores["ADX"] = 4 if is_downtrend else 7
         else: scores["ADX"] = 3
 
         stoch_rsi = s(row.get("StochRSI_14"), 50)
