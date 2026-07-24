@@ -391,6 +391,12 @@ class TechnicalEnhancer:
 # PRICE CACHE
 # =====================================================
 class PriceCache:
+    # Columns that must exist in the cache schema. If a cache file predates one
+    # of these (e.g. was written before Avg_Turnover_INR was added), every row
+    # in it is missing that data and any filter relying on it would silently
+    # drop everything - so treat such a cache as stale and force a refresh.
+    REQUIRED_COLUMNS = ("Avg_Turnover_INR",)
+
     @staticmethod
     def save(cache_path, records):
         try:
@@ -400,7 +406,8 @@ class PriceCache:
 
     @staticmethod
     def load(cache_path, max_age_hours=18):
-        """Return cached DataFrame only if the file is fresh enough."""
+        """Return cached DataFrame only if the file is fresh enough and has the
+        expected schema."""
         try:
             p = Path(cache_path)
             if not p.exists():
@@ -409,7 +416,15 @@ class PriceCache:
             if age_hours > max_age_hours:
                 logger.info(f"Price cache is {age_hours:.1f}h old (> {max_age_hours}h) - ignoring")
                 return pd.DataFrame()
-            return pd.read_csv(p)
+            df = pd.read_csv(p)
+            missing_columns = [c for c in PriceCache.REQUIRED_COLUMNS if c not in df.columns]
+            if missing_columns and not df.empty:
+                logger.info(
+                    f"Price cache is missing columns {missing_columns} - "
+                    "ignoring and forcing a one-off full refresh."
+                )
+                return pd.DataFrame()
+            return df
         except Exception:
             return pd.DataFrame()
 
@@ -2151,6 +2166,19 @@ def run_daily_analysis():
     # P3: liquidity pre-filter before the slow per-ticker fundamentals stage
     if config.LIQUIDITY_FILTER_ENABLED and config.SCAN_ALL_NSE:
         before = len(tech_df)
+        # Defensive fallback: if Avg_Turnover_INR is missing/NaN for any rows (e.g. a
+        # stale cache written before this column existed slipped through), recompute
+        # it from Avg_Volume * Current_Price instead of silently dropping every stock.
+        if "Avg_Turnover_INR" not in tech_df.columns:
+            tech_df["Avg_Turnover_INR"] = np.nan
+        fallback_turnover = tech_df["Avg_Volume"] * tech_df["Current_Price"]
+        missing_turnover = tech_df["Avg_Turnover_INR"].isna()
+        if missing_turnover.any():
+            logger.warning(
+                f"Avg_Turnover_INR missing for {int(missing_turnover.sum())} row(s) "
+                "(stale cache?) - recomputing from Avg_Volume * Current_Price."
+            )
+            tech_df.loc[missing_turnover, "Avg_Turnover_INR"] = fallback_turnover.loc[missing_turnover]
         tech_df = tech_df[
             (tech_df["Current_Price"] >= config.MIN_PRICE_INR)
             & (tech_df["Avg_Turnover_INR"] >= config.MIN_AVG_TURNOVER_INR)
