@@ -164,12 +164,23 @@ class Config:
 
     # --- P3: liquidity pre-filter (applied before the slow fundamentals stage) ---
     LIQUIDITY_FILTER_ENABLED = _env_bool("LIQUIDITY_FILTER_ENABLED", True)
-    MIN_PRICE_INR = _env_float("MIN_PRICE_INR", 20.0)          # drop penny stocks
-    MIN_AVG_VOLUME = _env_int("MIN_AVG_VOLUME", 100_000)      # drop thinly-traded names (avg daily shares)
+    MIN_PRICE_INR = _env_float("MIN_PRICE_INR", 0.0)          # drop penny stocks
+    # Rupee-value average daily turnover (Avg_Volume * Current_Price), not just a raw
+    # share count - a 50-lakh turnover bar is a much more meaningful liquidity floor
+    # across price points than a fixed share count.
+    MIN_AVG_TURNOVER_INR = _env_float("MIN_AVG_TURNOVER_INR", 50_00_000.0)  # Rs 50 lakh/day
 
     # --- P2: data-completeness gate ---
     REQUIRE_FUND_DATA_FOR_BUY = _env_bool("REQUIRE_FUND_DATA_FOR_BUY", True)
     MIN_FUND_KEY_FIELDS = _env_int("MIN_FUND_KEY_FIELDS", 3)       # of: PE_Ratio, ROE, Profit_Margin, Revenue_Growth
+
+    # --- Sector-relative fundamental scoring ---
+    # Blend each fundamental ratio's fixed absolute-threshold score with its
+    # percentile rank against same-sector peers in the current scan, so e.g. a PE
+    # of 18 is judged against other IT names rather than a single universal bar.
+    SECTOR_RELATIVE_FUND_SCORING_ENABLED = _env_bool("SECTOR_RELATIVE_FUND_SCORING_ENABLED", True)
+    MIN_SECTOR_PEERS = _env_int("MIN_SECTOR_PEERS", 5)             # need >= this many same-sector peers to trust the percentile
+    SECTOR_RELATIVE_FUND_WEIGHT = _env_float("SECTOR_RELATIVE_FUND_WEIGHT", 0.5)  # 0=pure absolute, 1=pure sector-percentile
 
     # --- Reverse DCF ---
     # Institutional reverse DCF style: infer the cash-flow assumptions already
@@ -841,8 +852,18 @@ class ReverseDCFModel:
             has_rating = "Rating" in enriched
             if has_rating:
                 enriched["Pre_DCF_Rating"] = enriched["Rating"]
-            valuation_score = enriched["DCF_Valuation_Score"].fillna(25.0).clip(0, 100)
-            enriched["Final_Score"] = (enriched["Combined_Score"] * (1 - weight) + valuation_score * weight).round(2)
+            # Only blend in the DCF valuation score where the model actually produced
+            # a reliable read (DCF_Status == "OK"). Stocks the model can't cleanly value
+            # (e.g. banks/NBFCs where FCF isn't a meaningful concept, or missing data)
+            # would otherwise get a punitive flat 15-25 score dragging Final_Score down
+            # for reasons unrelated to their actual quality - so those rows simply fall
+            # back to the pure Combined_Score instead of being blended.
+            dcf_ok = enriched["DCF_Status"] == "OK"
+            valuation_score = enriched["DCF_Valuation_Score"].clip(0, 100)
+            enriched["Final_Score"] = enriched["Combined_Score"]
+            blended = (enriched["Combined_Score"] * (1 - weight) + valuation_score * weight).round(2)
+            enriched.loc[dcf_ok, "Final_Score"] = blended.loc[dcf_ok]
+            enriched["Final_Score"] = enriched["Final_Score"].round(2)
             enriched = enriched.sort_values("Final_Score", ascending=False).reset_index(drop=True)
             enriched["Rank"] = range(1, len(enriched) + 1)
             if has_rating:
@@ -1142,6 +1163,7 @@ class StockDataCollector:
                             "Pct_Change_3M": round(pct_3m, 2),
                             "Pct_Change_6M": round(pct_6m, 2),
                             "Avg_Volume": int(avg_volume),
+                            "Avg_Turnover_INR": round(avg_volume * current_price, 2),
                             "Vol_Ratio": round(vol_ratio, 2),
                             "BB_Position": round(bb_pos, 2),
                         })
@@ -1300,6 +1322,63 @@ class StockDataCollector:
 # =====================================================
 FUND_KEY_FIELDS = ("PE_Ratio", "ROE", "Profit_Margin", "Revenue_Growth")
 
+# Metrics eligible for sector-relative (percentile-rank) fundamental scoring, mapped
+# to the "scores" dict key used in score_fundamentals(), the metric's max points in
+# that function, and whether a HIGHER raw value is better (False = lower is better,
+# e.g. PE/Debt-to-Equity/EV-EBITDA where cheaper/less-levered scores higher).
+SECTOR_RELATIVE_FIELDS = {
+    "PE_Ratio":        ("PE", 15, False),
+    "PB_Ratio":        ("PB", 8, False),
+    "ROE":             ("ROE", 15, True),
+    "ROA":             ("ROA", 5, True),
+    "Debt_to_Equity":  ("DE", 10, False),
+    "Current_Ratio":   ("CR", 7, True),
+    "Profit_Margin":   ("PM", 10, True),
+    "Revenue_Growth":  ("RG", 10, True),
+    "Earnings_Growth": ("EG", 10, True),
+    "Dividend_Yield":  ("DY", 5, True),
+    "EV_EBITDA":       ("EV", 5, False),
+}
+# Reverse lookup: scores-dict key -> source column, used inside score_fundamentals()
+SECTOR_RELATIVE_COLUMN_BY_KEY = {key: col for col, (key, _, _) in SECTOR_RELATIVE_FIELDS.items()}
+
+
+def sector_relative_fund_scores(merged_df, min_peers=5):
+    """Percentile-rank each fundamental metric against same-sector peers in the
+    current scan, instead of a single fixed absolute threshold.
+
+    A PE of 18 might be cheap for an IT stock but expensive for a Utility - this
+    compares each stock to the other same-sector names actually being scored
+    today rather than one universal bar. Returns a DataFrame (same index as
+    merged_df) of per-column scores already expressed on that column's normal
+    point scale (see SECTOR_RELATIVE_FIELDS); cells are NaN wherever the stock's
+    own value is missing or its sector has fewer than ``min_peers`` members, so
+    the caller can fall back to the absolute-threshold score for those cases.
+    """
+    if merged_df is None or len(merged_df) == 0:
+        return pd.DataFrame(index=merged_df.index if merged_df is not None else None)
+
+    sector = merged_df.get("Sector")
+    if sector is None:
+        sector = pd.Series("Unknown", index=merged_df.index)
+    sector = sector.fillna("Unknown").astype(str).str.strip().replace("", "Unknown")
+
+    out = pd.DataFrame(index=merged_df.index)
+    for column, (_, max_pts, higher_is_better) in SECTOR_RELATIVE_FIELDS.items():
+        if column not in merged_df:
+            out[column] = np.nan
+            continue
+        values = pd.to_numeric(merged_df[column], errors="coerce")
+        group_size = values.groupby(sector).transform("count")
+        pct_rank = values.groupby(sector).rank(pct=True, method="average")
+        if not higher_is_better:
+            pct_rank = 1.0 - pct_rank
+        score = pct_rank * max_pts
+        score = score.where(group_size >= min_peers)
+        out[column] = score
+    return out
+
+
 class StockScorer:
     MAX_FUND_SCORE = 100.0
     MAX_TECH_SCORE = 132.0  # sum of max component scores below
@@ -1326,8 +1405,15 @@ class StockScorer:
         min_key_fields = getattr(self.config, "MIN_FUND_KEY_FIELDS", 3)
         gate_enabled = getattr(self.config, "REQUIRE_FUND_DATA_FOR_BUY", True)
 
+        sector_rel_df = None
+        if getattr(self.config, "SECTOR_RELATIVE_FUND_SCORING_ENABLED", True):
+            min_peers = getattr(self.config, "MIN_SECTOR_PEERS", 5)
+            sector_rel_df = sector_relative_fund_scores(merged_df, min_peers=min_peers)
+        sector_relative_weight = getattr(self.config, "SECTOR_RELATIVE_FUND_WEIGHT", 0.5)
+
         for idx, row in merged_df.iterrows():
-            f_raw = score_fundamentals(row)
+            sector_relative = sector_rel_df.loc[idx] if sector_rel_df is not None else None
+            f_raw = score_fundamentals(row, sector_relative, sector_relative_weight)
             t_raw = self.score_technical(row)
 
             # normalize both to 0-100
@@ -1466,8 +1552,16 @@ class StockScorer:
 
         return sum(scores.values())
 
-def score_fundamentals(row):
-    """Fundamental quality/valuation score, raw max = 100."""
+def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
+    """Fundamental quality/valuation score, raw max = 100.
+
+    ``sector_relative`` (optional) is a mapping of column -> percentile-based
+    score (see ``sector_relative_fund_scores``) for the metrics that vary a lot
+    by sector. When present and not NaN for a given metric, it is blended with
+    the fixed absolute-threshold score below (weight = ``sector_relative_weight``),
+    so e.g. a PE of 18 is judged partly against other same-sector names rather
+    than a single universal bar that treats IT and Utilities identically.
+    """
     s = StockScorer.safe_float
     scores = {}
 
@@ -1550,6 +1644,15 @@ def score_fundamentals(row):
     elif ev < 18: scores["EV"] = 4
     elif ev < 30: scores["EV"] = 2
     else: scores["EV"] = 1
+
+    if sector_relative is not None:
+        weight = max(0.0, min(1.0, StockScorer.safe_float(sector_relative_weight, 0.5) or 0.0))
+        if weight > 0:
+            for key, column in SECTOR_RELATIVE_COLUMN_BY_KEY.items():
+                sector_score = sector_relative.get(column) if hasattr(sector_relative, "get") else None
+                if sector_score is None or (isinstance(sector_score, float) and pd.isna(sector_score)):
+                    continue
+                scores[key] = round(scores[key] * (1 - weight) + sector_score * weight, 2)
 
     return sum(scores.values())
 
@@ -2050,12 +2153,12 @@ def run_daily_analysis():
         before = len(tech_df)
         tech_df = tech_df[
             (tech_df["Current_Price"] >= config.MIN_PRICE_INR)
-            & (tech_df["Avg_Volume"] >= config.MIN_AVG_VOLUME)
+            & (tech_df["Avg_Turnover_INR"] >= config.MIN_AVG_TURNOVER_INR)
         ].reset_index(drop=True)
         logger.info(
             f"Liquidity filter: kept {len(tech_df)}/{before} "
             f"(dropped {before - len(tech_df)} names below Rs{config.MIN_PRICE_INR:.0f} "
-            f"or {config.MIN_AVG_VOLUME:,} avg shares)"
+            f"or Rs{config.MIN_AVG_TURNOVER_INR:,.0f} avg daily turnover)"
         )
         if tech_df.empty:
             logger.error("Liquidity filter removed every stock. Exiting.")
