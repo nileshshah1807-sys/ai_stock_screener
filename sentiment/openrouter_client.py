@@ -36,6 +36,7 @@ class OpenRouterClient:
         self.timeout_seconds = timeout_seconds
         self.debug_response_content = os.getenv("OPENROUTER_DEBUG_RESPONSE_CONTENT", "false").lower() in {"1", "true", "yes"}
         self.debug_max_content_chars = _positive_int(os.getenv("OPENROUTER_DEBUG_MAX_CONTENT_CHARS"), 2000)
+        self.max_output_tokens = _positive_int(os.getenv("OPENROUTER_MAX_OUTPUT_TOKENS"), 600)
         self.session = requests.Session()
         self.headers = {
             "Authorization": f"Bearer {api_key}",
@@ -43,16 +44,31 @@ class OpenRouterClient:
             "X-Title": "AI Stock Screener",
         }
 
-    def analyze_chunk(self, prompt: str) -> dict[str, Any]:
-        payload = {
+    def _request_payload(self, prompt: str) -> dict[str, Any]:
+        return {
             "model": self.model_name,
             "temperature": 0,
-            "max_tokens": 1200,
+            "max_tokens": self.max_output_tokens,
+            "response_format": {"type": "json_object"},
             "messages": [
-                {"role": "system", "content": "Return only a valid JSON object. Do not use Markdown."},
+                {
+                    "role": "system",
+                    "content": (
+                        "Return only a compact valid JSON object. Do not use Markdown, prose, or reasoning. "
+                        "Keep each string under 160 characters and each array to at most three items."
+                    ),
+                },
                 {"role": "user", "content": prompt},
             ],
         }
+
+    def analyze_chunk(self, prompt: str) -> dict[str, Any]:
+        payload = self._request_payload(prompt)
+        logger.info(
+            "OpenRouter settings: response_format=json_object max_output_tokens=%s debug_response_content=%s",
+            self.max_output_tokens,
+            self.debug_response_content,
+        )
         for attempt in range(self.max_retries + 1):
             logger.info(
                 "OpenRouter request: model=%s attempt=%s/%s prompt_chars=%s prompt_sha256=%s",

@@ -29,6 +29,7 @@ jobs:
       OPENROUTER_MODEL: nvidia/nemotron-3-ultra-550b-a55b:free
       OPENROUTER_MAX_RETRIES: "2"
       OPENROUTER_TIMEOUT_SECONDS: "90"
+      OPENROUTER_MAX_OUTPUT_TOKENS: "600"
       OPENROUTER_DEBUG_RESPONSE_CONTENT: ${{ github.event.inputs.debug_response_content || 'false' }}
       OPENROUTER_DEBUG_MAX_CONTENT_CHARS: "2000"
       TRANSCRIPT_LOOKBACK_DAYS: "7"

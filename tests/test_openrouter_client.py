@@ -44,6 +44,15 @@ class OpenRouterClientTests(unittest.TestCase):
     def test_response_preview_is_bounded(self):
         self.assertEqual(_content_preview("abcdef", 3), "abc... [truncated]")
 
+    def test_request_forces_compact_json_object_output(self):
+        from sentiment.openrouter_client import OpenRouterClient
+
+        client = OpenRouterClient("test-key", "test-model")
+        payload = client._request_payload("test prompt")
+
+        self.assertEqual(payload["response_format"], {"type": "json_object"})
+        self.assertEqual(payload["max_tokens"], 600)
+
 
 if __name__ == "__main__":
     unittest.main()

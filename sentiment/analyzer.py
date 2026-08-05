@@ -35,7 +35,9 @@ Return exactly this JSON shape. Scores are integers from 0 to 100.
   "risks": [],
   "evidence": []
 }}
-Evidence must be short direct quotations from this excerpt. Use "unclear" when guidance is absent.
+Evidence must be short direct quotations from this excerpt. Return at most three catalysts,
+three risks, and three evidence quotations. Keep every string under 160 characters. Use
+"unclear" when guidance is absent.
 
 Excerpt {chunk.index + 1}:
 {chunk.text}"""
