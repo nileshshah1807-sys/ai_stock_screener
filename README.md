@@ -2,61 +2,6 @@
 
 Daily NSE stock screener with Reverse DCF analysis, CSV reports, dashboard output, and email delivery.
 
-## Google Cloud Run Jobs
-
-Cloud Run Jobs is a good fit for this application: `app.py` runs one analysis,
-sends the email, and exits. The supplied scripts deploy that command as a Job
-and create a Cloud Scheduler trigger for 09:00 Asia/Kolkata each day.
-
-Cloud Run's filesystem is ephemeral. Reports and market-data caches are not
-preserved between executions, so each job run performs a fresh scan. Email
-delivery remains unchanged.
-
-### One-time setup
-
-1. Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install),
-	then authenticate and select the billing-enabled project:
-
-	```powershell
-	gcloud auth login
-	gcloud config set project YOUR_PROJECT_ID
-	```
-
-2. Create the required Secret Manager values. The script prompts for each
-	value without printing it:
-
-	```powershell
-	.\cloudrun\setup-secrets.ps1 -ProjectId YOUR_PROJECT_ID
-	```
-
-	Use `GMAIL_API` for `EMAIL_DELIVERY_METHOD`, and create a new refresh token
-	after rotating the credentials exposed earlier.
-
-3. Deploy the Job and the daily scheduler from the repository root:
-
-	```powershell
-	.\cloudrun\deploy.ps1 -ProjectId YOUR_PROJECT_ID
-	```
-
-4. Run it once and inspect its logs before waiting for the next scheduled run:
-
-	```powershell
-	gcloud run jobs execute ai-stock-screener --project=YOUR_PROJECT_ID --region=asia-south1 --wait
-	gcloud run jobs executions list --job=ai-stock-screener --project=YOUR_PROJECT_ID --region=asia-south1
-	```
-
-The deploy script is idempotent: rerunning it updates the Job and Scheduler.
-To use a different time, pass a five-field cron expression and IANA timezone:
-
-```powershell
-.\cloudrun\deploy.ps1 -ProjectId YOUR_PROJECT_ID -Schedule "30 8 * * *" -TimeZone "Asia/Kolkata"
-```
-
-Cloud Run and Cloud Scheduler require billing to be enabled. Cloud Run has a
-monthly free tier; Cloud Scheduler offers three free jobs per billing account.
-Check the current pricing pages before relying on those allowances, because
-usage beyond them is billable.
-
 ## Railway Cache
 
 Attach a Railway Volume and mount it at `/data`, then set:
