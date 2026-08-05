@@ -2,6 +2,43 @@
 
 Daily NSE stock screener with Reverse DCF analysis, CSV reports, dashboard output, and email delivery.
 
+## Render Cron Job
+
+Deploy this as a Render Cron Job, not as a Render free web service. Free web
+services sleep after 15 minutes without traffic, so they cannot reliably run
+the in-process scheduler. Render Cron Jobs run `app.py` once and exit, which
+matches this application's batch design.
+
+The included `render.yaml` runs daily at 09:00 Asia/Kolkata, expressed as
+`30 3 * * *` because Render Cron schedules use UTC. It deploys in Singapore.
+Render charges cron jobs by active running time and documents a $1 monthly
+minimum; Cron Jobs do not have a free plan and cannot use a persistent disk.
+Reports and caches are therefore regenerated during each run.
+
+### Deploy
+
+1. Push this branch to GitHub, then sign in to [Render](https://dashboard.render.com/).
+2. Select **New** > **Blueprint**, connect the repository, and choose the
+   `main` branch. Render reads `render.yaml` automatically.
+3. On the first Blueprint deploy, enter the prompted environment values:
+
+   ```text
+   EMAIL_SENDER=your-gmail-address@gmail.com
+   EMAIL_RECEIVER=recipient-one@gmail.com,recipient-two@gmail.com
+   GMAIL_CLIENT_ID=your_google_oauth_client_id
+   GMAIL_CLIENT_SECRET=your_google_oauth_client_secret
+   GMAIL_REFRESH_TOKEN=your_google_oauth_refresh_token
+   ```
+
+   The non-secret email settings are set in `render.yaml`. Keep real tokens
+   and secrets out of Git.
+
+4. Select **Manual Deploy** or **Trigger Run** in the Render Cron Job page to
+   test the email and inspect the run logs before waiting for the next schedule.
+
+To change the schedule, update the UTC cron value in `render.yaml`. For
+example, 08:30 Asia/Kolkata is `0 3 * * *` UTC.
+
 ## Railway Cache
 
 Attach a Railway Volume and mount it at `/data`, then set:
