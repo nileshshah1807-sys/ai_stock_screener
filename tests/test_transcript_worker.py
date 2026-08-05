@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from workers.transcript_worker import TranscriptSettings, TranscriptWorker
+from workers.transcript_worker import TranscriptSettings, TranscriptWorker, _is_free_model
 
 
 class FakeRepository:
@@ -79,6 +79,11 @@ class TranscriptWorkerTests(unittest.TestCase):
             "filing-1",
             {"status": "failed", "attempt_count": 3, "last_error": "NSE unavailable"},
         ))
+
+    def test_accepts_free_router_but_rejects_paid_model(self):
+        self.assertTrue(_is_free_model("openrouter/free"))
+        self.assertTrue(_is_free_model("nvidia/example:free"))
+        self.assertFalse(_is_free_model("nvidia/example"))
 
 
 if __name__ == "__main__":

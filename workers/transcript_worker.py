@@ -145,7 +145,7 @@ class TranscriptWorker:
         return downloaded_path
 
     def _analyze_pending_transcripts(self) -> dict[str, int]:
-        if not self.settings.model_name.endswith(":free"):
+        if not _is_free_model(self.settings.model_name):
             raise ValueError("Paid OpenRouter models are disabled until a priced reservation policy is configured")
         client = OpenRouterClient(
             os.getenv("OPENROUTER_API_KEY", ""),
@@ -214,6 +214,10 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _is_free_model(model_name: str) -> bool:
+    return model_name == "openrouter/free" or model_name.endswith(":free")
 
 
 def _announcement_date(value: str | None) -> str | None:
