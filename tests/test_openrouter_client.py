@@ -1,6 +1,7 @@
 import unittest
+from unittest.mock import Mock
 
-from sentiment.openrouter_client import _content_preview, _parse_json_object
+from sentiment.openrouter_client import CHUNK_RESPONSE_SCHEMA, OpenRouterClient, OpenRouterResponseError, _content_preview, _parse_json_object
 from sentiment.schemas import ChunkSentiment
 
 
@@ -44,14 +45,22 @@ class OpenRouterClientTests(unittest.TestCase):
     def test_response_preview_is_bounded(self):
         self.assertEqual(_content_preview("abcdef", 3), "abc... [truncated]")
 
-    def test_request_forces_compact_json_object_output(self):
-        from sentiment.openrouter_client import OpenRouterClient
-
+    def test_request_requires_compact_structured_output(self):
         client = OpenRouterClient("test-key", "test-model")
         payload = client._request_payload("test prompt")
 
-        self.assertEqual(payload["response_format"], {"type": "json_object"})
-        self.assertEqual(payload["max_tokens"], 600)
+        self.assertEqual(payload["response_format"], {"type": "json_schema", "json_schema": CHUNK_RESPONSE_SCHEMA})
+        self.assertEqual(payload["provider"], {"require_parameters": True})
+        self.assertEqual(payload["max_tokens"], 320)
+
+    def test_rejects_truncated_response(self):
+        client = OpenRouterClient("test-key", "test-model", max_retries=0)
+        response = Mock(status_code=200)
+        response.json.return_value = {"choices": [{"finish_reason": "length", "message": {"content": "{"}}]}
+        client.session.post = Mock(return_value=response)
+
+        with self.assertRaises(OpenRouterResponseError):
+            client.analyze_chunk("test prompt")
 
 
 if __name__ == "__main__":

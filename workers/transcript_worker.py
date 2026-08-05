@@ -29,7 +29,7 @@ class TranscriptSettings:
     min_text_characters: int = 1000
     enable_ocr: bool = True
     analysis_limit: int = 25
-    model_name: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
+    model_name: str = "openrouter/free"
     max_retries: int = 2
     timeout_seconds: int = 90
 

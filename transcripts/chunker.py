@@ -1,4 +1,4 @@
-"""Chunk transcript segments at speaker boundaries for LLM analysis."""
+"""Chunk transcript segments into bounded LLM analysis requests."""
 
 from dataclasses import dataclass
 
@@ -22,37 +22,67 @@ def build_chunks(
     target_tokens: int = 4000,
     overlap_tokens: int = 150,
 ) -> list[TranscriptChunk]:
-    """Build chunks without splitting an individual speaker block."""
+    """Build chunks that never exceed the requested estimated-token budget."""
     if target_tokens <= 0:
         raise ValueError("target_tokens must be positive")
     if overlap_tokens < 0:
         raise ValueError("overlap_tokens cannot be negative")
 
     chunks: list[TranscriptChunk] = []
-    current_segments: list[TranscriptSegment] = []
+    current_units: list[str] = []
     current_tokens = 0
 
     def emit() -> None:
-        nonlocal current_segments, current_tokens
-        if not current_segments:
+        nonlocal current_units, current_tokens
+        if not current_units:
             return
-        text = "\n\n".join(
-            f"[{segment.section}] {segment.speaker}:\n{segment.text}"
-            for segment in current_segments
-        )
+        text = "\n\n".join(current_units)
         chunks.append(TranscriptChunk(len(chunks), text, estimate_tokens(text)))
-        current_segments = []
+        current_units = []
         current_tokens = 0
 
     for segment in segments:
-        segment_tokens = estimate_tokens(segment.text)
-        if current_segments and current_tokens + segment_tokens > target_tokens:
-            previous_segment = current_segments[-1]
-            emit()
-            if estimate_tokens(previous_segment.text) <= overlap_tokens:
-                current_segments.append(previous_segment)
-                current_tokens = estimate_tokens(previous_segment.text)
-        current_segments.append(segment)
-        current_tokens += segment_tokens
+        units = _bounded_segment_units(segment, target_tokens)
+        for unit in units:
+            unit_tokens = estimate_tokens(unit)
+            separator_tokens = 1 if current_units else 0
+            if current_units and current_tokens + separator_tokens + unit_tokens > target_tokens:
+                previous_unit = current_units[-1]
+                emit()
+                previous_tokens = estimate_tokens(previous_unit)
+                if previous_tokens <= overlap_tokens:
+                    current_units.append(previous_unit)
+                    current_tokens = previous_tokens
+            separator_tokens = 1 if current_units else 0
+            if current_units and current_tokens + separator_tokens + unit_tokens > target_tokens:
+                emit()
+            current_units.append(unit)
+            current_tokens += separator_tokens + unit_tokens
     emit()
     return chunks
+
+
+def _bounded_segment_units(segment: TranscriptSegment, target_tokens: int) -> list[str]:
+    prefix = f"[{segment.section}] {segment.speaker}:\n"
+    available_text_tokens = max(1, target_tokens - estimate_tokens(prefix))
+    text_parts = _split_text(segment.text, available_text_tokens)
+    return [f"{prefix}{text_part}" for text_part in text_parts]
+
+
+def _split_text(text: str, max_tokens: int) -> list[str]:
+    words = text.split()
+    if not words:
+        return []
+    parts: list[str] = []
+    current_words: list[str] = []
+    for word in words:
+        candidate_words = current_words + [word]
+        candidate = " ".join(candidate_words)
+        if current_words and estimate_tokens(candidate) > max_tokens:
+            parts.append(" ".join(current_words))
+            current_words = [word]
+        else:
+            current_words = candidate_words
+    if current_words:
+        parts.append(" ".join(current_words))
+    return parts

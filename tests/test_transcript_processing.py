@@ -14,7 +14,7 @@ Revenue grew 18% to Rs 1,250 crore.\nCompany Name\nCompany Name\nCompany Name\n"
 
         self.assertEqual(cleaned, "Revenue grew 18% to Rs 1,250 crore.")
 
-    def test_segments_and_chunks_keep_management_answer_whole(self):
+    def test_segments_and_chunks_split_oversized_management_answer(self):
         answer = "We maintain our margin guidance and expect demand to improve. " * 20
         text = f"""Operator:\nWelcome to the earnings call.\n
 Jane Analyst:\nWhat is your margin outlook?\n
@@ -24,8 +24,10 @@ Chief Financial Officer:\n{answer}\n"""
         chunks = build_chunks(segments, target_tokens=30, overlap_tokens=0)
 
         self.assertEqual([segment.section for segment in segments], ["prepared_remarks", "analyst_question", "management_answer"])
-        self.assertEqual(len(chunks), 2)
-        self.assertIn(answer.strip(), chunks[-1].text)
+        self.assertGreater(len(chunks), 2)
+        self.assertTrue(all(chunk.estimated_tokens <= 30 for chunk in chunks))
+        management_text = " ".join(chunk.text for chunk in chunks if "management_answer" in chunk.text)
+        self.assertIn("We maintain our margin guidance", management_text)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ on:
       debug_response_content:
         description: "Log bounded OpenRouter response content for this manual run"
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:
@@ -26,10 +26,10 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      OPENROUTER_MODEL: nvidia/nemotron-3-ultra-550b-a55b:free
+      OPENROUTER_MODEL: openrouter/free
       OPENROUTER_MAX_RETRIES: "2"
       OPENROUTER_TIMEOUT_SECONDS: "90"
-      OPENROUTER_MAX_OUTPUT_TOKENS: "600"
+      OPENROUTER_MAX_OUTPUT_TOKENS: "320"
       OPENROUTER_DEBUG_RESPONSE_CONTENT: ${{ github.event.inputs.debug_response_content || 'false' }}
       OPENROUTER_DEBUG_MAX_CONTENT_CHARS: "2000"
       TRANSCRIPT_LOOKBACK_DAYS: "7"

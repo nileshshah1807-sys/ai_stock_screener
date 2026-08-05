@@ -16,6 +16,32 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+CHUNK_RESPONSE_SCHEMA = {
+    "name": "transcript_chunk_observation",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "optimism": {"type": "integer", "minimum": 0, "maximum": 100},
+            "guidance_strength": {"type": "integer", "minimum": 0, "maximum": 100},
+            "management_confidence": {"type": "integer", "minimum": 0, "maximum": 100},
+            "risk_intensity": {"type": "integer", "minimum": 0, "maximum": 100},
+            "analyst_pressure": {"type": "integer", "minimum": 0, "maximum": 100},
+            "answer_quality": {"type": "integer", "minimum": 0, "maximum": 100},
+            "guidance_direction": {"type": "string", "enum": ["raised", "maintained", "lowered", "unclear"]},
+            "catalysts": {"type": "array", "items": {"type": "string", "maxLength": 100}, "maxItems": 2},
+            "risks": {"type": "array", "items": {"type": "string", "maxLength": 100}, "maxItems": 2},
+            "evidence": {"type": "array", "items": {"type": "string", "maxLength": 100}, "maxItems": 2},
+        },
+        "required": [
+            "optimism", "guidance_strength", "management_confidence", "risk_intensity",
+            "analyst_pressure", "answer_quality", "guidance_direction", "catalysts", "risks", "evidence",
+        ],
+        "additionalProperties": False,
+    },
+}
+
+
 class OpenRouterUnavailable(RuntimeError):
     """Raised for transient provider failures that should be retried next run."""
 
@@ -36,7 +62,7 @@ class OpenRouterClient:
         self.timeout_seconds = timeout_seconds
         self.debug_response_content = os.getenv("OPENROUTER_DEBUG_RESPONSE_CONTENT", "false").lower() in {"1", "true", "yes"}
         self.debug_max_content_chars = _positive_int(os.getenv("OPENROUTER_DEBUG_MAX_CONTENT_CHARS"), 2000)
-        self.max_output_tokens = _positive_int(os.getenv("OPENROUTER_MAX_OUTPUT_TOKENS"), 600)
+        self.max_output_tokens = _positive_int(os.getenv("OPENROUTER_MAX_OUTPUT_TOKENS"), 320)
         self.session = requests.Session()
         self.headers = {
             "Authorization": f"Bearer {api_key}",
@@ -49,13 +75,13 @@ class OpenRouterClient:
             "model": self.model_name,
             "temperature": 0,
             "max_tokens": self.max_output_tokens,
-            "response_format": {"type": "json_object"},
+            "response_format": {"type": "json_schema", "json_schema": CHUNK_RESPONSE_SCHEMA},
+            "provider": {"require_parameters": True},
             "messages": [
                 {
                     "role": "system",
                     "content": (
-                        "Return only a compact valid JSON object. Do not use Markdown, prose, or reasoning. "
-                        "Keep each string under 160 characters and each array to at most three items."
+                        "Return only the JSON object required by the response schema. Do not use Markdown, prose, or reasoning."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -65,7 +91,7 @@ class OpenRouterClient:
     def analyze_chunk(self, prompt: str) -> dict[str, Any]:
         payload = self._request_payload(prompt)
         logger.info(
-            "OpenRouter settings: response_format=json_object max_output_tokens=%s debug_response_content=%s",
+            "OpenRouter settings: response_format=json_schema max_output_tokens=%s debug_response_content=%s",
             self.max_output_tokens,
             self.debug_response_content,
         )
@@ -112,10 +138,20 @@ class OpenRouterClient:
                     choice.get("finish_reason", "unknown"),
                     len(content) if isinstance(content, str) else "non-string",
                 )
+                if choice.get("finish_reason") == "length":
+                    raise OpenRouterResponseError("OpenRouter truncated the response before completion")
                 if self.debug_response_content:
                     logger.info("OpenRouter response content: %s", _content_preview(content, self.debug_max_content_chars))
-                return _parse_json_object(content)
             except (KeyError, IndexError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+                raise OpenRouterResponseError(f"OpenRouter returned invalid JSON content: {exc}") from exc
+            try:
+                return _parse_json_object(content)
+            except (TypeError, AttributeError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "OpenRouter invalid JSON preview: finish_reason=%s content=%s",
+                    choice.get("finish_reason", "unknown"),
+                    _content_preview(content, min(800, self.debug_max_content_chars)),
+                )
                 raise OpenRouterResponseError(f"OpenRouter returned invalid JSON content: {exc}") from exc
         raise OpenRouterUnavailable("OpenRouter retry loop ended unexpectedly")
 
