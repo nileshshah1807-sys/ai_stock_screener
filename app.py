@@ -37,6 +37,8 @@ import base64
 import importlib.util
 import xml.etree.ElementTree as ET
 
+from scoring.transcript_enricher import TranscriptSentimentEnricher
+
 try:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
@@ -205,6 +207,13 @@ class Config:
     REVERSE_DCF_MAX_TERMINAL_GROWTH = _env_float("REVERSE_DCF_MAX_TERMINAL_GROWTH", 0.09)
     REVERSE_DCF_MIN_VALID_FCF_YIELD = _env_float("REVERSE_DCF_MIN_VALID_FCF_YIELD", 0.005)
     REVERSE_DCF_RANKING_WEIGHT = _env_float("REVERSE_DCF_RANKING_WEIGHT", 0.20)
+
+    # --- Earnings transcript sentiment (shadow mode by default) ---
+    TRANSCRIPT_SENTIMENT_ENABLED = _env_bool("TRANSCRIPT_SENTIMENT_ENABLED", False)
+    TRANSCRIPT_SHADOW_MODE = _env_bool("TRANSCRIPT_SHADOW_MODE", True)
+    SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+    SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    SUPABASE_TIMEOUT_SECONDS = _env_int("SUPABASE_TIMEOUT_SECONDS", 30)
 
     # A snapshot score is not a backtest. Measure the realized return after a
     # fixed holding period before making any claim about rating performance.
@@ -2422,6 +2431,16 @@ def run_daily_analysis():
 
     if config.REVERSE_DCF_ENABLED:
         scored_df = ReverseDCFModel(config).enrich(scored_df)
+
+    # Transcript fields are visible in all reports but deliberately do not alter
+    # rankings while the feature is collecting its validation history.
+    if config.TRANSCRIPT_SENTIMENT_ENABLED:
+        try:
+            scored_df = TranscriptSentimentEnricher(config).enrich(scored_df)
+            available_transcripts = int((scored_df["Transcript_Status"] == "Available").sum())
+            logger.info(f"Transcript sentiment available for {available_transcripts} stock(s); shadow mode active")
+        except Exception as e:
+            logger.warning(f"Transcript sentiment enrichment skipped: {e}")
 
     # News sentiment for the top N picks (post-scoring, so it's the *actual* top N)
     n = min(config.NEWS_SENTIMENT_TOP_N, len(scored_df))

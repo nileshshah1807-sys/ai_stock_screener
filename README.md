@@ -42,6 +42,40 @@ remain GitHub Secrets.
 Scheduled workflows in a public repository are disabled after 60 days without
 repository activity. Re-enable the workflow in the Actions tab if that occurs.
 
+## Earnings Transcript Sentiment
+
+Transcript collection runs independently at 10:00, 17:00, and 21:00 IST. It
+discovers NSE earnings-call transcripts, keeps PDFs only for the duration of the
+job, stores cleaned text and structured results in Supabase, and writes report
+fields in shadow mode. It does not change stock scores or ratings yet.
+
+### Supabase Setup
+
+1. Create a Supabase project, then run [storage/supabase_schema.sql](storage/supabase_schema.sql)
+   in its SQL Editor.
+2. In GitHub **Settings** > **Secrets and variables** > **Actions**, add:
+
+   ```text
+   SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+   SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+   OPENROUTER_API_KEY=your_openrouter_api_key
+   ```
+
+3. Run **Earnings transcript sentiment** manually once. Then run **Daily stock
+   screener** and inspect the CSV columns beginning with `Transcript_`.
+
+The service-role key is intentionally used only by GitHub Actions and the
+server-side daily screener. Never expose it to a browser or commit it to the
+repository. The selected `nvidia/nemotron-3-ultra-550b-a55b:free` model is
+configured with no paid fallback; transient provider failures are deferred to
+the next scheduled run.
+
+Supabase Free currently provides a 500 MB database and pauses a project after a
+week without activity. The three scheduled worker runs keep the project active;
+export the database periodically because the Free plan does not provide
+automatic backups. GitHub Actions installs Tesseract for the OCR fallback. For
+local OCR runs, install Tesseract separately and ensure it is on `PATH`.
+
 ## Railway Cache
 
 Attach a Railway Volume and mount it at `/data`, then set:

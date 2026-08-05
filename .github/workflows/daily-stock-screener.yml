@@ -22,6 +22,10 @@ jobs:
       GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
       ATTACH_CSV: "True"
       ATTACH_PDF: "True"
+      TRANSCRIPT_SENTIMENT_ENABLED: "True"
+      TRANSCRIPT_SHADOW_MODE: "True"
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v4
 

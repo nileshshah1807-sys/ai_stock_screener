@@ -1,0 +1,47 @@
+name: Earnings transcript sentiment
+
+on:
+  schedule:
+    - cron: "30 4,11,15 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transcript-sentiment
+  cancel-in-progress: false
+
+jobs:
+  collect-and-analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_MODEL: nvidia/nemotron-3-ultra-550b-a55b:free
+      OPENROUTER_MAX_RETRIES: "2"
+      OPENROUTER_TIMEOUT_SECONDS: "90"
+      TRANSCRIPT_LOOKBACK_DAYS: "7"
+      TRANSCRIPT_OCR_ENABLED: "true"
+      TRANSCRIPT_MAX_PAGES: "120"
+      TRANSCRIPT_MIN_TEXT_CHARACTERS: "1000"
+      TRANSCRIPT_ANALYSIS_LIMIT: "25"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install OCR runtime
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Collect and analyze transcripts
+        run: python -m workers.transcript_worker

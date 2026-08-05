@@ -1,0 +1,1 @@
+"""Structured earnings-transcript sentiment analysis."""
