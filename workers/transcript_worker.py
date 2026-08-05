@@ -54,8 +54,10 @@ class TranscriptWorker:
 
     def run(self) -> dict[str, int]:
         summary = {"discovered": 0, "documents_ready": 0, "analyzed": 0, "deferred": 0, "failed": 0}
+        logger.info("Discovering NSE earnings transcripts from the last %s day(s)", self.settings.lookback_days)
         records = discover_nse_transcripts(self.settings.lookback_days)
         summary["discovered"] = len(records)
+        logger.info("NSE discovery completed: %s matching transcript(s)", summary["discovered"])
         with TemporaryDirectory(prefix="nse_transcripts_") as temporary_directory:
             download_directory = Path(temporary_directory)
             for record in records:

@@ -71,7 +71,7 @@ class OpenRouterClient:
 
             try:
                 content = response.json()["choices"][0]["message"]["content"]
-                return json.loads(_strip_fence(content))
+                return _parse_json_object(content)
             except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
                 raise OpenRouterResponseError("OpenRouter returned invalid JSON content") from exc
         raise OpenRouterUnavailable("OpenRouter retry loop ended unexpectedly")
@@ -80,3 +80,18 @@ class OpenRouterClient:
 def _strip_fence(content: str) -> str:
     content = content.strip()
     return re.sub(r"^```(?:json)?\s*|\s*```$", "", content, flags=re.IGNORECASE).strip()
+
+
+def _parse_json_object(content: str) -> dict[str, Any]:
+    """Parse a JSON object even when a provider adds harmless surrounding text."""
+    cleaned = _strip_fence(content)
+    try:
+        payload = json.loads(cleaned)
+    except json.JSONDecodeError:
+        object_start = cleaned.find("{")
+        if object_start < 0:
+            raise
+        payload, _ = json.JSONDecoder().raw_decode(cleaned[object_start:])
+    if not isinstance(payload, dict):
+        raise json.JSONDecodeError("response is not a JSON object", content, 0)
+    return payload
