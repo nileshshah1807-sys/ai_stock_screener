@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from tempfile import TemporaryDirectory
 from typing import Any
 
 
@@ -40,12 +41,13 @@ def discover_nse_transcripts(lookback_days: int) -> list[dict[str, Any]]:
 
     end_date = date.today()
     start_date = end_date - timedelta(days=lookback_days)
-    with NSE(timeout=60, server=False) as nse:
-        records = nse.announcements(
-            index="equities",
-            from_date=datetime.combine(start_date, datetime.min.time()),
-            to_date=datetime.combine(end_date, datetime.max.time()),
-        )
+    with TemporaryDirectory(prefix="nse_discovery_") as download_folder:
+        with NSE(download_folder=download_folder, timeout=60, server=False) as nse:
+            records = nse.announcements(
+                index="equities",
+                from_date=datetime.combine(start_date, datetime.min.time()),
+                to_date=datetime.combine(end_date, datetime.max.time()),
+            )
     return [record for record in records if is_earnings_transcript(record)]
 
 
