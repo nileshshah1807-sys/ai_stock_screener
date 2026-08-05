@@ -28,9 +28,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Restore market-data cache
+        id: market-data-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: reports_advanced
+          key: stock-screener-data-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            stock-screener-data-v1-${{ runner.os }}-
 
       - name: Install dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
       - name: Run stock screener
         run: python app.py
+
+      - name: Save refreshed market-data cache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: reports_advanced
+          key: ${{ steps.market-data-cache.outputs.cache-primary-key }}

@@ -10,8 +10,17 @@ because GitHub can delay scheduled workflows during busy periods. The workflow
 also supports manual runs from the **Actions** tab.
 
 For a public repository, standard GitHub-hosted runners are free. The runner's
-filesystem is temporary, so reports and market-data caches are regenerated on
-each execution. The report is delivered by email as usual.
+filesystem is temporary, but the workflow restores and saves the reusable
+market-data cache between runs. This retains price data, fundamentals, yfinance
+metadata, and backtest history while keeping generated reports out of Git. The
+first full-NSE run can take around an hour; later runs should reuse data within
+the configured cache lifetimes (18 hours for prices and 30 days for
+fundamentals). The report is delivered by email as usual.
+
+GitHub Actions cache storage is limited to 10 GB per repository by default,
+and cache entries unused for seven days can be removed. Caches must not contain
+credentials; this workflow only caches `reports_advanced/`, while Gmail values
+remain GitHub Secrets.
 
 ### Setup
 
