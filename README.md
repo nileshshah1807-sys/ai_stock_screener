@@ -2,25 +2,22 @@
 
 Daily NSE stock screener with Reverse DCF analysis, CSV reports, dashboard output, and email delivery.
 
-## Render Cron Job
+## GitHub Actions
 
-Deploy this as a Render Cron Job, not as a Render free web service. Free web
-services sleep after 15 minutes without traffic, so they cannot reliably run
-the in-process scheduler. Render Cron Jobs run `app.py` once and exit, which
-matches this application's batch design.
+The repository includes a scheduled GitHub Actions workflow that runs `app.py`
+once per day. It runs at 03:37 UTC (09:07 Asia/Kolkata), offset from the hour
+because GitHub can delay scheduled workflows during busy periods. The workflow
+also supports manual runs from the **Actions** tab.
 
-The included `render.yaml` runs daily at 09:00 Asia/Kolkata, expressed as
-`30 3 * * *` because Render Cron schedules use UTC. It deploys in Singapore.
-Render charges cron jobs by active running time and documents a $1 monthly
-minimum; Cron Jobs do not have a free plan and cannot use a persistent disk.
-Reports and caches are therefore regenerated during each run.
+For a public repository, standard GitHub-hosted runners are free. The runner's
+filesystem is temporary, so reports and market-data caches are regenerated on
+each execution. The report is delivered by email as usual.
 
-### Deploy
+### Setup
 
-1. Push this branch to GitHub, then sign in to [Render](https://dashboard.render.com/).
-2. Select **New** > **Blueprint**, connect the repository, and choose the
-   `main` branch. Render reads `render.yaml` automatically.
-3. On the first Blueprint deploy, enter the prompted environment values:
+1. Push the workflow to the repository's default branch.
+2. In GitHub, open **Settings** > **Secrets and variables** > **Actions** and
+   add these repository secrets:
 
    ```text
    EMAIL_SENDER=your-gmail-address@gmail.com
@@ -30,14 +27,11 @@ Reports and caches are therefore regenerated during each run.
    GMAIL_REFRESH_TOKEN=your_google_oauth_refresh_token
    ```
 
-   The non-secret email settings are set in `render.yaml`. Keep real tokens
-   and secrets out of Git.
+3. Open the **Actions** tab, choose **Daily stock screener**, then select
+   **Run workflow** to verify the first email and inspect the logs.
 
-4. Select **Manual Deploy** or **Trigger Run** in the Render Cron Job page to
-   test the email and inspect the run logs before waiting for the next schedule.
-
-To change the schedule, update the UTC cron value in `render.yaml`. For
-example, 08:30 Asia/Kolkata is `0 3 * * *` UTC.
+Scheduled workflows in a public repository are disabled after 60 days without
+repository activity. Re-enable the workflow in the Actions tab if that occurs.
 
 ## Railway Cache
 
