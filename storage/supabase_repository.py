@@ -112,16 +112,43 @@ class SupabaseRepository:
         return rows[0] if rows else None
 
     def list_transcripts_for_analysis(self, limit: int = 25) -> list[dict[str, Any]]:
-        return self._request(
+        transcripts = self._request(
             "GET",
             "transcripts",
             params={
-                "select": "id,symbol,quarter,call_date,cleaned_text,text_hash,token_count",
+                "select": "id,document_id,symbol,quarter,call_date,cleaned_text,text_hash,token_count",
                 "cleaned_text": "not.is.null",
                 "order": "created_at.asc",
                 "limit": str(limit),
             },
         )
+        company_names = self.company_names_by_document_id(
+            [transcript["document_id"] for transcript in transcripts if transcript.get("document_id")]
+        )
+        for transcript in transcripts:
+            transcript["company_name"] = company_names.get(transcript.get("document_id"), "")
+        return transcripts
+
+    def company_names_by_document_id(self, document_ids: list[str]) -> dict[str, str]:
+        if not document_ids:
+            return {}
+        rows = self._request(
+            "GET",
+            "transcript_filing_documents",
+            params={
+                "select": "document_id,transcript_filings(company_name)",
+                "document_id": f"in.({','.join(document_ids)})",
+            },
+        )
+        company_names: dict[str, str] = {}
+        for row in rows:
+            filing = row.get("transcript_filings") or {}
+            if isinstance(filing, list):
+                filing = filing[0] if filing else {}
+            company_name = str(filing.get("company_name") or "").strip()
+            if company_name:
+                company_names[row["document_id"]] = company_name
+        return company_names
 
     def save_sentiment(self, sentiment: dict[str, Any]) -> dict[str, Any]:
         rows = self._request(

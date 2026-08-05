@@ -1,6 +1,6 @@
 import unittest
 
-from sentiment.openrouter_client import _parse_json_object
+from sentiment.openrouter_client import _content_preview, _parse_json_object
 from sentiment.schemas import ChunkSentiment
 
 
@@ -40,6 +40,9 @@ class OpenRouterClientTests(unittest.TestCase):
     def test_rejects_response_without_json_object(self):
         with self.assertRaises(ValueError):
             _parse_json_object("I cannot analyze this transcript.")
+
+    def test_response_preview_is_bounded(self):
+        self.assertEqual(_content_preview("abcdef", 3), "abc... [truncated]")
 
 
 if __name__ == "__main__":

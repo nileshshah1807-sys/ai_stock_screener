@@ -77,6 +77,12 @@ class TranscriptWorker:
         if filing is None:
             logger.warning("Skipping NSE record without seq_id or symbol")
             return False
+        logger.info(
+            "Processing NSE filing: symbol=%s company=%s seq_id=%s",
+            filing["symbol"],
+            filing.get("company_name") or "Unknown",
+            filing["seq_id"],
+        )
         stored_filing = self.repository.upsert_filing(filing)
         if stored_filing["status"] in {"document_ready", "rejected"}:
             return False
@@ -149,7 +155,17 @@ class TranscriptWorker:
         )
         summary = {"analyzed": 0, "deferred": 0}
         for transcript in self.repository.list_transcripts_for_analysis(self.settings.analysis_limit):
+            company_name = transcript.get("company_name") or "Unknown"
+            logger.info(
+                "Analyzing transcript: id=%s symbol=%s company=%s call_date=%s model=%s",
+                transcript["id"],
+                transcript["symbol"],
+                company_name,
+                transcript.get("call_date") or "Unknown",
+                self.settings.model_name,
+            )
             if self.repository.get_sentiment(transcript["id"], self.settings.model_name, ANALYSIS_VERSION):
+                logger.info("Skipping analyzed transcript: id=%s symbol=%s", transcript["id"], transcript["symbol"])
                 continue
             try:
                 result = analyze_transcript(transcript["cleaned_text"], client)
@@ -170,12 +186,25 @@ class TranscriptWorker:
                     "estimated_cost_usd": 0,
                 })
                 summary["analyzed"] += 1
+                logger.info(
+                    "Saved transcript sentiment: id=%s symbol=%s overall_score=%s guidance=%s",
+                    transcript["id"],
+                    transcript["symbol"],
+                    result["overall_score"],
+                    result["guidance_direction"],
+                )
             except OpenRouterUnavailable as exc:
                 summary["deferred"] += 1
-                logger.warning("Deferred transcript %s: %s", transcript["id"], exc)
+                logger.warning(
+                    "Deferred transcript: id=%s symbol=%s company=%s error=%s",
+                    transcript["id"], transcript["symbol"], company_name, exc,
+                )
             except OpenRouterResponseError as exc:
                 summary["deferred"] += 1
-                logger.warning("Invalid model response for transcript %s: %s", transcript["id"], exc)
+                logger.warning(
+                    "Invalid model response: id=%s symbol=%s company=%s error=%s",
+                    transcript["id"], transcript["symbol"], company_name, exc,
+                )
         return summary
 
 

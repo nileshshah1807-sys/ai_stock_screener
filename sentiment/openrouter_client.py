@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import os
 import re
 import time
 from typing import Any
 
 import requests
+
+
+logger = logging.getLogger(__name__)
 
 
 class OpenRouterUnavailable(RuntimeError):
@@ -28,6 +34,8 @@ class OpenRouterClient:
         self.model_name = model_name
         self.max_retries = max_retries
         self.timeout_seconds = timeout_seconds
+        self.debug_response_content = os.getenv("OPENROUTER_DEBUG_RESPONSE_CONTENT", "false").lower() in {"1", "true", "yes"}
+        self.debug_max_content_chars = _positive_int(os.getenv("OPENROUTER_DEBUG_MAX_CONTENT_CHARS"), 2000)
         self.session = requests.Session()
         self.headers = {
             "Authorization": f"Bearer {api_key}",
@@ -46,6 +54,14 @@ class OpenRouterClient:
             ],
         }
         for attempt in range(self.max_retries + 1):
+            logger.info(
+                "OpenRouter request: model=%s attempt=%s/%s prompt_chars=%s prompt_sha256=%s",
+                self.model_name,
+                attempt + 1,
+                self.max_retries + 1,
+                len(prompt),
+                hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16],
+            )
             try:
                 response = self.session.post(
                     self.endpoint,
@@ -70,10 +86,21 @@ class OpenRouterClient:
                 raise OpenRouterResponseError(f"OpenRouter returned {response.status_code}: {response.text[:300]}")
 
             try:
-                content = response.json()["choices"][0]["message"]["content"]
+                body = response.json()
+                choice = body["choices"][0]
+                content = choice["message"]["content"]
+                logger.info(
+                    "OpenRouter response: model=%s status=%s finish_reason=%s content_chars=%s",
+                    self.model_name,
+                    response.status_code,
+                    choice.get("finish_reason", "unknown"),
+                    len(content) if isinstance(content, str) else "non-string",
+                )
+                if self.debug_response_content:
+                    logger.info("OpenRouter response content: %s", _content_preview(content, self.debug_max_content_chars))
                 return _parse_json_object(content)
-            except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-                raise OpenRouterResponseError("OpenRouter returned invalid JSON content") from exc
+            except (KeyError, IndexError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+                raise OpenRouterResponseError(f"OpenRouter returned invalid JSON content: {exc}") from exc
         raise OpenRouterUnavailable("OpenRouter retry loop ended unexpectedly")
 
 
@@ -95,3 +122,15 @@ def _parse_json_object(content: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise json.JSONDecodeError("response is not a JSON object", content, 0)
     return payload
+
+
+def _content_preview(content: Any, max_chars: int) -> str:
+    text = content if isinstance(content, str) else repr(content)
+    return text[:max_chars] + ("... [truncated]" if len(text) > max_chars else "")
+
+
+def _positive_int(value: str | None, default: int) -> int:
+    try:
+        return max(1, int(value)) if value else default
+    except ValueError:
+        return default
