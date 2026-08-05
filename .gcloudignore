@@ -1,0 +1,13 @@
+# Keep local credentials, reports, and Git metadata out of Cloud Build uploads.
+.git
+.gitignore
+.gcloudignore
+.env
+*.env
+config_local.py
+reports_advanced/
+*.log
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
