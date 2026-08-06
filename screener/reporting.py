@@ -11,6 +11,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
+import pandas as pd
 import requests
 
 from .market_data import fmt_cr, fmt_f, fmt_pct

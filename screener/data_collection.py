@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 
 import pandas as pd
+import requests
 import yfinance as yf
 
 from .market_data import PriceCache, TechnicalEnhancer
@@ -42,10 +43,10 @@ class StockDataCollector:
             "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "ITC",
             "SBIN", "BHARTIARTL", "KOTAKBANK", "LT", "AXISBANK", "ASIANPAINT",
             "MARUTI", "SUNPHARMA", "TITAN", "ULTRACEMCO", "BAJFINANCE", "HCLTECH",
-            "WIPRO", "NESTLEIND", "POWERGRID", "NTPC", "M&M", "TATAMOTORS", "ONGC",
+            "WIPRO", "NESTLEIND", "POWERGRID", "NTPC", "M&M", "TMCV", "ONGC",
             "JSWSTEEL", "TATASTEEL", "ADANIENT", "COALINDIA", "DRREDDY", "CIPLA",
             "DIVISLAB", "TECHM", "GRASIM", "BRITANNIA", "EICHERMOT", "APOLLOHOSP",
-            "HEROMOTOCO", "UPL", "BANKBARODA", "LICI", "ZOMATO", "DELHIVERY",
+            "HEROMOTOCO", "UPL", "BANKBARODA", "LICI", "ETERNAL", "DELHIVERY",
             "HUDCO", "IREDA",
         ]
         all_symbols.update(additional_stocks)
