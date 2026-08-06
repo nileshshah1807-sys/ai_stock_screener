@@ -1,4 +1,4 @@
-"""Read-only transcript sentiment enrichment for shadow-mode screening."""
+"""Transcript sentiment enrichment and ranking for daily screening."""
 
 from __future__ import annotations
 
@@ -34,6 +34,8 @@ class TranscriptSentimentEnricher:
 
     def enrich(self, scored_df):
         enriched = scored_df.copy()
+        base_score_column = "Final_Score" if "Final_Score" in enriched else "Combined_Score"
+        base_scores = enriched[base_score_column].copy()
         enriched["Transcript_Status"] = "No transcript"
         enriched["Transcript_Score"] = np.nan
         enriched["Transcript_Weighted_Score"] = np.nan
@@ -43,11 +45,15 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Management_Confidence"] = np.nan
         enriched["Transcript_Optimism_QoQ_Delta"] = np.nan
         enriched["Transcript_Call_Date"] = ""
+        enriched["Transcript_Summary"] = "No transcript"
+        enriched["Transcript_Priority_Applied"] = False
+        enriched["Final_Score"] = base_scores
 
         repository = self.repository
         if repository is None:
             if not getattr(self.config, "SUPABASE_URL", "") or not getattr(self.config, "SUPABASE_SERVICE_ROLE_KEY", ""):
                 enriched["Transcript_Status"] = "Not configured"
+                enriched["Transcript_Summary"] = "Not configured"
                 return enriched
             repository = SupabaseRepository(
                 self.config.SUPABASE_URL,
@@ -71,7 +77,26 @@ class TranscriptSentimentEnricher:
             enriched.at[index, "Transcript_Management_Confidence"] = _number(record.get("management_confidence"))
             enriched.at[index, "Transcript_Optimism_QoQ_Delta"] = _number(record.get("optimism_qoq_delta"))
             enriched.at[index, "Transcript_Call_Date"] = record.get("call_date") or ""
+            enriched.at[index, "Transcript_Summary"] = _summary(score, record.get("guidance_direction"), record.get("call_date"), weight)
+
+        priority_weight = _weight(getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.80))
+        eligible = (enriched["Transcript_Status"] == "Available") & enriched["Transcript_Weighted_Score"].notna()
+        enriched["Transcript_Priority_Applied"] = eligible
+        enriched.loc[eligible, "Final_Score"] = (
+            base_scores.loc[eligible] * (1 - priority_weight)
+            + enriched.loc[eligible, "Transcript_Weighted_Score"] * priority_weight
+        ).round(2)
         return enriched
+
+
+def rank_by_transcript_priority(scored_df):
+    """Rank fresh transcript coverage first, then the sentiment-weighted final score."""
+    ranked = scored_df.sort_values(
+        ["Transcript_Priority_Applied", "Final_Score"],
+        ascending=[False, False],
+    ).reset_index(drop=True)
+    ranked["Rank"] = range(1, len(ranked) + 1)
+    return ranked
 
 
 def _number(value):
@@ -79,3 +104,17 @@ def _number(value):
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _weight(value):
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.80
+
+
+def _summary(score, guidance, call_date, recency_weight_value):
+    if score is None or not recency_weight_value:
+        return "Expired"
+    direction = str(guidance or "unclear").replace("_", " ").title()
+    return f"{score:.1f} | {direction} | {str(call_date)[:10]}"

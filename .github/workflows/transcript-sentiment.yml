@@ -4,12 +4,6 @@ on:
   schedule:
     - cron: "30 4,11,15 * * *"
   workflow_dispatch:
-    inputs:
-      debug_response_content:
-        description: "Log bounded OpenRouter response content for this manual run"
-        required: false
-        default: true
-        type: boolean
 
 permissions:
   contents: read
@@ -25,13 +19,6 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      OPENROUTER_MODEL: openrouter/free
-      OPENROUTER_MAX_RETRIES: "2"
-      OPENROUTER_TIMEOUT_SECONDS: "90"
-      OPENROUTER_MAX_OUTPUT_TOKENS: "320"
-      OPENROUTER_DEBUG_RESPONSE_CONTENT: ${{ github.event.inputs.debug_response_content || 'false' }}
-      OPENROUTER_DEBUG_MAX_CONTENT_CHARS: "2000"
       TRANSCRIPT_LOOKBACK_DAYS: "7"
       TRANSCRIPT_OCR_ENABLED: "true"
       TRANSCRIPT_MAX_PAGES: "120"

@@ -11,7 +11,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from sentiment.analyzer import ANALYSIS_VERSION, analyze_transcript
-from sentiment.openrouter_client import OpenRouterClient, OpenRouterResponseError, OpenRouterUnavailable
 from storage.supabase_repository import SupabaseRepository
 from transcripts.cleaner import clean_transcript_text
 from transcripts.collector import discover_nse_transcripts, filing_payload
@@ -29,9 +28,7 @@ class TranscriptSettings:
     min_text_characters: int = 1000
     enable_ocr: bool = True
     analysis_limit: int = 25
-    model_name: str = "openrouter/free"
-    max_retries: int = 2
-    timeout_seconds: int = 90
+    model_name: str = "textblob-finance-lexicon"
 
     @classmethod
     def from_environment(cls) -> "TranscriptSettings":
@@ -41,9 +38,6 @@ class TranscriptSettings:
             min_text_characters=int(os.getenv("TRANSCRIPT_MIN_TEXT_CHARACTERS", "1000")),
             enable_ocr=os.getenv("TRANSCRIPT_OCR_ENABLED", "true").lower() in {"1", "true", "yes"},
             analysis_limit=int(os.getenv("TRANSCRIPT_ANALYSIS_LIMIT", "25")),
-            model_name=os.getenv("OPENROUTER_MODEL", cls.model_name),
-            max_retries=int(os.getenv("OPENROUTER_MAX_RETRIES", "2")),
-            timeout_seconds=int(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "90")),
         )
 
 
@@ -145,14 +139,6 @@ class TranscriptWorker:
         return downloaded_path
 
     def _analyze_pending_transcripts(self) -> dict[str, int]:
-        if not _is_free_model(self.settings.model_name):
-            raise ValueError("Paid OpenRouter models are disabled until a priced reservation policy is configured")
-        client = OpenRouterClient(
-            os.getenv("OPENROUTER_API_KEY", ""),
-            self.settings.model_name,
-            self.settings.max_retries,
-            self.settings.timeout_seconds,
-        )
         summary = {"analyzed": 0, "deferred": 0}
         for transcript in self.repository.list_transcripts_for_analysis(self.settings.analysis_limit):
             company_name = transcript.get("company_name") or "Unknown"
@@ -168,43 +154,38 @@ class TranscriptWorker:
                 logger.info("Skipping analyzed transcript: id=%s symbol=%s", transcript["id"], transcript["symbol"])
                 continue
             try:
-                result = analyze_transcript(transcript["cleaned_text"], client)
-                self.repository.save_sentiment({
-                    "transcript_id": transcript["id"],
-                    "overall_score": result["overall_score"],
-                    "optimism_score": result["optimism"],
-                    "guidance_score": result["guidance_strength"],
-                    "risk_score": result["risk_intensity"],
-                    "confidence_score": result["confidence_score"],
-                    "analyst_pressure": result["analyst_pressure"],
-                    "management_confidence": result["management_confidence"],
-                    "answer_quality": result["answer_quality"],
-                    "guidance_direction": result["guidance_direction"],
-                    "structured_output": result,
-                    "model_name": self.settings.model_name,
-                    "analysis_version": ANALYSIS_VERSION,
-                    "estimated_cost_usd": 0,
-                })
-                summary["analyzed"] += 1
-                logger.info(
-                    "Saved transcript sentiment: id=%s symbol=%s overall_score=%s guidance=%s",
-                    transcript["id"],
-                    transcript["symbol"],
-                    result["overall_score"],
-                    result["guidance_direction"],
-                )
-            except OpenRouterUnavailable as exc:
+                result = analyze_transcript(transcript["cleaned_text"])
+            except Exception as exc:
                 summary["deferred"] += 1
                 logger.warning(
-                    "Deferred transcript: id=%s symbol=%s company=%s error=%s",
+                    "Local transcript analysis failed: id=%s symbol=%s company=%s error=%s",
                     transcript["id"], transcript["symbol"], company_name, exc,
                 )
-            except OpenRouterResponseError as exc:
-                summary["deferred"] += 1
-                logger.warning(
-                    "Invalid model response: id=%s symbol=%s company=%s error=%s",
-                    transcript["id"], transcript["symbol"], company_name, exc,
-                )
+                continue
+            self.repository.save_sentiment({
+                "transcript_id": transcript["id"],
+                "overall_score": result["overall_score"],
+                "optimism_score": result["optimism"],
+                "guidance_score": result["guidance_strength"],
+                "risk_score": result["risk_intensity"],
+                "confidence_score": result["confidence_score"],
+                "analyst_pressure": result["analyst_pressure"],
+                "management_confidence": result["management_confidence"],
+                "answer_quality": result["answer_quality"],
+                "guidance_direction": result["guidance_direction"],
+                "structured_output": result,
+                "model_name": self.settings.model_name,
+                "analysis_version": ANALYSIS_VERSION,
+                "estimated_cost_usd": 0,
+            })
+            summary["analyzed"] += 1
+            logger.info(
+                "Saved transcript sentiment: id=%s symbol=%s overall_score=%s guidance=%s",
+                transcript["id"],
+                transcript["symbol"],
+                result["overall_score"],
+                result["guidance_direction"],
+            )
         return summary
 
 
@@ -214,10 +195,6 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
-
-
-def _is_free_model(model_name: str) -> bool:
-    return model_name == "openrouter/free" or model_name.endswith(":free")
 
 
 def _announcement_date(value: str | None) -> str | None:

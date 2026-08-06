@@ -1,6 +1,7 @@
 import unittest
 
 from sentiment.analyzer import aggregate_sentiments
+from sentiment.local_analyzer import LocalSentimentAnalyzer
 from sentiment.schemas import ChunkSentiment
 from transcripts.chunker import TranscriptChunk
 
@@ -37,6 +38,26 @@ class SentimentAnalysisTests(unittest.TestCase):
         self.assertEqual(result["overall_score"], 77.75)
         self.assertEqual(result["confidence_score"], 75)
         self.assertEqual(result["guidance_direction"], "maintained")
+
+    def test_local_analyzer_detects_raised_guidance_and_positive_catalyst(self):
+        result = LocalSentimentAnalyzer().analyze_chunk(
+            "Demand remains strong and margins improved. We raised guidance after order growth accelerated."
+        )
+
+        self.assertEqual(result["guidance_direction"], "raised")
+        self.assertGreater(result["optimism"], 50)
+        self.assertGreater(result["guidance_strength"], 50)
+        self.assertTrue(result["catalysts"])
+
+    def test_local_analyzer_detects_lowered_guidance_and_risk(self):
+        result = LocalSentimentAnalyzer().analyze_chunk(
+            "We lowered guidance because demand weakness and margin pressure remain challenging."
+        )
+
+        self.assertEqual(result["guidance_direction"], "lowered")
+        self.assertLess(result["guidance_strength"], 50)
+        self.assertGreater(result["risk_intensity"], 50)
+        self.assertTrue(result["risks"])
 
 
 if __name__ == "__main__":

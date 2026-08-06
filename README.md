@@ -5,9 +5,9 @@ Daily NSE stock screener with Reverse DCF analysis, CSV reports, dashboard outpu
 ## GitHub Actions
 
 The repository includes a scheduled GitHub Actions workflow that runs `app.py`
-once per day. It runs at 03:37 UTC (09:07 Asia/Kolkata), offset from the hour
-because GitHub can delay scheduled workflows during busy periods. The workflow
-also supports manual runs from the **Actions** tab.
+once per day. It runs at 03:30 UTC (09:00 Asia/Kolkata). GitHub can delay
+scheduled workflows during busy periods. The workflow also supports manual
+runs from the **Actions** tab.
 
 For a public repository, standard GitHub-hosted runners are free. The runner's
 filesystem is temporary, but the workflow restores and saves the reusable
@@ -46,8 +46,10 @@ repository activity. Re-enable the workflow in the Actions tab if that occurs.
 
 Transcript collection runs independently at 10:00, 17:00, and 21:00 IST. It
 discovers NSE earnings-call transcripts, keeps PDFs only for the duration of the
-job, stores cleaned text and structured results in Supabase, and writes report
-fields in shadow mode. It does not change stock scores or ratings yet.
+job, stores cleaned text and structured results in Supabase, and writes a
+sentiment summary in the report tables. A fresh available transcript has the
+highest ranking priority and contributes 80% of its `Final_Score`; stocks
+without a fresh transcript retain their normal score.
 
 ### Supabase Setup
 
@@ -58,7 +60,6 @@ fields in shadow mode. It does not change stock scores or ratings yet.
    ```text
    SUPABASE_URL=https://YOUR_PROJECT.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-   OPENROUTER_API_KEY=your_openrouter_api_key
    ```
 
 3. Run **Earnings transcript sentiment** manually once. Then run **Daily stock
@@ -66,9 +67,10 @@ fields in shadow mode. It does not change stock scores or ratings yet.
 
 The service-role key is intentionally used only by GitHub Actions and the
 server-side daily screener. Never expose it to a browser or commit it to the
-repository. The selected `nvidia/nemotron-3-ultra-550b-a55b:free` model is
-configured with no paid fallback; transient provider failures are deferred to
-the next scheduled run.
+repository. Sentiment runs locally with TextBlob sentence polarity supplemented
+by a transparent financial positive, negative, uncertainty, and guidance
+lexicon; it requires no model API key or paid fallback. This is a reproducible
+heuristic signal, not investment advice or a predictive model.
 
 Supabase Free currently provides a 500 MB database and pauses a project after a
 week without activity. The three scheduled worker runs keep the project active;

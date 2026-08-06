@@ -2,7 +2,7 @@ name: Daily stock screener
 
 on:
   schedule:
-    - cron: "37 3 * * *"
+    - cron: "30 3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -23,7 +23,7 @@ jobs:
       ATTACH_CSV: "True"
       ATTACH_PDF: "True"
       TRANSCRIPT_SENTIMENT_ENABLED: "True"
-      TRANSCRIPT_SHADOW_MODE: "True"
+      TRANSCRIPT_SENTIMENT_WEIGHT: "0.80"
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:

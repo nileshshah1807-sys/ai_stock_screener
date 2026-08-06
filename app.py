@@ -37,7 +37,7 @@ import base64
 import importlib.util
 import xml.etree.ElementTree as ET
 
-from scoring.transcript_enricher import TranscriptSentimentEnricher
+from scoring.transcript_enricher import TranscriptSentimentEnricher, rank_by_transcript_priority
 
 try:
     from reportlab.lib.pagesizes import A4, landscape
@@ -208,9 +208,9 @@ class Config:
     REVERSE_DCF_MIN_VALID_FCF_YIELD = _env_float("REVERSE_DCF_MIN_VALID_FCF_YIELD", 0.005)
     REVERSE_DCF_RANKING_WEIGHT = _env_float("REVERSE_DCF_RANKING_WEIGHT", 0.20)
 
-    # --- Earnings transcript sentiment (shadow mode by default) ---
-    TRANSCRIPT_SENTIMENT_ENABLED = _env_bool("TRANSCRIPT_SENTIMENT_ENABLED", False)
-    TRANSCRIPT_SHADOW_MODE = _env_bool("TRANSCRIPT_SHADOW_MODE", True)
+    # --- Earnings transcript sentiment (primary ranking signal when available) ---
+    TRANSCRIPT_SENTIMENT_ENABLED = _env_bool("TRANSCRIPT_SENTIMENT_ENABLED", True)
+    TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 0.80)
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
     SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     SUPABASE_TIMEOUT_SECONDS = _env_int("SUPABASE_TIMEOUT_SECONDS", 30)
@@ -344,10 +344,14 @@ class TechnicalEnhancer:
     @staticmethod
     def _rsi(close, window=14):
         delta = close.diff()
-        gain = delta.where(delta > 0, 0.0).rolling(window).mean()
-        loss = (-delta.where(delta < 0, 0.0)).rolling(window).mean()
-        rs = gain / loss.replace(0, np.nan)
-        return 100 - (100 / (1 + rs))
+        gain = delta.clip(lower=0)
+        loss = -delta.clip(upper=0)
+        avg_gain = gain.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
+        avg_loss = loss.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
+        rs = avg_gain / avg_loss.replace(0, np.nan)
+        rsi = 100 - (100 / (1 + rs))
+        rsi = rsi.mask((avg_loss == 0) & (avg_gain > 0), 100.0)
+        return rsi.mask((avg_loss == 0) & (avg_gain == 0), 50.0)
 
     @staticmethod
     def calculate_adx(high, low, close, window=14):
@@ -386,12 +390,14 @@ class TechnicalEnhancer:
             return 25.0, 25.0, 25.0
 
     @staticmethod
-    def calculate_stoch_rsi(close, window=14, k_window=3, d_window=3):
+    def calculate_stoch_rsi(close, window=14, k_window=3):
+        """Return the smoothed StochRSI %K, not the underlying RSI value."""
         try:
             rsi_series = TechnicalEnhancer._rsi(close.astype(float), window)
             rsi_min = rsi_series.rolling(window).min()
             rsi_max = rsi_series.rolling(window).max()
-            stoch_k = ((rsi_series - rsi_min) / (rsi_max - rsi_min).replace(0, np.nan)) * 100
+            raw_stoch = ((rsi_series - rsi_min) / (rsi_max - rsi_min).replace(0, np.nan)) * 100
+            stoch_k = raw_stoch.rolling(k_window, min_periods=k_window).mean()
             val = stoch_k.iloc[-1]
             return float(val) if not pd.isna(val) else 50.0
         except Exception:
@@ -425,7 +431,10 @@ class PriceCache:
     # of these (e.g. was written before Avg_Turnover_INR was added), every row
     # in it is missing that data and any filter relying on it would silently
     # drop everything - so treat such a cache as stale and force a refresh.
-    REQUIRED_COLUMNS = ("Avg_Turnover_INR", "MA50_Slope_Pct", "ADX_Plus_DI", "ADX_Minus_DI")
+    REQUIRED_COLUMNS = (
+        "Avg_Turnover_INR", "MA50_Slope_Pct", "ADX_Plus_DI", "ADX_Minus_DI",
+        "Technical_Indicator_Version",
+    )
 
     @staticmethod
     def save(cache_path, records):
@@ -963,8 +972,6 @@ class ReverseDCFModel:
             blended = (enriched["Combined_Score"] * (1 - weight) + valuation_score * weight).round(2)
             enriched.loc[dcf_ok, "Final_Score"] = blended.loc[dcf_ok]
             enriched["Final_Score"] = enriched["Final_Score"].round(2)
-            enriched = enriched.sort_values("Final_Score", ascending=False).reset_index(drop=True)
-            enriched["Rank"] = range(1, len(enriched) + 1)
             if has_rating:
                 # Recompute the Rating label from the DCF-blended Final_Score so the
                 # displayed rating matches the actual rank order shown in reports,
@@ -981,6 +988,10 @@ class ReverseDCFModel:
                         & (enriched["Strong_Buy_Eligible"] != True),
                         "Rating",
                     ] = "BUY"
+                enriched = sort_by_recommendation(enriched, "Final_Score")
+            else:
+                enriched = enriched.sort_values("Final_Score", ascending=False).reset_index(drop=True)
+            enriched["Rank"] = range(1, len(enriched) + 1)
         ok_count = int((enriched["DCF_Status"] == "OK").sum())
         logger.info(f"Reverse DCF: {ok_count}/{len(enriched)} stocks modeled")
         return enriched
@@ -1008,6 +1019,7 @@ class InteractiveDashboard:
                     f"<td>{r['Combined_Score']:.1f}</td>"
                     f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                     f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
+                    f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
                     f"<td>{sentiment}</td>"
                     f"<td><span class='tag {tag_class}'>{r['Rating']}</span></td></tr>"
                 )
@@ -1082,7 +1094,7 @@ tr:hover {{ background-color: #f8f9ff; }}
 </div>
 </div>
 <div class="card"><h2>🏆 Top 10 Picks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>News</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>News</th><th>Rating</th></tr>
 {rows_html}
 </table></div>
 <div class="card"><h2>🔎 Reverse DCF</h2>
@@ -1272,6 +1284,7 @@ class StockDataCollector:
                             "MA50": round(ma50, 2),
                             "MA50_Slope_Pct": round(ma50_slope_pct, 2),
                             "RSI_14": round(current_rsi, 2),
+                            "Technical_Indicator_Version": 2,
                             "MACD": round(float(macd.iloc[-1]), 4),
                             "MACD_Signal": round(float(signal.iloc[-1]), 4),
                             "ADX_14": round(adx_val, 2),
@@ -1463,6 +1476,17 @@ SECTOR_RELATIVE_FIELDS = {
 }
 # Reverse lookup: scores-dict key -> source column, used inside score_fundamentals()
 SECTOR_RELATIVE_COLUMN_BY_KEY = {key: col for col, (key, _, _) in SECTOR_RELATIVE_FIELDS.items()}
+RATING_ORDER = {"STRONG BUY": 0, "BUY": 1, "HOLD": 2, "REDUCE": 3, "SELL": 4}
+
+
+def sort_by_recommendation(df, score_column):
+    """Order recommendation classes first, then score within each class."""
+    return (
+        df.assign(_Rating_Order=df["Rating"].map(RATING_ORDER).fillna(len(RATING_ORDER)))
+        .sort_values(["_Rating_Order", score_column], ascending=[True, False])
+        .drop(columns="_Rating_Order")
+        .reset_index(drop=True)
+    )
 
 
 def sector_relative_fund_scores(merged_df, min_peers=5):
@@ -1630,7 +1654,7 @@ class StockScorer:
             merged_df.at[idx, "Strong_Buy_Gate_Reason"] = strong_buy_gate_reason
             merged_df.at[idx, "Rating"] = rating
 
-        merged_df = merged_df.sort_values("Combined_Score", ascending=False).reset_index(drop=True)
+        merged_df = sort_by_recommendation(merged_df, "Combined_Score")
         merged_df["Rank"] = range(1, len(merged_df) + 1)
 
         n_capped = int(merged_df["Rating_Capped"].sum()) if "Rating_Capped" in merged_df else 0
@@ -1909,6 +1933,7 @@ class EmailReporter:
                 f"<td>{r['Technical_Score']:.0f}</td>"
                 f"<td>{wt}</td>"
                 f"<td>{fmt_f(r.get('ADX_14'), 1)}</td>"
+                f"<td>{fmt_f(r.get('RSI_14'), 1)}</td>"
                 f"<td>{fmt_f(r.get('StochRSI_14'), 1)}</td>"
                 f"<td>{fmt_f(r.get('ATR_14'), 2)}</td>"
                 f"<td>{fmt_pct(r.get('Revenue_Growth'), 1)}</td>"
@@ -1920,6 +1945,7 @@ class EmailReporter:
                 f"<td>{r['Combined_Score']:.1f}</td>"
                 f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                 f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
+                f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
             dcf_rows += (
@@ -1961,7 +1987,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
 <div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>StochRSI</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>SB Gate</th><th>Base</th><th>DCF</th><th>Final</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>SB Gate</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Rating</th></tr>
 {rows}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
@@ -1992,7 +2018,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 Spacer(1, 0.4 * cm),
             ]
 
-            top_header = ["Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Base", "DCF", "Final", "Rating"]
+            top_header = ["Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Base", "DCF", "Final", "Transcript", "Rating"]
             top_rows = [top_header]
             for _, r in top.iterrows():
                 top_rows.append([
@@ -2005,10 +2031,11 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                     f"{r['Combined_Score']:.1f}",
                     fmt_f(r.get("DCF_Valuation_Score"), 1),
                     f"{r.get('Final_Score', r['Combined_Score']):.1f}",
+                    r.get("Transcript_Summary", "No transcript"),
                     r["Rating"],
                 ])
             story.append(Paragraph(f"Top {self.config.TOP_STOCKS_COUNT} Stocks", styles["Heading2"]))
-            story.append(self._pdf_table(top_rows, [1.1, 2.3, 1.8, 1.4, 1.3, 1.3, 1.4, 1.3, 1.4, 2.0]))
+            story.append(self._pdf_table(top_rows, [1.1, 2.3, 1.8, 1.4, 1.3, 1.3, 1.4, 1.3, 1.4, 3.0, 2.0]))
             story.append(Spacer(1, 0.6 * cm))
 
             dcf_header = [
@@ -2432,13 +2459,14 @@ def run_daily_analysis():
     if config.REVERSE_DCF_ENABLED:
         scored_df = ReverseDCFModel(config).enrich(scored_df)
 
-    # Transcript fields are visible in all reports but deliberately do not alter
-    # rankings while the feature is collecting its validation history.
+    # A fresh transcript sentiment score receives the highest ranking priority.
+    # Stocks without a fresh transcript retain their existing final score.
     if config.TRANSCRIPT_SENTIMENT_ENABLED:
         try:
             scored_df = TranscriptSentimentEnricher(config).enrich(scored_df)
             available_transcripts = int((scored_df["Transcript_Status"] == "Available").sum())
-            logger.info(f"Transcript sentiment available for {available_transcripts} stock(s); shadow mode active")
+            scored_df = rank_by_transcript_priority(scored_df)
+            logger.info(f"Transcript sentiment prioritized for {available_transcripts} stock(s)")
         except Exception as e:
             logger.warning(f"Transcript sentiment enrichment skipped: {e}")
 

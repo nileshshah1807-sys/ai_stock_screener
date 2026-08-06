@@ -4,7 +4,7 @@
 
 Author: Chirayu Shah
 Target System: Advanced NSE/BSE Stock Screener
-Purpose: Integrate Earnings Call Transcript Sentiment Analysis using NSE corporate announcements + OpenRouter LLM APIs.
+Purpose: Integrate deterministic Earnings Call Transcript Sentiment Analysis using NSE corporate announcements + local TextBlob and financial lexicon features.
 Status: Design Specification
 
 ---
@@ -31,7 +31,7 @@ The new system will:
 2. Download transcript PDFs.
 3. Extract and clean transcript text.
 4. Segment management commentary and Q&A.
-5. Analyze transcript sentiment using OpenRouter APIs.
+5. Analyze transcript sentiment locally with TextBlob and a financial lexicon.
 6. Generate structured sentiment features.
 7. Incorporate transcript signals into stock ranking.
 8. Track historical sentiment changes quarter-over-quarter.
@@ -84,7 +84,7 @@ Speaker Segmentation
 Chunk Generator
         │
         ▼
-OpenRouter Analysis
+Local Sentiment Analysis
         │
         ▼
 Sentiment Aggregation
@@ -113,7 +113,7 @@ project/
 │   └── repository.py
 │
 ├── sentiment/
-│   ├── openrouter_client.py
+│   ├── local_analyzer.py
 │   ├── analyzer.py
 │   ├── aggregator.py
 │   └── schemas.py
@@ -317,28 +317,18 @@ Answer boundary
 
 Never split inside management answer.
 
-12. OpenRouter Integration
+12. Local Sentiment Analysis
 Purpose
 
 Extract structured financial sentiment.
 
-Model Strategy
-Fast Model
+Method
 
-Used for:
-
-Chunk analysis
-Risk extraction
-Guidance extraction
-Sentiment scoring
-
-Verification Model
-
-Used for:
-
-High-value stocks
-Conflicting results
-Uncertain transcripts
+Each chunk is analyzed locally using TextBlob sentence polarity plus a
+transparent financial positive, negative, uncertainty, and guidance lexicon.
+The result is deterministic, requires no API key, and is the primary ranking
+signal when a fresh transcript is available. Backtest it continuously before
+relying on it for investment decisions.
 
 13. Structured Output Schema
 
@@ -570,7 +560,7 @@ Tasks:
 Discover transcripts
 Download PDFs
 Extract text
-Run OpenRouter
+Run local sentiment analysis
 Store sentiment
 
 Workflow B
@@ -617,7 +607,7 @@ SQLite for MVP.
 
 PostgreSQL for scale.
 
-23. Cost Optimization
+23. Runtime Optimization
 
 Do not analyze same transcript twice.
 
@@ -630,12 +620,8 @@ Model Name
 
 Reuse previous result.
 
-Budget Limits
-OPENROUTER_DAILY_BUDGET = 1.0
-OPENROUTER_MONTHLY_BUDGET = 20.0
-
-OPENROUTER_MAX_CONCURRENCY = 3
-OPENROUTER_MAX_RETRIES = 2
+No network inference budget is required. Bound work with
+`TRANSCRIPT_ANALYSIS_LIMIT` when GitHub Actions runtime needs to be reduced.
 
 24. Error Handling
 
@@ -694,7 +680,7 @@ Extraction
 
 Objective:
 
-OpenRouter sentiment analysis.
+Local TextBlob and financial-lexicon sentiment analysis.
 
 Deliverables:
 
@@ -743,8 +729,8 @@ Start with:
 NSE announcements
 SQLite
 PyMuPDF extraction
-OpenRouter structured outputs
-10% sentiment weighting
+Local structured outputs
+Shadow-mode transcript fields
 GitHub Actions scheduling
 
 Focus most heavily on:
