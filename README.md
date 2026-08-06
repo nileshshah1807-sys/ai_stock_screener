@@ -54,7 +54,8 @@ without a fresh transcript retain their normal score.
 ### Supabase Setup
 
 1. Create a Supabase project, then run [storage/supabase_schema.sql](storage/supabase_schema.sql)
-   in its SQL Editor.
+   in its SQL Editor. Re-run this schema file after pulling updates: it safely
+   creates the pending-analysis function used by the transcript worker.
 2. In GitHub **Settings** > **Secrets and variables** > **Actions**, add:
 
    ```text

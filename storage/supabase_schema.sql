@@ -65,6 +65,50 @@ create table if not exists transcript_sentiments (
 
 create index if not exists transcripts_symbol_call_date_idx on transcripts(symbol, call_date desc);
 create index if not exists transcript_sentiments_transcript_idx on transcript_sentiments(transcript_id);
+create index if not exists transcript_sentiments_analysis_lookup_idx
+    on transcript_sentiments(transcript_id, model_name, analysis_version);
+
+create or replace function pending_transcripts_for_analysis(
+    requested_model_name text,
+    requested_analysis_version text,
+    requested_limit integer default 25
+)
+returns table (
+    id uuid,
+    document_id uuid,
+    symbol text,
+    quarter text,
+    call_date date,
+    cleaned_text text,
+    text_hash text,
+    token_count integer
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+    select
+        t.id,
+        t.document_id,
+        t.symbol,
+        t.quarter,
+        t.call_date,
+        t.cleaned_text,
+        t.text_hash,
+        t.token_count
+    from transcripts t
+    where t.cleaned_text is not null
+      and not exists (
+          select 1
+          from transcript_sentiments s
+          where s.transcript_id = t.id
+            and s.model_name = requested_model_name
+            and s.analysis_version = requested_analysis_version
+      )
+    order by t.call_date desc nulls last, t.created_at desc
+    limit greatest(1, least(requested_limit, 250));
+$$;
 
 create or replace function set_transcript_filing_updated_at()
 returns trigger language plpgsql as $$

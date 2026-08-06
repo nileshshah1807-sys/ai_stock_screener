@@ -140,7 +140,11 @@ class TranscriptWorker:
 
     def _analyze_pending_transcripts(self) -> dict[str, int]:
         summary = {"analyzed": 0, "deferred": 0}
-        for transcript in self.repository.list_transcripts_for_analysis(self.settings.analysis_limit):
+        for transcript in self.repository.list_transcripts_for_analysis(
+            self.settings.model_name,
+            ANALYSIS_VERSION,
+            self.settings.analysis_limit,
+        ):
             company_name = transcript.get("company_name") or "Unknown"
             logger.info(
                 "Analyzing transcript: id=%s symbol=%s company=%s call_date=%s model=%s",
@@ -150,9 +154,6 @@ class TranscriptWorker:
                 transcript.get("call_date") or "Unknown",
                 self.settings.model_name,
             )
-            if self.repository.get_sentiment(transcript["id"], self.settings.model_name, ANALYSIS_VERSION):
-                logger.info("Skipping analyzed transcript: id=%s symbol=%s", transcript["id"], transcript["symbol"])
-                continue
             try:
                 result = analyze_transcript(transcript["cleaned_text"])
             except Exception as exc:

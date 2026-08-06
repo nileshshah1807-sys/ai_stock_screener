@@ -111,15 +111,19 @@ class SupabaseRepository:
         )
         return rows[0] if rows else None
 
-    def list_transcripts_for_analysis(self, limit: int = 25) -> list[dict[str, Any]]:
+    def list_transcripts_for_analysis(
+        self,
+        model_name: str,
+        analysis_version: str,
+        limit: int = 25,
+    ) -> list[dict[str, Any]]:
         transcripts = self._request(
-            "GET",
-            "transcripts",
-            params={
-                "select": "id,document_id,symbol,quarter,call_date,cleaned_text,text_hash,token_count",
-                "cleaned_text": "not.is.null",
-                "order": "created_at.asc",
-                "limit": str(limit),
+            "POST",
+            "rpc/pending_transcripts_for_analysis",
+            json={
+                "requested_model_name": model_name,
+                "requested_analysis_version": analysis_version,
+                "requested_limit": limit,
             },
         )
         company_names = self.company_names_by_document_id(
