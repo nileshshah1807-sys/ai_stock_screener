@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 import numpy as np
+import pandas as pd
 
 from storage.supabase_repository import SupabaseRepository
 
@@ -47,6 +48,7 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Call_Date"] = ""
         enriched["Transcript_Summary"] = "No transcript"
         enriched["Transcript_Priority_Applied"] = False
+        enriched["Transcript_Technical_Gate"] = "No transcript"
         enriched["Final_Score"] = base_scores
 
         repository = self.repository
@@ -80,14 +82,39 @@ class TranscriptSentimentEnricher:
             enriched.at[index, "Transcript_Summary"] = _summary(score, record.get("guidance_direction"), record.get("call_date"), weight)
 
         priority_weight = _weight(getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.80))
+        minimum_technical_score = _score_threshold(
+            getattr(self.config, "TRANSCRIPT_MIN_TECHNICAL_SCORE", 45.0),
+            45.0,
+        )
+        full_weight_technical_score = max(
+            minimum_technical_score,
+            _score_threshold(getattr(self.config, "TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE", 60.0), 60.0),
+        )
         eligible = (enriched["Transcript_Status"] == "Available") & enriched["Transcript_Weighted_Score"].notna()
-        enriched["Transcript_Priority_Applied"] = eligible
-        enriched.loc[eligible, "Final_Score"] = (
-            base_scores.loc[eligible] * (1 - priority_weight)
-            + enriched.loc[eligible, "Transcript_Weighted_Score"] * priority_weight
+        technical_scores = pd.to_numeric(
+            enriched.get("Technical_Score", pd.Series(np.nan, index=enriched.index)),
+            errors="coerce",
+        )
+        full_weight = eligible & (technical_scores >= full_weight_technical_score)
+        limited_weight = eligible & (technical_scores >= minimum_technical_score) & ~full_weight
+        weak_technical = eligible & ~full_weight & ~limited_weight
+        enriched.loc[full_weight, "Transcript_Technical_Gate"] = "Full weight"
+        enriched.loc[limited_weight, "Transcript_Technical_Gate"] = "Limited weight; HOLD cap"
+        enriched.loc[weak_technical, "Transcript_Technical_Gate"] = "Weak technicals; REDUCE cap"
+        enriched["Transcript_Priority_Applied"] = full_weight
+        enriched.loc[full_weight, "Final_Score"] = (
+            base_scores.loc[full_weight] * (1 - priority_weight)
+            + enriched.loc[full_weight, "Transcript_Weighted_Score"] * priority_weight
+        ).round(2)
+        limited_weight_value = priority_weight / 2
+        enriched.loc[limited_weight, "Final_Score"] = (
+            base_scores.loc[limited_weight] * (1 - limited_weight_value)
+            + enriched.loc[limited_weight, "Transcript_Weighted_Score"] * limited_weight_value
         ).round(2)
         if "Rating" in enriched:
             enriched.loc[eligible, "Rating"] = enriched.loc[eligible, "Final_Score"].map(_rating_from_score)
+            enriched.loc[limited_weight & enriched["Rating"].isin(["STRONG BUY", "BUY"]), "Rating"] = "HOLD"
+            enriched.loc[weak_technical, "Rating"] = "REDUCE"
             if "Rating_Capped" in enriched:
                 enriched.loc[eligible & (enriched["Rating_Capped"] == True), "Rating"] = "HOLD"
             if "Strong_Buy_Eligible" in enriched:
@@ -122,6 +149,13 @@ def _weight(value):
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
         return 0.80
+
+
+def _score_threshold(value, default):
+    try:
+        return max(0.0, min(100.0, float(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _rating_from_score(score):

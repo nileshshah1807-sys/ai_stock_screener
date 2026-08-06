@@ -211,6 +211,8 @@ class Config:
     # --- Earnings transcript sentiment (primary ranking signal when available) ---
     TRANSCRIPT_SENTIMENT_ENABLED = _env_bool("TRANSCRIPT_SENTIMENT_ENABLED", True)
     TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 0.80)
+    TRANSCRIPT_MIN_TECHNICAL_SCORE = _env_float("TRANSCRIPT_MIN_TECHNICAL_SCORE", 45.0)
+    TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE = _env_float("TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE", 60.0)
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
     SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     SUPABASE_TIMEOUT_SECONDS = _env_int("SUPABASE_TIMEOUT_SECONDS", 30)
@@ -1020,6 +1022,7 @@ class InteractiveDashboard:
                     f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                     f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                     f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
+                    f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
                     f"<td>{sentiment}</td>"
                     f"<td><span class='tag {tag_class}'>{r['Rating']}</span></td></tr>"
                 )
@@ -1094,7 +1097,7 @@ tr:hover {{ background-color: #f8f9ff; }}
 </div>
 </div>
 <div class="card"><h2>🏆 Top 10 Picks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>News</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>News</th><th>Rating</th></tr>
 {rows_html}
 </table></div>
 <div class="card"><h2>🔎 Reverse DCF</h2>
@@ -1946,6 +1949,7 @@ class EmailReporter:
                 f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                 f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                 f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
+                f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
             dcf_rows += (
@@ -1987,7 +1991,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
 <div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>SB Gate</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>SB Gate</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Rating</th></tr>
 {rows}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
@@ -2018,7 +2022,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 Spacer(1, 0.4 * cm),
             ]
 
-            top_header = ["Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Base", "DCF", "Final", "Transcript", "Rating"]
+            top_header = ["Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Base", "DCF", "Final", "Transcript", "Technical Gate", "Rating"]
             top_rows = [top_header]
             for _, r in top.iterrows():
                 top_rows.append([
@@ -2032,10 +2036,11 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                     fmt_f(r.get("DCF_Valuation_Score"), 1),
                     f"{r.get('Final_Score', r['Combined_Score']):.1f}",
                     r.get("Transcript_Summary", "No transcript"),
+                    r.get("Transcript_Technical_Gate", "No transcript"),
                     r["Rating"],
                 ])
             story.append(Paragraph(f"Top {self.config.TOP_STOCKS_COUNT} Stocks", styles["Heading2"]))
-            story.append(self._pdf_table(top_rows, [1.1, 2.3, 1.8, 1.4, 1.3, 1.3, 1.4, 1.3, 1.4, 3.0, 2.0]))
+            story.append(self._pdf_table(top_rows, [1.1, 2.0, 1.6, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 2.5, 2.8, 1.6]))
             story.append(Spacer(1, 0.6 * cm))
 
             dcf_header = [

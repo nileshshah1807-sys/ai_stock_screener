@@ -49,7 +49,10 @@ discovers NSE earnings-call transcripts, keeps PDFs only for the duration of the
 job, stores cleaned text and structured results in Supabase, and writes a
 sentiment summary in the report tables. A fresh available transcript has the
 highest ranking priority and contributes 80% of its `Final_Score`; stocks
-without a fresh transcript retain their normal score.
+without a fresh transcript retain their normal score. A transcript receives
+full priority only when its technical score is at least 60. Scores from 45 to
+59.99 receive half the sentiment weight and are capped at `HOLD`; scores below
+45 receive no sentiment uplift and are capped at `REDUCE`.
 
 ### Supabase Setup
 

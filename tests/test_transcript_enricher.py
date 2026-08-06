@@ -35,6 +35,7 @@ class TranscriptEnricherTests(unittest.TestCase):
             "Combined_Score": [72.0, 65.0],
             "Final_Score": [72.0, 65.0],
             "Rating": ["BUY", "BUY"],
+            "Technical_Score": [65.0, 65.0],
         })
         config = SimpleNamespace()
 
@@ -53,6 +54,38 @@ class TranscriptEnricherTests(unittest.TestCase):
         ranked = rank_by_transcript_priority(result)
         self.assertEqual(ranked["Symbol"].tolist(), ["RELIANCE", "TCS"])
         self.assertEqual(ranked["Rank"].tolist(), [1, 2])
+
+    def test_limited_technical_score_caps_positive_sentiment_at_hold(self):
+        source = pd.DataFrame({
+            "Symbol": ["RELIANCE"],
+            "Combined_Score": [65.0],
+            "Final_Score": [65.0],
+            "Rating": ["BUY"],
+            "Technical_Score": [50.0],
+        })
+
+        result = TranscriptSentimentEnricher(SimpleNamespace(), FakeRepository()).enrich(source)
+
+        self.assertEqual(result.loc[0, "Final_Score"], 63.0)
+        self.assertEqual(result.loc[0, "Rating"], "HOLD")
+        self.assertFalse(result.loc[0, "Transcript_Priority_Applied"])
+        self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Limited weight; HOLD cap")
+
+    def test_weak_technicals_prevent_sentiment_uplift_and_cap_at_reduce(self):
+        source = pd.DataFrame({
+            "Symbol": ["RELIANCE"],
+            "Combined_Score": [65.0],
+            "Final_Score": [65.0],
+            "Rating": ["BUY"],
+            "Technical_Score": [40.0],
+        })
+
+        result = TranscriptSentimentEnricher(SimpleNamespace(), FakeRepository()).enrich(source)
+
+        self.assertEqual(result.loc[0, "Final_Score"], 65.0)
+        self.assertEqual(result.loc[0, "Rating"], "REDUCE")
+        self.assertFalse(result.loc[0, "Transcript_Priority_Applied"])
+        self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Weak technicals; REDUCE cap")
 
     def test_email_report_includes_transcript_summary_column(self):
         config = SimpleNamespace(
