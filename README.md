@@ -22,6 +22,14 @@ and cache entries unused for seven days can be removed. Caches must not contain
 credentials; this workflow only caches `reports_advanced/`, while Gmail values
 remain GitHub Secrets.
 
+The generic fundamental model will not issue a `BUY` or `STRONG BUY` for
+`Financial Services` or `Real Estate` classifications. These sectors remain in
+the ranking, but their generic ratios omit essential sector-specific risk inputs
+(such as bank asset quality/capital or real-estate NAV/project cash flows), so
+they are capped at `HOLD` until a dedicated model is added. Change
+`SPECIALIZED_FUNDAMENTAL_SECTORS` only when the corresponding specialized inputs
+and scoring logic are implemented.
+
 ### Setup
 
 1. Push the workflow to the repository's default branch.
@@ -50,9 +58,10 @@ job, stores cleaned text and structured results in Supabase, and writes a
 sentiment summary in the report tables. A fresh available transcript has the
 highest ranking priority and contributes 80% of its `Final_Score`; stocks
 without a fresh transcript retain their normal score. A transcript receives
-full priority only when its technical score is at least 60. Scores from 45 to
-59.99 receive half the sentiment weight and are capped at `HOLD`; scores below
-45 receive no sentiment uplift and are capped at `REDUCE`.
+full priority only when its technical score is at least 60 and its trend is
+confirmed. Scores from 45 to 59.99 with a confirmed trend receive half the
+sentiment weight and are capped at `HOLD`; weak or unconfirmed trends receive
+no sentiment uplift and are capped at `REDUCE`.
 
 ### Supabase Setup
 

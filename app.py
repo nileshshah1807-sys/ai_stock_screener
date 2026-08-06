@@ -176,6 +176,15 @@ class Config:
     REQUIRE_FUND_DATA_FOR_BUY = _env_bool("REQUIRE_FUND_DATA_FOR_BUY", True)
     MIN_FUND_KEY_FIELDS = _env_int("MIN_FUND_KEY_FIELDS", 3)       # of: PE_Ratio, ROE, Profit_Margin, Revenue_Growth
 
+    # Banks/NBFCs and real-estate businesses need sector-specific inputs that
+    # this generic Yahoo Finance feed does not provide (for example, asset
+    # quality/capital or NAV/project cash flows). Keep them ranked for review,
+    # but do not issue a BUY until a dedicated model is available.
+    SPECIALIZED_FUNDAMENTAL_SECTORS = _env_list(
+        "SPECIALIZED_FUNDAMENTAL_SECTORS",
+        ["Financial Services", "Real Estate"],
+    )
+
     # A STRONG BUY is a high-conviction label, not merely a high blended score.
     # Require independent evidence of both an operating-growth tailwind and a
     # confirmed price trend. These gates do not remove a stock from the ranking;
@@ -1042,8 +1051,9 @@ class InteractiveDashboard:
 
             # Score distribution histogram (5-point buckets, fixed-width SVG)
             bins = list(range(0, 101, 5))
+            score_distribution_column = "Final_Score" if "Final_Score" in scored_df else "Combined_Score"
             counts = (
-                pd.cut(scored_df["Combined_Score"].clip(0, 100), bins=bins, include_lowest=True)
+                pd.cut(scored_df[score_distribution_column].clip(0, 100), bins=bins, include_lowest=True)
                 .value_counts()
                 .sort_index()
             )
@@ -1110,7 +1120,7 @@ tr:hover {{ background-color: #f8f9ff; }}
 <svg viewBox="0 0 {chart_w} 255" style="width:100%;max-height:280px;background:#f8f9ff;border-radius:8px;">
 {bars}
 </svg>
-<div style="font-size:12px;color:#777;margin-top:6px;">Combined score buckets (0–100) vs number of stocks</div>
+<div style="font-size:12px;color:#777;margin-top:6px;">Final score buckets (0–100) vs number of stocks</div>
 </div>
 <div class="card"><h2>💡 Advanced Features Active</h2>
 <ul style="line-height:1.8;font-size:15px;color:#333;">
@@ -1557,6 +1567,11 @@ class StockScorer:
         logger.info(f"Scoring {len(merged_df)} stocks...")
         min_key_fields = getattr(self.config, "MIN_FUND_KEY_FIELDS", 3)
         gate_enabled = getattr(self.config, "REQUIRE_FUND_DATA_FOR_BUY", True)
+        specialized_sectors = {
+            str(sector).strip().upper()
+            for sector in getattr(self.config, "SPECIALIZED_FUNDAMENTAL_SECTORS", [])
+            if str(sector).strip()
+        }
 
         sector_rel_df = None
         if getattr(self.config, "SECTOR_RELATIVE_FUND_SCORING_ENABLED", True):
@@ -1586,6 +1601,8 @@ class StockScorer:
                 1 for k in FUND_KEY_FIELDS if StockScorer.safe_float(row.get(k)) is not None
             )
             data_quality = "FULL" if fields_present >= min_key_fields else "LOW"
+            sector = str(row.get("Sector") or "").strip().upper()
+            specialized_fundamental_model_required = sector in specialized_sectors
 
             if combined >= 70:
                 rating = "STRONG BUY"
@@ -1598,7 +1615,13 @@ class StockScorer:
             else:
                 rating = "SELL"
 
+            rating_cap_reason = ""
             rating_capped = bool(gate_enabled and data_quality == "LOW" and combined >= 60)
+            if rating_capped:
+                rating_cap_reason = "insufficient fundamental data"
+            if specialized_fundamental_model_required and combined >= 60:
+                rating_capped = True
+                rating_cap_reason = "sector requires specialized model"
             if rating_capped:
                 rating = "HOLD"
 
@@ -1639,8 +1662,10 @@ class StockScorer:
                 strong_buy_gate_reason = "trend not confirmed"
             elif t_score < tech_floor:
                 strong_buy_gate_reason = "technical score below threshold"
+            elif specialized_fundamental_model_required:
+                strong_buy_gate_reason = "sector requires specialized model"
             elif rating_capped:
-                strong_buy_gate_reason = "insufficient fundamental data"
+                strong_buy_gate_reason = rating_cap_reason
             if rating == "STRONG BUY" and not strong_buy_eligible:
                 rating = "BUY"
 
@@ -1653,8 +1678,11 @@ class StockScorer:
             merged_df.at[idx, "Fund_Fields_Present"] = fields_present
             merged_df.at[idx, "Data_Quality"] = data_quality
             merged_df.at[idx, "Rating_Capped"] = rating_capped
+            merged_df.at[idx, "Rating_Cap_Reason"] = rating_cap_reason
+            merged_df.at[idx, "Specialized_Fundamental_Model_Required"] = specialized_fundamental_model_required
             merged_df.at[idx, "Strong_Buy_Eligible"] = strong_buy_eligible
             merged_df.at[idx, "Strong_Buy_Gate_Reason"] = strong_buy_gate_reason
+            merged_df.at[idx, "Trend_Confirmed"] = trend_confirmed
             merged_df.at[idx, "Rating"] = rating
 
         merged_df = sort_by_recommendation(merged_df, "Combined_Score")
@@ -1662,7 +1690,7 @@ class StockScorer:
 
         n_capped = int(merged_df["Rating_Capped"].sum()) if "Rating_Capped" in merged_df else 0
         if n_capped:
-            logger.info(f"Data-completeness gate: {n_capped} stock(s) capped at HOLD")
+            logger.info(f"Recommendation cap: {n_capped} stock(s) capped at HOLD")
         return merged_df
 
     @staticmethod

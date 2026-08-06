@@ -95,12 +95,25 @@ class TranscriptSentimentEnricher:
             enriched.get("Technical_Score", pd.Series(np.nan, index=enriched.index)),
             errors="coerce",
         )
-        full_weight = eligible & (technical_scores >= full_weight_technical_score)
-        limited_weight = eligible & (technical_scores >= minimum_technical_score) & ~full_weight
+        trend_confirmed = enriched.get("Trend_Confirmed", pd.Series(False, index=enriched.index)).eq(True)
+        full_weight = eligible & (technical_scores >= full_weight_technical_score) & trend_confirmed
+        limited_weight = (
+            eligible
+            & (technical_scores >= minimum_technical_score)
+            & trend_confirmed
+            & ~full_weight
+        )
         weak_technical = eligible & ~full_weight & ~limited_weight
         enriched.loc[full_weight, "Transcript_Technical_Gate"] = "Full weight"
         enriched.loc[limited_weight, "Transcript_Technical_Gate"] = "Limited weight; HOLD cap"
-        enriched.loc[weak_technical, "Transcript_Technical_Gate"] = "Weak technicals; REDUCE cap"
+        enriched.loc[
+            eligible & ~trend_confirmed,
+            "Transcript_Technical_Gate",
+        ] = "Trend not confirmed; REDUCE cap"
+        enriched.loc[
+            weak_technical & trend_confirmed,
+            "Transcript_Technical_Gate",
+        ] = "Weak technicals; REDUCE cap"
         enriched["Transcript_Priority_Applied"] = full_weight
         enriched.loc[full_weight, "Final_Score"] = (
             base_scores.loc[full_weight] * (1 - priority_weight)
@@ -114,7 +127,6 @@ class TranscriptSentimentEnricher:
         if "Rating" in enriched:
             enriched.loc[eligible, "Rating"] = enriched.loc[eligible, "Final_Score"].map(_rating_from_score)
             enriched.loc[limited_weight & enriched["Rating"].isin(["STRONG BUY", "BUY"]), "Rating"] = "HOLD"
-            enriched.loc[weak_technical, "Rating"] = "REDUCE"
             if "Rating_Capped" in enriched:
                 enriched.loc[eligible & (enriched["Rating_Capped"] == True), "Rating"] = "HOLD"
             if "Strong_Buy_Eligible" in enriched:
@@ -124,6 +136,7 @@ class TranscriptSentimentEnricher:
                     & (enriched["Strong_Buy_Eligible"] != True),
                     "Rating",
                 ] = "BUY"
+            enriched.loc[weak_technical, "Rating"] = "REDUCE"
         return enriched
 
 

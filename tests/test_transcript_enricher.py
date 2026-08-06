@@ -36,6 +36,7 @@ class TranscriptEnricherTests(unittest.TestCase):
             "Final_Score": [72.0, 65.0],
             "Rating": ["BUY", "BUY"],
             "Technical_Score": [65.0, 65.0],
+            "Trend_Confirmed": [True, True],
         })
         config = SimpleNamespace()
 
@@ -62,6 +63,7 @@ class TranscriptEnricherTests(unittest.TestCase):
             "Final_Score": [65.0],
             "Rating": ["BUY"],
             "Technical_Score": [50.0],
+            "Trend_Confirmed": [True],
         })
 
         result = TranscriptSentimentEnricher(SimpleNamespace(), FakeRepository()).enrich(source)
@@ -71,13 +73,14 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertFalse(result.loc[0, "Transcript_Priority_Applied"])
         self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Limited weight; HOLD cap")
 
-    def test_weak_technicals_prevent_sentiment_uplift_and_cap_at_reduce(self):
+    def test_unconfirmed_trend_prevents_sentiment_uplift_and_caps_at_reduce(self):
         source = pd.DataFrame({
             "Symbol": ["RELIANCE"],
             "Combined_Score": [65.0],
             "Final_Score": [65.0],
             "Rating": ["BUY"],
-            "Technical_Score": [40.0],
+            "Technical_Score": [67.0],
+            "Trend_Confirmed": [False],
         })
 
         result = TranscriptSentimentEnricher(SimpleNamespace(), FakeRepository()).enrich(source)
@@ -85,7 +88,7 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertEqual(result.loc[0, "Final_Score"], 65.0)
         self.assertEqual(result.loc[0, "Rating"], "REDUCE")
         self.assertFalse(result.loc[0, "Transcript_Priority_Applied"])
-        self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Weak technicals; REDUCE cap")
+        self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Trend not confirmed; REDUCE cap")
 
     def test_email_report_includes_transcript_summary_column(self):
         config = SimpleNamespace(
