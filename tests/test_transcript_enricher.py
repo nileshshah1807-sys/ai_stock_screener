@@ -34,6 +34,7 @@ class TranscriptEnricherTests(unittest.TestCase):
             "Symbol": ["RELIANCE", "TCS"],
             "Combined_Score": [72.0, 65.0],
             "Final_Score": [72.0, 65.0],
+            "Rating": ["BUY", "BUY"],
         })
         config = SimpleNamespace()
 
@@ -43,6 +44,7 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertEqual(result.loc[0, "Transcript_Status"], "Available")
         self.assertEqual(result.loc[0, "Transcript_Weighted_Score"], 60.0)
         self.assertEqual(result.loc[0, "Final_Score"], 62.4)
+        self.assertEqual(result.loc[0, "Rating"], "BUY")
         self.assertTrue(result.loc[0, "Transcript_Priority_Applied"])
         self.assertEqual(result.loc[0, "Transcript_Summary"].split(" | ")[:2], ["80.0", "Maintained"])
         self.assertEqual(result.loc[1, "Transcript_Status"], "No transcript")

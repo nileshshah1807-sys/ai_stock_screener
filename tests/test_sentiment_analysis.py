@@ -39,6 +39,22 @@ class SentimentAnalysisTests(unittest.TestCase):
         self.assertEqual(result["confidence_score"], 75)
         self.assertEqual(result["guidance_direction"], "maintained")
 
+    def test_aggregation_preserves_explicit_guidance_over_unclear_chunks(self):
+        analyses = [
+            ChunkSentiment.from_payload(sample_payload(guidance_direction="raised")),
+            ChunkSentiment.from_payload(sample_payload(guidance_direction="unclear")),
+            ChunkSentiment.from_payload(sample_payload(guidance_direction="unclear")),
+        ]
+        chunks = [
+            TranscriptChunk(0, "guidance", 50),
+            TranscriptChunk(1, "commentary", 500),
+            TranscriptChunk(2, "questions", 500),
+        ]
+
+        result = aggregate_sentiments(analyses, chunks)
+
+        self.assertEqual(result["guidance_direction"], "raised")
+
     def test_local_analyzer_detects_raised_guidance_and_positive_catalyst(self):
         result = LocalSentimentAnalyzer().analyze_chunk(
             "Demand remains strong and margins improved. We raised guidance after order growth accelerated."
@@ -58,6 +74,22 @@ class SentimentAnalysisTests(unittest.TestCase):
         self.assertLess(result["guidance_strength"], 50)
         self.assertGreater(result["risk_intensity"], 50)
         self.assertTrue(result["risks"])
+
+    def test_local_analyzer_detects_common_guidance_wording(self):
+        analyzer = LocalSentimentAnalyzer()
+
+        self.assertEqual(
+            analyzer.analyze_chunk("WE UPGRADED OUR OUTLOOK following strong demand.")["guidance_direction"],
+            "raised",
+        )
+        self.assertEqual(
+            analyzer.analyze_chunk("We reaffirmed our forecast for the full year.")["guidance_direction"],
+            "maintained",
+        )
+        self.assertEqual(
+            analyzer.analyze_chunk("We reduced our expectations because of demand weakness.")["guidance_direction"],
+            "lowered",
+        )
 
 
 if __name__ == "__main__":

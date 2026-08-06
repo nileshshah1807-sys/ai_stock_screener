@@ -86,6 +86,17 @@ class TranscriptSentimentEnricher:
             base_scores.loc[eligible] * (1 - priority_weight)
             + enriched.loc[eligible, "Transcript_Weighted_Score"] * priority_weight
         ).round(2)
+        if "Rating" in enriched:
+            enriched.loc[eligible, "Rating"] = enriched.loc[eligible, "Final_Score"].map(_rating_from_score)
+            if "Rating_Capped" in enriched:
+                enriched.loc[eligible & (enriched["Rating_Capped"] == True), "Rating"] = "HOLD"
+            if "Strong_Buy_Eligible" in enriched:
+                enriched.loc[
+                    eligible
+                    & (enriched["Rating"] == "STRONG BUY")
+                    & (enriched["Strong_Buy_Eligible"] != True),
+                    "Rating",
+                ] = "BUY"
         return enriched
 
 
@@ -111,6 +122,18 @@ def _weight(value):
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
         return 0.80
+
+
+def _rating_from_score(score):
+    if score >= 70:
+        return "STRONG BUY"
+    if score >= 60:
+        return "BUY"
+    if score >= 50:
+        return "HOLD"
+    if score >= 40:
+        return "REDUCE"
+    return "SELL"
 
 
 def _summary(score, guidance, call_date, recency_weight_value):

@@ -115,7 +115,6 @@ class SupabaseRepository:
         self,
         model_name: str,
         analysis_version: str,
-        limit: int = 25,
     ) -> list[dict[str, Any]]:
         transcripts = self._request(
             "POST",
@@ -123,7 +122,6 @@ class SupabaseRepository:
             json={
                 "requested_model_name": model_name,
                 "requested_analysis_version": analysis_version,
-                "requested_limit": limit,
             },
         )
         company_names = self.company_names_by_document_id(

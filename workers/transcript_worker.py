@@ -27,7 +27,6 @@ class TranscriptSettings:
     max_pages: int = 120
     min_text_characters: int = 1000
     enable_ocr: bool = True
-    analysis_limit: int = 25
     model_name: str = "textblob-finance-lexicon"
 
     @classmethod
@@ -37,7 +36,6 @@ class TranscriptSettings:
             max_pages=int(os.getenv("TRANSCRIPT_MAX_PAGES", "120")),
             min_text_characters=int(os.getenv("TRANSCRIPT_MIN_TEXT_CHARACTERS", "1000")),
             enable_ocr=os.getenv("TRANSCRIPT_OCR_ENABLED", "true").lower() in {"1", "true", "yes"},
-            analysis_limit=int(os.getenv("TRANSCRIPT_ANALYSIS_LIMIT", "25")),
         )
 
 
@@ -143,7 +141,6 @@ class TranscriptWorker:
         for transcript in self.repository.list_transcripts_for_analysis(
             self.settings.model_name,
             ANALYSIS_VERSION,
-            self.settings.analysis_limit,
         ):
             company_name = transcript.get("company_name") or "Unknown"
             logger.info(

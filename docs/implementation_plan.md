@@ -620,8 +620,8 @@ Model Name
 
 Reuse previous result.
 
-No network inference budget is required. Bound work with
-`TRANSCRIPT_ANALYSIS_LIMIT` when GitHub Actions runtime needs to be reduced.
+No network inference budget is required. Each scheduled worker drains all
+pending transcript analyses; the GitHub Actions job timeout bounds a stalled run.
 
 24. Error Handling
 

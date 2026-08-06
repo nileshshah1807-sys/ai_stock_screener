@@ -23,7 +23,6 @@ jobs:
       TRANSCRIPT_OCR_ENABLED: "true"
       TRANSCRIPT_MAX_PAGES: "120"
       TRANSCRIPT_MIN_TEXT_CHARACTERS: "1000"
-      TRANSCRIPT_ANALYSIS_LIMIT: "100"
     steps:
       - uses: actions/checkout@v4
 

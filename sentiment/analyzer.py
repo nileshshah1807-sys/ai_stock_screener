@@ -12,7 +12,7 @@ from .local_analyzer import LocalSentimentAnalyzer
 from .schemas import ChunkSentiment
 
 
-ANALYSIS_VERSION = "v2-local-textblob-finance-lexicon"
+ANALYSIS_VERSION = "v3-local-textblob-finance-lexicon"
 
 
 def analyze_transcript(cleaned_text: str) -> dict[str, Any]:
@@ -43,8 +43,9 @@ def aggregate_sentiments(analyses: list[ChunkSentiment], chunks: list[Transcript
     }
     direction_votes: defaultdict[str, int] = defaultdict(int)
     for analysis, chunk in zip(analyses, chunks):
-        direction_votes[analysis.guidance_direction] += max(1, chunk.estimated_tokens)
-    output["guidance_direction"] = max(direction_votes, key=direction_votes.get)
+        if analysis.guidance_direction != "unclear":
+            direction_votes[analysis.guidance_direction] += max(1, chunk.estimated_tokens)
+    output["guidance_direction"] = max(direction_votes, key=direction_votes.get) if direction_votes else "unclear"
     for key in ("revenue_outlook", "margin_outlook", "demand_outlook"):
         output[key] = next((getattr(analysis, key) for analysis in analyses if getattr(analysis, key)), "")
     for key in ("catalysts", "risks", "evidence"):

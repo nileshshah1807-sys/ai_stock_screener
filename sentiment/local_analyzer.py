@@ -22,9 +22,21 @@ UNCERTAINTY_TERMS = {
     "cautious", "could", "may", "risk", "risks", "uncertain", "uncertainty",
     "visibility", "volatile",
 }
-RAISED_GUIDANCE = ("raise guidance", "raised guidance", "increase guidance", "upward revision")
-LOWERED_GUIDANCE = ("lower guidance", "lowered guidance", "cut guidance", "withdraw guidance")
-MAINTAINED_GUIDANCE = ("maintain guidance", "maintained guidance", "reaffirm guidance", "reaffirmed guidance")
+RAISED_GUIDANCE = re.compile(
+    r"\b(?:raise[ds]?|increase[ds]?|upgrade[ds]?|revis(?:e[ds]?|ion)\s+upward)\s+(?:our\s+)?"
+    r"(?:guidance|outlook|forecast|expectations?)\b",
+    re.IGNORECASE,
+)
+LOWERED_GUIDANCE = re.compile(
+    r"\b(?:lower(?:ed|ing)?|cut|withdraw(?:n)?|reduce[ds]?|revis(?:e[ds]?|ion)\s+downward)\s+(?:our\s+)?"
+    r"(?:guidance|outlook|forecast|expectations?)\b",
+    re.IGNORECASE,
+)
+MAINTAINED_GUIDANCE = re.compile(
+    r"\b(?:maintain(?:ed|ing)?|reaffirm(?:ed|ing)?|stand(?:ing)?\s+by|unchanged|remain(?:s|ed)?\s+unchanged)"
+    r"\s+(?:our\s+)?(?:guidance|outlook|forecast|expectations?)\b",
+    re.IGNORECASE,
+)
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _WORD = re.compile(r"[a-zA-Z']+")
 
@@ -83,12 +95,11 @@ def _weighted_polarity(sentences: list[str]) -> float:
 
 
 def _guidance_direction(text: str) -> str:
-    normalized = text.lower()
-    if any(phrase in normalized for phrase in LOWERED_GUIDANCE):
+    if LOWERED_GUIDANCE.search(text):
         return "lowered"
-    if any(phrase in normalized for phrase in RAISED_GUIDANCE):
+    if RAISED_GUIDANCE.search(text):
         return "raised"
-    if any(phrase in normalized for phrase in MAINTAINED_GUIDANCE):
+    if MAINTAINED_GUIDANCE.search(text):
         return "maintained"
     return "unclear"
 

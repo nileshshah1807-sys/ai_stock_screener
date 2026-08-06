@@ -68,10 +68,11 @@ create index if not exists transcript_sentiments_transcript_idx on transcript_se
 create index if not exists transcript_sentiments_analysis_lookup_idx
     on transcript_sentiments(transcript_id, model_name, analysis_version);
 
-create or replace function pending_transcripts_for_analysis(
+drop function if exists pending_transcripts_for_analysis(text, text, integer);
+
+create function pending_transcripts_for_analysis(
     requested_model_name text,
-    requested_analysis_version text,
-    requested_limit integer default 25
+    requested_analysis_version text
 )
 returns table (
     id uuid,
@@ -107,7 +108,6 @@ as $$
             and s.analysis_version = requested_analysis_version
       )
     order by t.call_date desc nulls last, t.created_at desc
-    limit greatest(1, least(requested_limit, 250));
 $$;
 
 create or replace function set_transcript_filing_updated_at()
