@@ -35,9 +35,9 @@ REVERSE_DCF_DISCOUNT_RATE = 0.11
 REVERSE_DCF_TERMINAL_GROWTH = 0.04
 REVERSE_DCF_BASE_GROWTH = 0.15
 
-# Fresh transcript sentiment is the primary ranking signal when available.
+# Treat transcript sentiment as a research feature until backtests support more weight.
 TRANSCRIPT_SENTIMENT_ENABLED = True
-TRANSCRIPT_SENTIMENT_WEIGHT = 0.80
+TRANSCRIPT_SENTIMENT_WEIGHT = 0.05
 TRANSCRIPT_MIN_TECHNICAL_SCORE = 45.0
 TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE = 60.0
 SUPABASE_URL = "https://YOUR_PROJECT.supabase.co"

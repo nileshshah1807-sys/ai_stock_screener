@@ -9,3 +9,5 @@ PyMuPDF>=1.27.1
 pytesseract>=0.3.10
 Pillow>=10.0.0
 textblob>=0.19.0
+torch>=2.2.0
+transformers>=4.40.0

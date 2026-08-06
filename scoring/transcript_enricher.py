@@ -45,6 +45,8 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Risk"] = np.nan
         enriched["Transcript_Management_Confidence"] = np.nan
         enriched["Transcript_Optimism_QoQ_Delta"] = np.nan
+        enriched["Transcript_Uncertainty_QoQ_Delta"] = np.nan
+        enriched["Transcript_Previous_Guidance"] = ""
         enriched["Transcript_Call_Date"] = ""
         enriched["Transcript_Summary"] = "No transcript"
         enriched["Transcript_Priority_Applied"] = False
@@ -78,6 +80,8 @@ class TranscriptSentimentEnricher:
             enriched.at[index, "Transcript_Risk"] = _number(record.get("risk_score"))
             enriched.at[index, "Transcript_Management_Confidence"] = _number(record.get("management_confidence"))
             enriched.at[index, "Transcript_Optimism_QoQ_Delta"] = _number(record.get("optimism_qoq_delta"))
+            enriched.at[index, "Transcript_Uncertainty_QoQ_Delta"] = _number(record.get("uncertainty_qoq_delta"))
+            enriched.at[index, "Transcript_Previous_Guidance"] = record.get("previous_guidance_direction", "")
             enriched.at[index, "Transcript_Call_Date"] = record.get("call_date") or ""
             enriched.at[index, "Transcript_Summary"] = _summary(
                 score,
@@ -89,7 +93,7 @@ class TranscriptSentimentEnricher:
                 _number(record.get("management_confidence")),
             )
 
-        priority_weight = _weight(getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.80))
+        priority_weight = _weight(getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.05))
         minimum_technical_score = _score_threshold(
             getattr(self.config, "TRANSCRIPT_MIN_TECHNICAL_SCORE", 45.0),
             45.0,
@@ -149,9 +153,9 @@ class TranscriptSentimentEnricher:
 
 
 def rank_by_transcript_priority(scored_df):
-    """Rank fresh transcript coverage first, then the sentiment-weighted final score."""
+    """Rank by final score; use validated fresh transcript coverage only as a tie-breaker."""
     ranked = scored_df.sort_values(
-        ["Transcript_Priority_Applied", "Final_Score"],
+        ["Final_Score", "Transcript_Priority_Applied"],
         ascending=[False, False],
     ).reset_index(drop=True)
     ranked["Rank"] = range(1, len(ranked) + 1)
@@ -169,7 +173,7 @@ def _weight(value):
     try:
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
-        return 0.80
+        return 0.05
 
 
 def _score_threshold(value, default):

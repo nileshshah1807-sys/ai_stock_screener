@@ -166,7 +166,8 @@ class SupabaseRepository:
             return []
         base_select = (
             "symbol,call_date,overall_score,optimism_score,guidance_score,"
-            "risk_score,management_confidence,guidance_direction,optimism_qoq_delta"
+            "risk_score,management_confidence,guidance_direction,optimism_qoq_delta,"
+            "uncertainty_qoq_delta,previous_guidance_direction"
         )
         params = {
             "symbol": f"in.({','.join(symbols)})",

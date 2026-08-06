@@ -76,9 +76,10 @@ repository activity. Re-enable the workflow in the Actions tab if that occurs.
 Transcript collection runs independently at 10:00, 17:00, and 21:00 IST. It
 discovers NSE earnings-call transcripts, keeps PDFs only for the duration of the
 job, stores cleaned text and structured results in Supabase, and writes a
-sentiment summary in the report tables. A fresh available transcript has the
-highest ranking priority and contributes 80% of its `Final_Score`; stocks
-without a fresh transcript retain their normal score. A transcript receives
+sentiment summary in the report tables. A fresh available transcript starts as
+a 5% research feature of its `Final_Score`; stocks without a fresh transcript
+retain their normal score. Increase this only after out-of-sample backtesting.
+A transcript receives
 full priority only when its technical score is at least 60 and its trend is
 confirmed. Scores from 45 to 59.99 with a confirmed trend receive half the
 sentiment weight and are capped at `HOLD`; weak or unconfirmed trends receive
@@ -106,10 +107,13 @@ revenue, margin, risk, and management-confidence signals instead of displaying
 
 The service-role key is intentionally used only by GitHub Actions and the
 server-side daily screener. Never expose it to a browser or commit it to the
-repository. Sentiment runs locally with TextBlob sentence polarity supplemented
-by a transparent financial positive, negative, uncertainty, and guidance
-lexicon; it requires no model API key or paid fallback. This is a reproducible
-heuristic signal, not investment advice or a predictive model.
+repository. Sentiment runs locally with FinBERT sentence scoring when the model
+is available, a transparent financial positive/negative/uncertainty/constraint
+lexicon, explicit guidance rules, and prepared-remarks versus management-Q&A
+comparisons. TextBlob remains a baseline and disagreement diagnostic. Set
+`TRANSCRIPT_ENABLE_FINBERT=false` to use the deterministic fallback without
+loading the model. This is a research feature, not investment advice or a
+predictive model.
 
 Supabase Free currently provides a 500 MB database and pauses a project after a
 week without activity. The three scheduled worker runs keep the project active;

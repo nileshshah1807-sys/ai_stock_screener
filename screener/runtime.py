@@ -164,9 +164,9 @@ class Config:
     REVERSE_DCF_MIN_VALID_FCF_YIELD = _env_float("REVERSE_DCF_MIN_VALID_FCF_YIELD", 0.005)
     REVERSE_DCF_RANKING_WEIGHT = _env_float("REVERSE_DCF_RANKING_WEIGHT", 0.20)
 
-    # --- Earnings transcript sentiment (primary ranking signal when available) ---
+    # --- Earnings transcript sentiment (research feature; backtest before increasing) ---
     TRANSCRIPT_SENTIMENT_ENABLED = _env_bool("TRANSCRIPT_SENTIMENT_ENABLED", True)
-    TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 0.80)
+    TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 0.05)
     TRANSCRIPT_MIN_TECHNICAL_SCORE = _env_float("TRANSCRIPT_MIN_TECHNICAL_SCORE", 45.0)
     TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE = _env_float("TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE", 60.0)
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")

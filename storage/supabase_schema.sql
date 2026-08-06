@@ -128,6 +128,14 @@ before update on transcript_filings
 for each row execute function set_transcript_filing_updated_at();
 
 create or replace view transcript_sentiment_history as
+with latest_analysis_per_transcript as (
+    select
+        s.*,
+        row_number() over (
+            partition by s.transcript_id order by s.created_at desc
+        ) as analysis_rank
+    from transcript_sentiments s
+)
 select
     t.symbol,
     t.call_date,
@@ -144,9 +152,17 @@ select
     row_number() over (
         partition by t.symbol order by t.call_date desc nulls last, s.created_at desc
     ) as sentiment_rank,
-    s.structured_output
+    s.structured_output,
+    nullif(s.structured_output ->> 'uncertainty_density', '')::numeric as uncertainty_density,
+    lag(nullif(s.structured_output ->> 'uncertainty_density', '')::numeric) over (
+        partition by t.symbol order by t.call_date nulls last, s.created_at
+    ) as previous_uncertainty_density,
+    lag(s.guidance_direction) over (
+        partition by t.symbol order by t.call_date nulls last, s.created_at
+    ) as previous_guidance_direction
 from transcripts t
-join transcript_sentiments s on s.transcript_id = t.id;
+join latest_analysis_per_transcript s on s.transcript_id = t.id
+where s.analysis_rank = 1;
 
 create or replace view latest_transcript_sentiment as
 select
@@ -159,7 +175,9 @@ select
     management_confidence,
     guidance_direction,
     optimism_score - previous_optimism_score as optimism_qoq_delta,
-    structured_output
+    structured_output,
+    uncertainty_density - previous_uncertainty_density as uncertainty_qoq_delta,
+    previous_guidance_direction
 from transcript_sentiment_history
 where sentiment_rank = 1;
 

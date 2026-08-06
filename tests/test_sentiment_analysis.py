@@ -91,6 +91,37 @@ class SentimentAnalysisTests(unittest.TestCase):
             "lowered",
         )
 
+    def test_local_analyzer_reports_financial_risk_and_baseline_features(self):
+        result = LocalSentimentAnalyzer().analyze_chunk(
+            "[management_answer] CFO: We may face commodity inflation and supply constraints."
+        )
+
+        self.assertEqual(result["section"], "management_answer")
+        self.assertGreater(result["uncertainty_density"], 0)
+        self.assertGreater(result["constraint_density"], 0)
+        self.assertIn("textblob_polarity", result)
+        self.assertIn("finbert_score", result)
+
+    def test_aggregation_compares_prepared_remarks_with_management_qa(self):
+        analyses = [
+            ChunkSentiment.from_payload(sample_payload(optimism=80, management_confidence=85)),
+            ChunkSentiment.from_payload(sample_payload(optimism=50, management_confidence=55)),
+        ]
+        chunks = [
+            TranscriptChunk(0, "[prepared_remarks] CFO:\nDemand is strong.", 100),
+            TranscriptChunk(1, "[management_answer] CFO:\nRisks remain.", 100),
+        ]
+        payloads = [
+            {"textblob_polarity": 0.5, "finbert_score": 0.4, "uncertainty_density": 0.01},
+            {"textblob_polarity": 0.0, "finbert_score": -0.2, "uncertainty_density": 0.05},
+        ]
+
+        result = aggregate_sentiments(analyses, chunks, payloads)
+
+        self.assertEqual(result["prepared_vs_qa_tone_gap"], 30.0)
+        self.assertEqual(result["qa_confidence_drop"], 30.0)
+        self.assertTrue(result["review_flag"])
+
 
 if __name__ == "__main__":
     unittest.main()

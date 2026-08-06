@@ -18,6 +18,8 @@ class FakeRepository:
             "management_confidence": 85,
             "guidance_direction": "maintained",
             "optimism_qoq_delta": 10,
+            "uncertainty_qoq_delta": -0.03,
+            "previous_guidance_direction": "raised",
         }]
 
 
@@ -65,8 +67,10 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertEqual(result["Combined_Score"].tolist(), [72.0, 65.0])
         self.assertEqual(result.loc[0, "Transcript_Status"], "Available")
         self.assertEqual(result.loc[0, "Transcript_Weighted_Score"], 60.0)
-        self.assertEqual(result.loc[0, "Final_Score"], 62.4)
+        self.assertEqual(result.loc[0, "Final_Score"], 71.4)
         self.assertEqual(result.loc[0, "Rating"], "BUY")
+        self.assertEqual(result.loc[0, "Transcript_Uncertainty_QoQ_Delta"], -0.03)
+        self.assertEqual(result.loc[0, "Transcript_Previous_Guidance"], "raised")
         self.assertTrue(result.loc[0, "Transcript_Priority_Applied"])
         self.assertEqual(result.loc[0, "Transcript_Summary"].split(" | ")[:2], ["80.0", "Maintained"])
         self.assertEqual(result.loc[1, "Transcript_Status"], "No transcript")
@@ -88,7 +92,7 @@ class TranscriptEnricherTests(unittest.TestCase):
 
         result = TranscriptSentimentEnricher(SimpleNamespace(), FakeRepository()).enrich(source)
 
-        self.assertEqual(result.loc[0, "Final_Score"], 63.0)
+        self.assertEqual(result.loc[0, "Final_Score"], 64.88)
         self.assertEqual(result.loc[0, "Rating"], "HOLD")
         self.assertFalse(result.loc[0, "Transcript_Priority_Applied"])
         self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Limited weight; HOLD cap")
