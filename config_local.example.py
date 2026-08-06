@@ -22,8 +22,8 @@ YFINANCE_CACHE_DIR = "reports_advanced/yfinance_cache"
 FUND_CACHE_MAX_AGE_DAYS = 30
 PRICE_CACHE_MAX_AGE_HOURS = 18
 
-# Generic ratio scoring cannot issue a BUY for sectors that need dedicated
-# risk/valuation inputs (for example, bank asset quality and capital ratios).
+# Financial Services and Real Estate have built-in sector models. Add a sector
+# here only when it should be capped until another dedicated model is written.
 SPECIALIZED_FUNDAMENTAL_SECTORS = ["Financial Services", "Real Estate"]
 
 SCAN_ALL_NSE = False

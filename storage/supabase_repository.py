@@ -164,12 +164,18 @@ class SupabaseRepository:
     def latest_sentiments(self, symbols: list[str]) -> list[dict[str, Any]]:
         if not symbols:
             return []
-        return self._request(
-            "GET",
-            "latest_transcript_sentiment",
-            params={
-                "symbol": f"in.({','.join(symbols)})",
-                "select": "symbol,call_date,overall_score,optimism_score,guidance_score,"
-                "risk_score,management_confidence,guidance_direction,optimism_qoq_delta",
-            },
+        base_select = (
+            "symbol,call_date,overall_score,optimism_score,guidance_score,"
+            "risk_score,management_confidence,guidance_direction,optimism_qoq_delta"
         )
+        params = {
+            "symbol": f"in.({','.join(symbols)})",
+            "select": f"{base_select},structured_output",
+        }
+        try:
+            return self._request("GET", "latest_transcript_sentiment", params=params)
+        except requests.HTTPError as exc:
+            if exc.response is None or exc.response.status_code != 400:
+                raise
+            params["select"] = base_select
+            return self._request("GET", "latest_transcript_sentiment", params=params)

@@ -2,6 +2,26 @@
 
 Daily NSE stock screener with Reverse DCF analysis, CSV reports, dashboard output, and email delivery.
 
+## Project Layout
+
+`app.py` remains the deployment and scheduler entry point. It composes the
+workflow and re-exports the long-standing public classes for compatibility.
+Application behavior is organized under `screener/`:
+
+```text
+screener/
+   runtime.py          Configuration, local overrides, and runtime cache setup
+   market_data.py      Alternative data, technical indicators, caches, backtests
+   data_collection.py  NSE universe, price history, and fundamentals collection
+   scoring.py          Generic and sector-specific fundamental/technical scoring
+   valuation.py        Reverse DCF analysis and ranking enrichment
+   reporting.py        Dashboard, email, PDF, and WhatsApp reporting
+```
+
+Transcript ingestion and local NLP remain in `workers/`, `transcripts/`,
+`sentiment/`, and `storage/`. Run the daily screener with `python app.py` or
+schedule the same entry point with `python scheduler.py`.
+
 ## GitHub Actions
 
 The repository includes a scheduled GitHub Actions workflow that runs `app.py`
@@ -22,13 +42,14 @@ and cache entries unused for seven days can be removed. Caches must not contain
 credentials; this workflow only caches `reports_advanced/`, while Gmail values
 remain GitHub Secrets.
 
-The generic fundamental model will not issue a `BUY` or `STRONG BUY` for
-`Financial Services` or `Real Estate` classifications. These sectors remain in
-the ranking, but their generic ratios omit essential sector-specific risk inputs
-(such as bank asset quality/capital or real-estate NAV/project cash flows), so
-they are capped at `HOLD` until a dedicated model is added. Change
-`SPECIALIZED_FUNDAMENTAL_SECTORS` only when the corresponding specialized inputs
-and scoring logic are implemented.
+Fundamental scoring selects a model by sector. `Financial Services` uses an
+equity model based on PE/PB, ROE/ROA, profitability, growth, and dividends; it
+does not misuse operating debt, current ratio, or EV/EBITDA as bank quality
+signals. `Real Estate` uses an asset-oriented model based on PE/PB, leverage,
+liquidity, margins, and growth. Generic reverse DCF remains disabled for both
+sectors because the available feed lacks bank regulatory/asset-quality inputs
+and property-level NAV/project cash flows. The selected model is included in
+CSV, dashboard, email, and PDF output.
 
 ### Setup
 
@@ -62,6 +83,11 @@ full priority only when its technical score is at least 60 and its trend is
 confirmed. Scores from 45 to 59.99 with a confirmed trend receive half the
 sentiment weight and are capped at `HOLD`; weak or unconfirmed trends receive
 no sentiment uplift and are capped at `REDUCE`.
+
+When management gives no explicit raised/maintained/lowered guidance, the
+summary says `No explicit guidance` and adds commentary from the stored demand,
+revenue, margin, risk, and management-confidence signals instead of displaying
+`Unclear` alone.
 
 ### Supabase Setup
 

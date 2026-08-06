@@ -21,6 +21,26 @@ class FakeRepository:
         }]
 
 
+class UnclearGuidanceRepository:
+    def latest_sentiments(self, symbols):
+        return [{
+            "symbol": "RELIANCE",
+            "call_date": str(date.today()),
+            "overall_score": 68,
+            "risk_score": 42,
+            "management_confidence": 72,
+            "guidance_direction": "unclear",
+            "optimism_qoq_delta": 4,
+            "structured_output": {
+                "revenue_outlook": "positive",
+                "margin_outlook": "negative",
+                "demand_outlook": "positive",
+                "catalysts": ["Demand remained strong across core markets."],
+                "risks": ["Margins remain under pressure from input costs."],
+            },
+        }]
+
+
 class TranscriptEnricherTests(unittest.TestCase):
     def test_recency_weight_matches_policy_boundaries(self):
         today = date(2026, 8, 5)
@@ -89,6 +109,23 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertEqual(result.loc[0, "Rating"], "REDUCE")
         self.assertFalse(result.loc[0, "Transcript_Priority_Applied"])
         self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Trend not confirmed; REDUCE cap")
+
+    def test_unclear_guidance_summary_provides_evidence_based_commentary(self):
+        source = pd.DataFrame({
+            "Symbol": ["RELIANCE"],
+            "Combined_Score": [65.0],
+            "Rating": ["BUY"],
+            "Technical_Score": [65.0],
+            "Trend_Confirmed": [True],
+        })
+
+        result = TranscriptSentimentEnricher(SimpleNamespace(), UnclearGuidanceRepository()).enrich(source)
+        summary = result.loc[0, "Transcript_Summary"]
+
+        self.assertIn("No explicit guidance", summary)
+        self.assertIn("positive demand", summary)
+        self.assertIn("margin pressure", summary)
+        self.assertNotIn("Unclear", summary)
 
     def test_email_report_includes_transcript_summary_column(self):
         config = SimpleNamespace(

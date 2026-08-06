@@ -79,7 +79,15 @@ class TranscriptSentimentEnricher:
             enriched.at[index, "Transcript_Management_Confidence"] = _number(record.get("management_confidence"))
             enriched.at[index, "Transcript_Optimism_QoQ_Delta"] = _number(record.get("optimism_qoq_delta"))
             enriched.at[index, "Transcript_Call_Date"] = record.get("call_date") or ""
-            enriched.at[index, "Transcript_Summary"] = _summary(score, record.get("guidance_direction"), record.get("call_date"), weight)
+            enriched.at[index, "Transcript_Summary"] = _summary(
+                score,
+                record.get("guidance_direction"),
+                record.get("call_date"),
+                weight,
+                record.get("structured_output"),
+                _number(record.get("risk_score")),
+                _number(record.get("management_confidence")),
+            )
 
         priority_weight = _weight(getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.80))
         minimum_technical_score = _score_threshold(
@@ -183,8 +191,39 @@ def _rating_from_score(score):
     return "SELL"
 
 
-def _summary(score, guidance, call_date, recency_weight_value):
+def _summary(
+    score,
+    guidance,
+    call_date,
+    recency_weight_value,
+    structured_output=None,
+    risk_score=None,
+    management_confidence=None,
+):
     if score is None or not recency_weight_value:
         return "Expired"
-    direction = str(guidance or "unclear").replace("_", " ").title()
-    return f"{score:.1f} | {direction} | {str(call_date)[:10]}"
+    direction = str(guidance or "unclear").strip().lower()
+    if direction != "unclear":
+        return f"{score:.1f} | {direction.replace('_', ' ').title()} | {str(call_date)[:10]}"
+
+    details = structured_output if isinstance(structured_output, dict) else {}
+    commentary = ["No explicit guidance"]
+    demand_outlook = str(details.get("demand_outlook") or "").strip().lower()
+    revenue_outlook = str(details.get("revenue_outlook") or "").strip().lower()
+    margin_outlook = str(details.get("margin_outlook") or "").strip().lower()
+    if demand_outlook in {"positive", "negative", "neutral"}:
+        commentary.append(f"{demand_outlook} demand")
+    if revenue_outlook in {"positive", "negative", "neutral"}:
+        commentary.append(f"{revenue_outlook} revenue")
+    if margin_outlook == "negative":
+        commentary.append("margin pressure")
+    elif margin_outlook in {"positive", "neutral"}:
+        commentary.append(f"{margin_outlook} margins")
+    if len(commentary) == 1:
+        tone = "positive" if score >= 60 else "cautious" if score < 45 else "balanced"
+        commentary.append(f"{tone} overall tone")
+        if risk_score is not None:
+            commentary.append("elevated risk" if risk_score >= 60 else "moderate risk" if risk_score >= 40 else "contained risk")
+        if management_confidence is not None and management_confidence >= 65:
+            commentary.append("confident management tone")
+    return f"{score:.1f} | {'; '.join(commentary)} | {str(call_date)[:10]}"

@@ -68,7 +68,11 @@ create index if not exists transcript_sentiments_transcript_idx on transcript_se
 create index if not exists transcript_sentiments_analysis_lookup_idx
     on transcript_sentiments(transcript_id, model_name, analysis_version);
 
+-- The original RPC accepted a queue-limit argument; the current worker drains
+-- all pending transcripts and uses two arguments. PostgreSQL overloads by
+-- argument list, so remove both signatures before recreating the active RPC.
 drop function if exists pending_transcripts_for_analysis(text, text, integer);
+drop function if exists pending_transcripts_for_analysis(text, text);
 
 create function pending_transcripts_for_analysis(
     requested_model_name text,
@@ -139,7 +143,8 @@ select
     ) as previous_optimism_score,
     row_number() over (
         partition by t.symbol order by t.call_date desc nulls last, s.created_at desc
-    ) as sentiment_rank
+    ) as sentiment_rank,
+    s.structured_output
 from transcripts t
 join transcript_sentiments s on s.transcript_id = t.id;
 
@@ -153,7 +158,8 @@ select
     risk_score,
     management_confidence,
     guidance_direction,
-    optimism_score - previous_optimism_score as optimism_qoq_delta
+    optimism_score - previous_optimism_score as optimism_qoq_delta,
+    structured_output
 from transcript_sentiment_history
 where sentiment_rank = 1;
 
