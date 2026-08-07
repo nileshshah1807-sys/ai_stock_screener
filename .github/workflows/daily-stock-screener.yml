@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           today="$(date -u +%F)"
-          successful_runs="$(gh run list --workflow daily-stock-screener.yml --event schedule --status success --limit 20 --json createdAt --jq '.[].createdAt')"
+          successful_runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow daily-stock-screener.yml --event schedule --status success --limit 20 --json createdAt --jq '.[].createdAt')"
           if grep -q "^${today}T" <<< "${successful_runs}"; then
             echo "skip=true" >> "${GITHUB_OUTPUT}"
             echo "A scheduled screener run already succeeded on ${today}; skipping fallback."
