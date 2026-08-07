@@ -111,7 +111,7 @@ class Config:
     WHATSAPP_TOP_COUNT = _env_int("WHATSAPP_TOP_COUNT", 10)
     NEWS_SENTIMENT_TOP_N = _env_int("NEWS_SENTIMENT_TOP_N", 20)     # fetch news sentiment for top N picks only
     PRICE_CACHE_MAX_AGE_HOURS = _env_int("PRICE_CACHE_MAX_AGE_HOURS", 18)
-    FUND_CACHE_MAX_AGE_DAYS = _env_int("FUND_CACHE_MAX_AGE_DAYS", 30)   # fundamentals change slowly; keep cached data longer on Railway
+    FUND_CACHE_MAX_AGE_DAYS = _env_int("FUND_CACHE_MAX_AGE_DAYS", 7)
 
     # --- P3: liquidity pre-filter (applied before the slow fundamentals stage) ---
     LIQUIDITY_FILTER_ENABLED = _env_bool("LIQUIDITY_FILTER_ENABLED", True)
@@ -124,6 +124,12 @@ class Config:
     # --- P2: data-completeness gate ---
     REQUIRE_FUND_DATA_FOR_BUY = _env_bool("REQUIRE_FUND_DATA_FOR_BUY", True)
     MIN_FUND_KEY_FIELDS = _env_int("MIN_FUND_KEY_FIELDS", 3)       # of: PE_Ratio, ROE, Profit_Margin, Revenue_Growth
+
+    # A valuation/fundamental score may identify a research candidate, but BUY
+    # still requires a constructive medium-term chart.
+    REQUIRE_UPTREND_FOR_BUY = _env_bool("REQUIRE_UPTREND_FOR_BUY", True)
+    BUY_MIN_MA50_SLOPE = _env_float("BUY_MIN_MA50_SLOPE", 0.0)
+    BUY_MIN_3M_RETURN = _env_float("BUY_MIN_3M_RETURN", 0.0)
 
     # Sectors listed here must use a dedicated fundamental branch rather than
     # generic industrial-company ratios before they can receive a BUY rating.
@@ -153,7 +159,7 @@ class Config:
     # embedded in the current market cap, rather than publishing a single target price.
     REVERSE_DCF_ENABLED = _env_bool("REVERSE_DCF_ENABLED", True)
     REVERSE_DCF_FORECAST_YEARS = _env_int("REVERSE_DCF_FORECAST_YEARS", 5)
-    REVERSE_DCF_DISCOUNT_RATE = _env_float("REVERSE_DCF_DISCOUNT_RATE", 0.11)          # WACC / required return
+    REVERSE_DCF_DISCOUNT_RATE = _env_float("REVERSE_DCF_DISCOUNT_RATE", 0.11)          # required equity return for the Yahoo FCF proxy
     REVERSE_DCF_TERMINAL_GROWTH = _env_float("REVERSE_DCF_TERMINAL_GROWTH", 0.04)       # fixed terminal growth for implied FCF CAGR
     REVERSE_DCF_BASE_GROWTH = _env_float("REVERSE_DCF_BASE_GROWTH", 0.15)           # explicit growth for implied terminal growth
     REVERSE_DCF_FCF_MARGIN_FALLBACK = _env_float("REVERSE_DCF_FCF_MARGIN_FALLBACK", 0.08)   # used only when FCF is missing but revenue exists
@@ -162,13 +168,17 @@ class Config:
     REVERSE_DCF_MIN_TERMINAL_GROWTH = _env_float("REVERSE_DCF_MIN_TERMINAL_GROWTH", -0.05)
     REVERSE_DCF_MAX_TERMINAL_GROWTH = _env_float("REVERSE_DCF_MAX_TERMINAL_GROWTH", 0.09)
     REVERSE_DCF_MIN_VALID_FCF_YIELD = _env_float("REVERSE_DCF_MIN_VALID_FCF_YIELD", 0.005)
-    REVERSE_DCF_RANKING_WEIGHT = _env_float("REVERSE_DCF_RANKING_WEIGHT", 0.20)
+    REVERSE_DCF_RANKING_WEIGHT = _env_float("REVERSE_DCF_RANKING_WEIGHT", 0.10)
 
     # --- Earnings transcript sentiment (research feature; backtest before increasing) ---
     TRANSCRIPT_SENTIMENT_ENABLED = _env_bool("TRANSCRIPT_SENTIMENT_ENABLED", True)
     TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 0.05)
+    REQUIRE_TRANSCRIPT_FOR_STRONG_BUY = _env_bool("REQUIRE_TRANSCRIPT_FOR_STRONG_BUY", True)
     TRANSCRIPT_MIN_TECHNICAL_SCORE = _env_float("TRANSCRIPT_MIN_TECHNICAL_SCORE", 45.0)
     TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE = _env_float("TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE", 60.0)
+    TRANSCRIPT_MIN_PRIORITY_SCORE = _env_float("TRANSCRIPT_MIN_PRIORITY_SCORE", 55.0)
+    TRANSCRIPT_MAX_PRIORITY_RISK = _env_float("TRANSCRIPT_MAX_PRIORITY_RISK", 60.0)
+    TRANSCRIPT_FAIL_ON_ERROR = _env_bool("TRANSCRIPT_FAIL_ON_ERROR", True)
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
     SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     SUPABASE_TIMEOUT_SECONDS = _env_int("SUPABASE_TIMEOUT_SECONDS", 30)

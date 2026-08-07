@@ -23,19 +23,28 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class TranscriptSettings:
-    lookback_days: int = 7
+    lookback_days: int = 120
     max_pages: int = 120
     min_text_characters: int = 1000
     enable_ocr: bool = True
     model_name: str = "textblob-finance-lexicon"
+    max_documents_per_run: int = 60
+    max_analyses_per_run: int = 60
 
     @classmethod
     def from_environment(cls) -> "TranscriptSettings":
+        finbert_enabled = os.getenv("TRANSCRIPT_ENABLE_FINBERT", "1").lower() in {
+            "1", "true", "yes"
+        }
         return cls(
-            lookback_days=int(os.getenv("TRANSCRIPT_LOOKBACK_DAYS", "7")),
+            lookback_days=int(os.getenv("TRANSCRIPT_LOOKBACK_DAYS", "120")),
             max_pages=int(os.getenv("TRANSCRIPT_MAX_PAGES", "120")),
             min_text_characters=int(os.getenv("TRANSCRIPT_MIN_TEXT_CHARACTERS", "1000")),
             enable_ocr=os.getenv("TRANSCRIPT_OCR_ENABLED", "true").lower() in {"1", "true", "yes"},
+            model_name=os.getenv("TRANSCRIPT_MODEL_NAME", "").strip()
+            or ("finbert-finance-hybrid" if finbert_enabled else "textblob-finance-lexicon"),
+            max_documents_per_run=max(1, int(os.getenv("TRANSCRIPT_MAX_DOCUMENTS_PER_RUN", "60"))),
+            max_analyses_per_run=max(1, int(os.getenv("TRANSCRIPT_MAX_ANALYSES_PER_RUN", "60"))),
         )
 
 
@@ -53,6 +62,12 @@ class TranscriptWorker:
         with TemporaryDirectory(prefix="nse_transcripts_") as temporary_directory:
             download_directory = Path(temporary_directory)
             for record in records:
+                if summary["documents_ready"] >= self.settings.max_documents_per_run:
+                    logger.info(
+                        "Transcript collection batch limit reached: %s document(s)",
+                        self.settings.max_documents_per_run,
+                    )
+                    break
                 try:
                     if self._process_filing(record, download_directory):
                         summary["documents_ready"] += 1
@@ -138,10 +153,12 @@ class TranscriptWorker:
 
     def _analyze_pending_transcripts(self) -> dict[str, int]:
         summary = {"analyzed": 0, "deferred": 0}
-        for transcript in self.repository.list_transcripts_for_analysis(
+        pending = self.repository.list_transcripts_for_analysis(
             self.settings.model_name,
             ANALYSIS_VERSION,
-        ):
+            self.settings.max_analyses_per_run,
+        )
+        for transcript in pending[:self.settings.max_analyses_per_run]:
             company_name = transcript.get("company_name") or "Unknown"
             logger.info(
                 "Analyzing transcript: id=%s symbol=%s company=%s call_date=%s model=%s",
@@ -210,6 +227,8 @@ def main() -> None:
     settings = TranscriptSettings.from_environment()
     summary = TranscriptWorker(SupabaseRepository.from_environment(), settings).run()
     logger.info("Transcript worker summary: %s", summary)
+    if summary["deferred"] and not summary["analyzed"]:
+        raise RuntimeError("Every pending transcript analysis failed or was deferred")
 
 
 if __name__ == "__main__":

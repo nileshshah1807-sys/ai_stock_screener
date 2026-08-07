@@ -185,6 +185,7 @@ class EmailReporter:
             css = "tag-" + str(r["Rating"]).lower().replace(" ", "-")
             wt = f"F {r.get('Dynamic_Weight_Fund', 0.7):.0%} / T {r.get('Dynamic_Weight_Tech', 0.3):.0%}"
             capped_star = "*" if r.get("Rating_Capped") else ""
+            rating_gate = r.get("Rating_Cap_Reason") or r.get("Strong_Buy_Gate_Reason") or "passed"
             rows += (
                 f"<tr><td>{int(r['Rank'])}</td><td><b>{r['Symbol']}</b></td>"
                 f"<td>₹{r['Current_Price']:,.0f}</td>"
@@ -201,13 +202,14 @@ class EmailReporter:
                 f"<td>{fmt_f(r.get('Pct_Change_3M'), 1)}%</td>"
                 f"<td>{fmt_f(r.get('MA50_Slope_Pct'), 1)}%</td>"
                 f"<td>{fmt_f(r.get('ADX_Plus_DI'), 1)} / {fmt_f(r.get('ADX_Minus_DI'), 1)}</td>"
-                f"<td>{r.get('Strong_Buy_Gate_Reason') or 'passed'}</td>"
+                f"<td>{rating_gate}</td>"
                 f"<td>{r.get('Fundamental_Model', 'Generic Fundamental Model')}</td>"
                 f"<td>{r['Combined_Score']:.1f}</td>"
                 f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                 f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                 f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
                 f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
+                f"<td>{r.get('Transcript_Quality_Gate', 'No transcript')}</td>"
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
             dcf_rows += (
@@ -249,15 +251,15 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
 <div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>SB Gate</th><th>Fundamental Model</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Transcript Quality Gate</th><th>Rating</th></tr>
 {rows}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
-<p>Model uses a 5-year explicit forecast and a {fmt_pct(self.config.REVERSE_DCF_DISCOUNT_RATE)} discount rate. "Expected Growth" is a sector- and size-aware benchmark (mature/mega-cap sectors get a lower bar, high-growth/small-cap names get a higher one) used as the explicit growth assumption; {fmt_pct(self.config.REVERSE_DCF_TERMINAL_GROWTH)} fixed terminal growth is used when solving for implied FCF CAGR.</p>
+<p>Model uses a 5-year explicit forecast and a {fmt_pct(self.config.REVERSE_DCF_DISCOUNT_RATE)} required equity return. Yahoo's operating-cash-flow-less-capex field is treated as an equity cash-flow proxy, not mislabeled as FCFF. "Expected Growth" is a sector- and size-aware benchmark used as the explicit growth assumption; {fmt_pct(self.config.REVERSE_DCF_TERMINAL_GROWTH)} fixed terminal growth is used when solving for implied FCF CAGR.</p>
 <table><tr><th>Rank</th><th>Symbol</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows}
 </table></div>
-<div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported FCF produces a valid DCF result; otherwise Final equals Base. Reverse DCF compares market cap to discounted free cash flow and solves for assumptions implied by today's price. * = rating capped at HOLD due to insufficient fundamental data. Not investment advice — consult a SEBI-registered advisor.</p></div>
+<div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported cash flow produces a valid proxy result; otherwise Final equals Base. Reverse DCF compares market cap to a discounted equity cash-flow proxy and solves for assumptions implied by today's price. * = rating capped at HOLD by a data-quality, model, or price-trend gate. Not investment advice — consult a SEBI-registered advisor.</p></div>
 </body></html>"""
         return html
 

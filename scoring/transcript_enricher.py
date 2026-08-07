@@ -7,6 +7,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from screener.scoring import RATING_ORDER
 from storage.supabase_repository import SupabaseRepository
 
 
@@ -50,8 +51,11 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Call_Date"] = ""
         enriched["Transcript_Summary"] = "No transcript"
         enriched["Transcript_Priority_Applied"] = False
+        enriched["Transcript_Strong_Buy_Capped"] = False
         enriched["Transcript_Technical_Gate"] = "No transcript"
+        enriched["Transcript_Quality_Gate"] = "No transcript"
         enriched["Final_Score"] = base_scores
+        base_ratings = enriched["Rating"].copy() if "Rating" in enriched else None
 
         repository = self.repository
         if repository is None:
@@ -74,7 +78,13 @@ class TranscriptSentimentEnricher:
             score = _number(record.get("overall_score"))
             enriched.at[index, "Transcript_Status"] = "Available" if weight else "Expired"
             enriched.at[index, "Transcript_Score"] = score
-            enriched.at[index, "Transcript_Weighted_Score"] = round(score * weight, 2) if score is not None else np.nan
+            # Age reduces confidence in the signal, not the score's absolute
+            # level. Decay toward neutral (50), otherwise an old positive call
+            # is incorrectly transformed into a strongly negative score.
+            enriched.at[index, "Transcript_Weighted_Score"] = (
+                round(50.0 + (score - 50.0) * weight, 2)
+                if score is not None and weight else np.nan
+            )
             enriched.at[index, "Transcript_Recency_Weight"] = weight
             enriched.at[index, "Transcript_Guidance"] = record.get("guidance_direction", "")
             enriched.at[index, "Transcript_Risk"] = _number(record.get("risk_score"))
@@ -103,29 +113,57 @@ class TranscriptSentimentEnricher:
             _score_threshold(getattr(self.config, "TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE", 60.0), 60.0),
         )
         eligible = (enriched["Transcript_Status"] == "Available") & enriched["Transcript_Weighted_Score"].notna()
+        minimum_priority_score = _score_threshold(
+            getattr(self.config, "TRANSCRIPT_MIN_PRIORITY_SCORE", 55.0),
+            55.0,
+        )
+        maximum_priority_risk = _score_threshold(
+            getattr(self.config, "TRANSCRIPT_MAX_PRIORITY_RISK", 60.0),
+            60.0,
+        )
+        transcript_scores = pd.to_numeric(enriched["Transcript_Score"], errors="coerce")
+        transcript_risk = pd.to_numeric(enriched["Transcript_Risk"], errors="coerce")
+        lowered_guidance = enriched["Transcript_Guidance"].astype(str).str.lower().eq("lowered")
+        quality_eligible = (
+            eligible
+            & (transcript_scores >= minimum_priority_score)
+            & (transcript_risk.isna() | (transcript_risk <= maximum_priority_risk))
+            & ~lowered_guidance
+        )
+        enriched.loc[eligible, "Transcript_Quality_Gate"] = "Passed"
+        enriched.loc[eligible & (transcript_scores < minimum_priority_score), "Transcript_Quality_Gate"] = (
+            "Sentiment below priority threshold"
+        )
+        enriched.loc[eligible & (transcript_risk > maximum_priority_risk), "Transcript_Quality_Gate"] = (
+            "Risk above priority threshold"
+        )
+        enriched.loc[eligible & lowered_guidance, "Transcript_Quality_Gate"] = "Guidance lowered"
+        enriched.loc[eligible & ~quality_eligible, "Transcript_Technical_Gate"] = (
+            "No weight; transcript quality gate failed"
+        )
         technical_scores = pd.to_numeric(
             enriched.get("Technical_Score", pd.Series(np.nan, index=enriched.index)),
             errors="coerce",
         )
         trend_confirmed = enriched.get("Trend_Confirmed", pd.Series(False, index=enriched.index)).eq(True)
-        full_weight = eligible & (technical_scores >= full_weight_technical_score) & trend_confirmed
+        full_weight = quality_eligible & (technical_scores >= full_weight_technical_score) & trend_confirmed
         limited_weight = (
-            eligible
+            quality_eligible
             & (technical_scores >= minimum_technical_score)
             & trend_confirmed
             & ~full_weight
         )
-        weak_technical = eligible & ~full_weight & ~limited_weight
+        weak_technical = quality_eligible & ~full_weight & ~limited_weight
         enriched.loc[full_weight, "Transcript_Technical_Gate"] = "Full weight"
-        enriched.loc[limited_weight, "Transcript_Technical_Gate"] = "Limited weight; HOLD cap"
+        enriched.loc[limited_weight, "Transcript_Technical_Gate"] = "Limited weight; no rating promotion"
         enriched.loc[
-            eligible & ~trend_confirmed,
+            quality_eligible & ~trend_confirmed,
             "Transcript_Technical_Gate",
-        ] = "Trend not confirmed; REDUCE cap"
+        ] = "Trend not confirmed; no transcript weight"
         enriched.loc[
             weak_technical & trend_confirmed,
             "Transcript_Technical_Gate",
-        ] = "Weak technicals; REDUCE cap"
+        ] = "Weak technicals; no transcript weight"
         enriched["Transcript_Priority_Applied"] = full_weight
         enriched.loc[full_weight, "Final_Score"] = (
             base_scores.loc[full_weight] * (1 - priority_weight)
@@ -137,27 +175,58 @@ class TranscriptSentimentEnricher:
             + enriched.loc[limited_weight, "Transcript_Weighted_Score"] * limited_weight_value
         ).round(2)
         if "Rating" in enriched:
-            enriched.loc[eligible, "Rating"] = enriched.loc[eligible, "Final_Score"].map(_rating_from_score)
-            enriched.loc[limited_weight & enriched["Rating"].isin(["STRONG BUY", "BUY"]), "Rating"] = "HOLD"
+            blended_rows = full_weight | limited_weight
+            enriched.loc[blended_rows, "Rating"] = enriched.loc[blended_rows, "Final_Score"].map(_rating_from_score)
+            # Limited transcript weight may lower conviction, but it cannot
+            # promote a stock above the recommendation earned by the core model.
+            if base_ratings is not None:
+                promoted = limited_weight & (
+                    enriched["Rating"].map(RATING_ORDER).fillna(len(RATING_ORDER))
+                    < base_ratings.map(RATING_ORDER).fillna(len(RATING_ORDER))
+                )
+                enriched.loc[promoted, "Rating"] = base_ratings.loc[promoted]
             if "Rating_Capped" in enriched:
                 enriched.loc[eligible & (enriched["Rating_Capped"] == True), "Rating"] = "HOLD"
-            if "Strong_Buy_Eligible" in enriched:
-                enriched.loc[
-                    eligible
-                    & (enriched["Rating"] == "STRONG BUY")
-                    & (enriched["Strong_Buy_Eligible"] != True),
-                    "Rating",
-                ] = "BUY"
-            enriched.loc[weak_technical, "Rating"] = "REDUCE"
+            strong_buy_eligible = enriched.get(
+                "Strong_Buy_Eligible",
+                pd.Series(False, index=enriched.index),
+            ).eq(True)
+            enriched.loc[
+                eligible
+                & (enriched["Rating"] == "STRONG BUY")
+                & ~strong_buy_eligible,
+                "Rating",
+            ] = "BUY"
+            require_transcript_for_strong_buy = bool(
+                getattr(self.config, "REQUIRE_TRANSCRIPT_FOR_STRONG_BUY", True)
+            )
+            transcript_required_cap = (
+                require_transcript_for_strong_buy
+                & (enriched["Rating"] == "STRONG BUY")
+                & ~quality_eligible
+            )
+            enriched.loc[transcript_required_cap, "Rating"] = "BUY"
+            enriched.loc[transcript_required_cap, "Transcript_Strong_Buy_Capped"] = True
+            enriched.loc[
+                transcript_required_cap,
+                "Transcript_Technical_Gate",
+            ] = "Fresh, quality transcript required for STRONG BUY"
         return enriched
 
 
 def rank_by_transcript_priority(scored_df):
-    """Rank by final score; use validated fresh transcript coverage only as a tie-breaker."""
-    ranked = scored_df.sort_values(
-        ["Final_Score", "Transcript_Priority_Applied"],
-        ascending=[False, False],
-    ).reset_index(drop=True)
+    """Preserve rating gates, then prioritize validated transcript coverage."""
+    ranked = (
+        scored_df.assign(
+            _Rating_Order=scored_df["Rating"].map(RATING_ORDER).fillna(len(RATING_ORDER))
+        )
+        .sort_values(
+            ["_Rating_Order", "Transcript_Priority_Applied", "Final_Score"],
+            ascending=[True, False, False],
+        )
+        .drop(columns="_Rating_Order")
+        .reset_index(drop=True)
+    )
     ranked["Rank"] = range(1, len(ranked) + 1)
     return ranked
 

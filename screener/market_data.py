@@ -103,6 +103,8 @@ class AlternativeData:
 # TECHNICAL INDICATORS
 # =====================================================
 class TechnicalEnhancer:
+    INDICATOR_VERSION = 3
+
     @staticmethod
     def _rsi(close, window=14):
         delta = close.diff()
@@ -123,10 +125,10 @@ class TechnicalEnhancer:
         "strong trend" only for uptrends need +DI/-DI too."""
         try:
             high, low, close = high.astype(float), low.astype(float), close.astype(float)
-            plus_dm = high.diff()
-            minus_dm = -low.diff()
-            plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
-            minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+            raw_plus_dm = high.diff()
+            raw_minus_dm = -low.diff()
+            plus_dm = raw_plus_dm.where((raw_plus_dm > raw_minus_dm) & (raw_plus_dm > 0), 0.0)
+            minus_dm = raw_minus_dm.where((raw_minus_dm > raw_plus_dm) & (raw_minus_dm > 0), 0.0)
             tr = pd.concat(
                 [
                     high - low,
@@ -135,11 +137,11 @@ class TechnicalEnhancer:
                 ],
                 axis=1,
             ).max(axis=1)
-            atr = tr.ewm(alpha=1 / window, min_periods=window).mean()
-            plus_di = 100 * plus_dm.ewm(alpha=1 / window, min_periods=window).mean() / atr
-            minus_di = 100 * minus_dm.ewm(alpha=1 / window, min_periods=window).mean() / atr
+            atr = tr.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
+            plus_di = 100 * plus_dm.ewm(alpha=1 / window, adjust=False, min_periods=window).mean() / atr
+            minus_di = 100 * minus_dm.ewm(alpha=1 / window, adjust=False, min_periods=window).mean() / atr
             dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
-            adx = dx.ewm(alpha=1 / window, min_periods=window).mean()
+            adx = dx.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
             val = adx.iloc[-1]
             plus_di_val = plus_di.iloc[-1]
             minus_di_val = minus_di.iloc[-1]
@@ -177,7 +179,7 @@ class TechnicalEnhancer:
                 ],
                 axis=1,
             ).max(axis=1)
-            atr = tr.rolling(window).mean()
+            atr = tr.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
             val = atr.iloc[-1]
             if pd.isna(val):
                 return float(close.iloc[-1] * 0.01)
@@ -224,6 +226,10 @@ class PriceCache:
                     f"Price cache is missing columns {missing_columns} - "
                     "ignoring and forcing a one-off full refresh."
                 )
+                return pd.DataFrame()
+            versions = pd.to_numeric(df["Technical_Indicator_Version"], errors="coerce")
+            if versions.isna().any() or not versions.eq(TechnicalEnhancer.INDICATOR_VERSION).all():
+                logger.info("Price cache uses an older technical-indicator version - refreshing")
                 return pd.DataFrame()
             return df
         except Exception:

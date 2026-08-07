@@ -115,15 +115,29 @@ class SupabaseRepository:
         self,
         model_name: str,
         analysis_version: str,
+        limit: int = 60,
     ) -> list[dict[str, Any]]:
-        transcripts = self._request(
-            "POST",
-            "rpc/pending_transcripts_for_analysis",
-            json={
-                "requested_model_name": model_name,
-                "requested_analysis_version": analysis_version,
-            },
-        )
+        payload = {
+            "requested_model_name": model_name,
+            "requested_analysis_version": analysis_version,
+            "requested_limit": max(1, int(limit)),
+        }
+        try:
+            transcripts = self._request(
+                "POST",
+                "rpc/pending_transcripts_for_analysis",
+                json=payload,
+            )
+        except requests.HTTPError as exc:
+            if exc.response is None or exc.response.status_code not in {400, 404}:
+                raise
+            # Transitional compatibility with the previous two-argument RPC.
+            payload.pop("requested_limit")
+            transcripts = self._request(
+                "POST",
+                "rpc/pending_transcripts_for_analysis",
+                json=payload,
+            )[: max(1, int(limit))]
         company_names = self.company_names_by_document_id(
             [transcript["document_id"] for transcript in transcripts if transcript.get("document_id")]
         )

@@ -42,8 +42,7 @@ def run_daily_analysis():
     symbols = collector.get_comprehensive_stock_list()
     tech_df = collector.download_stock_data(symbols)
     if tech_df.empty:
-        logger.error("No technical data. Exiting.")
-        return
+        raise RuntimeError("No technical data was collected")
 
     # P3: liquidity pre-filter before the slow per-ticker fundamentals stage
     if config.LIQUIDITY_FILTER_ENABLED and config.SCAN_ALL_NSE:
@@ -71,28 +70,24 @@ def run_daily_analysis():
             f"or Rs{config.MIN_AVG_TURNOVER_INR:,.0f} avg daily turnover)"
         )
         if tech_df.empty:
-            logger.error("Liquidity filter removed every stock. Exiting.")
-            return
+            raise RuntimeError("Liquidity filter removed every stock")
 
     alt_data = AlternativeData.get_fii_dii_snapshot()
     logger.info(f"Alternative data (FII/DII): {alt_data}")
 
     fund_df = collector.get_fundamental_data(tech_df)
     if fund_df.empty:
-        logger.error("No fundamental data. Exiting.")
-        return
+        raise RuntimeError("No fundamental data was collected")
 
     merged_df = pd.merge(tech_df, fund_df, on="Symbol", how="inner")
     logger.info(f"Merged: {len(merged_df)} stocks")
     if merged_df.empty:
-        logger.error("Nothing left after merge - check symbol overlap and caches. Exiting.")
-        return
+        raise RuntimeError("No symbols remain after merging technical and fundamental data")
 
     scorer = StockScorer(config)
     scored_df = scorer.score_all_stocks(merged_df)
     if scored_df is None or len(scored_df) == 0:
-        logger.error("Scoring produced no rows. Exiting.")
-        return
+        raise RuntimeError("Scoring produced no rows")
 
     if config.REVERSE_DCF_ENABLED:
         scored_df = ReverseDCFModel(config).enrich(scored_df)
@@ -106,6 +101,8 @@ def run_daily_analysis():
             scored_df = rank_by_transcript_priority(scored_df)
             logger.info(f"Transcript sentiment prioritized for {available_transcripts} stock(s)")
         except Exception as e:
+            if getattr(config, "TRANSCRIPT_FAIL_ON_ERROR", True):
+                raise RuntimeError("Transcript sentiment enrichment failed") from e
             logger.warning(f"Transcript sentiment enrichment skipped: {e}")
 
     # News sentiment for the top N picks (post-scoring, so it's the *actual* top N)
@@ -137,12 +134,14 @@ def run_daily_analysis():
         reporter = EmailReporter(config)
         html = reporter.create_html_report(scored_df, date_str)
         pdf_path = reporter.create_pdf_report(scored_df, date_str) if config.ATTACH_PDF else None
-        reporter.send_email(
+        email_sent = reporter.send_email(
             html,
             date_str,
             csv_path if config.ATTACH_CSV else None,
             pdf_path if config.ATTACH_PDF else None,
         )
+        if not email_sent:
+            raise RuntimeError("Report generation succeeded but email delivery failed")
 
     # WhatsApp
     if config.WHATSAPP_ENABLED:

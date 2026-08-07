@@ -12,7 +12,7 @@ from .local_analyzer import LocalSentimentAnalyzer
 from .schemas import ChunkSentiment
 
 
-ANALYSIS_VERSION = "v4-hybrid-finbert-finance-structure"
+ANALYSIS_VERSION = "v5-management-weighted-finance-structure"
 
 
 def analyze_transcript(cleaned_text: str) -> dict[str, Any]:
@@ -33,26 +33,37 @@ def aggregate_sentiments(
 ) -> dict[str, Any]:
     if not analyses or len(analyses) != len(chunks):
         raise ValueError("analyses and chunks must be non-empty and aligned")
-    total_weight = sum(max(1, chunk.estimated_tokens) for chunk in chunks)
+    sections = [_chunk_section(chunk) for chunk in chunks]
+    management_indexes = [
+        index for index, section in enumerate(sections)
+        if section in {"prepared_remarks", "management_answer"}
+    ]
+    core_indexes = management_indexes or list(range(len(chunks)))
+    analyst_indexes = [index for index, section in enumerate(sections) if section == "analyst_question"]
+    answer_indexes = [index for index, section in enumerate(sections) if section == "management_answer"]
     score_keys = (
         "optimism", "guidance_strength", "management_confidence", "risk_intensity",
         "analyst_pressure", "answer_quality",
     )
-    output = {
-        key: round(
-            sum(getattr(analysis, key) * max(1, chunk.estimated_tokens) for analysis, chunk in zip(analyses, chunks))
-            / total_weight,
-            2,
-        )
-        for key in score_keys
-    }
-    direction_votes: defaultdict[str, int] = defaultdict(int)
-    for analysis, chunk in zip(analyses, chunks):
-        if analysis.guidance_direction != "unclear":
-            direction_votes[analysis.guidance_direction] += max(1, chunk.estimated_tokens)
-    output["guidance_direction"] = max(direction_votes, key=direction_votes.get) if direction_votes else "unclear"
+    output = {}
+    for key in score_keys:
+        indexes = core_indexes
+        if key == "analyst_pressure" and analyst_indexes:
+            indexes = analyst_indexes
+        elif key == "answer_quality" and answer_indexes:
+            indexes = answer_indexes
+        output[key] = _weighted_metric(analyses, chunks, indexes, key)
+
+    # Explicit guidance is categorical evidence; it should not be decided by
+    # whichever containing chunk happens to be longest. A detected reduction is
+    # conservatively dominant, followed by raised and then maintained guidance.
+    directions = {analyses[index].guidance_direction for index in core_indexes}
+    output["guidance_direction"] = next(
+        (direction for direction in ("lowered", "raised", "maintained") if direction in directions),
+        "unclear",
+    )
     for key in ("revenue_outlook", "margin_outlook", "demand_outlook"):
-        output[key] = next((getattr(analysis, key) for analysis in analyses if getattr(analysis, key)), "")
+        output[key] = _weighted_outlook(analyses, chunks, core_indexes, key)
     for key in ("catalysts", "risks", "evidence"):
         output[key] = _unique_items(item for analysis in analyses for item in getattr(analysis, key))[:20]
     output["overall_score"] = round(
@@ -80,6 +91,50 @@ def _unique_items(items: Any) -> list[str]:
             seen.add(normalized.lower())
             unique.append(normalized)
     return unique
+
+
+def _chunk_section(chunk: TranscriptChunk) -> str:
+    text = chunk.text.lstrip()
+    if not text.startswith("[") or "]" not in text:
+        return "unknown"
+    return text[1:text.index("]")].strip().lower()
+
+
+def _weighted_metric(
+    analyses: list[ChunkSentiment],
+    chunks: list[TranscriptChunk],
+    indexes: list[int],
+    key: str,
+) -> float:
+    total_weight = sum(max(1, chunks[index].estimated_tokens) for index in indexes)
+    return round(
+        sum(
+            getattr(analyses[index], key) * max(1, chunks[index].estimated_tokens)
+            for index in indexes
+        ) / total_weight,
+        2,
+    )
+
+
+def _weighted_outlook(
+    analyses: list[ChunkSentiment],
+    chunks: list[TranscriptChunk],
+    indexes: list[int],
+    key: str,
+) -> str:
+    votes: defaultdict[str, int] = defaultdict(int)
+    fallback = ""
+    for index in indexes:
+        value = str(getattr(analyses[index], key) or "").strip()
+        if not value:
+            continue
+        fallback = fallback or value
+        if value.lower() in {"positive", "negative", "neutral"}:
+            votes[value.lower()] += max(1, chunks[index].estimated_tokens)
+    if votes:
+        # Prefer the more conservative interpretation when weighted votes tie.
+        return max(votes, key=lambda value: (votes[value], {"negative": 2, "neutral": 1, "positive": 0}[value]))
+    return fallback
 
 
 def _add_hybrid_features(

@@ -25,9 +25,11 @@ schedule the same entry point with `python scheduler.py`.
 ## GitHub Actions
 
 The repository includes a scheduled GitHub Actions workflow that runs `app.py`
-once per day. It runs at 03:30 UTC (09:00 Asia/Kolkata). GitHub can delay
-scheduled workflows during busy periods. The workflow also supports manual
-runs from the **Actions** tab.
+once per day. Its primary trigger is 03:17 UTC (08:47 Asia/Kolkata), with a
+05:17 UTC recovery trigger because GitHub cron is best-effort and can be delayed
+or dropped. The recovery run exits before setup when that day's primary
+scheduled run already succeeded. The workflow also supports manual runs from
+the **Actions** tab.
 
 For a public repository, standard GitHub-hosted runners are free. The runner's
 filesystem is temporary, but the workflow restores and saves the reusable
@@ -74,16 +76,29 @@ repository activity. Re-enable the workflow in the Actions tab if that occurs.
 ## Earnings Transcript Sentiment
 
 Transcript collection runs independently at 10:00, 17:00, and 21:00 IST. It
-discovers NSE earnings-call transcripts, keeps PDFs only for the duration of the
+uses a rolling 120-day, idempotent NSE backfill so a newly deployed database can
+recover the current reporting season instead of seeing only the last seven
+days. Newest filings are processed first in bounded 60-document/60-analysis
+batches so scheduled runs advance the backlog without overrunning the job
+timeout. It keeps PDFs only for the duration of the
 job, stores cleaned text and structured results in Supabase, and writes a
 sentiment summary in the report tables. A fresh available transcript starts as
 a 5% research feature of its `Final_Score`; stocks without a fresh transcript
 retain their normal score. Increase this only after out-of-sample backtesting.
-A transcript receives
-full priority only when its technical score is at least 60 and its trend is
-confirmed. Scores from 45 to 59.99 with a confirmed trend receive half the
-sentiment weight and are capped at `HOLD`; weak or unconfirmed trends receive
-no sentiment uplift and are capped at `REDUCE`.
+A transcript receives full priority only when its score is at least 55, risk is
+at most 60, guidance was not lowered, its technical score is at least 60, and
+its trend is confirmed. Scores from 45 to 59.99 with a confirmed trend receive
+half the sentiment weight but cannot promote the core recommendation. Weak or
+unconfirmed trends receive no transcript weight. Older calls decay toward a
+neutral score of 50 rather than toward zero. Within each recommendation class,
+fresh full-priority transcript coverage ranks ahead of stocks without a
+validated transcript; recommendation safety gates always rank first. A fresh,
+quality-validated transcript is required for `STRONG BUY`; an otherwise-
+eligible stock without one remains a `BUY` research candidate.
+
+The scheduled worker requires FinBERT when `TRANSCRIPT_REQUIRE_FINBERT=true`.
+Model loading or inference failures then fail the job instead of silently
+recording a lexicon-only result under a hybrid analysis version.
 
 When management gives no explicit raised/maintained/lowered guidance, the
 summary says `No explicit guidance` and adds commentary from the stored demand,
@@ -128,7 +143,7 @@ Attach a Railway Volume and mount it at `/data`, then set:
 ```text
 OUTPUT_DIR=/data/reports_advanced
 YFINANCE_CACHE_DIR=/data/yfinance_cache
-FUND_CACHE_MAX_AGE_DAYS=30
+FUND_CACHE_MAX_AGE_DAYS=7
 PRICE_CACHE_MAX_AGE_HOURS=18
 ```
 

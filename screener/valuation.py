@@ -136,7 +136,10 @@ class ReverseDCFModel:
         ratio = implied_fcf_growth / benchmark if benchmark else None
 
         if implied_fcf_growth < 0:
-            score = 95.0
+            # Low embedded expectations are attractive, but contraction can
+            # also be a value trap. Do not award near-perfect valuation points
+            # from this fact alone.
+            score = 75.0
         elif ratio is None:
             score = 50.0
         elif ratio <= 0.53:
@@ -182,7 +185,7 @@ class ReverseDCFModel:
         sector = sector.strip() if isinstance(sector, str) and sector.strip() else None
         expected_growth = self._expected_growth(sector, market_cap)
 
-        # A generic FCF-to-EV DCF is not a decision-useful valuation method for
+        # A generic cash-flow DCF is not a decision-useful valuation method for
         # banks/insurers (deposits and debt are operating inputs) or most real
         # estate companies (asset/NAV and project cash-flow timing dominate).
         # Leave these rankings to the main model until a sector-specific model
@@ -201,24 +204,21 @@ class ReverseDCFModel:
         if fcf is None or fcf <= 0:
             return self._empty_result("missing_or_negative_fcf", fcf, fcf_source, market_cap, revenue, sector, expected_growth)
 
-        # Free_CashFlow is unlevered (FCFF), which discounts to Enterprise Value, not
-        # equity value directly. Compare/solve against EV = Market Cap + Net Debt rather
-        # than Market Cap alone so leveraged companies aren't mis-scored. Falls back to
-        # Market Cap (net debt = 0) when debt/cash data is unavailable or degenerate.
+        # Yahoo's generic Free_CashFlow field is operating cash flow less capex,
+        # not a constructed FCFF measure. Treat it as an equity cash-flow proxy
+        # and compare it with market capitalization. Subtracting net debt after
+        # discounting this field would mix FCFE-like cash flow with an FCFF/EV
+        # valuation and double-count financing effects.
         if total_debt is not None and total_debt >= 0 and total_cash is not None and total_cash >= 0:
             net_debt = total_debt - total_cash
-            ev_method = "enterprise_value"
         else:
-            net_debt = 0.0
-            ev_method = "market_cap_fallback"
-        enterprise_value = market_cap + net_debt
-        if enterprise_value <= 0:
-            # Net cash exceeds market cap - an EV-based target would be degenerate.
-            enterprise_value = market_cap
-            net_debt = 0.0
-            ev_method = "market_cap_fallback"
+            net_debt = None
+        enterprise_value = market_cap + net_debt if net_debt is not None else None
+        cash_flow_basis = "operating_cash_flow_less_capex_equity_proxy"
+        valuation_target = market_cap
+        ev_method = "equity_value_proxy"
 
-        fcf_yield = fcf / enterprise_value if enterprise_value > 0 else None
+        fcf_yield = fcf / valuation_target if valuation_target > 0 else None
         revenue_fcf_margin = fcf / revenue if revenue and revenue > 0 else None
         min_valid_fcf_yield = float(getattr(self.config, "REVERSE_DCF_MIN_VALID_FCF_YIELD", 0.005))
         if fcf_yield is not None and fcf_yield < min_valid_fcf_yield:
@@ -247,20 +247,19 @@ class ReverseDCFModel:
         )
 
         implied_fcf_growth = self._solve_rate(
-            enterprise_value,
+            valuation_target,
             lambda growth: self._dcf_value(fcf, growth, fixed_terminal_growth, discount_rate, years),
             float(self.config.REVERSE_DCF_MIN_GROWTH),
             float(self.config.REVERSE_DCF_MAX_GROWTH),
         )
         implied_terminal_growth = self._solve_rate(
-            enterprise_value,
+            valuation_target,
             lambda terminal: self._dcf_value(fcf, fixed_growth, terminal, discount_rate, years),
             float(self.config.REVERSE_DCF_MIN_TERMINAL_GROWTH),
             max_terminal_growth,
         )
 
-        base_case_ev = self._dcf_value(fcf, fixed_growth, fixed_terminal_growth, discount_rate, years)
-        base_case_value = (base_case_ev - net_debt) if base_case_ev is not None else None
+        base_case_value = self._dcf_value(fcf, fixed_growth, fixed_terminal_growth, discount_rate, years)
         value_to_market = (base_case_value / market_cap) if base_case_value is not None and market_cap > 0 else None
         valuation_gap = (value_to_market - 1) if value_to_market is not None else None
         # Revenue times a fixed margin is a rough research placeholder, not
@@ -277,12 +276,13 @@ class ReverseDCFModel:
         return {
             "DCF_Status": status,
             "DCF_FCF_Source": fcf_source,
+            "DCF_Cash_Flow_Basis": cash_flow_basis,
             "DCF_Sector": sector if sector else "Unknown",
             "DCF_Expected_Growth": expected_growth,
             "DCF_Base_FCF": round(fcf, 2),
             "DCF_Market_Cap": round(market_cap, 2),
-            "DCF_Net_Debt": round(net_debt, 2),
-            "DCF_Enterprise_Value": round(enterprise_value, 2),
+            "DCF_Net_Debt": round(net_debt, 2) if net_debt is not None else np.nan,
+            "DCF_Enterprise_Value": round(enterprise_value, 2) if enterprise_value is not None else np.nan,
             "DCF_EV_Method": ev_method,
             "DCF_FCF_Yield": round(fcf_yield, 4) if fcf_yield is not None else np.nan,
             "DCF_Revenue_FCF_Margin": round(revenue_fcf_margin, 4) if revenue_fcf_margin is not None else np.nan,
@@ -305,6 +305,7 @@ class ReverseDCFModel:
         return {
             "DCF_Status": status,
             "DCF_FCF_Source": fcf_source,
+            "DCF_Cash_Flow_Basis": "n/a",
             "DCF_Sector": sector if sector else "Unknown",
             "DCF_Expected_Growth": expected_growth if expected_growth is not None else np.nan,
             "DCF_Base_FCF": fcf if fcf is not None else np.nan,
@@ -332,6 +333,7 @@ class ReverseDCFModel:
         return {
             "DCF_Status": status,
             "DCF_FCF_Source": fcf_source,
+            "DCF_Cash_Flow_Basis": "operating_cash_flow_less_capex_equity_proxy",
             "DCF_Sector": sector if sector else "Unknown",
             "DCF_Expected_Growth": expected_growth if expected_growth is not None else np.nan,
             "DCF_Base_FCF": round(fcf, 2),
@@ -388,7 +390,7 @@ class ReverseDCFModel:
         results = [self.analyze_row(row) for _, row in df.iterrows()]
         dcf_df = pd.DataFrame(results, index=df.index)
         enriched = pd.concat([df.copy(), dcf_df], axis=1)
-        weight = self._clamp(float(getattr(self.config, "REVERSE_DCF_RANKING_WEIGHT", 0.20)), 0.0, 1.0)
+        weight = self._clamp(float(getattr(self.config, "REVERSE_DCF_RANKING_WEIGHT", 0.10)), 0.0, 1.0)
         if weight > 0 and "Combined_Score" in enriched:
             enriched["Pre_DCF_Rank"] = enriched.get("Rank")
             enriched["Pre_DCF_Combined_Score"] = enriched["Combined_Score"]

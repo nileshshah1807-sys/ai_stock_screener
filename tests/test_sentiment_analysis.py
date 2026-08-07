@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from sentiment.analyzer import aggregate_sentiments
 from sentiment.local_analyzer import LocalSentimentAnalyzer
@@ -102,6 +103,17 @@ class SentimentAnalysisTests(unittest.TestCase):
         self.assertIn("textblob_polarity", result)
         self.assertIn("finbert_score", result)
 
+    def test_required_finbert_inference_failure_is_not_silently_downgraded(self):
+        def broken_classifier(*args, **kwargs):
+            raise RuntimeError("model unavailable")
+
+        with (
+            patch.dict("os.environ", {"TRANSCRIPT_REQUIRE_FINBERT": "true"}),
+            patch("sentiment.local_analyzer._finbert_pipeline", return_value=broken_classifier),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "FinBERT inference failed"):
+                LocalSentimentAnalyzer().analyze_chunk("Demand remained strong.")
+
     def test_aggregation_compares_prepared_remarks_with_management_qa(self):
         analyses = [
             ChunkSentiment.from_payload(sample_payload(optimism=80, management_confidence=85)),
@@ -121,6 +133,35 @@ class SentimentAnalysisTests(unittest.TestCase):
         self.assertEqual(result["prepared_vs_qa_tone_gap"], 30.0)
         self.assertEqual(result["qa_confidence_drop"], 30.0)
         self.assertTrue(result["review_flag"])
+
+    def test_aggregation_does_not_blend_analyst_question_tone_into_management_score(self):
+        analyses = [
+            ChunkSentiment.from_payload(sample_payload(optimism=80, risk_intensity=20)),
+            ChunkSentiment.from_payload(sample_payload(optimism=5, risk_intensity=95)),
+        ]
+        chunks = [
+            TranscriptChunk(0, "[management_answer] CEO:\nDemand remains strong.", 100),
+            TranscriptChunk(1, "[analyst_question] Analyst:\nWhy is demand collapsing?", 1000),
+        ]
+
+        result = aggregate_sentiments(analyses, chunks)
+
+        self.assertEqual(result["optimism"], 80.0)
+        self.assertEqual(result["risk_intensity"], 20.0)
+
+    def test_lowered_guidance_is_not_outvoted_by_a_longer_maintained_chunk(self):
+        analyses = [
+            ChunkSentiment.from_payload(sample_payload(guidance_direction="lowered")),
+            ChunkSentiment.from_payload(sample_payload(guidance_direction="maintained")),
+        ]
+        chunks = [
+            TranscriptChunk(0, "[management_answer] CFO:\nWe lowered guidance.", 50),
+            TranscriptChunk(1, "[prepared_remarks] CEO:\nPrior guidance discussion.", 1000),
+        ]
+
+        result = aggregate_sentiments(analyses, chunks)
+
+        self.assertEqual(result["guidance_direction"], "lowered")
 
 
 if __name__ == "__main__":

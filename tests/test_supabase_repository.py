@@ -19,6 +19,7 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
         result = repository.list_transcripts_for_analysis(
             "textblob-finance-lexicon",
             "v2-local-textblob-finance-lexicon",
+            25,
         )
 
         self.assertEqual(result, [])
@@ -28,6 +29,7 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
             {"json": {
                 "requested_model_name": "textblob-finance-lexicon",
                 "requested_analysis_version": "v2-local-textblob-finance-lexicon",
+                "requested_limit": 25,
             }},
         )])
 

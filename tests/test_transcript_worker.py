@@ -81,7 +81,17 @@ class TranscriptWorkerTests(unittest.TestCase):
         ))
 
     def test_uses_fixed_local_model_identity(self):
-        self.assertEqual(TranscriptSettings.from_environment().model_name, "textblob-finance-lexicon")
+        settings = TranscriptSettings.from_environment()
+        self.assertEqual(settings.model_name, "textblob-finance-lexicon")
+        self.assertEqual(settings.lookback_days, 120)
+        self.assertEqual(settings.max_documents_per_run, 60)
+        self.assertEqual(settings.max_analyses_per_run, 60)
+
+    def test_finbert_enabled_environment_uses_matching_model_identity(self):
+        with patch.dict("os.environ", {"TRANSCRIPT_ENABLE_FINBERT": "true"}):
+            settings = TranscriptSettings.from_environment()
+
+        self.assertEqual(settings.model_name, "finbert-finance-hybrid")
 
 
 if __name__ == "__main__":

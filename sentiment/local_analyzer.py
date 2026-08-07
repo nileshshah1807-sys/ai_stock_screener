@@ -16,9 +16,9 @@ from .schemas import ChunkSentiment
 
 
 POSITIVE_TERMS = {
-    "accelerating", "beat", "beats", "bullish", "demand", "expansion", "growth",
+    "accelerating", "beat", "beats", "bullish", "expansion", "growth",
     "improved", "improving", "momentum", "outperform", "profitable", "recovery",
-    "resilient", "strong", "tailwind", "visibility",
+    "resilient", "strong", "tailwind",
 }
 NEGATIVE_TERMS = {
     "challenge", "challenges", "contraction", "decline", "headwind", "impairment",
@@ -162,7 +162,9 @@ def _finbert_pipeline():
         from transformers import pipeline
 
         return pipeline("sentiment-analysis", model="ProsusAI/finbert", tokenizer="ProsusAI/finbert")
-    except Exception:
+    except Exception as exc:
+        if _finbert_required():
+            raise RuntimeError("FinBERT is required but could not be loaded") from exc
         return None
 
 
@@ -172,7 +174,9 @@ def _finbert_score(sentences: list[str]) -> float | None:
         return None
     try:
         results = classifier(sentences, truncation=True, max_length=512, batch_size=16)
-    except Exception:
+    except Exception as exc:
+        if _finbert_required():
+            raise RuntimeError("FinBERT inference failed") from exc
         return None
     label_scores = {"positive": 1.0, "negative": -1.0, "neutral": 0.0}
     values = [label_scores.get(str(result["label"]).lower(), 0.0) * float(result["score"]) for result in results]
@@ -225,3 +229,9 @@ def _scale(value: float) -> float:
 
 def _bounded(value: float) -> float:
     return round(max(0.0, min(100.0, value)), 2)
+
+
+def _finbert_required() -> bool:
+    return os.getenv("TRANSCRIPT_REQUIRE_FINBERT", "0").strip().lower() in {
+        "1", "true", "yes"
+    }

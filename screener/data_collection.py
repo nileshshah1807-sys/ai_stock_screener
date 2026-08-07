@@ -53,7 +53,7 @@ class StockDataCollector:
         filtered = {
             str(s).strip().upper()
             for s in all_symbols
-            if s and len(str(s)) <= 20 and "-" not in str(s)
+            if s and len(str(s)) <= 20
         }
         if not self.config.SCAN_ALL_NSE:
             filtered = {s.upper() for s in self.config.CUSTOM_WATCHLIST}
@@ -98,13 +98,13 @@ class StockDataCollector:
                 for symbol in batch:
                     clean_sym = symbol.replace(".NS", "")
                     try:
-                        if len(batch) == 1:
-                            price_data = data
-                        else:
+                        if isinstance(data.columns, pd.MultiIndex):
                             if symbol not in data.columns.get_level_values(0):
                                 failed.append(clean_sym)
                                 continue
                             price_data = data[symbol]
+                        else:
+                            price_data = data
                         if price_data is None or price_data.empty:
                             failed.append(clean_sym)
                             continue
@@ -132,10 +132,10 @@ class StockDataCollector:
                             ma50_slope_pct = 0.0
                         rsi_series = TechnicalEnhancer._rsi(closes, 14)
                         current_rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50.0
-                        ema12 = closes.ewm(span=12).mean()
-                        ema26 = closes.ewm(span=26).mean()
+                        ema12 = closes.ewm(span=12, adjust=False).mean()
+                        ema26 = closes.ewm(span=26, adjust=False).mean()
                         macd = ema12 - ema26
-                        signal = macd.ewm(span=9).mean()
+                        signal = macd.ewm(span=9, adjust=False).mean()
                         bb_mid = closes.rolling(20).mean()
                         bb_std = closes.rolling(20).std()
                         bb_upper = bb_mid + 2 * bb_std
@@ -162,7 +162,7 @@ class StockDataCollector:
                             "MA50": round(ma50, 2),
                             "MA50_Slope_Pct": round(ma50_slope_pct, 2),
                             "RSI_14": round(current_rsi, 2),
-                            "Technical_Indicator_Version": 2,
+                            "Technical_Indicator_Version": TechnicalEnhancer.INDICATOR_VERSION,
                             "MACD": round(float(macd.iloc[-1]), 4),
                             "MACD_Signal": round(float(signal.iloc[-1]), 4),
                             "ADX_14": round(adx_val, 2),
@@ -230,6 +230,7 @@ class StockDataCollector:
     def get_fundamental_data(self, tech_df):
         cache_file = self.config.OUTPUT_DIR / "fundamental_cache.csv"
         fresh_records, stale_symbols = [], set()
+        cached_df = pd.DataFrame()
         if cache_file.exists():
             try:
                 cached_df = pd.read_csv(cache_file)
@@ -258,7 +259,10 @@ class StockDataCollector:
             f"{len(stale_symbols & all_symbols)} expired (> {self.config.FUND_CACHE_MAX_AGE_DAYS}d), "
             f"{len(needs_fetch)} to fetch"
         )
-        fundamental_data = [r for r in fresh_records if r["Symbol"] in all_symbols]
+        fundamental_data = [
+            {**r, "Fund_Data_Stale": False}
+            for r in fresh_records if r["Symbol"] in all_symbols
+        ]
         if not needs_fetch:
             return pd.DataFrame(fundamental_data)
 
@@ -309,6 +313,7 @@ class StockDataCollector:
                     "Book_Value": info.get("bookValue"),
                     "Sector": info.get("sector"),
                     "Industry": info.get("industry"),
+                    "Fund_Data_Stale": False,
                 })
             except Exception as e:
                 err = str(e).lower()
@@ -322,6 +327,22 @@ class StockDataCollector:
                         logger.warning("Too many rate-limit hits; stopping fundamental fetch early")
                         break
                 continue
+
+        # A transient Yahoo failure should not silently remove a company from
+        # the inner merge and bias the ranking universe. Retain its expired row
+        # as an explicitly stale fallback; the scorer caps it below BUY and the
+        # old Cached_Date ensures the next run retries the refresh.
+        fetched_symbols = {str(record["Symbol"]) for record in fundamental_data}
+        fallback_symbols = all_symbols - fetched_symbols
+        if fallback_symbols and not cached_df.empty:
+            stale_fallback = cached_df[cached_df["Symbol"].astype(str).isin(fallback_symbols)].copy()
+            if not stale_fallback.empty:
+                stale_fallback["Fund_Data_Stale"] = True
+                fundamental_data.extend(stale_fallback.to_dict("records"))
+                logger.warning(
+                    f"Using stale fundamental fallback for {len(stale_fallback)} stock(s); "
+                    "their recommendations are capped below BUY"
+                )
 
         try:
             pd.DataFrame(fundamental_data).to_csv(cache_file, index=False)

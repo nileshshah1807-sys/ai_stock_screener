@@ -75,7 +75,12 @@ def sector_relative_fund_scores(merged_df, min_peers=5):
             continue
         values = pd.to_numeric(merged_df[column], errors="coerce")
         group_size = values.groupby(sector).transform("count")
-        pct_rank = values.groupby(sector).rank(pct=True, method="average")
+        raw_rank = values.groupby(sector).rank(method="average")
+        # Map every peer group symmetrically onto [0, 1]. pandas rank(pct=True)
+        # maps ranks to [1/n, 1], so inverting it gives lower-is-better metrics
+        # [0, (n-1)/n] and unfairly prevents the best value from scoring full
+        # points. The explicit (rank - 1) / (n - 1) transform avoids that bias.
+        pct_rank = (raw_rank - 1.0) / (group_size - 1.0)
         if not higher_is_better:
             pct_rank = 1.0 - pct_rank
         score = pct_rank * max_pts
@@ -136,12 +141,14 @@ class StockScorer:
             f_score = round(max(0.0, min(100.0, f_raw / self.MAX_FUND_SCORE * 100)), 2)
             t_score = round(max(0.0, min(100.0, t_raw / self.MAX_TECH_SCORE * 100)), 2)
 
-            # Dynamic weighting: high volatility (ATR% > 3) -> trust technicals a bit more
+            # ATR already contributes an explicit volatility penalty inside the
+            # technical score. Keep model weights stable rather than letting the
+            # same noisy input also change the blend regime.
             price = StockScorer.safe_float(row.get("Current_Price"), 0) or 0
             atr = StockScorer.safe_float(row.get("ATR_14"), price * 0.01) or 0
             atr_pct = (atr / price * 100) if price > 0 else 2.0
 
-            weight_fund, weight_tech = (0.60, 0.40) if atr_pct > 3 else (0.70, 0.30)
+            weight_fund, weight_tech = 0.70, 0.30
             combined = round(f_score * weight_fund + t_score * weight_tech, 2)
 
             # P2: data-completeness gate - thin-data stocks can't be rated above HOLD
@@ -172,17 +179,20 @@ class StockScorer:
             if specialized_fundamental_model_required and combined >= 60:
                 rating_capped = True
                 rating_cap_reason = "sector requires specialized model"
-            if rating_capped:
-                rating = "HOLD"
-
+            fund_data_stale = str(row.get("Fund_Data_Stale", "")).strip().lower() in {
+                "1", "true", "yes"
+            }
+            if fund_data_stale and combined >= 60:
+                rating_capped = True
+                rating_cap_reason = "stale fundamental fallback"
             # A high score assembled from valuation ratios and neutral indicators
-            # is not a high-conviction buy. Require both real business growth and
-            # a confirmed uptrend before awarding STRONG BUY. This prevents names
-            # such as XCHANGING - flat sales and no visible trend/participation -
-            # from qualifying solely because they are cheap or mean-reverting.
+            # is not a current buy signal. BUY requires basic positive price
+            # structure; STRONG BUY additionally requires directional strength.
             growth_floor = float(getattr(self.config, "STRONG_BUY_MIN_GROWTH", 0.05))
             tech_floor = float(getattr(self.config, "STRONG_BUY_MIN_TECH_SCORE", 55.0))
             adx_floor = float(getattr(self.config, "STRONG_BUY_MIN_ADX", 20.0))
+            buy_ma50_slope_floor = float(getattr(self.config, "BUY_MIN_MA50_SLOPE", 0.0))
+            buy_3m_return_floor = float(getattr(self.config, "BUY_MIN_3M_RETURN", 0.0))
             revenue_growth = StockScorer.safe_float(row.get("Revenue_Growth"))
             earnings_growth = StockScorer.safe_float(row.get("Earnings_Growth"))
             has_growth = (
@@ -195,13 +205,38 @@ class StockScorer:
             adx = StockScorer.safe_float(row.get("ADX_14"))
             plus_di = StockScorer.safe_float(row.get("ADX_Plus_DI"))
             minus_di = StockScorer.safe_float(row.get("ADX_Minus_DI"))
-            trend_confirmed = all([
-                price > 0 and ma50 is not None and price > ma50,
-                ma50_slope is not None and ma50_slope >= 0,
-                pct_3m is not None and pct_3m > 0,
+            buy_gate_failures = []
+            if price <= 0 or ma50 is None:
+                buy_gate_failures.append("price/MA50 unavailable")
+            elif price <= ma50:
+                buy_gate_failures.append("price not above MA50")
+            if ma50_slope is None:
+                buy_gate_failures.append("MA50 slope unavailable")
+            elif ma50_slope < buy_ma50_slope_floor:
+                buy_gate_failures.append("MA50 falling")
+            if pct_3m is None:
+                buy_gate_failures.append("3M return unavailable")
+            elif pct_3m <= buy_3m_return_floor:
+                buy_gate_failures.append("3M return not positive")
+
+            buy_eligible = not buy_gate_failures
+            trend_confirmed = buy_eligible and all([
                 adx is not None and adx >= adx_floor,
                 plus_di is not None and minus_di is not None and plus_di > minus_di,
             ])
+            require_uptrend_for_buy = bool(getattr(self.config, "REQUIRE_UPTREND_FOR_BUY", True))
+            technical_rating_capped = bool(
+                require_uptrend_for_buy and combined >= 60 and not buy_eligible
+            )
+            if technical_rating_capped:
+                technical_reason = "buy trend not confirmed: " + ", ".join(buy_gate_failures)
+                rating_cap_reason = "; ".join(
+                    reason for reason in (rating_cap_reason, technical_reason) if reason
+                )
+                rating_capped = True
+            if rating_capped:
+                rating = "HOLD"
+
             strong_buy_eligible = bool(
                 has_growth and trend_confirmed and t_score >= tech_floor and not rating_capped
             )
@@ -231,6 +266,8 @@ class StockScorer:
             merged_df.at[idx, "Rating_Cap_Reason"] = rating_cap_reason
             merged_df.at[idx, "Specialized_Fundamental_Model_Required"] = specialized_fundamental_model_required
             merged_df.at[idx, "Fundamental_Model"] = fundamental_model
+            merged_df.at[idx, "Buy_Eligible"] = buy_eligible
+            merged_df.at[idx, "Buy_Gate_Reason"] = ", ".join(buy_gate_failures)
             merged_df.at[idx, "Strong_Buy_Eligible"] = strong_buy_eligible
             merged_df.at[idx, "Strong_Buy_Gate_Reason"] = strong_buy_gate_reason
             merged_df.at[idx, "Trend_Confirmed"] = trend_confirmed

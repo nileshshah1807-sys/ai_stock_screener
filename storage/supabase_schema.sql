@@ -68,15 +68,15 @@ create index if not exists transcript_sentiments_transcript_idx on transcript_se
 create index if not exists transcript_sentiments_analysis_lookup_idx
     on transcript_sentiments(transcript_id, model_name, analysis_version);
 
--- The original RPC accepted a queue-limit argument; the current worker drains
--- all pending transcripts and uses two arguments. PostgreSQL overloads by
--- argument list, so remove both signatures before recreating the active RPC.
+-- PostgreSQL overloads by argument list, so remove both historical signatures
+-- before recreating the bounded active RPC.
 drop function if exists pending_transcripts_for_analysis(text, text, integer);
 drop function if exists pending_transcripts_for_analysis(text, text);
 
 create function pending_transcripts_for_analysis(
     requested_model_name text,
-    requested_analysis_version text
+    requested_analysis_version text,
+    requested_limit integer
 )
 returns table (
     id uuid,
@@ -112,6 +112,7 @@ as $$
             and s.analysis_version = requested_analysis_version
       )
     order by t.call_date desc nulls last, t.created_at desc
+    limit greatest(1, requested_limit);
 $$;
 
 create or replace function set_transcript_filing_updated_at()
@@ -186,3 +187,18 @@ alter table transcript_documents enable row level security;
 alter table transcript_filing_documents enable row level security;
 alter table transcripts enable row level security;
 alter table transcript_sentiments enable row level security;
+
+-- These objects contain the full cleaned transcript text. SECURITY DEFINER
+-- functions and owner-created views can otherwise bypass table RLS for callers
+-- that inherit PostgreSQL's default PUBLIC execute/select privileges.
+revoke all on function pending_transcripts_for_analysis(text, text, integer) from public;
+revoke all on function pending_transcripts_for_analysis(text, text, integer) from anon, authenticated;
+grant execute on function pending_transcripts_for_analysis(text, text, integer) to service_role;
+
+revoke all on transcript_sentiment_history from public;
+revoke all on transcript_sentiment_history from anon, authenticated;
+grant select on transcript_sentiment_history to service_role;
+
+revoke all on latest_transcript_sentiment from public;
+revoke all on latest_transcript_sentiment from anon, authenticated;
+grant select on latest_transcript_sentiment to service_role;
