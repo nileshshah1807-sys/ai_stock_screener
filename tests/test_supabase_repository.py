@@ -53,6 +53,38 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
         self.assertEqual(len(requests_made), 2)
         self.assertNotIn("structured_output", requests_made[1])
 
+    def test_red_flag_snapshot_reads_are_batched(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        calls = []
+
+        def request(method, path, **kwargs):
+            calls.append((method, path, kwargs))
+            return []
+
+        repository._request = request
+        repository.latest_red_flag_snapshots(["A", "B", "C"], batch_size=2)
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0][2]["params"]["symbol"], "in.(A,B)")
+        self.assertEqual(calls[1][2]["params"]["symbol"], "in.(C)")
+
+    def test_red_flag_snapshot_upserts_are_batched(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        payload_sizes = []
+
+        def request(method, path, **kwargs):
+            payload_sizes.append(len(kwargs["json"]))
+            return None
+
+        repository._request = request
+        saved = repository.upsert_red_flag_snapshots(
+            [{"symbol": symbol} for symbol in ("A", "B", "C")],
+            batch_size=2,
+        )
+
+        self.assertEqual(saved, 3)
+        self.assertEqual(payload_sizes, [2, 1])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -161,6 +161,49 @@ export the database periodically because the Free plan does not provide
 automatic backups. GitHub Actions installs Tesseract for the OCR fallback. For
 local OCR runs, install Tesseract separately and ensure it is on `PATH`.
 
+## Free Red-Flag Evidence (Shadow Mode)
+
+The first red-flag phase uses the free, no-key VIGIL feed, which republishes
+structured NSE and SEBI disclosures. It currently covers credit-rating events,
+promoter pledges, encumbrance events, and exchange surveillance flags. The
+worker downloads these four bulk tables once, validates their advertised row
+counts and freshness, and stores one compact snapshot per company in Supabase.
+The daily stock scan reads those cached snapshots in batches, so it does not
+download or analyse all disclosures while scanning stocks.
+
+This phase is deliberately evidence-only. It adds CSV columns beginning with
+`Red_Flag_`, but cannot change `Final_Score`, rating, eligibility, or ranking.
+Missing, stale, or malformed source data is reported as unavailable rather than
+interpreted as a clean company. The less reliable or currently stale SAST and
+related-party datasets are not used in this phase.
+
+Validate locally before enabling anything:
+
+```powershell
+python -m unittest discover -s tests
+python -m workers.red_flag_worker --dry-run
+```
+
+The dry run makes live read-only requests but performs no Supabase writes. To
+deploy the cache:
+
+1. Re-run [storage/supabase_schema.sql](storage/supabase_schema.sql) in the
+   Supabase SQL Editor to create `red_flag_snapshots`.
+2. Configure `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` locally or as GitHub
+   secrets.
+3. Run `python -m workers.red_flag_worker` once and inspect its row, severity,
+   stale-source, and saved-snapshot counts.
+4. Set `RED_FLAG_ENRICHMENT_ENABLED=True` only after the cache exists and has
+   been reviewed. This still enables report columns only; scoring remains in
+   shadow mode.
+
+The **Red-flag shadow evidence** GitHub Action is manual-only. Its default
+`dry-run` mode executes the focused safety tests and validates the live feed
+without writing. Select `populate-cache` only after applying the schema; it
+fails closed if either Supabase secret is missing. No schedule is enabled yet.
+Add one only after a manual cache run succeeds and sample flags have been
+checked against the linked NSE/SEBI evidence.
+
 ## Railway Cache
 
 Attach a Railway Volume and mount it at `/data`, then set:

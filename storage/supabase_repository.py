@@ -194,3 +194,32 @@ class SupabaseRepository:
                 raise
             params["select"] = base_select
             return self._request("GET", "latest_transcript_sentiment", params=params)
+
+    def upsert_red_flag_snapshots(self, snapshots: list[dict[str, Any]], batch_size: int = 250) -> int:
+        saved = 0
+        for start in range(0, len(snapshots), batch_size):
+            batch = snapshots[start:start + batch_size]
+            self._request(
+                "POST",
+                "red_flag_snapshots?on_conflict=source,symbol",
+                json=batch,
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            saved += len(batch)
+        return saved
+
+    def latest_red_flag_snapshots(self, symbols: list[str], batch_size: int = 200) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        normalized = list(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()))
+        for start in range(0, len(normalized), batch_size):
+            batch = normalized[start:start + batch_size]
+            rows.extend(self._request(
+                "GET",
+                "red_flag_snapshots",
+                params={
+                    "source": "eq.VIGIL",
+                    "symbol": f"in.({','.join(batch)})",
+                    "select": "source,symbol,severity,flag_count,summary,source_status,source_as_of,snapshot",
+                },
+            ))
+        return rows

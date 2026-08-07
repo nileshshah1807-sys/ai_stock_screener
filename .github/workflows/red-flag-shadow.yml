@@ -1,0 +1,66 @@
+name: Red-flag shadow evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Validate the live feed or populate the Supabase cache
+        required: true
+        type: choice
+        default: dry-run
+        options:
+          - dry-run
+          - populate-cache
+
+permissions:
+  contents: read
+
+concurrency:
+  group: red-flag-shadow
+  cancel-in-progress: false
+
+jobs:
+  validate-and-refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      VIGIL_TIMEOUT_SECONDS: "60"
+      RED_FLAG_LOOKBACK_DAYS: "365"
+      RED_FLAG_STALE_AFTER_DAYS: "7"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # Keep this job small: the red-flag path does not need OCR, Torch, or
+      # Transformers from the full screener requirements.
+      - name: Install red-flag dependencies
+        run: python -m pip install "pandas>=2.0.0" "requests>=2.31.0"
+
+      - name: Run focused safety tests
+        run: >-
+          python -m unittest
+          tests.test_vigil_red_flags
+          tests.test_red_flag_worker
+          tests.test_supabase_repository
+
+      - name: Validate live feed without writing
+        if: inputs.mode == 'dry-run'
+        run: python -m workers.red_flag_worker --dry-run
+
+      - name: Verify cache credentials
+        if: inputs.mode == 'populate-cache'
+        shell: bash
+        run: |
+          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL secret is missing"; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY secret is missing"; exit 1; }
+
+      - name: Populate Supabase shadow cache
+        if: inputs.mode == 'populate-cache'
+        run: python -m workers.red_flag_worker
