@@ -50,6 +50,9 @@ class InteractiveDashboard:
                     f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                     f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                     f"<td>{r.get('Fundamental_Model', 'Generic Fundamental Model')}</td>"
+                    f"<td>{r.get('Fund_Component_Summary', '-')}</td>"
+                    f"<td>{r.get('Specialized_Quality_Gate_Reason', 'passed')}</td>"
+                    f"<td>{r.get('Fundamental_Anomaly_Reason') or 'none'}</td>"
                     f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
                     f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
                     f"<td>{sentiment}</td>"
@@ -127,7 +130,7 @@ tr:hover {{ background-color: #f8f9ff; }}
 </div>
 </div>
 <div class="card"><h2>🏆 Top 10 Picks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Fundamental Model</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>News</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>News</th><th>Rating</th></tr>
 {rows_html}
 </table></div>
 <div class="card"><h2>🔎 Reverse DCF</h2>
@@ -204,6 +207,9 @@ class EmailReporter:
                 f"<td>{fmt_f(r.get('ADX_Plus_DI'), 1)} / {fmt_f(r.get('ADX_Minus_DI'), 1)}</td>"
                 f"<td>{rating_gate}</td>"
                 f"<td>{r.get('Fundamental_Model', 'Generic Fundamental Model')}</td>"
+                f"<td>{r.get('Fund_Component_Summary', '-')}</td>"
+                f"<td>{r.get('Specialized_Quality_Gate_Reason', 'passed')}</td>"
+                f"<td>{r.get('Fundamental_Anomaly_Reason') or 'none'}</td>"
                 f"<td>{r['Combined_Score']:.1f}</td>"
                 f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                 f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
@@ -251,7 +257,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
 <div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Transcript Quality Gate</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Transcript Quality Gate</th><th>Rating</th></tr>
 {rows}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
@@ -282,7 +288,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 Spacer(1, 0.4 * cm),
             ]
 
-            top_header = ["Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Model", "Base", "DCF", "Final", "Transcript", "Technical Gate", "Rating"]
+            top_header = ["Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Model", "Fund Evidence", "Quality Gate", "Base", "DCF", "Final", "Transcript", "Technical Gate", "Rating"]
             top_rows = [top_header]
             for _, r in top.iterrows():
                 top_rows.append([
@@ -293,6 +299,8 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                     f"{r['Fundamental_Score']:.0f}",
                     f"{r['Technical_Score']:.0f}",
                     r.get("Fundamental_Model", "Generic Fundamental Model"),
+                    r.get("Fund_Component_Summary", "-"),
+                    r.get("Specialized_Quality_Gate_Reason", "passed"),
                     f"{r['Combined_Score']:.1f}",
                     fmt_f(r.get("DCF_Valuation_Score"), 1),
                     f"{r.get('Final_Score', r['Combined_Score']):.1f}",
@@ -301,7 +309,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                     r["Rating"],
                 ])
             story.append(Paragraph(f"Top {self.config.TOP_STOCKS_COUNT} Stocks", styles["Heading2"]))
-            story.append(self._pdf_table(top_rows, [1.0, 1.8, 1.4, 1.0, 1.0, 1.0, 2.4, 1.0, 1.0, 1.0, 2.4, 2.5, 1.4]))
+            story.append(self._pdf_table(top_rows, [1.0, 1.8, 1.4, 1.0, 1.0, 1.0, 2.4, 2.4, 2.5, 1.0, 1.0, 1.0, 2.4, 2.5, 1.4]))
             story.append(Spacer(1, 0.6 * cm))
 
             dcf_header = [

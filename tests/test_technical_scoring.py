@@ -148,6 +148,7 @@ class TechnicalScoringTests(unittest.TestCase):
         stock = pd.DataFrame([{
             "Symbol": "BANK",
             "Sector": "Financial Services",
+            "Industry": "Banks - Regional",
             "PE_Ratio": 14.0,
             "PB_Ratio": 1.5,
             "ROE": 0.30,
@@ -179,9 +180,86 @@ class TechnicalScoringTests(unittest.TestCase):
 
         scored = StockScorer().score_all_stocks(stock)
 
-        self.assertEqual(scored.loc[0, "Fundamental_Model"], "Financial Services Equity Model")
+        self.assertEqual(scored.loc[0, "Fundamental_Model"], "Bank Equity Quality Model")
         self.assertFalse(scored.loc[0, "Rating_Capped"])
         self.assertFalse(scored.loc[0, "Specialized_Fundamental_Model_Required"])
+        self.assertFalse(scored.loc[0, "Specialized_Quality_Eligible"])
+        self.assertEqual(scored.loc[0, "Rating"], "BUY")
+        self.assertIn("Gross_NPA", scored.loc[0, "Specialized_Quality_Gate_Reason"])
+
+    def test_bank_can_only_be_strong_buy_with_acceptable_risk_data(self):
+        stock = self._high_scoring_stock(
+            Symbol="GOODBANK",
+            Sector="Financial Services",
+            Industry="Banks - Regional",
+            Gross_NPA=0.025,
+            Net_NPA=0.008,
+            Capital_Adequacy=0.16,
+        )
+
+        scored = StockScorer().score_all_stocks(stock)
+
+        self.assertEqual(scored.loc[0, "Rating"], "STRONG BUY")
+        self.assertTrue(scored.loc[0, "Specialized_Quality_Eligible"])
+        self.assertEqual(scored.loc[0, "Specialized_Quality_Gate_Reason"], "passed")
+
+    def test_bad_bank_asset_quality_blocks_strong_buy(self):
+        stock = self._high_scoring_stock(
+            Symbol="RISKYBANK",
+            Sector="Financial Services",
+            Industry="Banks - Regional",
+            Gross_NPA=9.2,
+            Net_NPA=4.5,
+            Capital_Adequacy=11.0,
+        )
+
+        scored = StockScorer().score_all_stocks(stock)
+
+        self.assertEqual(scored.loc[0, "Rating"], "BUY")
+        self.assertFalse(scored.loc[0, "Specialized_Quality_Eligible"])
+        self.assertIn("Gross NPA", scored.loc[0, "Strong_Buy_Gate_Reason"])
+
+    def test_low_bank_pb_without_roe_gets_no_valuation_credit(self):
+        stock = self._high_scoring_stock(
+            Symbol="CHEAPBANK",
+            Sector="Financial Services",
+            Industry="Banks - Regional",
+            PB_Ratio=0.7,
+            ROE=float("nan"),
+        )
+
+        scored = StockScorer().score_all_stocks(stock)
+
+        self.assertEqual(scored.loc[0, "Fund_Component_PB_ROE"], 0.0)
+        self.assertIn("Val ", scored.loc[0, "Fund_Component_Summary"])
+
+    def test_one_off_financial_growth_blocks_strong_buy(self):
+        stock = self._high_scoring_stock(
+            Symbol="BROKER",
+            Sector="Financial Services",
+            Industry="Capital Markets",
+            Earnings_Growth=4.61,
+        )
+
+        scored = StockScorer().score_all_stocks(stock)
+
+        self.assertNotEqual(scored.loc[0, "Rating"], "STRONG BUY")
+        self.assertTrue(scored.loc[0, "Fundamental_Anomaly"])
+        self.assertIn("extreme earnings growth", scored.loc[0, "Strong_Buy_Gate_Reason"])
+
+    def test_multiple_extreme_fundamental_values_cap_rating_at_hold(self):
+        stock = self._high_scoring_stock(
+            Symbol="OUTLIER",
+            PE_Ratio=0.5,
+            ROE=1.2,
+            Profit_Margin=1.5,
+        )
+
+        scored = StockScorer().score_all_stocks(stock)
+
+        self.assertEqual(scored.loc[0, "Rating"], "HOLD")
+        self.assertTrue(scored.loc[0, "Rating_Capped"])
+        self.assertIn("multiple fundamental data anomalies", scored.loc[0, "Rating_Cap_Reason"])
 
     def test_real_estate_uses_sector_specific_asset_model(self):
         stock = pd.DataFrame([{

@@ -32,6 +32,13 @@ SECTOR_RELATIVE_FIELDS = {
 # Reverse lookup: scores-dict key -> source column, used inside score_fundamentals()
 SECTOR_RELATIVE_COLUMN_BY_KEY = {key: col for col, (key, _, _) in SECTOR_RELATIVE_FIELDS.items()}
 RATING_ORDER = {"STRONG BUY": 0, "BUY": 1, "HOLD": 2, "REDUCE": 3, "SELL": 4}
+FINANCIAL_MODEL_NAMES = {
+    "Bank Equity Quality Model",
+    "NBFC Equity Quality Model",
+    "Capital Markets Earnings Quality Model",
+    "Insurance Equity Quality Model",
+    "Financial Services Data-Limited Model",
+}
 
 
 def sort_by_recommendation(df, score_column):
@@ -129,12 +136,17 @@ class StockScorer:
         for idx, row in merged_df.iterrows():
             sector_relative = sector_rel_df.loc[idx] if sector_rel_df is not None else None
             fundamental_model = fundamental_model_for_row(row)
-            if fundamental_model == "Financial Services Equity Model":
-                f_raw = score_financial_services(row)
+            if fundamental_model in FINANCIAL_MODEL_NAMES:
+                fund_components = score_financial_services(
+                    row, fundamental_model=fundamental_model, return_components=True
+                )
             elif fundamental_model == "Real Estate Asset Model":
-                f_raw = score_real_estate(row)
+                fund_components = score_real_estate(row, return_components=True)
             else:
-                f_raw = score_fundamentals(row, sector_relative, sector_relative_weight)
+                fund_components = score_fundamentals(
+                    row, sector_relative, sector_relative_weight, return_components=True
+                )
+            f_raw = sum(fund_components.values())
             t_raw = self.score_technical(row)
 
             # normalize both to 0-100
@@ -158,7 +170,16 @@ class StockScorer:
             data_quality = "FULL" if fields_present >= min_key_fields else "LOW"
             sector = str(row.get("Sector") or "").strip().upper()
             specialized_fundamental_model_required = (
-                sector in specialized_sectors and fundamental_model == "Generic Fundamental Model"
+                sector in specialized_sectors
+                and fundamental_model in {
+                    "Generic Fundamental Model",
+                    "Financial Services Data-Limited Model",
+                }
+            )
+            anomalies = fundamental_anomalies(row)
+            severe_fundamental_anomaly = len(anomalies) >= 2
+            specialized_quality_eligible, specialized_quality_reason = specialized_quality_gate(
+                row, fundamental_model
             )
 
             if combined >= 70:
@@ -185,6 +206,9 @@ class StockScorer:
             if fund_data_stale and combined >= 60:
                 rating_capped = True
                 rating_cap_reason = "stale fundamental fallback"
+            if severe_fundamental_anomaly and combined >= 60:
+                rating_capped = True
+                rating_cap_reason = "multiple fundamental data anomalies"
             # A high score assembled from valuation ratios and neutral indicators
             # is not a current buy signal. BUY requires basic positive price
             # structure; STRONG BUY additionally requires directional strength.
@@ -238,10 +262,19 @@ class StockScorer:
                 rating = "HOLD"
 
             strong_buy_eligible = bool(
-                has_growth and trend_confirmed and t_score >= tech_floor and not rating_capped
+                has_growth
+                and trend_confirmed
+                and t_score >= tech_floor
+                and specialized_quality_eligible
+                and not anomalies
+                and not rating_capped
             )
             strong_buy_gate_reason = ""
-            if not has_growth:
+            if not specialized_quality_eligible:
+                strong_buy_gate_reason = specialized_quality_reason
+            elif anomalies:
+                strong_buy_gate_reason = "fundamental anomaly: " + ", ".join(anomalies)
+            elif not has_growth:
                 strong_buy_gate_reason = "growth below threshold"
             elif not trend_confirmed:
                 strong_buy_gate_reason = "trend not confirmed"
@@ -266,6 +299,33 @@ class StockScorer:
             merged_df.at[idx, "Rating_Cap_Reason"] = rating_cap_reason
             merged_df.at[idx, "Specialized_Fundamental_Model_Required"] = specialized_fundamental_model_required
             merged_df.at[idx, "Fundamental_Model"] = fundamental_model
+            valuation_keys = {"PE", "PB", "PB_ROE", "EV"}
+            growth_keys = {"RG", "EG"}
+            income_keys = {"DY"}
+            valuation_points = sum(
+                value for key, value in fund_components.items() if key in valuation_keys
+            )
+            growth_points = sum(
+                value for key, value in fund_components.items() if key in growth_keys
+            )
+            income_points = sum(
+                value for key, value in fund_components.items() if key in income_keys
+            )
+            quality_points = f_raw - valuation_points - growth_points - income_points
+            merged_df.at[idx, "Fund_Valuation_Points"] = round(valuation_points, 2)
+            merged_df.at[idx, "Fund_Quality_Points"] = round(quality_points, 2)
+            merged_df.at[idx, "Fund_Growth_Points"] = round(growth_points, 2)
+            merged_df.at[idx, "Fund_Income_Points"] = round(income_points, 2)
+            merged_df.at[idx, "Fund_Component_Summary"] = (
+                f"Val {valuation_points:.1f} | Quality {quality_points:.1f} | "
+                f"Growth {growth_points:.1f} | Income {income_points:.1f}"
+            )
+            for component, points in fund_components.items():
+                merged_df.at[idx, f"Fund_Component_{component}"] = round(points, 2)
+            merged_df.at[idx, "Fundamental_Anomaly"] = bool(anomalies)
+            merged_df.at[idx, "Fundamental_Anomaly_Reason"] = ", ".join(anomalies)
+            merged_df.at[idx, "Specialized_Quality_Eligible"] = specialized_quality_eligible
+            merged_df.at[idx, "Specialized_Quality_Gate_Reason"] = specialized_quality_reason
             merged_df.at[idx, "Buy_Eligible"] = buy_eligible
             merged_df.at[idx, "Buy_Gate_Reason"] = ", ".join(buy_gate_failures)
             merged_df.at[idx, "Strong_Buy_Eligible"] = strong_buy_eligible
@@ -407,72 +467,338 @@ class StockScorer:
 def fundamental_model_for_row(row):
     sector = str(row.get("Sector") or "").strip().upper()
     if sector == "FINANCIAL SERVICES":
-        return "Financial Services Equity Model"
+        industry = str(row.get("Industry") or "").strip().upper()
+        if "BANK" in industry:
+            return "Bank Equity Quality Model"
+        if any(term in industry for term in ("CREDIT SERVICES", "MORTGAGE", "CONSUMER FINANCE")):
+            return "NBFC Equity Quality Model"
+        if any(term in industry for term in ("CAPITAL MARKET", "ASSET MANAGEMENT", "BROKER", "EXCHANGE")):
+            return "Capital Markets Earnings Quality Model"
+        if "INSURANCE" in industry:
+            return "Insurance Equity Quality Model"
+        return "Financial Services Data-Limited Model"
     if sector == "REAL ESTATE":
         return "Real Estate Asset Model"
     return "Generic Fundamental Model"
 
 
-def score_financial_services(row):
-    """Equity-value model for banks, insurers, NBFCs, and other financial firms."""
+def fundamental_anomalies(row):
+    """Return severe point-in-time data patterns that need manual validation."""
     s = StockScorer.safe_float
-    score = 0
+    checks = (
+        ("PE_Ratio", lambda value: 0 < value < 1, "PE below 1"),
+        ("ROE", lambda value: abs(value) > 1, "absolute ROE above 100%"),
+        ("ROA", lambda value: abs(value) > 0.5, "absolute ROA above 50%"),
+        ("Profit_Margin", lambda value: abs(value) > 1, "absolute margin above 100%"),
+        ("Revenue_Growth", lambda value: value > 2 or value <= -1, "extreme revenue growth"),
+        ("Earnings_Growth", lambda value: value > 2 or value <= -1, "extreme earnings growth"),
+    )
+    anomalies = []
+    for field, predicate, message in checks:
+        value = s(row.get(field))
+        if value is not None and predicate(value):
+            anomalies.append(message)
+    return anomalies
 
+
+def specialized_quality_gate(row, fundamental_model):
+    """High-conviction financial labels require sector-specific risk inputs."""
+    s = StockScorer.safe_float
+    required_by_model = {
+        "Bank Equity Quality Model": (
+            "Gross_NPA", "Net_NPA", "Capital_Adequacy",
+        ),
+        "NBFC Equity Quality Model": (
+            "Gross_NPA", "Net_NPA", "Capital_Adequacy",
+        ),
+        "Insurance Equity Quality Model": ("Solvency_Ratio",),
+        "Capital Markets Earnings Quality Model": (
+            "ROE", "ROA", "Profit_Margin",
+        ),
+    }
+    if fundamental_model == "Financial Services Data-Limited Model":
+        return False, "financial sub-industry requires a dedicated model"
+    required = required_by_model.get(fundamental_model)
+    if not required:
+        return True, "passed"
+    missing = [field for field in required if s(row.get(field)) is None]
+    if missing:
+        return False, "missing specialized quality data: " + ", ".join(missing)
+
+    if fundamental_model in {"Bank Equity Quality Model", "NBFC Equity Quality Model"}:
+        gross_npa, net_npa, capital_adequacy = _financial_quality_percentages(row)
+        failures = []
+        if gross_npa > 8.0:
+            failures.append(f"Gross NPA {gross_npa:.1f}% above 8%")
+        if net_npa > 4.0:
+            failures.append(f"Net NPA {net_npa:.1f}% above 4%")
+        if capital_adequacy < 12.0:
+            failures.append(f"capital adequacy {capital_adequacy:.1f}% below 12%")
+        if failures:
+            return False, "specialized quality threshold failed: " + ", ".join(failures)
+
+    if fundamental_model == "Insurance Equity Quality Model":
+        solvency = s(row.get("Solvency_Ratio"))
+        if solvency is not None and solvency > 10:
+            solvency /= 100.0
+        if solvency is None or solvency < 1.5:
+            return False, "specialized quality threshold failed: solvency below 1.5x"
+    return True, "passed"
+
+
+def _financial_quality_percentages(row):
+    """Normalize NPA/CAR fields using capital adequacy to infer row units."""
+    s = StockScorer.safe_float
+    capital_adequacy = s(row.get("Capital_Adequacy"))
+    values_are_ratios = capital_adequacy is not None and abs(capital_adequacy) <= 1.0
+
+    def normalize(field):
+        value = s(row.get(field))
+        if value is None:
+            return None
+        return value * 100.0 if values_are_ratios else value
+
+    return normalize("Gross_NPA"), normalize("Net_NPA"), normalize("Capital_Adequacy")
+
+
+def _bank_risk_points(row, gross_max, net_max, capital_max, nbfc=False):
+    gross_npa, net_npa, capital_adequacy = _financial_quality_percentages(row)
+    gross_good = 3.0 if nbfc else 2.0
+    net_good = 1.5 if nbfc else 1.0
+    return {
+        "GROSS_NPA": 0.0 if gross_npa is None else (
+            float(gross_max) if gross_npa <= gross_good
+            else round(gross_max * 0.70, 2) if gross_npa <= 4.0
+            else round(gross_max * 0.35, 2) if gross_npa <= 8.0
+            else 0.0
+        ),
+        "NET_NPA": 0.0 if net_npa is None else (
+            float(net_max) if net_npa <= net_good
+            else round(net_max * 0.70, 2) if net_npa <= 2.0
+            else round(net_max * 0.35, 2) if net_npa <= 4.0
+            else 0.0
+        ),
+        "CAPITAL_ADEQUACY": 0.0 if capital_adequacy is None else (
+            float(capital_max) if capital_adequacy >= 18.0
+            else round(capital_max * 0.80, 2) if capital_adequacy >= 15.0
+            else round(capital_max * 0.50, 2) if capital_adequacy >= 12.0
+            else 0.0
+        ),
+    }
+
+
+def _pe_points(pe, max_points):
+    if pe is None or pe <= 0:
+        return 0.0
+    if pe < 1:
+        return round(max_points * 0.30, 2)
+    if pe < 10:
+        return float(max_points)
+    if pe < 18:
+        return round(max_points * 0.85, 2)
+    if pe < 25:
+        return round(max_points * 0.67, 2)
+    if pe < 40:
+        return round(max_points * 0.40, 2)
+    return round(max_points * 0.20, 2)
+
+
+def _pb_roe_points(pb, roe, max_points):
+    """Reward cheap book value only when the equity earns an adequate return."""
+    if pb is None or pb <= 0 or roe is None:
+        return 0.0
+    if roe < 0:
+        base = 1
+    elif roe >= 0.18:
+        base = 20 if pb <= 2 else 16 if pb <= 3 else 10
+    elif roe >= 0.15:
+        base = 17 if pb <= 1.5 else 14 if pb <= 2.5 else 8
+    elif roe >= 0.12:
+        base = 14 if pb <= 1.25 else 11 if pb <= 2 else 6
+    elif roe >= 0.10:
+        base = 10 if pb <= 1 else 8 if pb <= 1.5 else 4
+    else:
+        base = 4 if pb < 1 else 2
+    return round(base / 20 * max_points, 2)
+
+
+def _roe_points(value, max_points):
+    if value is None:
+        return 0.0
+    if abs(value) > 1:
+        return round(max_points * 0.30, 2)
+    if value >= 0.20:
+        return float(max_points)
+    if value >= 0.15:
+        return round(max_points * 0.80, 2)
+    if value >= 0.10:
+        return round(max_points * 0.55, 2)
+    if value >= 0:
+        return round(max_points * 0.30, 2)
+    return round(max_points * 0.10, 2)
+
+
+def _roa_points(value, max_points):
+    if value is None:
+        return 0.0
+    if abs(value) > 0.5:
+        return round(max_points * 0.20, 2)
+    if value >= 0.03:
+        return float(max_points)
+    if value >= 0.02:
+        return round(max_points * 0.80, 2)
+    if value >= 0.01:
+        return round(max_points * 0.60, 2)
+    if value >= 0:
+        return round(max_points * 0.30, 2)
+    return round(max_points * 0.10, 2)
+
+
+def _profit_points(value, max_points):
+    if value is None:
+        return 0.0
+    if abs(value) > 1:
+        return round(max_points * 0.30, 2)
+    if value >= 0.20:
+        return float(max_points)
+    if value >= 0.12:
+        return round(max_points * 0.80, 2)
+    if value >= 0.05:
+        return round(max_points * 0.55, 2)
+    if value >= 0:
+        return round(max_points * 0.30, 2)
+    return round(max_points * 0.10, 2)
+
+
+def _growth_points(value, max_points, strong_threshold=0.20):
+    if value is None:
+        return 0.0
+    if value > 2 or value <= -1:
+        return round(max_points * 0.30, 2)
+    if value >= strong_threshold:
+        return float(max_points)
+    if value >= 0.10:
+        return round(max_points * 0.80, 2)
+    if value >= 0.05:
+        return round(max_points * 0.60, 2)
+    if value >= 0:
+        return round(max_points * 0.30, 2)
+    return round(max_points * 0.10, 2)
+
+
+def _dividend_points(value, max_points=5):
+    if value is None or value <= 0:
+        return 0.0
+    if value >= 0.03:
+        return float(max_points)
+    if value >= 0.015:
+        return round(max_points * 0.80, 2)
+    return round(max_points * 0.60, 2)
+
+
+def score_financial_services(row, fundamental_model=None, return_components=False):
+    """Industry-specific equity models; never use debt as a bank quality input."""
+    s = StockScorer.safe_float
+    model = fundamental_model or fundamental_model_for_row(row)
     pe = s(row.get("PE_Ratio"))
-    score += 0 if pe is None or pe <= 0 else 15 if pe < 10 else 13 if pe < 18 else 10 if pe < 25 else 6 if pe < 40 else 3
-
     pb = s(row.get("PB_Ratio"))
-    score += 0 if pb is None or pb <= 0 else 20 if pb < 1 else 16 if pb < 2 else 12 if pb < 3 else 7 if pb < 5 else 3
-
     roe = s(row.get("ROE"))
-    score += 0 if roe is None else 20 if roe >= 0.20 else 16 if roe >= 0.15 else 11 if roe >= 0.10 else 6 if roe >= 0 else 2
-
     roa = s(row.get("ROA"))
-    score += 0 if roa is None else 10 if roa >= 0.03 else 8 if roa >= 0.02 else 6 if roa >= 0.01 else 3 if roa >= 0 else 1
-
     margin = s(row.get("Profit_Margin"))
-    score += 0 if margin is None else 10 if margin >= 0.20 else 8 if margin >= 0.12 else 5 if margin >= 0.05 else 3 if margin >= 0 else 1
-
     revenue_growth = s(row.get("Revenue_Growth"))
-    score += 0 if revenue_growth is None else 10 if revenue_growth >= 0.15 else 8 if revenue_growth >= 0.08 else 6 if revenue_growth >= 0.03 else 3 if revenue_growth >= 0 else 1
-
     earnings_growth = s(row.get("Earnings_Growth"))
-    score += 0 if earnings_growth is None else 10 if earnings_growth >= 0.20 else 8 if earnings_growth >= 0.10 else 6 if earnings_growth >= 0.05 else 3 if earnings_growth >= 0 else 1
-
     dividend_yield = s(row.get("Dividend_Yield"))
-    score += 0 if dividend_yield is None or dividend_yield <= 0 else 5 if dividend_yield >= 0.03 else 4 if dividend_yield >= 0.015 else 3
-    return score
+
+    if model == "Bank Equity Quality Model":
+        scores = {
+            "PE": _pe_points(pe, 10),
+            "PB_ROE": _pb_roe_points(pb, roe, 15),
+            "ROE": _roe_points(roe, 15),
+            "ROA": _roa_points(roa, 10),
+            "PM": _profit_points(margin, 5),
+            "RG": _growth_points(revenue_growth, 8, 0.15),
+            "EG": _growth_points(earnings_growth, 7),
+            "DY": _dividend_points(dividend_yield),
+        }
+        scores.update(_bank_risk_points(row, gross_max=8, net_max=7, capital_max=10))
+    elif model == "NBFC Equity Quality Model":
+        scores = {
+            "PE": _pe_points(pe, 10),
+            "PB_ROE": _pb_roe_points(pb, roe, 15),
+            "ROE": _roe_points(roe, 15),
+            "ROA": _roa_points(roa, 10),
+            "PM": _profit_points(margin, 5),
+            "RG": _growth_points(revenue_growth, 10, 0.15),
+            "EG": _growth_points(earnings_growth, 10),
+            "DY": _dividend_points(dividend_yield),
+        }
+        scores.update(
+            _bank_risk_points(row, gross_max=6, net_max=5, capital_max=9, nbfc=True)
+        )
+    elif model == "Insurance Equity Quality Model":
+        solvency = s(row.get("Solvency_Ratio"))
+        scores = {
+            "PE": _pe_points(pe, 15),
+            "PB_ROE": _pb_roe_points(pb, roe, 15),
+            "ROE": _roe_points(roe, 20),
+            "ROA": _roa_points(roa, 10),
+            "PM": _profit_points(margin, 10),
+            "RG": _growth_points(revenue_growth, 10, 0.15),
+            "EG": _growth_points(earnings_growth, 10),
+            "DY": _dividend_points(dividend_yield),
+            "SOLVENCY": 5.0 if solvency is not None and solvency >= 1.5 else 0.0,
+        }
+    else:
+        # Capital-markets and unknown financial firms use earnings-quality
+        # inputs. Unknown industries are separately capped by the model gate.
+        scores = {
+            "PE": _pe_points(pe, 15),
+            "PB_ROE": _pb_roe_points(pb, roe, 15),
+            "ROE": _roe_points(roe, 20),
+            "ROA": _roa_points(roa, 10),
+            "PM": _profit_points(margin, 15),
+            "RG": _growth_points(revenue_growth, 10, 0.15),
+            "EG": _growth_points(earnings_growth, 10),
+            "DY": _dividend_points(dividend_yield),
+        }
+    return scores if return_components else sum(scores.values())
 
 
-def score_real_estate(row):
+def score_real_estate(row, return_components=False):
     """Asset, leverage, profitability, and growth model for real-estate firms."""
     s = StockScorer.safe_float
-    score = 0
+    scores = {}
 
     pe = s(row.get("PE_Ratio"))
-    score += 0 if pe is None or pe <= 0 else 15 if pe < 15 else 12 if pe < 25 else 8 if pe < 40 else 4
+    scores["PE"] = _pe_points(pe, 15)
 
     pb = s(row.get("PB_Ratio"))
-    score += 0 if pb is None or pb <= 0 else 15 if pb < 1.5 else 12 if pb < 3 else 8 if pb < 5 else 4
+    roe = s(row.get("ROE"))
+    scores["PB_ROE"] = _pb_roe_points(pb, roe, 15)
 
     debt_to_equity = s(row.get("Debt_to_Equity"))
-    score += 0 if debt_to_equity is None else 15 if debt_to_equity < 30 else 12 if debt_to_equity < 70 else 7 if debt_to_equity < 120 else 3
+    scores["DE"] = 0 if debt_to_equity is None else 15 if debt_to_equity < 30 else 12 if debt_to_equity < 70 else 7 if debt_to_equity < 120 else 3
 
     current_ratio = s(row.get("Current_Ratio"))
-    score += 0 if current_ratio is None else 10 if current_ratio >= 1.5 else 7 if current_ratio >= 1.0 else 3
+    scores["CR"] = 0 if current_ratio is None else 10 if current_ratio >= 1.5 else 7 if current_ratio >= 1.0 else 3
 
     margin = s(row.get("Profit_Margin"))
-    score += 0 if margin is None else 15 if margin >= 0.20 else 12 if margin >= 0.12 else 8 if margin >= 0.05 else 4 if margin >= 0 else 1
+    scores["PM"] = _profit_points(margin, 15)
 
     revenue_growth = s(row.get("Revenue_Growth"))
-    score += 0 if revenue_growth is None else 15 if revenue_growth >= 0.20 else 12 if revenue_growth >= 0.10 else 8 if revenue_growth >= 0.05 else 4 if revenue_growth >= 0 else 1
+    scores["RG"] = _growth_points(revenue_growth, 15)
 
     earnings_growth = s(row.get("Earnings_Growth"))
-    score += 0 if earnings_growth is None else 15 if earnings_growth >= 0.20 else 12 if earnings_growth >= 0.10 else 8 if earnings_growth >= 0.05 else 4 if earnings_growth >= 0 else 1
-    return score
+    scores["EG"] = _growth_points(earnings_growth, 15)
+    return scores if return_components else sum(scores.values())
 
 
-def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
+def score_fundamentals(
+    row,
+    sector_relative=None,
+    sector_relative_weight=0.5,
+    return_components=False,
+):
     """Fundamental quality/valuation score, raw max = 100.
 
     ``sector_relative`` (optional) is a mapping of column -> percentile-based
@@ -486,11 +812,7 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
     scores = {}
 
     pe = s(row.get("PE_Ratio"))
-    if pe is None or pe <= 0: scores["PE"] = 0
-    elif pe < 15: scores["PE"] = 15
-    elif pe < 25: scores["PE"] = 12
-    elif pe < 40: scores["PE"] = 8
-    else: scores["PE"] = 4
+    scores["PE"] = _pe_points(pe, 15)
 
     pb = s(row.get("PB_Ratio"))
     if pb is None or pb <= 0: scores["PB"] = 0
@@ -500,19 +822,10 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
     else: scores["PB"] = 2
 
     roe = s(row.get("ROE"))
-    if roe is None: scores["ROE"] = 0
-    elif roe >= 0.25: scores["ROE"] = 15
-    elif roe >= 0.15: scores["ROE"] = 12
-    elif roe >= 0.10: scores["ROE"] = 8
-    elif roe >= 0: scores["ROE"] = 5
-    else: scores["ROE"] = 2
+    scores["ROE"] = _roe_points(roe, 15)
 
     roa = s(row.get("ROA"))
-    if roa is None: scores["ROA"] = 0
-    elif roa >= 0.10: scores["ROA"] = 5
-    elif roa >= 0.05: scores["ROA"] = 4
-    elif roa >= 0: scores["ROA"] = 3
-    else: scores["ROA"] = 1
+    scores["ROA"] = _roa_points(roa, 5)
 
     de = s(row.get("Debt_to_Equity"))  # yfinance reports this as a percentage
     if de is None: scores["DE"] = 0
@@ -529,28 +842,13 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
     else: scores["CR"] = 2
 
     pm = s(row.get("Profit_Margin"))
-    if pm is None: scores["PM"] = 0
-    elif pm >= 0.20: scores["PM"] = 10
-    elif pm >= 0.10: scores["PM"] = 8
-    elif pm >= 0.05: scores["PM"] = 6
-    elif pm >= 0: scores["PM"] = 4
-    else: scores["PM"] = 1
+    scores["PM"] = _profit_points(pm, 10)
 
     rg = s(row.get("Revenue_Growth"))
-    if rg is None: scores["RG"] = 0
-    elif rg >= 0.20: scores["RG"] = 10
-    elif rg >= 0.10: scores["RG"] = 8
-    elif rg >= 0.05: scores["RG"] = 6
-    elif rg >= 0: scores["RG"] = 4
-    else: scores["RG"] = 2
+    scores["RG"] = _growth_points(rg, 10)
 
     eg = s(row.get("Earnings_Growth"))
-    if eg is None: scores["EG"] = 0
-    elif eg >= 0.25: scores["EG"] = 10
-    elif eg >= 0.15: scores["EG"] = 8
-    elif eg >= 0.05: scores["EG"] = 6
-    elif eg >= 0: scores["EG"] = 4
-    else: scores["EG"] = 2
+    scores["EG"] = _growth_points(eg, 10)
 
     dy = s(row.get("Dividend_Yield"))
     if dy is None or dy <= 0: scores["DY"] = 0
@@ -574,6 +872,24 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
                     continue
                 scores[key] = round(scores[key] * (1 - weight) + sector_score * weight, 2)
 
+    # Hard guards are applied after peer-relative blending. A bad or suspect
+    # absolute value must not become attractive merely because its peers are
+    # similarly weak or because an extreme observation wins a percentile rank.
+    if pe is not None and 0 < pe < 1:
+        scores["PE"] = min(scores["PE"], 4.5)
+    if pb is not None and 0 < pb < 2 and (roe is None or roe < 0.10):
+        scores["PB"] = min(scores["PB"], 4.0)
+    if roe is not None and abs(roe) > 1:
+        scores["ROE"] = min(scores["ROE"], 4.5)
+    if roa is not None and abs(roa) > 0.5:
+        scores["ROA"] = min(scores["ROA"], 1.0)
+    if pm is not None and abs(pm) > 1:
+        scores["PM"] = min(scores["PM"], 3.0)
+    if rg is not None and (rg > 2 or rg <= -1):
+        scores["RG"] = min(scores["RG"], 3.0)
+    if eg is not None and (eg > 2 or eg <= -1):
+        scores["EG"] = min(scores["EG"], 3.0)
+
     # Value-trap guard: a low PE/PB only reflects genuine undervaluation if the
     # business isn't actively shrinking. When BOTH revenue and earnings are
     # contracting, cap the reward for a "cheap" multiple - it's priced that way
@@ -587,4 +903,4 @@ def score_fundamentals(row, sector_relative=None, sector_relative_weight=0.5):
         if pb is not None and 0 < pb < 2:
             scores["PB"] = min(scores["PB"], 5)
 
-    return sum(scores.values())
+    return scores if return_components else sum(scores.values())

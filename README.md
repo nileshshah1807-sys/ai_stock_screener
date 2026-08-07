@@ -44,14 +44,24 @@ and cache entries unused for seven days can be removed. Caches must not contain
 credentials; this workflow only caches `reports_advanced/`, while Gmail values
 remain GitHub Secrets.
 
-Fundamental scoring selects a model by sector. `Financial Services` uses an
-equity model based on PE/PB, ROE/ROA, profitability, growth, and dividends; it
-does not misuse operating debt, current ratio, or EV/EBITDA as bank quality
-signals. `Real Estate` uses an asset-oriented model based on PE/PB, leverage,
-liquidity, margins, and growth. Generic reverse DCF remains disabled for both
-sectors because the available feed lacks bank regulatory/asset-quality inputs
-and property-level NAV/project cash flows. The selected model is included in
-CSV, dashboard, email, and PDF output.
+Fundamental scoring selects a model by sector and financial sub-industry.
+Banks, NBFCs, insurance companies, and capital-markets firms use separate
+equity-quality models; they do not misuse operating debt, current ratio, or
+EV/EBITDA as financial-company quality signals. Bank/NBFC book-value points are
+paired with ROE, while Gross NPA, Net NPA, and capital adequacy reserve 20-25
+points of the score. Missing regulatory data earns no points and prevents a
+`STRONG BUY`; weak reported values also fail the specialized quality gate.
+`Real Estate` uses an asset-oriented model with book value paired to ROE plus
+leverage, liquidity, margins, and growth. Generic reverse DCF remains disabled
+for both sectors because the available feed lacks bank regulatory/asset-quality
+inputs and property-level NAV/project cash flows.
+
+Sub-1 PE, above-100% profitability, and above-200% point-in-time growth are
+flagged as possible one-off/data anomalies rather than receiving maximum
+points. One anomaly blocks `STRONG BUY`; multiple anomalies cap the rating at
+`HOLD`. CSV, dashboard, email, and PDF output include the selected model,
+valuation/quality/growth/income point breakdown, specialized quality reason,
+and anomaly reason.
 
 ### Setup
 
