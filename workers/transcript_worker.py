@@ -31,7 +31,7 @@ class TranscriptSettings:
     model_name: str = "textblob-finance-lexicon"
     max_documents_per_run: int = 60
     max_analyses_per_run: int = 60
-    analysis_batch_size: int = 60
+    analysis_batch_size: int = 10
 
     @classmethod
     def from_environment(cls) -> "TranscriptSettings":
@@ -47,7 +47,7 @@ class TranscriptSettings:
             or ("finbert-finance-hybrid" if finbert_enabled else "textblob-finance-lexicon"),
             max_documents_per_run=max(1, int(os.getenv("TRANSCRIPT_MAX_DOCUMENTS_PER_RUN", "60"))),
             max_analyses_per_run=max(1, int(os.getenv("TRANSCRIPT_MAX_ANALYSES_PER_RUN", "60"))),
-            analysis_batch_size=max(1, int(os.getenv("TRANSCRIPT_ANALYSIS_BATCH_SIZE", "60"))),
+            analysis_batch_size=max(1, int(os.getenv("TRANSCRIPT_ANALYSIS_BATCH_SIZE", "10"))),
         )
 
 

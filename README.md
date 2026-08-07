@@ -92,7 +92,7 @@ days. Newest filings are processed first, with up to 120 documents collected
 and 300 transcripts analyzed per scheduled run. FinBERT sentences are grouped
 across transcript chunks and processed through one cached model invocation,
 instead of invoking the model separately for every chunk. Each chunk sends at
-most 24 high-signal financial sentences to FinBERT; deterministic guidance,
+most 8 high-signal financial sentences to FinBERT; deterministic guidance,
 risk, and lexicon rules still inspect the complete text. The transcript batch
 and model input sizes are bounded to control runner memory. It keeps PDFs
 only for the duration of the
@@ -119,7 +119,8 @@ Tune `TRANSCRIPT_MAX_ANALYSES_PER_RUN`, `TRANSCRIPT_ANALYSIS_BATCH_SIZE`,
 `TRANSCRIPT_FINBERT_MAX_SENTENCES_PER_CHUNK` if runner CPU or memory limits
 change. CPU runners default to a model batch size of 1; larger model batches are
 intended for GPU runners and must be benchmarked. Each run logs elapsed seconds
-and transcripts per second for every analysis batch.
+and transcripts per second for every analysis batch, plus progress for each
+bounded FinBERT inference window.
 
 When management gives no explicit raised/maintained/lowered guidance, the
 summary says `No explicit guidance` and adds commentary from the stored demand,

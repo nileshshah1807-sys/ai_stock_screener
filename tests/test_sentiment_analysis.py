@@ -188,7 +188,7 @@ It is 35% plus growth for the current year and 30% to 35% for the next three yea
             LocalSentimentAnalyzer().analyze_chunks([text])
 
         self.assertEqual(len(calls), 1)
-        self.assertEqual(len(calls[0]), 24)
+        self.assertEqual(len(calls[0]), 8)
 
     def test_aggregation_compares_prepared_remarks_with_management_qa(self):
         analyses = [

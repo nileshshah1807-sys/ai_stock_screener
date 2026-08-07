@@ -8,7 +8,7 @@ import pandas as pd
 
 from app import run_daily_analysis
 from screener.data_collection import StockDataCollector
-from screener.reporting import InteractiveDashboard
+from screener.reporting import EmailReporter, InteractiveDashboard, REPORTLAB_AVAILABLE
 
 
 class ModuleWiringTests(unittest.TestCase):
@@ -50,6 +50,52 @@ class ModuleWiringTests(unittest.TestCase):
 
             self.assertEqual(path, str(Path(output_dir) / "dashboard_06082026.html"))
             self.assertTrue(Path(path).exists())
+
+    @unittest.skipUnless(REPORTLAB_AVAILABLE, "reportlab is not installed")
+    def test_pdf_report_contains_only_compact_ranked_stock_fields(self):
+        try:
+            import pymupdf
+        except ImportError:
+            self.skipTest("PyMuPDF is not installed")
+
+        scored = pd.DataFrame([{
+            "Rank": 1,
+            "Symbol": "SYRMA",
+            "Current_Price": 823.45,
+            "PE_Ratio": 28.7,
+            "Fundamental_Score": 84.0,
+            "Technical_Score": 76.0,
+            "Transcript_Score": 73.7,
+            "Rating": "STRONG BUY",
+            "Fundamental_Model": "Generic Fundamental Model",
+            "Fund_Component_Summary": "Detailed fundamental evidence",
+            "Specialized_Quality_Gate_Reason": "passed",
+            "DCF_Assessment": "Attractive reverse DCF",
+        }])
+        with tempfile.TemporaryDirectory() as output_dir:
+            config = SimpleNamespace(
+                OUTPUT_DIR=Path(output_dir),
+                TOP_STOCKS_COUNT=20,
+            )
+            path = EmailReporter(config).create_pdf_report(scored, "07-08-2026")
+
+            self.assertIsNotNone(path)
+            with pymupdf.open(path) as document:
+                self.assertEqual(document.page_count, 1)
+                pdf_text = "\n".join(page.get_text() for page in document)
+
+        for expected in ("Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Transcript", "Score", "Rating"):
+            self.assertIn(expected, pdf_text)
+        for expected in ("SYRMA", "823", "28.7", "84", "76", "73.7", "STRONG BUY"):
+            self.assertIn(expected, pdf_text)
+        for excluded in (
+            "Generic Fundamental Model",
+            "Detailed fundamental evidence",
+            "Quality Gate",
+            "Reverse DCF",
+            "Attractive reverse DCF",
+        ):
+            self.assertNotIn(excluded, pdf_text)
 
     def test_single_ticker_multilevel_download_is_collected(self):
         symbol = "BAJAJ-AUTO.NS"

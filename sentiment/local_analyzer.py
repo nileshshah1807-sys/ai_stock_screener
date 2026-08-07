@@ -6,6 +6,7 @@ financial-language lexicon drive the production-oriented score.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from functools import lru_cache
@@ -13,6 +14,9 @@ from functools import lru_cache
 from textblob import TextBlob
 
 from .schemas import ChunkSentiment
+
+
+logger = logging.getLogger(__name__)
 
 
 POSITIVE_TERMS = {
@@ -219,13 +223,27 @@ def _finbert_scores(sentence_groups: list[list[str]]) -> list[float | None]:
     if not sentences:
         return [None] * len(sentence_groups)
     batch_size = max(1, int(os.getenv("TRANSCRIPT_FINBERT_BATCH_SIZE", "1")))
+    window_size = max(
+        batch_size,
+        int(os.getenv("TRANSCRIPT_FINBERT_INFERENCE_WINDOW", "256")),
+    )
     try:
-        results = classifier(
-            sentences,
-            truncation=True,
-            max_length=512,
-            batch_size=batch_size,
-        )
+        results = []
+        for start in range(0, len(sentences), window_size):
+            window = sentences[start:start + window_size]
+            logger.info(
+                "FinBERT inference window: sentences=%s-%s/%s model_batch_size=%s",
+                start + 1,
+                start + len(window),
+                len(sentences),
+                batch_size,
+            )
+            results.extend(classifier(
+                window,
+                truncation=True,
+                max_length=512,
+                batch_size=batch_size,
+            ))
     except Exception as exc:
         if _finbert_required():
             raise RuntimeError("FinBERT inference failed") from exc
@@ -245,7 +263,7 @@ def _select_finbert_sentences(sentences: list[str]) -> list[str]:
     """Keep the strongest financial evidence and skip conversational filler."""
     max_sentences = max(
         1,
-        int(os.getenv("TRANSCRIPT_FINBERT_MAX_SENTENCES_PER_CHUNK", "24")),
+        int(os.getenv("TRANSCRIPT_FINBERT_MAX_SENTENCES_PER_CHUNK", "8")),
     )
     scored: list[tuple[int, int, str]] = []
     directional_terms = POSITIVE_TERMS | NEGATIVE_TERMS | UNCERTAINTY_TERMS | CONSTRAINT_TERMS
