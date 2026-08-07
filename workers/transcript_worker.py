@@ -5,12 +5,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from sentiment.analyzer import ANALYSIS_VERSION, analyze_transcript
+from sentiment.analyzer import ANALYSIS_VERSION, analyze_transcripts
 from storage.supabase_repository import SupabaseRepository
 from transcripts.cleaner import clean_transcript_text
 from transcripts.collector import discover_nse_transcripts, filing_payload
@@ -30,6 +31,7 @@ class TranscriptSettings:
     model_name: str = "textblob-finance-lexicon"
     max_documents_per_run: int = 60
     max_analyses_per_run: int = 60
+    analysis_batch_size: int = 60
 
     @classmethod
     def from_environment(cls) -> "TranscriptSettings":
@@ -45,6 +47,7 @@ class TranscriptSettings:
             or ("finbert-finance-hybrid" if finbert_enabled else "textblob-finance-lexicon"),
             max_documents_per_run=max(1, int(os.getenv("TRANSCRIPT_MAX_DOCUMENTS_PER_RUN", "60"))),
             max_analyses_per_run=max(1, int(os.getenv("TRANSCRIPT_MAX_ANALYSES_PER_RUN", "60"))),
+            analysis_batch_size=max(1, int(os.getenv("TRANSCRIPT_ANALYSIS_BATCH_SIZE", "60"))),
         )
 
 
@@ -158,48 +161,59 @@ class TranscriptWorker:
             ANALYSIS_VERSION,
             self.settings.max_analyses_per_run,
         )
-        for transcript in pending[:self.settings.max_analyses_per_run]:
-            company_name = transcript.get("company_name") or "Unknown"
+        pending = pending[:self.settings.max_analyses_per_run]
+        for start in range(0, len(pending), self.settings.analysis_batch_size):
+            batch = pending[start:start + self.settings.analysis_batch_size]
+            started_at = time.perf_counter()
             logger.info(
-                "Analyzing transcript: id=%s symbol=%s company=%s call_date=%s model=%s",
-                transcript["id"],
-                transcript["symbol"],
-                company_name,
-                transcript.get("call_date") or "Unknown",
+                "Analyzing transcript batch: size=%s model=%s progress=%s/%s",
+                len(batch),
                 self.settings.model_name,
+                start,
+                len(pending),
             )
             try:
-                result = analyze_transcript(transcript["cleaned_text"])
+                results = analyze_transcripts([transcript["cleaned_text"] for transcript in batch])
             except Exception as exc:
-                summary["deferred"] += 1
+                summary["deferred"] += len(batch)
                 logger.warning(
-                    "Local transcript analysis failed: id=%s symbol=%s company=%s error=%s",
-                    transcript["id"], transcript["symbol"], company_name, exc,
+                    "Transcript analysis batch failed: size=%s error=%s",
+                    len(batch),
+                    exc,
                 )
                 continue
-            self.repository.save_sentiment({
-                "transcript_id": transcript["id"],
-                "overall_score": result["overall_score"],
-                "optimism_score": result["optimism"],
-                "guidance_score": result["guidance_strength"],
-                "risk_score": result["risk_intensity"],
-                "confidence_score": result["confidence_score"],
-                "analyst_pressure": result["analyst_pressure"],
-                "management_confidence": result["management_confidence"],
-                "answer_quality": result["answer_quality"],
-                "guidance_direction": result["guidance_direction"],
-                "structured_output": result,
-                "model_name": self.settings.model_name,
-                "analysis_version": ANALYSIS_VERSION,
-                "estimated_cost_usd": 0,
-            })
-            summary["analyzed"] += 1
+            for transcript, result in zip(batch, results):
+                saved_sentiment = self.repository.save_sentiment({
+                    "transcript_id": transcript["id"],
+                    "overall_score": result["overall_score"],
+                    "optimism_score": result["optimism"],
+                    "guidance_score": result["guidance_strength"],
+                    "risk_score": result["risk_intensity"],
+                    "confidence_score": result["confidence_score"],
+                    "analyst_pressure": result["analyst_pressure"],
+                    "management_confidence": result["management_confidence"],
+                    "answer_quality": result["answer_quality"],
+                    "guidance_direction": result["guidance_direction"],
+                    "structured_output": result,
+                    "model_name": self.settings.model_name,
+                    "analysis_version": ANALYSIS_VERSION,
+                    "estimated_cost_usd": 0,
+                })
+                summary["analyzed"] += 1
+                logger.info(
+                    "Saved transcript sentiment: transcript_id=%s sentiment_id=%s symbol=%s overall_score=%s guidance=%s",
+                    transcript["id"],
+                    (saved_sentiment or {}).get("id", "unknown"),
+                    transcript["symbol"],
+                    result["overall_score"],
+                    result["guidance_direction"],
+                )
+            elapsed = max(time.perf_counter() - started_at, 0.001)
             logger.info(
-                "Saved transcript sentiment: id=%s symbol=%s overall_score=%s guidance=%s",
-                transcript["id"],
-                transcript["symbol"],
-                result["overall_score"],
-                result["guidance_direction"],
+                "Transcript batch completed: analyzed=%s elapsed=%.1fs throughput=%.2f transcripts/s",
+                len(batch),
+                elapsed,
+                len(batch) / elapsed,
             )
         return summary
 

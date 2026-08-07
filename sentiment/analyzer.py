@@ -12,18 +12,34 @@ from .local_analyzer import LocalSentimentAnalyzer
 from .schemas import ChunkSentiment
 
 
-ANALYSIS_VERSION = "v5-management-weighted-finance-structure"
+ANALYSIS_VERSION = "v7-batched-relevant-finbert"
 
 
 def analyze_transcript(cleaned_text: str) -> dict[str, Any]:
-    segments = segment_transcript(cleaned_text)
-    chunks = build_chunks(segments)
-    if not chunks:
-        raise ValueError("transcript contains no analyzable text")
+    return analyze_transcripts([cleaned_text])[0]
+
+
+def analyze_transcripts(cleaned_texts: list[str]) -> list[dict[str, Any]]:
+    """Analyze transcript groups through one shared batched model invocation."""
+    chunk_groups: list[list[TranscriptChunk]] = []
+    for index, cleaned_text in enumerate(cleaned_texts):
+        chunks = build_chunks(segment_transcript(cleaned_text))
+        if not chunks:
+            raise ValueError(f"transcript at index {index} contains no analyzable text")
+        chunk_groups.append(chunks)
+
+    flat_chunks = [chunk for chunks in chunk_groups for chunk in chunks]
     analyzer = LocalSentimentAnalyzer()
-    payloads = [analyzer.analyze_chunk(chunk.text) for chunk in chunks]
-    analyses = [ChunkSentiment.from_payload(payload) for payload in payloads]
-    return aggregate_sentiments(analyses, chunks, payloads)
+    flat_payloads = analyzer.analyze_chunks([chunk.text for chunk in flat_chunks])
+
+    results: list[dict[str, Any]] = []
+    cursor = 0
+    for chunks in chunk_groups:
+        payloads = flat_payloads[cursor:cursor + len(chunks)]
+        analyses = [ChunkSentiment.from_payload(payload) for payload in payloads]
+        results.append(aggregate_sentiments(analyses, chunks, payloads))
+        cursor += len(chunks)
+    return results
 
 
 def aggregate_sentiments(
@@ -41,6 +57,11 @@ def aggregate_sentiments(
     core_indexes = management_indexes or list(range(len(chunks)))
     analyst_indexes = [index for index, section in enumerate(sections) if section == "analyst_question"]
     answer_indexes = [index for index, section in enumerate(sections) if section == "management_answer"]
+    directions = {analyses[index].guidance_direction for index in core_indexes}
+    guidance_direction = next(
+        (direction for direction in ("lowered", "raised", "maintained") if direction in directions),
+        "unclear",
+    )
     score_keys = (
         "optimism", "guidance_strength", "management_confidence", "risk_intensity",
         "analyst_pressure", "answer_quality",
@@ -52,16 +73,17 @@ def aggregate_sentiments(
             indexes = analyst_indexes
         elif key == "answer_quality" and answer_indexes:
             indexes = answer_indexes
+        elif key == "guidance_strength" and guidance_direction != "unclear":
+            indexes = [
+                index for index in core_indexes
+                if analyses[index].guidance_direction == guidance_direction
+            ]
         output[key] = _weighted_metric(analyses, chunks, indexes, key)
 
     # Explicit guidance is categorical evidence; it should not be decided by
     # whichever containing chunk happens to be longest. A detected reduction is
     # conservatively dominant, followed by raised and then maintained guidance.
-    directions = {analyses[index].guidance_direction for index in core_indexes}
-    output["guidance_direction"] = next(
-        (direction for direction in ("lowered", "raised", "maintained") if direction in directions),
-        "unclear",
-    )
+    output["guidance_direction"] = guidance_direction
     for key in ("revenue_outlook", "margin_outlook", "demand_outlook"):
         output[key] = _weighted_outlook(analyses, chunks, core_indexes, key)
     for key in ("catalysts", "risks", "evidence"):

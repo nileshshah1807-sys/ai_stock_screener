@@ -38,9 +38,21 @@ FORWARD_LOOKING_TERMS = {
     "forecast", "guidance", "outlook", "quarter", "expect", "expects", "will", "plan",
     "plans", "target", "targets", "next", "future",
 }
+FINANCIAL_CONTEXT_TERMS = {
+    "capex", "cash", "cost", "costs", "customer", "customers", "debt", "demand",
+    "ebitda", "export", "exports", "growth", "guided", "guidance", "inventory",
+    "margin", "margins", "order", "orders", "outlook", "pat", "profit", "profits",
+    "revenue", "sales", "volume", "volumes", "working",
+}
 RAISED_GUIDANCE = re.compile(
+    r"(?:"
     r"\b(?:raise[ds]?|increase[ds]?|upgrade[ds]?|revis(?:e[ds]?|ion)\s+upward)\s+(?:our\s+)?"
-    r"(?:guidance|outlook|forecast|expectations?)\b",
+    r"(?:guidance|outlook|forecast|expectations?)\b"
+    r"|\b(?:exceed(?:s|ed|ing)?|above|ahead\s+of)\b[^.!?\n]{0,120}"
+    r"\b(?:guidance|guided|forecast|outlook|expectations?)\b"
+    r"|\b(?:guidance|guided|forecast|outlook|expectations?)\b[^.!?\n]{0,120}"
+    r"\b(?:exceed(?:s|ed|ing)?|above|ahead\s+of)\b"
+    r")",
     re.IGNORECASE,
 )
 LOWERED_GUIDANCE = re.compile(
@@ -49,19 +61,37 @@ LOWERED_GUIDANCE = re.compile(
     re.IGNORECASE,
 )
 MAINTAINED_GUIDANCE = re.compile(
+    r"(?:"
     r"\b(?:maintain(?:ed|ing)?|reaffirm(?:ed|ing)?|stand(?:ing)?\s+by|unchanged|remain(?:s|ed)?\s+unchanged)"
-    r"\s+(?:our\s+)?(?:guidance|outlook|forecast|expectations?)\b",
+    r"\s+(?:our\s+)?(?:guidance|outlook|forecast|expectations?)\b"
+    r"|\bon\s+track\s+to\s+(?:achieve|meet|deliver)[^.!?\n]{0,100}"
+    r"\b(?:guidance|guided|forecast|outlook|expectations?)\b"
+    r")",
     re.IGNORECASE,
 )
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _WORD = re.compile(r"[a-zA-Z']+")
 _SECTION = re.compile(r"^\[(?P<section>[^]]+)\]", re.IGNORECASE)
+_FINBERT_NOT_PROVIDED = object()
 
 
 class LocalSentimentAnalyzer:
     """Score excerpts with financial lexicons and an optional FinBERT signal."""
 
-    def analyze_chunk(self, text: str) -> dict[str, object]:
+    def analyze_chunks(self, texts: list[str]) -> list[dict[str, object]]:
+        """Analyze many chunks with one batched FinBERT pipeline call."""
+        sentence_groups = [_sentences(text) for text in texts]
+        finbert_scores = _finbert_scores(sentence_groups)
+        return [
+            self.analyze_chunk(text, finbert_score=finbert_score)
+            for text, finbert_score in zip(texts, finbert_scores)
+        ]
+
+    def analyze_chunk(
+        self,
+        text: str,
+        finbert_score: float | None | object = _FINBERT_NOT_PROVIDED,
+    ) -> dict[str, object]:
         sentences = _sentences(text)
         tokens = _tokens(text)
         positive_hits = _hits(tokens, POSITIVE_TERMS)
@@ -72,7 +102,8 @@ class LocalSentimentAnalyzer:
         weak_modal_hits = _hits(tokens, WEAK_MODAL_TERMS)
         textblob_polarity = _weighted_polarity(sentences)
         lexical_balance = (positive_hits - negative_hits) / max(1, positive_hits + negative_hits)
-        finbert_score = _finbert_score(sentences)
+        if finbert_score is _FINBERT_NOT_PROVIDED:
+            finbert_score = _finbert_score(sentences)
         sentiment_signal = _sentiment_signal(finbert_score, lexical_balance, textblob_polarity)
         optimism = _scale(sentiment_signal)
         uncertainty_density = _density(uncertainty_hits, tokens)
@@ -159,9 +190,16 @@ def _finbert_pipeline():
     if os.getenv("TRANSCRIPT_ENABLE_FINBERT", "1").strip().lower() in {"0", "false", "no"}:
         return None
     try:
+        import torch
         from transformers import pipeline
 
-        return pipeline("sentiment-analysis", model="ProsusAI/finbert", tokenizer="ProsusAI/finbert")
+        device = 0 if torch.cuda.is_available() else -1
+        return pipeline(
+            "sentiment-analysis",
+            model="ProsusAI/finbert",
+            tokenizer="ProsusAI/finbert",
+            device=device,
+        )
     except Exception as exc:
         if _finbert_required():
             raise RuntimeError("FinBERT is required but could not be loaded") from exc
@@ -169,18 +207,63 @@ def _finbert_pipeline():
 
 
 def _finbert_score(sentences: list[str]) -> float | None:
+    return _finbert_scores([sentences])[0]
+
+
+def _finbert_scores(sentence_groups: list[list[str]]) -> list[float | None]:
     classifier = _finbert_pipeline()
-    if classifier is None or not sentences:
-        return None
+    if classifier is None:
+        return [None] * len(sentence_groups)
+    selected_groups = [_select_finbert_sentences(group) for group in sentence_groups]
+    sentences = [sentence for group in selected_groups for sentence in group]
+    if not sentences:
+        return [None] * len(sentence_groups)
+    batch_size = max(1, int(os.getenv("TRANSCRIPT_FINBERT_BATCH_SIZE", "1")))
     try:
-        results = classifier(sentences, truncation=True, max_length=512, batch_size=16)
+        results = classifier(
+            sentences,
+            truncation=True,
+            max_length=512,
+            batch_size=batch_size,
+        )
     except Exception as exc:
         if _finbert_required():
             raise RuntimeError("FinBERT inference failed") from exc
-        return None
+        return [None] * len(sentence_groups)
     label_scores = {"positive": 1.0, "negative": -1.0, "neutral": 0.0}
     values = [label_scores.get(str(result["label"]).lower(), 0.0) * float(result["score"]) for result in results]
-    return sum(values) / len(values) if values else None
+    scores: list[float | None] = []
+    cursor = 0
+    for group in selected_groups:
+        group_values = values[cursor:cursor + len(group)]
+        scores.append(sum(group_values) / len(group_values) if group_values else None)
+        cursor += len(group)
+    return scores
+
+
+def _select_finbert_sentences(sentences: list[str]) -> list[str]:
+    """Keep the strongest financial evidence and skip conversational filler."""
+    max_sentences = max(
+        1,
+        int(os.getenv("TRANSCRIPT_FINBERT_MAX_SENTENCES_PER_CHUNK", "24")),
+    )
+    scored: list[tuple[int, int, str]] = []
+    directional_terms = POSITIVE_TERMS | NEGATIVE_TERMS | UNCERTAINTY_TERMS | CONSTRAINT_TERMS
+    for index, sentence in enumerate(sentences):
+        tokens = _tokens(sentence)
+        token_set = set(tokens)
+        score = 0
+        if _guidance_direction(sentence) != "unclear":
+            score += 12
+        score += 3 * len(token_set & FORWARD_LOOKING_TERMS)
+        score += 2 * len(token_set & directional_terms)
+        score += len(token_set & FINANCIAL_CONTEXT_TERMS)
+        if re.search(r"(?:\b\d+(?:\.\d+)?%|\b(?:inr|rs\.?|crore|million|billion)\b)", sentence, re.IGNORECASE):
+            score += 2
+        if score > 0:
+            scored.append((score, index, sentence))
+    selected = sorted(scored, key=lambda item: (-item[0], item[1]))[:max_sentences]
+    return [sentence for _, _, sentence in sorted(selected, key=lambda item: item[1])]
 
 
 def _section(text: str) -> str:

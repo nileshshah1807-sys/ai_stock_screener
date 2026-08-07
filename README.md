@@ -88,9 +88,14 @@ repository activity. Re-enable the workflow in the Actions tab if that occurs.
 Transcript collection runs independently at 10:00, 17:00, and 21:00 IST. It
 uses a rolling 120-day, idempotent NSE backfill so a newly deployed database can
 recover the current reporting season instead of seeing only the last seven
-days. Newest filings are processed first in bounded 60-document/60-analysis
-batches so scheduled runs advance the backlog without overrunning the job
-timeout. It keeps PDFs only for the duration of the
+days. Newest filings are processed first, with up to 120 documents collected
+and 300 transcripts analyzed per scheduled run. FinBERT sentences are grouped
+across transcript chunks and processed through one cached model invocation,
+instead of invoking the model separately for every chunk. Each chunk sends at
+most 24 high-signal financial sentences to FinBERT; deterministic guidance,
+risk, and lexicon rules still inspect the complete text. The transcript batch
+and model input sizes are bounded to control runner memory. It keeps PDFs
+only for the duration of the
 job, stores cleaned text and structured results in Supabase, and writes a
 sentiment summary in the report tables. A fresh available transcript starts as
 a 5% research feature of its `Final_Score`; stocks without a fresh transcript
@@ -109,6 +114,12 @@ eligible stock without one remains a `BUY` research candidate.
 The scheduled worker requires FinBERT when `TRANSCRIPT_REQUIRE_FINBERT=true`.
 Model loading or inference failures then fail the job instead of silently
 recording a lexicon-only result under a hybrid analysis version.
+Tune `TRANSCRIPT_MAX_ANALYSES_PER_RUN`, `TRANSCRIPT_ANALYSIS_BATCH_SIZE`,
+`TRANSCRIPT_FINBERT_BATCH_SIZE`, and
+`TRANSCRIPT_FINBERT_MAX_SENTENCES_PER_CHUNK` if runner CPU or memory limits
+change. CPU runners default to a model batch size of 1; larger model batches are
+intended for GPU runners and must be benchmarked. Each run logs elapsed seconds
+and transcripts per second for every analysis batch.
 
 When management gives no explicit raised/maintained/lowered guidance, the
 summary says `No explicit guidance` and adds commentary from the stored demand,

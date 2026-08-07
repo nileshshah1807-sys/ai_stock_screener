@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from sentiment.analyzer import aggregate_sentiments
+from sentiment.analyzer import analyze_transcript, aggregate_sentiments
 from sentiment.local_analyzer import LocalSentimentAnalyzer
 from sentiment.schemas import ChunkSentiment
 from transcripts.chunker import TranscriptChunk
@@ -56,6 +56,24 @@ class SentimentAnalysisTests(unittest.TestCase):
 
         self.assertEqual(result["guidance_direction"], "raised")
 
+    def test_explicit_guidance_strength_is_not_diluted_by_unclear_chunks(self):
+        analyses = [
+            ChunkSentiment.from_payload(sample_payload(
+                guidance_direction="raised", guidance_strength=85,
+            )),
+            ChunkSentiment.from_payload(sample_payload(
+                guidance_direction="unclear", guidance_strength=35,
+            )),
+        ]
+        chunks = [
+            TranscriptChunk(0, "[prepared_remarks] CEO:\nWe will exceed guidance.", 50),
+            TranscriptChunk(1, "[prepared_remarks] CEO:\nGeneral commentary.", 500),
+        ]
+
+        result = aggregate_sentiments(analyses, chunks)
+
+        self.assertEqual(result["guidance_strength"], 85.0)
+
     def test_local_analyzer_detects_raised_guidance_and_positive_catalyst(self):
         result = LocalSentimentAnalyzer().analyze_chunk(
             "Demand remains strong and margins improved. We raised guidance after order growth accelerated."
@@ -92,6 +110,29 @@ class SentimentAnalysisTests(unittest.TestCase):
             "lowered",
         )
 
+    def test_local_analyzer_detects_exceeding_prior_guidance(self):
+        result = LocalSentimentAnalyzer().analyze_chunk(
+            "For the current year, we are on track to not only achieve what we have guided "
+            "but exceed it, with 35% plus growth."
+        )
+
+        self.assertEqual(result["guidance_direction"], "raised")
+        self.assertEqual(result["guidance_strength"], 85.0)
+
+    def test_stockscans_style_transcript_preserves_syrma_raised_guidance(self):
+        text = """Jasbir S. Gujral - Managing Director, Syrma SGS Technology Limited
+We are well on track to not only achieving what we have guided but exceeding that achievement.
+Nikhil Kandoi - Analyst, Axis Capital
+Can you clarify the growth outlook?
+Jasbir S. Gujral - Managing Director, Syrma SGS Technology Limited
+It is 35% plus growth for the current year and 30% to 35% for the next three years.
+"""
+
+        result = analyze_transcript(text)
+
+        self.assertEqual(result["guidance_direction"], "raised")
+        self.assertEqual(result["guidance_strength"], 85.0)
+
     def test_local_analyzer_reports_financial_risk_and_baseline_features(self):
         result = LocalSentimentAnalyzer().analyze_chunk(
             "[management_answer] CFO: We may face commodity inflation and supply constraints."
@@ -113,6 +154,41 @@ class SentimentAnalysisTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "FinBERT inference failed"):
                 LocalSentimentAnalyzer().analyze_chunk("Demand remained strong.")
+
+    def test_finbert_sentences_are_batched_across_chunks(self):
+        calls = []
+
+        def classifier(sentences, **kwargs):
+            calls.append((list(sentences), kwargs))
+            return [{"label": "positive", "score": 0.9} for _ in sentences]
+
+        with patch("sentiment.local_analyzer._finbert_pipeline", return_value=classifier):
+            results = LocalSentimentAnalyzer().analyze_chunks([
+                "Revenue improved. Demand remains strong.",
+                "Margins improved.",
+            ])
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls[0][0]), 3)
+        self.assertEqual(calls[0][1]["batch_size"], 1)
+        self.assertEqual([result["finbert_score"] for result in results], [0.9, 0.9])
+
+    def test_finbert_input_is_capped_to_high_signal_sentences(self):
+        calls = []
+
+        def classifier(sentences, **kwargs):
+            calls.append(list(sentences))
+            return [{"label": "neutral", "score": 0.9} for _ in sentences]
+
+        text = " ".join(
+            f"Revenue growth improved by {index}% and demand remains strong."
+            for index in range(40)
+        )
+        with patch("sentiment.local_analyzer._finbert_pipeline", return_value=classifier):
+            LocalSentimentAnalyzer().analyze_chunks([text])
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(calls[0]), 24)
 
     def test_aggregation_compares_prepared_remarks_with_management_qa(self):
         analyses = [
