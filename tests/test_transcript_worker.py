@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from workers.transcript_worker import TranscriptSettings, TranscriptWorker
 
@@ -81,7 +81,14 @@ class TranscriptWorkerTests(unittest.TestCase):
         ))
 
     def test_uses_fixed_local_model_identity(self):
-        settings = TranscriptSettings.from_environment()
+        # Workflow-level throughput overrides must not change this defaults test.
+        with patch.dict(
+            "os.environ",
+            {"TRANSCRIPT_ENABLE_FINBERT": "false"},
+            clear=True,
+        ):
+            settings = TranscriptSettings.from_environment()
+
         self.assertEqual(settings.model_name, "textblob-finance-lexicon")
         self.assertEqual(settings.lookback_days, 120)
         self.assertEqual(settings.max_documents_per_run, 60)
@@ -92,6 +99,39 @@ class TranscriptWorkerTests(unittest.TestCase):
             settings = TranscriptSettings.from_environment()
 
         self.assertEqual(settings.model_name, "finbert-finance-hybrid")
+
+    def test_pending_transcripts_are_analyzed_in_configured_batches(self):
+        repository = MagicMock()
+        repository.list_transcripts_for_analysis.return_value = [
+            {"id": f"transcript-{index}", "symbol": f"STOCK{index}", "cleaned_text": "Revenue grew."}
+            for index in range(5)
+        ]
+        repository.save_sentiment.side_effect = lambda payload: {
+            "id": f"sentiment-{payload['transcript_id']}"
+        }
+        settings = TranscriptSettings(max_analyses_per_run=5, analysis_batch_size=2)
+        worker = TranscriptWorker(repository, settings)
+        result = {
+            "overall_score": 70,
+            "optimism": 70,
+            "guidance_strength": 65,
+            "risk_intensity": 20,
+            "confidence_score": 70,
+            "analyst_pressure": 30,
+            "management_confidence": 70,
+            "answer_quality": 75,
+            "guidance_direction": "maintained",
+        }
+
+        with patch(
+            "workers.transcript_worker.analyze_transcripts",
+            side_effect=lambda texts: [result.copy() for _ in texts],
+        ) as analyze_batch:
+            summary = worker._analyze_pending_transcripts()
+
+        self.assertEqual([len(call.args[0]) for call in analyze_batch.call_args_list], [2, 2, 1])
+        self.assertEqual(repository.save_sentiment.call_count, 5)
+        self.assertEqual(summary, {"analyzed": 5, "deferred": 0})
 
 
 if __name__ == "__main__":
