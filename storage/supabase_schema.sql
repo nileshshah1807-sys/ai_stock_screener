@@ -68,6 +68,21 @@ create index if not exists transcript_sentiments_transcript_idx on transcript_se
 create index if not exists transcript_sentiments_analysis_lookup_idx
     on transcript_sentiments(transcript_id, model_name, analysis_version);
 
+create table if not exists red_flag_snapshots (
+    source text not null,
+    symbol text not null,
+    severity smallint not null default 0 check (severity between 0 and 3),
+    flag_count integer not null default 0 check (flag_count >= 0),
+    summary text not null,
+    source_status text not null,
+    source_as_of date not null,
+    snapshot jsonb not null,
+    fetched_at timestamptz not null default now(),
+    primary key (source, symbol)
+);
+
+create index if not exists red_flag_snapshots_symbol_idx on red_flag_snapshots(symbol);
+
 -- The original RPC accepted a queue-limit argument; the current worker drains
 -- all pending transcripts and uses two arguments. PostgreSQL overloads by
 -- argument list, so remove both signatures before recreating the active RPC.
@@ -186,3 +201,4 @@ alter table transcript_documents enable row level security;
 alter table transcript_filing_documents enable row level security;
 alter table transcripts enable row level security;
 alter table transcript_sentiments enable row level security;
+alter table red_flag_snapshots enable row level security;

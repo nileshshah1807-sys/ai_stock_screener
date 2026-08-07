@@ -148,6 +148,11 @@ class TranscriptSentimentEnricher:
                     & (enriched["Strong_Buy_Eligible"] != True),
                     "Rating",
                 ] = "BUY"
+            else:
+                # Optional transcript evidence must never manufacture high
+                # conviction when the base scorer did not provide its explicit
+                # STRONG BUY eligibility gate.
+                enriched.loc[eligible & (enriched["Rating"] == "STRONG BUY"), "Rating"] = "BUY"
             enriched.loc[weak_technical, "Rating"] = "REDUCE"
         return enriched
 

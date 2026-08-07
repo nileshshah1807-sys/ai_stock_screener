@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from scoring.transcript_enricher import TranscriptSentimentEnricher, rank_by_transcript_priority
+from red_flags.enricher import RedFlagEnricher
 from screener.data_collection import StockDataCollector
 from screener.market_data import AlternativeData, BacktestEngine, PriceCache, TechnicalEnhancer, fmt_cr, fmt_f, fmt_pct
 from screener.reporting import EmailReporter, InteractiveDashboard, WhatsAppReporter
@@ -107,6 +108,15 @@ def run_daily_analysis():
             logger.info(f"Transcript sentiment prioritized for {available_transcripts} stock(s)")
         except Exception as e:
             logger.warning(f"Transcript sentiment enrichment skipped: {e}")
+
+    # Filing-derived governance/risk evidence is intentionally shadow-only.
+    # It is precomputed by a separate worker, so this is a single cached lookup.
+    if config.RED_FLAG_ENRICHMENT_ENABLED:
+        try:
+            scored_df = RedFlagEnricher(config).enrich(scored_df)
+            logger.info("Cached red-flag shadow evidence joined")
+        except Exception as e:
+            logger.warning(f"Red-flag enrichment skipped: {e}")
 
     # News sentiment for the top N picks (post-scoring, so it's the *actual* top N)
     n = min(config.NEWS_SENTIMENT_TOP_N, len(scored_df))
