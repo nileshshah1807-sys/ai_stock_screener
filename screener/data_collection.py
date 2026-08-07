@@ -288,6 +288,7 @@ class StockDataCollector:
                     continue
                 fundamental_data.append({
                     "Symbol": symbol,
+                    "Company_Name": info.get("longName") or info.get("shortName"),
                     "Cached_Date": today_str,
                     "PE_Ratio": info.get("trailingPE"),
                     "Forward_PE": info.get("forwardPE"),

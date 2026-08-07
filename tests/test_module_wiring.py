@@ -61,6 +61,7 @@ class ModuleWiringTests(unittest.TestCase):
         scored = pd.DataFrame([{
             "Rank": 1,
             "Symbol": "SYRMA",
+            "Company_Name": "Syrma SGS Technology Limited",
             "Current_Price": 823.45,
             "PE_Ratio": 28.7,
             "Fundamental_Score": 84.0,
@@ -84,9 +85,9 @@ class ModuleWiringTests(unittest.TestCase):
                 self.assertEqual(document.page_count, 1)
                 pdf_text = "\n".join(page.get_text() for page in document)
 
-        for expected in ("Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Transcript", "Score", "Rating"):
+        for expected in ("Rank", "Company", "CMP", "PE", "Fund", "Tech", "Transcript", "Score", "Rating"):
             self.assertIn(expected, pdf_text)
-        for expected in ("SYRMA", "823", "28.7", "84", "76", "73.7", "STRONG BUY"):
+        for expected in ("Syrma SGS Technology Limited", "823", "28.7", "84", "76", "73.7", "STRONG BUY"):
             self.assertIn(expected, pdf_text)
         for excluded in (
             "Generic Fundamental Model",

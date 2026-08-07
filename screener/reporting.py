@@ -292,7 +292,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
             ]
 
             top_rows = [[
-                "Rank", "Symbol", "CMP\n(INR)", "PE", "Fund", "Tech",
+                "Rank", "Company", "CMP\n(INR)", "PE", "Fund", "Tech",
                 "Transcript\nScore", "Rating",
             ]]
             for _, r in top.iterrows():
@@ -300,7 +300,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 price_text = "-" if price is None or pd.isna(price) else f"{float(price):,.0f}"
                 top_rows.append([
                     int(r["Rank"]),
-                    r["Symbol"],
+                    r.get("Company_Name") or r["Symbol"],
                     price_text,
                     fmt_f(r.get("PE_Ratio"), 1),
                     f"{r['Fundamental_Score']:.0f}",
