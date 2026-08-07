@@ -171,7 +171,10 @@ counts and freshness, and stores one compact snapshot per company in Supabase.
 The daily stock scan reads those cached snapshots in batches, so it does not
 download or analyse all disclosures while scanning stocks.
 
-This phase is deliberately evidence-only. It adds CSV columns beginning with
+This phase is deliberately evidence-only. Shadow policy v2 separates issuer
+risk from market/trading restrictions and retains the pledge filing quarter,
+the percentage of promoter holding encumbered, and the percentage of total
+capital encumbered. It adds CSV columns beginning with
 `Red_Flag_`, but cannot change `Final_Score`, rating, eligibility, or ranking.
 Missing, stale, or malformed source data is reported as unavailable rather than
 interpreted as a clean company. The less reliable or currently stale SAST and
@@ -193,9 +196,25 @@ deploy the cache:
    secrets.
 3. Run `python -m workers.red_flag_worker` once and inspect its row, severity,
    stale-source, and saved-snapshot counts.
-4. Set `RED_FLAG_ENRICHMENT_ENABLED=True` only after the cache exists and has
-   been reviewed. This still enables report columns only; scoring remains in
-   shadow mode.
+4. In GitHub, open **Settings > Secrets and variables > Actions > Variables**
+   and create the repository variable `RED_FLAG_ENRICHMENT_ENABLED`. Leave it
+   as `False` until the cache has been reviewed; the workflow also defaults to
+   false when the variable is absent. Change it to `True` to add report columns.
+   Scoring remains in shadow mode either way.
+
+Policy v2 uses the following conservative interpretation:
+
+- ESM Stage 1 is trading severity 1; ESM Stage 2 is trading severity 2.
+- GSM stages 1/2/3-4 are trading severity 1/2/3 respectively.
+- ASM Stage 1 is trading severity 1; later stages are trading severity 2.
+- Static promoter encumbrance is issuer severity 2 only when it reaches 50%
+  of promoter holding or 20% of total capital. It is never critical by itself.
+- Credit default, pledge invocation, insolvency, listing-fee default, and
+  BZ/SZ listing non-compliance can be issuer severity 3.
+
+The v2 fields live inside the existing `snapshot` JSON, so an existing Phase 1
+Supabase table needs no migration. After deploying v2, rerun the manual action
+with `populate-cache` once to replace v1 snapshots.
 
 The **Red-flag shadow evidence** GitHub Action is manual-only. Its default
 `dry-run` mode executes the focused safety tests and validates the live feed

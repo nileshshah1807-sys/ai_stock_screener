@@ -39,6 +39,8 @@ jobs:
       TRANSCRIPT_MIN_PRIORITY_SCORE: "55"
       TRANSCRIPT_MAX_PRIORITY_RISK: "60"
       TRANSCRIPT_FAIL_ON_ERROR: "True"
+      # Repository variable; absent means report enrichment remains disabled.
+      RED_FLAG_ENRICHMENT_ENABLED: ${{ vars.RED_FLAG_ENRICHMENT_ENABLED || 'False' }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:

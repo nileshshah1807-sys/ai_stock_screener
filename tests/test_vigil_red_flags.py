@@ -41,7 +41,17 @@ class FakeSnapshotRepository:
             "summary": "default; GSM stage 2",
             "source_status": "current",
             "source_as_of": "2026-08-07",
-            "snapshot": {"flags": []},
+            "snapshot": {
+                "flags": [],
+                "issuer_severity": 3,
+                "trading_severity": 2,
+                "policy": "shadow-v2",
+                "pledge_details": {
+                    "filing_period": "2026-06-30",
+                    "encumbered_promoter_pct": 55.0,
+                    "encumbered_total_pct": 22.0,
+                },
+            },
         }]
 
 
@@ -114,7 +124,14 @@ class RedFlagSnapshotTests(unittest.TestCase):
                 },
             ],
             "pledge_data": [
-                {"nse_symbol": "RISKY", "perc_encumbered_promoter": 55, "sync_date": "2026-08-06"},
+                {
+                    "nse_symbol": "RISKY",
+                    "shp_quarter": "30-Jun-2026",
+                    "perc_promoter_holding": 40,
+                    "perc_encumbered_promoter": 55,
+                    "perc_encumbered_total": 22,
+                    "sync_date": "2026-08-06",
+                },
                 {"nse_symbol": "CLEAN", "perc_encumbered_promoter": 0, "sync_date": "2026-08-06"},
             ],
             "encumbrance_events": [
@@ -139,10 +156,78 @@ class RedFlagSnapshotTests(unittest.TestCase):
         by_symbol = {row["symbol"]: row for row in snapshots}
 
         self.assertEqual(by_symbol["RISKY"]["severity"], 3)
-        self.assertEqual(by_symbol["RISKY"]["flag_count"], 4)
+        self.assertEqual(by_symbol["RISKY"]["flag_count"], 5)
+        self.assertEqual(by_symbol["RISKY"]["snapshot"]["issuer_severity"], 3)
+        self.assertEqual(by_symbol["RISKY"]["snapshot"]["trading_severity"], 2)
+        self.assertEqual(by_symbol["RISKY"]["snapshot"]["policy"], "shadow-v2")
         self.assertEqual(by_symbol["RISKY"]["snapshot"]["promoter_encumbered_pct"], 55.0)
+        self.assertEqual(
+            by_symbol["RISKY"]["snapshot"]["pledge_details"]["encumbered_total_pct"],
+            22.0,
+        )
+        pledge_flag = next(
+            flag
+            for flag in by_symbol["RISKY"]["snapshot"]["flags"]
+            if flag["type"] == "promoter_pledge"
+        )
+        self.assertEqual(pledge_flag["severity"], 2)
+        self.assertIn("30-Jun-2026", pledge_flag["summary"])
         self.assertEqual(by_symbol["CLEAN"]["severity"], 0)
         self.assertEqual(by_symbol["CLEAN"]["flag_count"], 0)
+
+    def test_esm_is_trading_risk_not_critical_issuer_distress(self):
+        snapshots = build_red_flag_snapshots({
+            "surveillance_flags": [
+                {"symbol": "ESMONE", "esm_stage": 1, "sync_date": "2026-08-06"},
+                {"symbol": "ESMTWO", "esm_stage": 2, "sync_date": "2026-08-06"},
+            ],
+        }, self.freshness, today=self.today)
+        by_symbol = {row["symbol"]: row for row in snapshots}
+
+        self.assertEqual(by_symbol["ESMONE"]["severity"], 1)
+        self.assertEqual(by_symbol["ESMONE"]["snapshot"]["issuer_severity"], 0)
+        self.assertEqual(by_symbol["ESMONE"]["snapshot"]["trading_severity"], 1)
+        self.assertEqual(by_symbol["ESMTWO"]["severity"], 2)
+
+    def test_bz_sz_records_both_listing_and_trading_risk(self):
+        snapshots = build_red_flag_snapshots({
+            "surveillance_flags": [
+                {"symbol": "NONCOMPLY", "is_bz_sz": "true", "sync_date": "2026-08-06"},
+            ],
+        }, self.freshness, today=self.today)
+        snapshot = snapshots[0]
+        flag = snapshot["snapshot"]["flags"][0]
+
+        self.assertEqual(snapshot["severity"], 3)
+        self.assertEqual(snapshot["snapshot"]["issuer_severity"], 3)
+        self.assertEqual(snapshot["snapshot"]["trading_severity"], 2)
+        self.assertEqual(flag["risk_axis"], "issuer_and_trading")
+
+    def test_latest_pledge_quarter_replaces_older_higher_encumbrance(self):
+        snapshots = build_red_flag_snapshots({
+            "pledge_data": [
+                {
+                    "nse_symbol": "DECLINING",
+                    "shp_quarter": "31-Mar-2026",
+                    "perc_encumbered_promoter": 80,
+                    "perc_encumbered_total": 30,
+                },
+                {
+                    "nse_symbol": "DECLINING",
+                    "shp_quarter": "30-Jun-2026",
+                    "perc_encumbered_promoter": 5,
+                    "perc_encumbered_total": 2,
+                },
+            ],
+        }, self.freshness, today=self.today)
+        snapshot = snapshots[0]
+
+        self.assertEqual(snapshot["severity"], 0)
+        self.assertEqual(snapshot["flag_count"], 0)
+        self.assertEqual(
+            snapshot["snapshot"]["pledge_details"]["filing_period"], "2026-06-30"
+        )
+        self.assertEqual(snapshot["snapshot"]["promoter_encumbered_pct"], 5.0)
 
     def test_marks_snapshot_partial_when_a_required_feed_is_stale(self):
         freshness = dict(self.freshness)
@@ -202,6 +287,11 @@ class RedFlagEnricherTests(unittest.TestCase):
         self.assertEqual(result["Rating"].tolist(), ["STRONG BUY", "BUY"])
         self.assertEqual(result.loc[0, "Red_Flag_Status"], "Available")
         self.assertEqual(result.loc[0, "Red_Flag_Severity"], 3)
+        self.assertEqual(result.loc[0, "Red_Flag_Issuer_Severity"], 3)
+        self.assertEqual(result.loc[0, "Red_Flag_Trading_Severity"], 2)
+        self.assertEqual(result.loc[0, "Red_Flag_Policy"], "shadow-v2")
+        self.assertEqual(result.loc[0, "Red_Flag_Pledge_Quarter"], "2026-06-30")
+        self.assertEqual(result.loc[0, "Red_Flag_Total_Capital_Encumbered_Pct"], 22.0)
         self.assertEqual(result.loc[1, "Red_Flag_Status"], "No coverage")
         self.assertTrue(result["Red_Flag_Shadow_Mode"].all())
 

@@ -41,7 +41,10 @@ class RedFlagWorkerTests(unittest.TestCase):
         self.assertEqual(result["raw_rows"], 1)
         self.assertEqual(result["snapshots"], 1)
         self.assertEqual(result["saved"], 1)
+        self.assertEqual(result["policy"], "shadow-v2")
         self.assertEqual(result["severity_0"], 1)
+        self.assertEqual(result["issuer_severity_3"], 0)
+        self.assertEqual(result["trading_severity_3"], 0)
         self.assertEqual(repository.snapshots[0]["symbol"], "TEST")
 
     def test_worker_fails_closed_when_required_freshness_is_missing(self):
