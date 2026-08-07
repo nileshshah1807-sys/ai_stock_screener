@@ -92,8 +92,9 @@ def run_daily_analysis():
     if config.REVERSE_DCF_ENABLED:
         scored_df = ReverseDCFModel(config).enrich(scored_df)
 
-    # A fresh transcript sentiment score receives the highest ranking priority.
-    # Stocks without a fresh transcript retain their existing final score.
+    # Fresh, validated transcripts adjust conviction and form a confirmation
+    # tier within each recommendation class. Missing transcripts do not alter
+    # the core score, but cannot outrank confirmed picks in the same class.
     if config.TRANSCRIPT_SENTIMENT_ENABLED:
         try:
             scored_df = TranscriptSentimentEnricher(config).enrich(scored_df)

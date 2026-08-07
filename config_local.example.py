@@ -39,9 +39,10 @@ REVERSE_DCF_TERMINAL_GROWTH = 0.04
 REVERSE_DCF_BASE_GROWTH = 0.15
 REVERSE_DCF_RANKING_WEIGHT = 0.10
 
-# Treat transcript sentiment as a research feature until backtests support more weight.
+# Fresh, validated calls are a material confirmation signal, not a replacement
+# for the fundamental and technical model.
 TRANSCRIPT_SENTIMENT_ENABLED = True
-TRANSCRIPT_SENTIMENT_WEIGHT = 0.05
+TRANSCRIPT_SENTIMENT_WEIGHT = 0.15
 REQUIRE_TRANSCRIPT_FOR_STRONG_BUY = True
 TRANSCRIPT_MIN_TECHNICAL_SCORE = 45.0
 TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE = 60.0

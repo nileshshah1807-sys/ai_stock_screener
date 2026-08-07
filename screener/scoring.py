@@ -119,6 +119,38 @@ class StockScorer:
             return merged_df
 
         logger.info(f"Scoring {len(merged_df)} stocks...")
+        # Yahoo intermittently omits ROE even when per-share earnings and book
+        # value are present. EPS / book value is a conservative end-period ROE
+        # proxy; using it is materially better than treating an unknown ROE as
+        # zero. Keep the source visible so downstream reports can audit it.
+        if "ROE" not in merged_df:
+            merged_df["ROE"] = np.nan
+        if "ROE_Source" not in merged_df:
+            merged_df["ROE_Source"] = ""
+        reported_roe = pd.to_numeric(merged_df["ROE"], errors="coerce")
+        eps = pd.to_numeric(
+            merged_df.get("EPS", pd.Series(np.nan, index=merged_df.index)),
+            errors="coerce",
+        )
+        book_value = pd.to_numeric(
+            merged_df.get("Book_Value", pd.Series(np.nan, index=merged_df.index)),
+            errors="coerce",
+        )
+        derived_roe = eps / book_value
+        derived_roe_valid = (
+            reported_roe.isna()
+            & eps.notna()
+            & book_value.gt(0)
+            & derived_roe.between(-1.0, 1.0)
+        )
+        merged_df.loc[reported_roe.notna(), "ROE_Source"] = "reported"
+        merged_df.loc[derived_roe_valid, "ROE"] = derived_roe.loc[derived_roe_valid]
+        merged_df.loc[derived_roe_valid, "ROE_Source"] = "eps_to_book_proxy"
+        if derived_roe_valid.any():
+            logger.info(
+                "Derived ROE from EPS/book value for %d stock(s) with missing reported ROE",
+                int(derived_roe_valid.sum()),
+            )
         min_key_fields = getattr(self.config, "MIN_FUND_KEY_FIELDS", 3)
         gate_enabled = getattr(self.config, "REQUIRE_FUND_DATA_FOR_BUY", True)
         specialized_sectors = {

@@ -97,9 +97,12 @@ risk, and lexicon rules still inspect the complete text. The transcript batch
 and model input sizes are bounded to control runner memory. It keeps PDFs
 only for the duration of the
 job, stores cleaned text and structured results in Supabase, and writes a
-sentiment summary in the report tables. A fresh available transcript starts as
-a 5% research feature of its `Final_Score`; stocks without a fresh transcript
-retain their normal score. Increase this only after out-of-sample backtesting.
+sentiment summary in the report tables. A fresh validated transcript contributes
+15% of `Final_Score`; stocks without a fresh transcript retain their normal
+score. Adverse or high-risk calls can reduce a score but cannot promote it.
+A validated transcript also forms a confirmation tier within each rating class,
+so the concise Top 20 favors current management evidence without allowing a
+HOLD transcript stock to bypass a BUY recommendation.
 A transcript receives full priority only when its score is at least 55, risk is
 at most 60, guidance was not lowered, its technical score is at least 60, and
 its trend is confirmed. Scores from 45 to 59.99 with a confirmed trend receive

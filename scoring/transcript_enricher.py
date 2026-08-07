@@ -51,6 +51,8 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Call_Date"] = ""
         enriched["Transcript_Summary"] = "No transcript"
         enriched["Transcript_Priority_Applied"] = False
+        enriched["Transcript_Downside_Applied"] = False
+        enriched["Transcript_Effective_Score"] = np.nan
         enriched["Transcript_Strong_Buy_Capped"] = False
         enriched["Transcript_Technical_Gate"] = "No transcript"
         enriched["Transcript_Quality_Gate"] = "No transcript"
@@ -103,7 +105,7 @@ class TranscriptSentimentEnricher:
                 _number(record.get("management_confidence")),
             )
 
-        priority_weight = _weight(getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.05))
+        priority_weight = _weight(getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.15))
         minimum_technical_score = _score_threshold(
             getattr(self.config, "TRANSCRIPT_MIN_TECHNICAL_SCORE", 45.0),
             45.0,
@@ -138,9 +140,7 @@ class TranscriptSentimentEnricher:
             "Risk above priority threshold"
         )
         enriched.loc[eligible & lowered_guidance, "Transcript_Quality_Gate"] = "Guidance lowered"
-        enriched.loc[eligible & ~quality_eligible, "Transcript_Technical_Gate"] = (
-            "No weight; transcript quality gate failed"
-        )
+        downside_weight = eligible & ~quality_eligible
         technical_scores = pd.to_numeric(
             enriched.get("Technical_Score", pd.Series(np.nan, index=enriched.index)),
             errors="coerce",
@@ -165,6 +165,10 @@ class TranscriptSentimentEnricher:
             "Transcript_Technical_Gate",
         ] = "Weak technicals; no transcript weight"
         enriched["Transcript_Priority_Applied"] = full_weight
+        enriched.loc[full_weight | limited_weight, "Transcript_Effective_Score"] = enriched.loc[
+            full_weight | limited_weight,
+            "Transcript_Weighted_Score",
+        ]
         enriched.loc[full_weight, "Final_Score"] = (
             base_scores.loc[full_weight] * (1 - priority_weight)
             + enriched.loc[full_weight, "Transcript_Weighted_Score"] * priority_weight
@@ -174,8 +178,40 @@ class TranscriptSentimentEnricher:
             base_scores.loc[limited_weight] * (1 - limited_weight_value)
             + enriched.loc[limited_weight, "Transcript_Weighted_Score"] * limited_weight_value
         ).round(2)
+
+        # Adverse calls are evidence even when they fail the positive-priority
+        # gate. Apply their downside regardless of chart strength; otherwise a
+        # lowered outlook or high-risk call is paradoxically ignored. A failed
+        # gate can only reduce the core score, never promote it.
+        downside_score = pd.to_numeric(
+            enriched["Transcript_Weighted_Score"], errors="coerce"
+        ).copy()
+        high_risk = downside_weight & transcript_risk.gt(maximum_priority_risk)
+        downside_score.loc[high_risk] = np.minimum(
+            downside_score.loc[high_risk],
+            100.0 - transcript_risk.loc[high_risk],
+        )
+        downside_score.loc[downside_weight & lowered_guidance] = np.minimum(
+            downside_score.loc[downside_weight & lowered_guidance],
+            45.0,
+        )
+        downside_score.loc[downside_weight] = np.minimum(
+            downside_score.loc[downside_weight],
+            base_scores.loc[downside_weight],
+        )
+        enriched.loc[downside_weight, "Transcript_Effective_Score"] = downside_score.loc[
+            downside_weight
+        ].round(2)
+        enriched.loc[downside_weight, "Final_Score"] = (
+            base_scores.loc[downside_weight] * (1 - priority_weight)
+            + downside_score.loc[downside_weight] * priority_weight
+        ).round(2)
+        enriched.loc[downside_weight, "Transcript_Downside_Applied"] = True
+        enriched.loc[downside_weight, "Transcript_Technical_Gate"] = (
+            "Downside applied; transcript quality gate failed"
+        )
         if "Rating" in enriched:
-            blended_rows = full_weight | limited_weight
+            blended_rows = full_weight | limited_weight | downside_weight
             enriched.loc[blended_rows, "Rating"] = enriched.loc[blended_rows, "Final_Score"].map(_rating_from_score)
             # Limited transcript weight may lower conviction, but it cannot
             # promote a stock above the recommendation earned by the core model.
@@ -186,7 +222,12 @@ class TranscriptSentimentEnricher:
                 )
                 enriched.loc[promoted, "Rating"] = base_ratings.loc[promoted]
             if "Rating_Capped" in enriched:
-                enriched.loc[eligible & (enriched["Rating_Capped"] == True), "Rating"] = "HOLD"
+                capped_above_hold = (
+                    eligible
+                    & enriched["Rating_Capped"].eq(True)
+                    & enriched["Rating"].map(RATING_ORDER).lt(RATING_ORDER["HOLD"])
+                )
+                enriched.loc[capped_above_hold, "Rating"] = "HOLD"
             strong_buy_eligible = enriched.get(
                 "Strong_Buy_Eligible",
                 pd.Series(False, index=enriched.index),
@@ -215,7 +256,7 @@ class TranscriptSentimentEnricher:
 
 
 def rank_by_transcript_priority(scored_df):
-    """Preserve rating gates, then prioritize validated transcript coverage."""
+    """Rank rating first, then validated transcript confirmation and score."""
     ranked = (
         scored_df.assign(
             _Rating_Order=scored_df["Rating"].map(RATING_ORDER).fillna(len(RATING_ORDER))
@@ -242,7 +283,7 @@ def _weight(value):
     try:
         return max(0.0, min(1.0, float(value)))
     except (TypeError, ValueError):
-        return 0.05
+        return 0.15
 
 
 def _score_threshold(value, default):

@@ -75,6 +75,19 @@ class TechnicalScoringTests(unittest.TestCase):
         self.assertEqual(scores.loc[0, "ROE"], 0.0)
         self.assertEqual(scores.loc[4, "ROE"], 15.0)
 
+    def test_missing_reported_roe_uses_auditable_eps_to_book_proxy(self):
+        stock = self._high_scoring_stock(
+            ROE=None,
+            EPS=20.0,
+            Book_Value=100.0,
+        )
+
+        scored = StockScorer().score_all_stocks(stock)
+
+        self.assertEqual(scored.loc[0, "ROE_Source"], "eps_to_book_proxy")
+        self.assertEqual(scored.loc[0, "ROE"], 0.2)
+        self.assertEqual(scored.loc[0, "Fund_Component_ROE"], 15.0)
+
     def test_price_cache_rejects_old_indicator_math(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "price_cache.csv"
