@@ -33,16 +33,14 @@ logger = logging.getLogger(__name__)
 def company_label(row):
     """Return Yahoo's company name, falling back to the NSE symbol.
 
-    The source data formerly used ``Company_Name`` while the current collector
-    writes ``Company``.  Support both during the cache transition and never
-    send a literal NaN into the PDF.
+    ``Company`` is the single canonical company-name field.  The ticker remains
+    a safe display fallback when Yahoo does not return a usable name.
     """
-    for column in ("Company", "Company_Name"):
-        value = row.get(column)
-        if value is not None and not pd.isna(value):
-            value = str(value).strip()
-            if value and value.lower() != "nan":
-                return value
+    value = row.get("Company")
+    if value is not None and not pd.isna(value):
+        value = str(value).strip()
+        if value and value.lower() != "nan":
+            return value
     return str(row.get("Symbol", "-"))
 
 

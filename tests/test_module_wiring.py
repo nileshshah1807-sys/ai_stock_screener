@@ -61,7 +61,7 @@ class ModuleWiringTests(unittest.TestCase):
         scored = pd.DataFrame([{
             "Rank": 1,
             "Symbol": "SYRMA",
-            "Company_Name": "Syrma SGS Technology Limited",
+            "Company": "Syrma SGS Technology Limited",
             "Current_Price": 823.45,
             "PE_Ratio": 28.7,
             "Fundamental_Score": 84.0,
