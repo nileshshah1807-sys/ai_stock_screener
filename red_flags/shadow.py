@@ -42,8 +42,10 @@ class RedFlagShadowSimulator:
 
         simulated["Shadow_Red_Flag_Review_Required"] = current & ((issuer >= 2) | (trading >= 2))
         simulated["Shadow_Red_Flag_Rating_Cap_If_Confirmed"] = "None"
-        cap_required = current & ((issuer >= 3) | (trading >= 3))
-        simulated.loc[cap_required, "Shadow_Red_Flag_Rating_Cap_If_Confirmed"] = "HOLD"
+        buy_cap = current & ((issuer == 2) | (trading == 2))
+        hold_cap = current & ((issuer >= 3) | (trading >= 3))
+        simulated.loc[buy_cap, "Shadow_Red_Flag_Rating_Cap_If_Confirmed"] = "BUY"
+        simulated.loc[hold_cap, "Shadow_Red_Flag_Rating_Cap_If_Confirmed"] = "HOLD"
 
         hypothetical_scores = base_scores.copy()
         issuer_hard_stop = current & issuer.ge(3)
@@ -53,7 +55,9 @@ class RedFlagShadowSimulator:
         simulated["Shadow_Red_Flag_Score_If_Confirmed"] = hypothetical_scores.round(2)
 
         hypothetical_ratings = base_ratings.copy()
-        for index in simulated.index[cap_required]:
+        for index in simulated.index[buy_cap]:
+            hypothetical_ratings.at[index] = _apply_rating_cap(base_ratings.at[index], "BUY")
+        for index in simulated.index[hold_cap]:
             hypothetical_ratings.at[index] = _apply_rating_cap(base_ratings.at[index], "HOLD")
         simulated["Shadow_Red_Flag_Rating_If_Confirmed"] = hypothetical_ratings
 

@@ -739,7 +739,11 @@ def score_financial_services(row, fundamental_model=None, return_components=Fals
     margin = s(row.get("Profit_Margin"))
     revenue_growth = s(row.get("Revenue_Growth"))
     earnings_growth = s(row.get("Earnings_Growth"))
-    dividend_yield = s(row.get("Dividend_Yield"))
+    dividend_yield = s(
+        row.get("Dividend_Yield_Ratio")
+        if row.get("Dividend_Yield_Ratio") is not None
+        else row.get("Dividend_Yield")
+    )
 
     if model == "Bank Equity Quality Model":
         scores = {
@@ -882,7 +886,11 @@ def score_fundamentals(
     eg = s(row.get("Earnings_Growth"))
     scores["EG"] = _growth_points(eg, 10)
 
-    dy = s(row.get("Dividend_Yield"))
+    dy = s(
+        row.get("Dividend_Yield_Ratio")
+        if row.get("Dividend_Yield_Ratio") is not None
+        else row.get("Dividend_Yield")
+    )
     if dy is None or dy <= 0: scores["DY"] = 0
     elif dy >= 0.03: scores["DY"] = 5
     elif dy >= 0.015: scores["DY"] = 4

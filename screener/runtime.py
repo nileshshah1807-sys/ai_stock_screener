@@ -120,6 +120,24 @@ class Config:
     # share count - a 50-lakh turnover bar is a much more meaningful liquidity floor
     # across price points than a fixed share count.
     MIN_AVG_TURNOVER_INR = _env_float("MIN_AVG_TURNOVER_INR", 50_00_000.0)  # Rs 50 lakh/day
+    # A median of actual daily Close * Volume is resistant to block trades and
+    # one-day spikes. Keep the broad-universe floor permissive; a stricter
+    # high-conviction gate is applied after scoring.
+    MIN_MEDIAN_TURNOVER_20D_INR = _env_float(
+        "MIN_MEDIAN_TURNOVER_20D_INR", 50_00_000.0
+    )
+    LIQUIDITY_CONVICTION_GATE_ENABLED = _env_bool(
+        "LIQUIDITY_CONVICTION_GATE_ENABLED", True
+    )
+    STRONG_BUY_MIN_MEDIAN_TURNOVER_INR = _env_float(
+        "STRONG_BUY_MIN_MEDIAN_TURNOVER_INR", 5_00_00_000.0
+    )
+    STRONG_BUY_MAX_TURNOVER_TOP5_SHARE = _env_float(
+        "STRONG_BUY_MAX_TURNOVER_TOP5_SHARE", 0.50
+    )
+    LIQUIDITY_POSITION_PARTICIPATION_RATE = _env_float(
+        "LIQUIDITY_POSITION_PARTICIPATION_RATE", 0.01
+    )
 
     # --- P2: data-completeness gate ---
     REQUIRE_FUND_DATA_FOR_BUY = _env_bool("REQUIRE_FUND_DATA_FOR_BUY", True)

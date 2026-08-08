@@ -9,10 +9,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from scoring.transcript_enricher import TranscriptSentimentEnricher, rank_by_transcript_priority
+from scoring.transcript_enricher import (
+    TranscriptSentimentEnricher,
+    rank_actionable_recommendations,
+)
 from red_flags.enricher import RedFlagEnricher
 from red_flags.shadow import RedFlagShadowSimulator
 from screener.data_collection import StockDataCollector
+from screener.liquidity import LiquidityQualityEnricher
 from screener.market_data import AlternativeData, BacktestEngine, PriceCache, TechnicalEnhancer, fmt_cr, fmt_f, fmt_pct
 from screener.reporting import EmailReporter, InteractiveDashboard, WhatsAppReporter
 from screener.runtime import Config, IPv4SMTP, IPv4SMTP_SSL, configure_runtime_cache, load_local_config
@@ -62,14 +66,31 @@ def run_daily_analysis():
                 "(stale cache?) - recomputing from Avg_Volume * Current_Price."
             )
             tech_df.loc[missing_turnover, "Avg_Turnover_INR"] = fallback_turnover.loc[missing_turnover]
+        if "Median_Turnover_20D_INR" not in tech_df.columns:
+            tech_df["Median_Turnover_20D_INR"] = np.nan
+        missing_median = tech_df["Median_Turnover_20D_INR"].isna()
+        if missing_median.any():
+            logger.warning(
+                "Median_Turnover_20D_INR missing for %d row(s); using the "
+                "legacy turnover measure for this run only.",
+                int(missing_median.sum()),
+            )
+            tech_df.loc[missing_median, "Median_Turnover_20D_INR"] = tech_df.loc[
+                missing_median, "Avg_Turnover_INR"
+            ]
         tech_df = tech_df[
             (tech_df["Current_Price"] >= config.MIN_PRICE_INR)
             & (tech_df["Avg_Turnover_INR"] >= config.MIN_AVG_TURNOVER_INR)
+            & (
+                tech_df["Median_Turnover_20D_INR"]
+                >= config.MIN_MEDIAN_TURNOVER_20D_INR
+            )
         ].reset_index(drop=True)
         logger.info(
             f"Liquidity filter: kept {len(tech_df)}/{before} "
             f"(dropped {before - len(tech_df)} names below Rs{config.MIN_PRICE_INR:.0f} "
-            f"or Rs{config.MIN_AVG_TURNOVER_INR:,.0f} avg daily turnover)"
+            f"or Rs{config.MIN_AVG_TURNOVER_INR:,.0f} mean / "
+            f"Rs{config.MIN_MEDIAN_TURNOVER_20D_INR:,.0f} 20D median turnover)"
         )
         if tech_df.empty:
             raise RuntimeError("Liquidity filter removed every stock")
@@ -94,15 +115,14 @@ def run_daily_analysis():
     if config.REVERSE_DCF_ENABLED:
         scored_df = ReverseDCFModel(config).enrich(scored_df)
 
-    # Fresh, validated transcripts adjust conviction and form a confirmation
-    # tier within each recommendation class. Missing transcripts do not alter
-    # the core score, but cannot outrank confirmed picks in the same class.
+    # Fresh, validated transcripts adjust conviction at the configured score
+    # weight. Missing transcripts are neutral and availability is not a hidden
+    # higher-order ranking tier.
     if config.TRANSCRIPT_SENTIMENT_ENABLED:
         try:
             scored_df = TranscriptSentimentEnricher(config).enrich(scored_df)
             available_transcripts = int((scored_df["Transcript_Status"] == "Available").sum())
-            scored_df = rank_by_transcript_priority(scored_df)
-            logger.info(f"Transcript sentiment prioritized for {available_transcripts} stock(s)")
+            logger.info(f"Transcript sentiment available for {available_transcripts} stock(s)")
         except Exception as e:
             if getattr(config, "TRANSCRIPT_FAIL_ON_ERROR", True):
                 raise RuntimeError("Transcript sentiment enrichment failed") from e
@@ -121,6 +141,17 @@ def run_daily_analysis():
             )
         except Exception as e:
             logger.warning(f"Red-flag enrichment skipped: {e}")
+
+    # Keep research coverage broad, but require persistent traded value for the
+    # highest-conviction label. This leaves Final_Score unchanged and exposes
+    # the exact liquidity evidence and cap reason in the report.
+    scored_df = LiquidityQualityEnricher(config).enrich(scored_df)
+    liquidity_caps = int(scored_df["Liquidity_Rating_Capped"].sum())
+    logger.info("Liquidity conviction gate capped %s STRONG BUY label(s)", liquidity_caps)
+
+    # One final deterministic ordering after every rating gate. Transcript
+    # confirmation is only a tie-break because its effect is already in score.
+    scored_df = rank_actionable_recommendations(scored_df)
 
     # News sentiment for the top N picks (post-scoring, so it's the *actual* top N)
     n = min(config.NEWS_SENTIMENT_TOP_N, len(scored_df))

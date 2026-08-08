@@ -119,6 +119,8 @@ class ModuleWiringTests(unittest.TestCase):
                 result = StockDataCollector(config).download_stock_data(["BAJAJ-AUTO"])
 
         self.assertEqual(result["Symbol"].tolist(), ["BAJAJ-AUTO"])
+        self.assertIn("Median_Turnover_20D_INR", result.columns)
+        self.assertIn("Turnover_Top5_Share_60D", result.columns)
 
     def test_empty_market_data_fails_the_run_instead_of_exiting_green(self):
         collector = SimpleNamespace(

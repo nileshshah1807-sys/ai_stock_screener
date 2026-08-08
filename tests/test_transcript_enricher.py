@@ -106,7 +106,7 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertEqual(ranked["Symbol"].tolist(), ["RELIANCE", "TCS"])
         self.assertEqual(ranked["Rank"].tolist(), [1, 2])
 
-    def test_ranking_prioritizes_validated_confirmation_within_rating_gate(self):
+    def test_ranking_uses_transcript_only_after_rating_and_score(self):
         source = pd.DataFrame({
             "Symbol": ["NO_TRANSCRIPT_BUY", "TRANSCRIPT_BUY", "TRANSCRIPT_REDUCE", "STRONG_BUY"],
             "Final_Score": [85.0, 70.0, 95.0, 72.0],
@@ -118,10 +118,22 @@ class TranscriptEnricherTests(unittest.TestCase):
 
         self.assertEqual(ranked["Symbol"].tolist(), [
             "STRONG_BUY",
-            "TRANSCRIPT_BUY",
             "NO_TRANSCRIPT_BUY",
+            "TRANSCRIPT_BUY",
             "TRANSCRIPT_REDUCE",
         ])
+
+    def test_transcript_confirmation_breaks_only_an_exact_score_tie(self):
+        source = pd.DataFrame({
+            "Symbol": ["NO_CALL", "CONFIRMED"],
+            "Final_Score": [70.0, 70.0],
+            "Rating": ["STRONG BUY", "STRONG BUY"],
+            "Transcript_Priority_Applied": [False, True],
+        })
+
+        ranked = rank_by_transcript_priority(source)
+
+        self.assertEqual(ranked["Symbol"].tolist(), ["CONFIRMED", "NO_CALL"])
 
     def test_missing_transcript_caps_strong_buy_at_buy(self):
         source = pd.DataFrame({
@@ -295,6 +307,8 @@ class TranscriptEnricherTests(unittest.TestCase):
 
         self.assertIn("Transcript Summary", report)
         self.assertIn("80.0 | Maintained | 2026-08-05", report)
+        self.assertIn("Liquidity", report)
+        self.assertIn("Red-flag Review", report)
 
 
 if __name__ == "__main__":

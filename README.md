@@ -63,6 +63,23 @@ points. One anomaly blocks `STRONG BUY`; multiple anomalies cap the rating at
 valuation/quality/growth/income point breakdown, specialized quality reason,
 and anomaly reason.
 
+### Liquidity and actionability
+
+The price download calculates traded value as each day's `Close * Volume`.
+The CSV includes the 20-day median, 20-day tenth percentile, 60-day median,
+and the share of 60-day turnover concentrated in the five busiest sessions.
+This replaces the old spike-sensitive approximation of six-month average
+volume multiplied by today's price, without adding any network request.
+
+The broad scan still admits names above Rs50 lakh of 20-day median turnover.
+For the actionable ranking, `STRONG BUY` requires at least Rs5 crore of 20-day
+median turnover and no more than 50% of the last 60 days' value concentrated
+in the five busiest sessions. A failure changes only the label to `BUY`; it
+does not alter the score or remove the row. Within each rating class, liquid
+actionable names rank before research-only thin names. The CSV and report show
+the status, exact cap reason, and a reference maximum position equal to 1% of
+20-day median turnover. All thresholds are environment-configurable.
+
 ### Setup
 
 1. Push the workflow to the repository's default branch.
@@ -100,9 +117,6 @@ job, stores cleaned text and structured results in Supabase, and writes a
 sentiment summary in the report tables. A fresh validated transcript contributes
 15% of `Final_Score`; stocks without a fresh transcript retain their normal
 score. Adverse or high-risk calls can reduce a score but cannot promote it.
-A validated transcript also forms a confirmation tier within each rating class,
-so the concise Top 20 favors current management evidence without allowing a
-HOLD transcript stock to bypass a BUY recommendation.
 A transcript receives full priority only when its score is at least 55, risk is
 at most 60, guidance was not lowered, its technical score is at least 60, and
 its trend is confirmed. Scores from 45 to 59.99 with a confirmed trend receive
@@ -114,10 +128,11 @@ result deadline plus the transcript-publication window. It then becomes
 `Prior-cycle`, stays visible for context, and has no score or rating effect.
 `Transcript_Evidence_Period`, `Transcript_Expected_Period`,
 `Transcript_Age_Days`, and `Transcript_Scoring_Eligible` make that decision
-auditable. Within each recommendation class, fresh full-priority transcript
-coverage ranks ahead of stocks without a validated transcript; recommendation
-safety gates always rank first. Companies are not required to conduct earnings
-calls, so no transcript is a neutral evidence path and does not cap an
+auditable. Ranking is recommendation first and `Final_Score` second. Transcript
+confirmation is only an exact-score tie-break because its configured impact is
+already present in `Final_Score`; availability therefore has no hidden,
+unlimited ranking weight. Companies are not required to conduct earnings calls,
+so no transcript is a neutral evidence path and does not cap an
 otherwise eligible `STRONG BUY`. Set
 `REQUIRE_TRANSCRIPT_FOR_STRONG_BUY=true` only to restore that optional stricter
 gate.
@@ -216,11 +231,10 @@ deploy the cache:
    secrets.
 3. Run `python -m workers.red_flag_worker` once and inspect its row, severity,
    stale-source, and saved-snapshot counts.
-4. In GitHub, open **Settings > Secrets and variables > Actions > Variables**
-   and create the repository variable `RED_FLAG_ENRICHMENT_ENABLED`. Leave it
-   as `False` until the cache has been reviewed; the workflow also defaults to
-   false when the variable is absent. Change it to `True` to add report columns.
-   Scoring remains in shadow mode either way.
+4. The daily workflow now defaults `RED_FLAG_ENRICHMENT_ENABLED` to `True`
+   because the reviewed cache is populated and policy v2 is active. To suppress
+   the audit columns, create the repository variable with value `False`.
+   Enrichment remains shadow-only: it never mutates live score or rating.
 
 Policy v2 uses the following conservative interpretation:
 
@@ -231,17 +245,19 @@ Policy v2 uses the following conservative interpretation:
   of promoter holding or 20% of total capital. It is never critical by itself.
 - Credit default, pledge invocation, insolvency, listing-fee default, and
   BZ/SZ listing non-compliance can be issuer severity 3.
+- Severity 2 shows a hypothetical `BUY` ceiling if primary evidence is
+  confirmed; severity 3 shows a hypothetical `HOLD` ceiling. Both remain
+  counterfactual and leave the live recommendation unchanged.
 
 The v2 fields live inside the existing `snapshot` JSON, so an existing Phase 1
 Supabase table needs no migration. After deploying v2, rerun the manual action
 with `populate-cache` once to replace v1 snapshots.
 
-The **Red-flag shadow evidence** GitHub Action is manual-only. Its default
-`dry-run` mode executes the focused safety tests and validates the live feed
-without writing. Select `populate-cache` only after applying the schema; it
-fails closed if either Supabase secret is missing. No schedule is enabled yet.
-Add one only after a manual cache run succeeds and sample flags have been
-checked against the linked NSE/SEBI evidence.
+The **Red-flag shadow evidence** GitHub Action refreshes at 02:45 UTC before
+the daily screener. A manual `dry-run` executes the focused safety tests and
+validates the live feed without writing; `populate-cache` performs the same
+reviewed cache update on demand. Scheduled and populate runs fail closed if
+either Supabase secret is missing.
 
 ## Railway Cache
 

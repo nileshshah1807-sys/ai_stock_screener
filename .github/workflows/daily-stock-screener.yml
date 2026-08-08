@@ -40,8 +40,12 @@ jobs:
       TRANSCRIPT_MIN_PRIORITY_SCORE: "55"
       TRANSCRIPT_MAX_PRIORITY_RISK: "60"
       TRANSCRIPT_FAIL_ON_ERROR: "True"
-      # Repository variable; absent means report enrichment remains disabled.
-      RED_FLAG_ENRICHMENT_ENABLED: ${{ vars.RED_FLAG_ENRICHMENT_ENABLED || 'False' }}
+      MIN_MEDIAN_TURNOVER_20D_INR: "5000000"
+      LIQUIDITY_CONVICTION_GATE_ENABLED: "True"
+      STRONG_BUY_MIN_MEDIAN_TURNOVER_INR: "50000000"
+      STRONG_BUY_MAX_TURNOVER_TOP5_SHARE: "0.50"
+      # Shadow-only evidence: it adds audit columns and never changes live score/rating.
+      RED_FLAG_ENRICHMENT_ENABLED: ${{ vars.RED_FLAG_ENRICHMENT_ENABLED || 'True' }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
     steps:

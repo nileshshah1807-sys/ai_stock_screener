@@ -44,6 +44,39 @@ def company_label(row):
     return str(row.get("Symbol", "-"))
 
 
+def liquidity_summary(row):
+    status = str(row.get("Liquidity_Status") or "Unknown")
+    median = row.get("Liquidity_20D_Median_Cr")
+    concentration = row.get("Liquidity_Top5_Share_60D")
+    median_text = "-" if median is None or pd.isna(median) else f"Rs{float(median):.2f}cr median"
+    concentration_text = (
+        "-"
+        if concentration is None or pd.isna(concentration)
+        else f"top-5 {float(concentration):.0%}"
+    )
+    reason = row.get("Liquidity_Cap_Reason") or "passed"
+    return f"{status} | {median_text} | {concentration_text} | {reason}"
+
+
+def red_flag_summary(row):
+    status = str(row.get("Red_Flag_Status") or "Not enabled")
+    if status not in {"Available", "Partial/stale"}:
+        return status
+    severity = row.get("Red_Flag_Severity")
+    severity_text = "-" if severity is None or pd.isna(severity) else str(int(severity))
+    evidence = row.get("Red_Flag_Summary") or "No observed flags"
+    action = row.get("Shadow_Red_Flag_Action") or "review"
+    hypothetical = row.get("Shadow_Red_Flag_Rating_If_Confirmed")
+    would_change_value = row.get("Shadow_Red_Flag_Would_Change")
+    would_change = (
+        False
+        if would_change_value is None or pd.isna(would_change_value)
+        else bool(would_change_value)
+    )
+    suffix = f" | if confirmed: {hypothetical}" if hypothetical and would_change else ""
+    return f"{status} | severity {severity_text} | {evidence} | {action}{suffix}"
+
+
 class InteractiveDashboard:
     @staticmethod
     def generate(scored_df, date_str, output_dir):
@@ -70,6 +103,8 @@ class InteractiveDashboard:
                     f"<td>{r.get('Fundamental_Anomaly_Reason') or 'none'}</td>"
                     f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
                     f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
+                    f"<td>{liquidity_summary(r)}</td>"
+                    f"<td>{red_flag_summary(r)}</td>"
                     f"<td>{sentiment}</td>"
                     f"<td><span class='tag {tag_class}'>{r['Rating']}</span></td></tr>"
                 )
@@ -145,7 +180,7 @@ tr:hover {{ background-color: #f8f9ff; }}
 </div>
 </div>
 <div class="card"><h2>🏆 Top 10 Picks</h2>
-<table><tr><th>Rank</th><th>Company</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>News</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Company</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Liquidity</th><th>Red-flag Review</th><th>News</th><th>Rating</th></tr>
 {rows_html}
 </table></div>
 <div class="card"><h2>🔎 Reverse DCF</h2>
@@ -202,8 +237,13 @@ class EmailReporter:
         for _, r in top.iterrows():
             css = "tag-" + str(r["Rating"]).lower().replace(" ", "-")
             wt = f"F {r.get('Dynamic_Weight_Fund', 0.7):.0%} / T {r.get('Dynamic_Weight_Tech', 0.3):.0%}"
-            capped_star = "*" if r.get("Rating_Capped") else ""
-            rating_gate = r.get("Rating_Cap_Reason") or r.get("Strong_Buy_Gate_Reason") or "passed"
+            capped_star = "*" if r.get("Rating_Capped") or r.get("Liquidity_Rating_Capped") else ""
+            rating_gate = (
+                r.get("Rating_Cap_Reason")
+                or r.get("Liquidity_Cap_Reason")
+                or r.get("Strong_Buy_Gate_Reason")
+                or "passed"
+            )
             rows += (
                 f"<tr><td>{int(r['Rank'])}</td><td><b>{company_label(r)}</b></td>"
                 f"<td>₹{r['Current_Price']:,.0f}</td>"
@@ -231,6 +271,8 @@ class EmailReporter:
                 f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
                 f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
                 f"<td>{r.get('Transcript_Quality_Gate', 'No transcript')}</td>"
+                f"<td>{liquidity_summary(r)}</td>"
+                f"<td>{red_flag_summary(r)}</td>"
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
             dcf_rows += (
@@ -272,7 +314,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
 <div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks</h2>
-<table><tr><th>Rank</th><th>Company</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Transcript Quality Gate</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Company</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Transcript Quality Gate</th><th>Liquidity</th><th>Red-flag Review</th><th>Rating</th></tr>
 {rows}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
@@ -280,7 +322,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <table><tr><th>Rank</th><th>Company</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows}
 </table></div>
-<div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported cash flow produces a valid proxy result; otherwise Final equals Base. Reverse DCF compares market cap to a discounted equity cash-flow proxy and solves for assumptions implied by today's price. * = rating capped at HOLD by a data-quality, model, or price-trend gate. Not investment advice — consult a SEBI-registered advisor.</p></div>
+<div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported cash flow produces a valid proxy result; otherwise Final equals Base. Reverse DCF compares market cap to a discounted equity cash-flow proxy and solves for assumptions implied by today's price. * = recommendation capped by a data-quality, model, trend, or liquidity gate. Red-flag outcomes are shadow counterfactuals and never change the live score/rating. Not investment advice — consult a SEBI-registered advisor.</p></div>
 </body></html>"""
         return html
 

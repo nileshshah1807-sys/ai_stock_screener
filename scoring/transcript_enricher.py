@@ -293,21 +293,61 @@ class TranscriptSentimentEnricher:
         return enriched
 
 
-def rank_by_transcript_priority(scored_df):
-    """Rank rating first, then validated transcript confirmation and score."""
+def rank_actionable_recommendations(scored_df):
+    """Rank actionable names by recommendation and score.
+
+    Transcript evidence is already blended into ``Final_Score`` at its
+    configured weight.  Making availability a higher-order sort key gives it
+    an unlimited hidden weight and lets a much lower-scoring company outrank a
+    stronger no-call company.  Missing calls must remain neutral.
+
+    Persistent liquidity is different: it is an execution constraint, so
+    liquid names form the actionable part of each recommendation class. Thin
+    names remain in the CSV for research but follow actionable names.
+    """
+    transcript_priority = scored_df.get(
+        "Transcript_Priority_Applied",
+        pd.Series(False, index=scored_df.index),
+    ).fillna(False)
+    liquidity_eligible = scored_df.get(
+        "Liquidity_Conviction_Eligible",
+        pd.Series(True, index=scored_df.index),
+    ).fillna(False)
+    # StockScorer adds audit columns incrementally. Copy once here to
+    # consolidate pandas blocks before the final sort and avoid fragmented
+    # frame warnings on the full NSE universe.
+    ranking_source = scored_df.copy()
     ranked = (
-        scored_df.assign(
-            _Rating_Order=scored_df["Rating"].map(RATING_ORDER).fillna(len(RATING_ORDER))
+        ranking_source.assign(
+            _Rating_Order=scored_df["Rating"].map(RATING_ORDER).fillna(len(RATING_ORDER)),
+            _Liquidity_Actionable=liquidity_eligible,
+            _Transcript_Tie_Break=transcript_priority,
         )
         .sort_values(
-            ["_Rating_Order", "Transcript_Priority_Applied", "Final_Score"],
-            ascending=[True, False, False],
+            [
+                "_Rating_Order",
+                "_Liquidity_Actionable",
+                "Final_Score",
+                "_Transcript_Tie_Break",
+            ],
+            ascending=[True, False, False, False],
         )
-        .drop(columns="_Rating_Order")
+        .drop(
+            columns=[
+                "_Rating_Order",
+                "_Liquidity_Actionable",
+                "_Transcript_Tie_Break",
+            ]
+        )
         .reset_index(drop=True)
     )
     ranked["Rank"] = range(1, len(ranked) + 1)
     return ranked
+
+
+def rank_by_transcript_priority(scored_df):
+    """Backward-compatible name for the final actionability ranking."""
+    return rank_actionable_recommendations(scored_df)
 
 
 def _number(value):

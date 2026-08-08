@@ -196,7 +196,9 @@ class PriceCache:
     # in it is missing that data and any filter relying on it would silently
     # drop everything - so treat such a cache as stale and force a refresh.
     REQUIRED_COLUMNS = (
-        "Avg_Turnover_INR", "MA50_Slope_Pct", "ADX_Plus_DI", "ADX_Minus_DI",
+        "Avg_Turnover_INR", "Median_Turnover_20D_INR",
+        "Turnover_P10_20D_INR", "Median_Turnover_60D_INR",
+        "Turnover_Top5_Share_60D", "MA50_Slope_Pct", "ADX_Plus_DI", "ADX_Minus_DI",
         "Technical_Indicator_Version",
     )
 

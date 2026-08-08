@@ -13,6 +13,36 @@ from .market_data import PriceCache, TechnicalEnhancer
 
 logger = logging.getLogger(__name__)
 
+
+def calculate_liquidity_metrics(price_data):
+    """Return robust traded-value measures without making another data call."""
+    paired = pd.concat(
+        [
+            pd.to_numeric(price_data["Close"], errors="coerce").rename("Close"),
+            pd.to_numeric(price_data["Volume"], errors="coerce").rename("Volume"),
+        ],
+        axis=1,
+    ).dropna()
+    paired = paired[(paired["Close"] > 0) & (paired["Volume"] > 0)]
+    if paired.empty:
+        return {}
+    turnover = paired["Close"] * paired["Volume"]
+    last_20 = turnover.tail(20)
+    last_60 = turnover.tail(60)
+    top_count = min(5, len(last_60))
+    total_60 = float(last_60.sum())
+    return {
+        "Avg_Turnover_INR": float(turnover.mean()),
+        "Median_Turnover_20D_INR": float(last_20.median()),
+        "Turnover_P10_20D_INR": float(last_20.quantile(0.10)),
+        "Median_Turnover_60D_INR": float(last_60.median()),
+        "Turnover_Top5_Share_60D": (
+            float(last_60.nlargest(top_count).sum()) / total_60
+            if total_60 > 0 else 1.0
+        ),
+        "Turnover_Observations": int(len(turnover)),
+    }
+
 class StockDataCollector:
     # key fundamental fields used by the data-completeness gate (P2)
     FUND_KEY_FIELDS = ("PE_Ratio", "ROE", "Profit_Margin", "Revenue_Growth")
@@ -116,7 +146,14 @@ class StockDataCollector:
                         current_price = float(closes.iloc[-1])
                         avg_volume = float(volumes.mean())
                         last_volume = float(volumes.iloc[-1])
-                        if avg_volume == 0 or pd.isna(avg_volume) or last_volume == 0 or current_price <= 0:
+                        liquidity = calculate_liquidity_metrics(price_data)
+                        if (
+                            avg_volume == 0
+                            or pd.isna(avg_volume)
+                            or last_volume == 0
+                            or current_price <= 0
+                            or not liquidity
+                        ):
                             failed.append(clean_sym)
                             continue
                         ma20 = float(closes.rolling(20).mean().iloc[-1])
@@ -176,7 +213,20 @@ class StockDataCollector:
                             "Pct_Change_3M": round(pct_3m, 2),
                             "Pct_Change_6M": round(pct_6m, 2),
                             "Avg_Volume": int(avg_volume),
-                            "Avg_Turnover_INR": round(avg_volume * current_price, 2),
+                            "Avg_Turnover_INR": round(liquidity["Avg_Turnover_INR"], 2),
+                            "Median_Turnover_20D_INR": round(
+                                liquidity["Median_Turnover_20D_INR"], 2
+                            ),
+                            "Turnover_P10_20D_INR": round(
+                                liquidity["Turnover_P10_20D_INR"], 2
+                            ),
+                            "Median_Turnover_60D_INR": round(
+                                liquidity["Median_Turnover_60D_INR"], 2
+                            ),
+                            "Turnover_Top5_Share_60D": round(
+                                liquidity["Turnover_Top5_Share_60D"], 4
+                            ),
+                            "Turnover_Observations": liquidity["Turnover_Observations"],
                             "Vol_Ratio": round(vol_ratio, 2),
                             "BB_Position": round(bb_pos, 2),
                         })
@@ -203,6 +253,23 @@ class StockDataCollector:
     # of these (e.g. was written before Sector/Industry were added), every row
     # in it is missing that data forever unless we force a one-time re-fetch.
     REQUIRED_FUND_COLUMNS = ("Company", "Sector", "Industry", "Total_Debt", "Total_Cash")
+
+    @staticmethod
+    def _prepare_fundamental_frame(records):
+        """Expose Yahoo's percentage yield and a ratio used by the scorer."""
+        frame = pd.DataFrame(records)
+        if frame.empty:
+            return frame
+        raw_yield = pd.to_numeric(
+            frame.get("Dividend_Yield", pd.Series(index=frame.index, dtype=float)),
+            errors="coerce",
+        )
+        # Current Yahoo quote metadata expresses dividendYield in percentage
+        # points (TCS 2.74 means 2.74%), while all other profitability/growth
+        # inputs in this model are ratios.  Preserve the raw field for auditing.
+        frame["Dividend_Yield_Ratio"] = raw_yield / 100.0
+        frame["Dividend_Yield_Source_Unit"] = "percent"
+        return frame
 
     @staticmethod
     def _company_name(info, symbol):
@@ -288,7 +355,7 @@ class StockDataCollector:
             for r in fresh_records if r["Symbol"] in all_symbols
         ]
         if not needs_fetch:
-            return pd.DataFrame(fundamental_data)
+            return self._prepare_fundamental_frame(fundamental_data)
 
         rate_limit_hits = 0
         last_reset = time.time()
@@ -369,9 +436,10 @@ class StockDataCollector:
                     "their recommendations are capped below BUY"
                 )
 
+        fundamental_frame = self._prepare_fundamental_frame(fundamental_data)
         try:
-            pd.DataFrame(fundamental_data).to_csv(cache_file, index=False)
+            fundamental_frame.to_csv(cache_file, index=False)
             logger.info(f"Fundamental cache saved ({len(fundamental_data)} records)")
         except Exception as e:
             logger.warning(f"Fundamental cache save failed: {e}")
-        return pd.DataFrame(fundamental_data)
+        return fundamental_frame

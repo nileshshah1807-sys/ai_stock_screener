@@ -3,9 +3,11 @@ import gzip
 from datetime import date
 
 import pandas as pd
+import numpy as np
 
 from red_flags.enricher import RedFlagEnricher
 from red_flags.shadow import RedFlagShadowSimulator
+from screener.reporting import red_flag_summary
 from red_flags.vigil import VigilClient, build_red_flag_snapshots
 
 
@@ -275,6 +277,19 @@ class RedFlagSnapshotTests(unittest.TestCase):
 
 
 class RedFlagEnricherTests(unittest.TestCase):
+    def test_report_summary_includes_evidence_and_counterfactual_change(self):
+        summary = red_flag_summary(pd.Series({
+            "Red_Flag_Status": "Available",
+            "Red_Flag_Severity": 2,
+            "Red_Flag_Summary": "promoter encumbrance: 25.3% of total capital",
+            "Shadow_Red_Flag_Action": "Review issuer evidence before acting",
+            "Shadow_Red_Flag_Rating_If_Confirmed": "BUY",
+            "Shadow_Red_Flag_Would_Change": np.bool_(True),
+        }))
+
+        self.assertIn("25.3%", summary)
+        self.assertIn("if confirmed: BUY", summary)
+
     def test_shadow_enrichment_never_changes_score_or_rating(self):
         source = pd.DataFrame({
             "Symbol": ["RISKY", "UNKNOWN"],
@@ -316,6 +331,28 @@ class RedFlagEnricherTests(unittest.TestCase):
         self.assertFalse(result.loc[3, "Shadow_Red_Flag_Would_Change"])
         self.assertEqual(source["Final_Score"].tolist(), result["Final_Score"].tolist())
         self.assertEqual(source["Rating"].tolist(), result["Rating"].tolist())
+
+    def test_confirmed_severity_two_removes_only_strong_buy_conviction(self):
+        source = pd.DataFrame({
+            "Symbol": ["PLEDGE", "ALREADY_BUY"],
+            "Final_Score": [74.0, 68.0],
+            "Rating": ["STRONG BUY", "BUY"],
+            "Red_Flag_Status": ["Available", "Available"],
+            "Red_Flag_Issuer_Severity": [2, 2],
+            "Red_Flag_Trading_Severity": [0, 0],
+        })
+
+        result = RedFlagShadowSimulator().simulate(source)
+
+        self.assertEqual(
+            result["Shadow_Red_Flag_Rating_Cap_If_Confirmed"].tolist(),
+            ["BUY", "BUY"],
+        )
+        self.assertEqual(
+            result["Shadow_Red_Flag_Rating_If_Confirmed"].tolist(),
+            ["BUY", "BUY"],
+        )
+        self.assertEqual(result["Rating"].tolist(), ["STRONG BUY", "BUY"])
 
 
 if __name__ == "__main__":
