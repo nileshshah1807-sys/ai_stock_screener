@@ -41,7 +41,7 @@ filesystem is temporary, but the workflow restores and saves the reusable
 market-data cache between runs. This retains price data, fundamentals, yfinance
 metadata, and backtest history while keeping generated reports out of Git. The
 first full-NSE run can take around an hour; later runs should reuse data within
-the configured cache lifetimes (18 hours for prices and 30 days for
+the configured cache lifetimes (18 hours for prices and 7 days for
 fundamentals). The report is delivered by email as usual.
 
 GitHub Actions cache storage is limited to 10 GB per repository by default,
