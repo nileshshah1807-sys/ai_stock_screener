@@ -3,11 +3,9 @@ import gzip
 from datetime import date
 
 import pandas as pd
-import numpy as np
 
 from red_flags.enricher import RedFlagEnricher
 from red_flags.shadow import RedFlagShadowSimulator
-from screener.reporting import red_flag_summary
 from red_flags.vigil import VigilClient, build_red_flag_snapshots
 
 
@@ -277,19 +275,6 @@ class RedFlagSnapshotTests(unittest.TestCase):
 
 
 class RedFlagEnricherTests(unittest.TestCase):
-    def test_report_summary_includes_evidence_and_counterfactual_change(self):
-        summary = red_flag_summary(pd.Series({
-            "Red_Flag_Status": "Available",
-            "Red_Flag_Severity": 2,
-            "Red_Flag_Summary": "promoter encumbrance: 25.3% of total capital",
-            "Shadow_Red_Flag_Action": "Review issuer evidence before acting",
-            "Shadow_Red_Flag_Rating_If_Confirmed": "BUY",
-            "Shadow_Red_Flag_Would_Change": np.bool_(True),
-        }))
-
-        self.assertIn("25.3%", summary)
-        self.assertIn("if confirmed: BUY", summary)
-
     def test_shadow_enrichment_never_changes_score_or_rating(self):
         source = pd.DataFrame({
             "Symbol": ["RISKY", "UNKNOWN"],

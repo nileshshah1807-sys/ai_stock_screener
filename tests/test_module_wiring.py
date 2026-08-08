@@ -8,10 +8,28 @@ import pandas as pd
 
 from app import run_daily_analysis
 from screener.data_collection import StockDataCollector
-from screener.reporting import EmailReporter, InteractiveDashboard, REPORTLAB_AVAILABLE
+from screener.reporting import (
+    EmailReporter,
+    InteractiveDashboard,
+    REPORTLAB_AVAILABLE,
+    red_flag_summary,
+)
 
 
 class ModuleWiringTests(unittest.TestCase):
+    def test_red_flag_report_summary_includes_evidence_and_counterfactual(self):
+        summary = red_flag_summary(pd.Series({
+            "Red_Flag_Status": "Available",
+            "Red_Flag_Severity": 2,
+            "Red_Flag_Summary": "promoter encumbrance: 25.3% of total capital",
+            "Shadow_Red_Flag_Action": "Review issuer evidence before acting",
+            "Shadow_Red_Flag_Rating_If_Confirmed": "BUY",
+            "Shadow_Red_Flag_Would_Change": True,
+        }))
+
+        self.assertIn("25.3%", summary)
+        self.assertIn("if confirmed: BUY", summary)
+
     def test_nse_master_response_populates_full_universe(self):
         config = SimpleNamespace(SCAN_ALL_NSE=True, CUSTOM_WATCHLIST=[])
         response = SimpleNamespace(
