@@ -103,7 +103,7 @@ class AlternativeData:
 # TECHNICAL INDICATORS
 # =====================================================
 class TechnicalEnhancer:
-    INDICATOR_VERSION = 3
+    INDICATOR_VERSION = 5
 
     @staticmethod
     def _rsi(close, window=14):
@@ -198,7 +198,9 @@ class PriceCache:
     REQUIRED_COLUMNS = (
         "Avg_Turnover_INR", "Median_Turnover_20D_INR",
         "Turnover_P10_20D_INR", "Median_Turnover_60D_INR",
-        "Turnover_Top5_Share_60D", "MA50_Slope_Pct", "ADX_Plus_DI", "ADX_Minus_DI",
+        "Turnover_Top5_Share_60D", "Trading_Frequency_60D", "CMF_21",
+        "Price_Return_20D_Pct", "Demand_Proxy_Status", "MA50_Slope_Pct",
+        "ADX_Plus_DI", "ADX_Minus_DI",
         "Technical_Indicator_Version",
     )
 
@@ -242,10 +244,11 @@ class PriceCache:
 # =====================================================
 class BacktestEngine:
     """Log score snapshots and measure realized forward returns by rating."""
-    def __init__(self, output_dir):
+    def __init__(self, output_dir, model_version=None):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.history_file = self.output_dir / "backtest_history.csv"
+        self.model_version = str(model_version or getattr(Config, "MODEL_VERSION", "unknown"))
 
     def log_run(self, date_str, scored_df):
         try:
@@ -255,6 +258,19 @@ class BacktestEngine:
             ].copy()
             if "Final_Score" in scored_df:
                 snapshot["Final_Score"] = scored_df["Final_Score"]
+            snapshot["Model_Version"] = scored_df.get(
+                "Model_Version",
+                pd.Series(self.model_version, index=scored_df.index),
+            ).astype(str)
+            for column in (
+                "Investment_Rating",
+                "Portfolio_Actionable",
+                "Liquidity_Grade",
+                "NSE_Impact_Cost_Pct",
+                "Demand_Proxy_Status",
+            ):
+                if column in scored_df:
+                    snapshot[column] = scored_df[column]
             snapshot["Run_Date"] = date_str
             snapshot["Forward_Return_Pct"] = np.nan
             if self.history_file.exists():
@@ -299,6 +315,10 @@ class BacktestEngine:
             if "Forward_Return_Pct" not in df:
                 return None
             realized = df.dropna(subset=["Forward_Return_Pct"])
+            if "Model_Version" in realized:
+                realized = realized[
+                    realized["Model_Version"].astype(str).eq(self.model_version)
+                ]
             if realized.empty:
                 return None
             return realized.groupby("Rating")["Forward_Return_Pct"].agg(

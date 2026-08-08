@@ -14,9 +14,27 @@ from screener.reporting import (
     REPORTLAB_AVAILABLE,
     red_flag_summary,
 )
+from screener.runtime import load_local_config
 
 
 class ModuleWiringTests(unittest.TestCase):
+    def test_local_config_converts_output_paths_from_strings(self):
+        class LocalConfigTarget:
+            OUTPUT_DIR = Path("default-output")
+            YFINANCE_CACHE_DIR = Path("default-cache")
+
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config_local.py"
+            config_path.write_text(
+                "OUTPUT_DIR = 'custom-output'\n"
+                "YFINANCE_CACHE_DIR = 'custom-cache'\n",
+                encoding="utf-8",
+            )
+            load_local_config(LocalConfigTarget, config_path)
+
+        self.assertEqual(LocalConfigTarget.OUTPUT_DIR, Path("custom-output"))
+        self.assertEqual(LocalConfigTarget.YFINANCE_CACHE_DIR, Path("custom-cache"))
+
     def test_red_flag_report_summary_includes_evidence_and_counterfactual(self):
         summary = red_flag_summary(pd.Series({
             "Red_Flag_Status": "Available",

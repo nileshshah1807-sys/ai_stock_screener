@@ -2,6 +2,11 @@
 
 Daily NSE stock screener with Reverse DCF analysis, CSV reports, dashboard output, and email delivery.
 
+The score is a transparent research heuristic, not a validated return forecast.
+The evidence, assumptions, known limitations, and validation requirements for
+every active model component are recorded in
+[`docs/model_methodology.md`](docs/model_methodology.md).
+
 ## Project Layout
 
 `app.py` remains the deployment and scheduler entry point. It composes the
@@ -67,18 +72,34 @@ and anomaly reason.
 
 The price download calculates traded value as each day's `Close * Volume`.
 The CSV includes the 20-day median, 20-day tenth percentile, 60-day median,
-and the share of 60-day turnover concentrated in the five busiest sessions.
-This replaces the old spike-sensitive approximation of six-month average
-volume multiplied by today's price, without adding any network request.
+the share of 60-day turnover concentrated in the five busiest sessions, and
+the percentage of observed sessions on which the stock traded. These measures
+avoid treating a one-day volume spike as normal liquidity.
 
-The broad scan still admits names above Rs50 lakh of 20-day median turnover.
-For the actionable ranking, `STRONG BUY` requires at least Rs5 crore of 20-day
-median turnover and no more than 50% of the last 60 days' value concentrated
-in the five busiest sessions. A failure changes only the label to `BUY`; it
-does not alter the score or remove the row. Within each rating class, liquid
-actionable names rank before research-only thin names. The CSV and report show
-the status, exact cap reason, and a reference maximum position equal to 1% of
-20-day median turnover. All thresholds are environment-configurable.
+The scan downloads one cached NSE monthly security-category file. Its Group I,
+II, and III classification uses six-month trading frequency and mean impact
+cost for a Rs1 lakh order. Group I names enter the research universe even when
+they are small companies below the old Rs50 lakh turnover fallback; Group II
+and III names are excluded from the slow full-universe fundamentals pass. The
+Rs50 lakh mean-and-median turnover rule is used only when official category
+evidence is unavailable.
+
+Investment conviction and execution suitability are separate outputs.
+Liquidity never changes `Final_Score` or `Rating`. `Investment_Rank` preserves
+the pure rating/score order, while the report's `Rank`/`Actionable_Rank` puts
+executable names first inside each rating class. For the configurable
+`PORTFOLIO_TARGET_POSITION_INR`
+(Rs1 lakh by default), the CSV reports the official NSE impact cost, an
+actionable flag, and estimated build days at a conservative 1% participation
+in median daily turnover. NSE's impact figure directly supports only its
+Rs1 lakh reference order; larger target positions also use the transparent
+turnover/concentration proxy.
+
+`CMF_21` and 20-day price return describe whether recent price-volume behaviour
+resembles accumulation or distribution. This is labelled a demand proxy, not
+institutional-flow proof. It is visible in the CSV/report and only prevents a
+high raw volume ratio from being rewarded when price-volume direction is
+negative; it does not add a new rating weight.
 
 ### Setup
 

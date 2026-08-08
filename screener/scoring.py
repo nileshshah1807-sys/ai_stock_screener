@@ -430,11 +430,20 @@ class StockScorer:
         else: scores["MACD"] = 8
 
         vol_ratio = s(row.get("Vol_Ratio"), 1) or 1
-        if vol_ratio > 2: scores["VOL"] = 15
-        elif vol_ratio > 1.5: scores["VOL"] = 12
-        elif vol_ratio > 1.0: scores["VOL"] = 10
-        elif vol_ratio > 0.7: scores["VOL"] = 7
-        else: scores["VOL"] = 4
+        demand_proxy = str(row.get("Demand_Proxy_Status") or "Unavailable").lower()
+        # Volume is activity, not direction. Reward unusual activity only when
+        # the 21-day close-location/volume proxy and price return agree on
+        # accumulation. A high-volume decline must not receive bullish points.
+        if demand_proxy == "accumulation proxy":
+            if vol_ratio > 2: scores["VOL"] = 15
+            elif vol_ratio > 1.5: scores["VOL"] = 12
+            elif vol_ratio > 1.0: scores["VOL"] = 10
+            elif vol_ratio > 0.7: scores["VOL"] = 7
+            else: scores["VOL"] = 4
+        elif demand_proxy == "distribution proxy":
+            scores["VOL"] = 2 if vol_ratio > 1.0 else 4
+        else:
+            scores["VOL"] = 7
 
         # Momentum must distinguish actual gains from a flat price. Previously
         # 0% to +5% received almost the same reward as a healthy +5% to +15%

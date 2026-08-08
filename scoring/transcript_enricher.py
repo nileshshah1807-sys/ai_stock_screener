@@ -294,7 +294,7 @@ class TranscriptSentimentEnricher:
 
 
 def rank_actionable_recommendations(scored_df):
-    """Rank actionable names by recommendation and score.
+    """Expose separate investment and execution-aware ranks.
 
     Transcript evidence is already blended into ``Final_Score`` at its
     configured weight.  Making availability a higher-order sort key gives it
@@ -302,8 +302,10 @@ def rank_actionable_recommendations(scored_df):
     stronger no-call company.  Missing calls must remain neutral.
 
     Persistent liquidity is different: it is an execution constraint, so
-    liquid names form the actionable part of each recommendation class. Thin
-    names remain in the CSV for research but follow actionable names.
+    liquid names form the actionable report inside each recommendation class.
+    ``Investment_Rank`` preserves the pure rating/score order; ``Rank`` and
+    ``Actionable_Rank`` put executable names first. Thin names remain in the
+    CSV for research.
     """
     transcript_priority = scored_df.get(
         "Transcript_Priority_Applied",
@@ -316,21 +318,32 @@ def rank_actionable_recommendations(scored_df):
     # StockScorer adds audit columns incrementally. Copy once here to
     # consolidate pandas blocks before the final sort and avoid fragmented
     # frame warnings on the full NSE universe.
-    ranking_source = scored_df.copy()
+    ranking_source = scored_df.copy().reset_index(drop=True)
+    ranking_source = ranking_source.assign(
+        _Rating_Order=ranking_source["Rating"].map(RATING_ORDER).fillna(len(RATING_ORDER)),
+        _Liquidity_Actionable=liquidity_eligible.reset_index(drop=True),
+        _Transcript_Tie_Break=transcript_priority.reset_index(drop=True),
+    )
+    investment_order = ranking_source.sort_values(
+        ["_Rating_Order", "Final_Score", "_Transcript_Tie_Break", "Symbol"],
+        ascending=[True, False, False, True],
+        kind="mergesort",
+    ).index
+    ranking_source["Investment_Rank"] = pd.Series(
+        range(1, len(ranking_source) + 1), index=investment_order
+    )
     ranked = (
-        ranking_source.assign(
-            _Rating_Order=scored_df["Rating"].map(RATING_ORDER).fillna(len(RATING_ORDER)),
-            _Liquidity_Actionable=liquidity_eligible,
-            _Transcript_Tie_Break=transcript_priority,
-        )
+        ranking_source
         .sort_values(
             [
                 "_Rating_Order",
                 "_Liquidity_Actionable",
                 "Final_Score",
                 "_Transcript_Tie_Break",
+                "Symbol",
             ],
-            ascending=[True, False, False, False],
+            ascending=[True, False, False, False, True],
+            kind="mergesort",
         )
         .drop(
             columns=[
@@ -341,7 +354,9 @@ def rank_actionable_recommendations(scored_df):
         )
         .reset_index(drop=True)
     )
-    ranked["Rank"] = range(1, len(ranked) + 1)
+    ranked["Actionable_Rank"] = range(1, len(ranked) + 1)
+    # Backwards-compatible report rank is explicitly the execution-aware rank.
+    ranked["Rank"] = ranked["Actionable_Rank"]
     return ranked
 
 

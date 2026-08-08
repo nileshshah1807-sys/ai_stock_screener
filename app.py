@@ -16,7 +16,11 @@ from scoring.transcript_enricher import (
 from red_flags.enricher import RedFlagEnricher
 from red_flags.shadow import RedFlagShadowSimulator
 from screener.data_collection import StockDataCollector
-from screener.liquidity import LiquidityQualityEnricher
+from screener.liquidity import (
+    LiquidityQualityEnricher,
+    NSELiquidityProvider,
+    filter_execution_universe,
+)
 from screener.market_data import AlternativeData, BacktestEngine, PriceCache, TechnicalEnhancer, fmt_cr, fmt_f, fmt_pct
 from screener.reporting import EmailReporter, InteractiveDashboard, WhatsAppReporter
 from screener.runtime import Config, IPv4SMTP, IPv4SMTP_SSL, configure_runtime_cache, load_local_config
@@ -36,10 +40,13 @@ logger = logging.getLogger(__name__)
 load_local_config(Config, Path(__file__).with_name("config_local.py"))
 
 def run_daily_analysis():
-    logger.info("=" * 60)
-    logger.info("STARTING ADVANCED STOCK ANALYSIS (v2.2)")
-    logger.info("=" * 60)
     config = Config()
+    logger.info("=" * 60)
+    logger.info(
+        "STARTING ADVANCED STOCK ANALYSIS (model %s)",
+        getattr(config, "MODEL_VERSION", "unknown"),
+    )
+    logger.info("=" * 60)
     configure_runtime_cache(config)
     date_str = datetime.now().strftime("%d-%m-%Y")
     logger.info(f"Analysis date: {date_str}")
@@ -49,6 +56,11 @@ def run_daily_analysis():
     tech_df = collector.download_stock_data(symbols)
     if tech_df.empty:
         raise RuntimeError("No technical data was collected")
+
+    # One cached bulk read adds the exchange's six-month liquidity group and
+    # Rs1 lakh mean impact cost. This is primary execution evidence; OHLCV
+    # turnover remains the fallback and supports custom position sizes.
+    tech_df = NSELiquidityProvider(config).enrich(tech_df)
 
     # P3: liquidity pre-filter before the slow per-ticker fundamentals stage
     if config.LIQUIDITY_FILTER_ENABLED and config.SCAN_ALL_NSE:
@@ -78,19 +90,16 @@ def run_daily_analysis():
             tech_df.loc[missing_median, "Median_Turnover_20D_INR"] = tech_df.loc[
                 missing_median, "Avg_Turnover_INR"
             ]
-        tech_df = tech_df[
-            (tech_df["Current_Price"] >= config.MIN_PRICE_INR)
-            & (tech_df["Avg_Turnover_INR"] >= config.MIN_AVG_TURNOVER_INR)
-            & (
-                tech_df["Median_Turnover_20D_INR"]
-                >= config.MIN_MEDIAN_TURNOVER_20D_INR
-            )
-        ].reset_index(drop=True)
+        nse_category = pd.to_numeric(
+            tech_df.get("NSE_Liquidity_Category"), errors="coerce"
+        )
+        official_liquid = nse_category.eq(1)
+        tech_df = filter_execution_universe(tech_df, config)
         logger.info(
             f"Liquidity filter: kept {len(tech_df)}/{before} "
-            f"(dropped {before - len(tech_df)} names below Rs{config.MIN_PRICE_INR:.0f} "
-            f"or Rs{config.MIN_AVG_TURNOVER_INR:,.0f} mean / "
-            f"Rs{config.MIN_MEDIAN_TURNOVER_20D_INR:,.0f} 20D median turnover)"
+            f"(dropped {before - len(tech_df)} names below Rs{config.MIN_PRICE_INR:.0f}, "
+            "in NSE Group II/III, or below the turnover fallback when official "
+            f"evidence was unavailable; Group I kept {int(official_liquid.sum())})"
         )
         if tech_df.empty:
             raise RuntimeError("Liquidity filter removed every stock")
@@ -142,16 +151,23 @@ def run_daily_analysis():
         except Exception as e:
             logger.warning(f"Red-flag enrichment skipped: {e}")
 
-    # Keep research coverage broad, but require persistent traded value for the
-    # highest-conviction label. This leaves Final_Score unchanged and exposes
-    # the exact liquidity evidence and cap reason in the report.
+    # Investment conviction and execution are deliberately separate. The
+    # configured target position, NSE impact cost and a turnover participation
+    # proxy describe actionability without rewriting Final_Score or Rating.
     scored_df = LiquidityQualityEnricher(config).enrich(scored_df)
-    liquidity_caps = int(scored_df["Liquidity_Rating_Capped"].sum())
-    logger.info("Liquidity conviction gate capped %s STRONG BUY label(s)", liquidity_caps)
+    actionable_count = int(scored_df["Portfolio_Actionable"].sum())
+    logger.info(
+        "Portfolio actionability: %s/%s stock(s) fit the configured Rs%0.f target",
+        actionable_count,
+        len(scored_df),
+        config.PORTFOLIO_TARGET_POSITION_INR,
+    )
 
     # One final deterministic ordering after every rating gate. Transcript
     # confirmation is only a tie-break because its effect is already in score.
     scored_df = rank_actionable_recommendations(scored_df)
+    scored_df["Model_Version"] = config.MODEL_VERSION
+    scored_df["Model_Validation_Status"] = config.MODEL_VALIDATION_STATUS
 
     # News sentiment for the top N picks (post-scoring, so it's the *actual* top N)
     n = min(config.NEWS_SENTIMENT_TOP_N, len(scored_df))
@@ -163,16 +179,33 @@ def run_daily_analysis():
     )
     logger.info(f"News sentiment fetched for top {len(sentiment_map)} symbols")
 
+    audit_columns = [
+        "Rank", "Investment_Rank", "Symbol", "Rating", "Final_Score", "Transcript_Status",
+        "NSE_Liquidity_Group", "NSE_Impact_Cost_Pct",
+        "Median_Turnover_20D_INR", "Portfolio_Actionable",
+        "Demand_Proxy_Status",
+    ]
+    audit_columns = [column for column in audit_columns if column in scored_df]
+    logger.info(
+        "Top-%d decision audit (demand is descriptive, liquidity does not alter rating):\n%s",
+        min(config.TOP_STOCKS_COUNT, len(scored_df)),
+        scored_df[audit_columns].head(config.TOP_STOCKS_COUNT).to_string(index=False),
+    )
+
     csv_path = config.OUTPUT_DIR / f"advanced_analysis_{datetime.now().strftime('%Y%m%d')}.csv"
     scored_df.to_csv(csv_path, index=False)
     logger.info(f"Results saved: {csv_path}")
 
     # Backtest log
-    backtest = BacktestEngine(config.OUTPUT_DIR)
+    backtest = BacktestEngine(config.OUTPUT_DIR, config.MODEL_VERSION)
     backtest.log_run(date_str, scored_df)
     perf = backtest.analyze_performance()
     if perf:
-        logger.info(f"Avg combined score by rating (all runs): {perf}")
+        logger.info(
+            "Realized performance by rating for model %s: %s",
+            config.MODEL_VERSION,
+            perf,
+        )
 
     # Dashboard
     dashboard_path = InteractiveDashboard.generate(scored_df, date_str, config.OUTPUT_DIR)

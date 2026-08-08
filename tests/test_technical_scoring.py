@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 
 from app import StockScorer, TechnicalEnhancer, sort_by_recommendation
-from screener.market_data import PriceCache
+from screener.market_data import BacktestEngine, PriceCache
 from screener.scoring import sector_relative_fund_scores
 
 
@@ -41,6 +41,7 @@ class TechnicalScoringTests(unittest.TestCase):
             "Pct_Change_1M": 8.0,
             "Pct_Change_3M": 12.0,
             "Vol_Ratio": 1.5,
+            "Demand_Proxy_Status": "Accumulation proxy",
             "BB_Position": 0.6,
         }
         stock.update(overrides)
@@ -99,6 +100,20 @@ class TechnicalScoringTests(unittest.TestCase):
 
         self.assertTrue(cached.empty)
 
+    def test_backtest_does_not_mix_model_versions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            engine = BacktestEngine(directory, model_version="3.0.0")
+            pd.DataFrame({
+                "Rating": ["BUY", "BUY"],
+                "Forward_Return_Pct": [100.0, 10.0],
+                "Model_Version": ["2.2.0", "3.0.0"],
+            }).to_csv(engine.history_file, index=False)
+
+            result = engine.analyze_performance()
+
+        self.assertEqual(result["BUY"]["observations"], 1)
+        self.assertEqual(result["BUY"]["average_return_pct"], 10.0)
+
     def test_recommendation_order_places_strong_buy_before_buy(self):
         stock_rows = pd.DataFrame([
             {"Symbol": "BUY_HIGHER_SCORE", "Rating": "BUY", "Final_Score": 85.0},
@@ -108,6 +123,19 @@ class TechnicalScoringTests(unittest.TestCase):
         ordered = sort_by_recommendation(stock_rows, "Final_Score")
 
         self.assertEqual(ordered.iloc[0]["Symbol"], "STRONG_BUY")
+
+    def test_high_volume_distribution_is_not_rewarded_as_demand(self):
+        accumulation = self._high_scoring_stock(
+            Vol_Ratio=2.5,
+            Demand_Proxy_Status="Accumulation proxy",
+        ).iloc[0]
+        distribution = accumulation.copy()
+        distribution["Demand_Proxy_Status"] = "Distribution proxy"
+
+        accumulation_score = StockScorer.score_technical(accumulation)
+        distribution_score = StockScorer.score_technical(distribution)
+
+        self.assertEqual(accumulation_score - distribution_score, 13)
 
     def test_falling_ma50_caps_expleo_pattern_at_hold(self):
         stock = self._high_scoring_stock(

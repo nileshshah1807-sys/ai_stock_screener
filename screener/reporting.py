@@ -45,17 +45,40 @@ def company_label(row):
 
 
 def liquidity_summary(row):
-    status = str(row.get("Liquidity_Status") or "Unknown")
+    status = str(row.get("Liquidity_Grade") or row.get("Liquidity_Status") or "Unknown")
     median = row.get("Liquidity_20D_Median_Cr")
-    concentration = row.get("Liquidity_Top5_Share_60D")
+    impact_cost = row.get("NSE_Impact_Cost_Pct")
+    target = row.get("Portfolio_Target_Position_INR")
     median_text = "-" if median is None or pd.isna(median) else f"Rs{float(median):.2f}cr median"
-    concentration_text = (
-        "-"
-        if concentration is None or pd.isna(concentration)
-        else f"top-5 {float(concentration):.0%}"
+    impact_text = (
+        "impact unavailable"
+        if impact_cost is None or pd.isna(impact_cost)
+        else f"NSE Rs1L impact {float(impact_cost):.2f}%"
     )
-    reason = row.get("Liquidity_Cap_Reason") or "passed"
-    return f"{status} | {median_text} | {concentration_text} | {reason}"
+    target_text = (
+        "target unavailable"
+        if target is None or pd.isna(target)
+        else f"target Rs{float(target):,.0f}"
+    )
+    actionability = row.get("Portfolio_Actionability") or "Unknown"
+    warning = row.get("Liquidity_Warning") or "no turnover warning"
+    return (
+        f"{status} | {impact_text} | {median_text} | {target_text} | "
+        f"{actionability} | {warning}"
+    )
+
+
+def demand_proxy_summary(row):
+    status = str(row.get("Demand_Proxy_Status") or "Unavailable")
+    cmf = row.get("CMF_21")
+    price_return = row.get("Price_Return_20D_Pct")
+    cmf_text = "-" if cmf is None or pd.isna(cmf) else f"CMF {float(cmf):.2f}"
+    return_text = (
+        "-"
+        if price_return is None or pd.isna(price_return)
+        else f"20D {float(price_return):+.1f}%"
+    )
+    return f"{status} | {cmf_text} | {return_text} | descriptive only"
 
 
 def red_flag_summary(row):
@@ -104,6 +127,7 @@ class InteractiveDashboard:
                     f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
                     f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
                     f"<td>{liquidity_summary(r)}</td>"
+                    f"<td>{demand_proxy_summary(r)}</td>"
                     f"<td>{red_flag_summary(r)}</td>"
                     f"<td>{sentiment}</td>"
                     f"<td><span class='tag {tag_class}'>{r['Rating']}</span></td></tr>"
@@ -169,7 +193,7 @@ tr:hover {{ background-color: #f8f9ff; }}
 </style>
 </head><body>
 <div class="header"><h1>📊 Advanced Stock Screener Dashboard</h1>
-<div class="subtitle">Analysis Date: {date_str} | Interactive Report v2.2</div></div>
+<div class="subtitle">Analysis Date: {date_str} | Model {scored_df.get('Model_Version', pd.Series(['unknown'])).iloc[0]} | Research model; forward validation pending</div></div>
 <div class="card"><h2>📈 Market Summary</h2>
 <div class="stats">
 <div class="stat-box"><div class="stat-value">{len(scored_df)}</div><div class="stat-label">Total Scanned</div></div>
@@ -180,7 +204,7 @@ tr:hover {{ background-color: #f8f9ff; }}
 </div>
 </div>
 <div class="card"><h2>🏆 Top 10 Picks</h2>
-<table><tr><th>Rank</th><th>Company</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Liquidity</th><th>Red-flag Review</th><th>News</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Company</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Liquidity / Execution</th><th>Demand Proxy</th><th>Red-flag Review</th><th>News</th><th>Rating</th></tr>
 {rows_html}
 </table></div>
 <div class="card"><h2>🔎 Reverse DCF</h2>
@@ -199,15 +223,16 @@ tr:hover {{ background-color: #f8f9ff; }}
 <ul style="line-height:1.8;font-size:15px;color:#333;">
 <li>✅ ADX (Wilder) + Stochastic RSI + ATR technical indicators</li>
 <li>✅ Freshness-checked caching (prices 18h / fundamentals 7d)</li>
-<li>✅ Liquidity pre-filter (penny &amp; illiquid names excluded)</li>
+<li>✅ NSE Group I/II/III and Rs1 lakh impact-cost evidence, with turnover fallback</li>
+<li>✅ Investment rating separated from portfolio-size execution suitability</li>
 <li>✅ Data-completeness gate (thin-data stocks capped at HOLD)</li>
-<li>✅ Backtest engine (run history tracking + score stats by rating)</li>
+<li>✅ Version-isolated outcome log (point-in-time validation is still pending)</li>
 <li>✅ Word-boundary news sentiment for top picks (FII/DII feed = placeholder)</li>
 <li>✅ Reverse DCF market-implied growth and terminal-growth analysis</li>
 <li>✅ Interactive HTML dashboard with embedded SVG charts</li>
 </ul>
 </div>
-<div class="footer">Generated by Stock Screener Advanced v2.2 | Not investment advice. Consult a SEBI-registered advisor.</div>
+<div class="footer">Research model; point-in-time out-of-sample validation pending. Not investment advice. Consult a SEBI-registered advisor.</div>
 </body></html>"""
 
             with open(output_path, "w", encoding="utf-8") as f:
@@ -272,6 +297,7 @@ class EmailReporter:
                 f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
                 f"<td>{r.get('Transcript_Quality_Gate', 'No transcript')}</td>"
                 f"<td>{liquidity_summary(r)}</td>"
+                f"<td>{demand_proxy_summary(r)}</td>"
                 f"<td>{red_flag_summary(r)}</td>"
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
@@ -305,7 +331,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 .tag-sell{{color:#b71c1c;font-weight:bold;}}
 </style></head><body>
 <div class="card"><h1>📊 Advanced Stock Screener Report</h1>
-<p><b>Date:</b> {date_str} &nbsp;|&nbsp; <b>Features:</b> ADX / StochRSI / ATR, Freshness-checked caches, Liquidity filter, Data-quality gate, Backtest log, News sentiment, Reverse DCF</p></div>
+<p><b>Date:</b> {date_str} &nbsp;|&nbsp; <b>Model:</b> {getattr(self.config, 'MODEL_VERSION', 'unknown')} &nbsp;|&nbsp; <b>Validation:</b> {getattr(self.config, 'MODEL_VALIDATION_STATUS', 'Research model; forward validation pending')}</p></div>
 <div class="card"><h2>Market Summary</h2>
 <p><b>Total:</b> {summary['total']} |
 <span class="tag-strong-buy">Strong Buy: {summary['strong_buy']}</span> |
@@ -314,7 +340,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
 <div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks</h2>
-<table><tr><th>Rank</th><th>Company</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Transcript Quality Gate</th><th>Liquidity</th><th>Red-flag Review</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Company</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Transcript Quality Gate</th><th>Liquidity / Execution</th><th>Demand Proxy</th><th>Red-flag Review</th><th>Rating</th></tr>
 {rows}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
@@ -322,7 +348,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <table><tr><th>Rank</th><th>Company</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows}
 </table></div>
-<div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported cash flow produces a valid proxy result; otherwise Final equals Base. Reverse DCF compares market cap to a discounted equity cash-flow proxy and solves for assumptions implied by today's price. * = recommendation capped by a data-quality, model, trend, or liquidity gate. Red-flag outcomes are shadow counterfactuals and never change the live score/rating. Not investment advice — consult a SEBI-registered advisor.</p></div>
+<div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported cash flow produces a valid proxy result; otherwise Final equals Base. Reverse DCF compares market cap to a discounted equity cash-flow proxy and solves for assumptions implied by today's price. * = recommendation capped by a data-quality, model, or trend gate. Liquidity describes whether the configured portfolio order is executable; it never changes investment score or rating. Demand is a descriptive CMF/price-volume confirmation proxy, not proof of institutional buying and not a rating input. Red-flag outcomes are shadow counterfactuals and never change the live score/rating. This research model has not yet completed point-in-time out-of-sample validation. Not investment advice — consult a SEBI-registered advisor.</p></div>
 </body></html>"""
         return html
 
@@ -704,7 +730,9 @@ class WhatsAppReporter:
         for _, r in top.iterrows():
             msg += (
                 f"{int(r['Rank'])}. {r['Symbol']} ₹{r['Current_Price']:,.0f} "
-                f"Score:{r.get('Final_Score', r['Combined_Score']):.0f} {r['Rating']} ADX:{fmt_f(r.get('ADX_14'), 0)}\n"
+                f"Score:{r.get('Final_Score', r['Combined_Score']):.0f} {r['Rating']} "
+                f"ADX:{fmt_f(r.get('ADX_14'), 0)} | "
+                f"{r.get('Portfolio_Actionability', 'execution unknown')}\n"
             )
         msg += "\nDisclaimer: Not investment advice. Consult a SEBI-registered advisor."
         return msg

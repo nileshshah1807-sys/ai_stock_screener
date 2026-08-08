@@ -65,6 +65,11 @@ class IPv4SMTP_SSL(smtplib.SMTP_SSL):
 # CONFIGURATION
 # =====================================================
 class Config:
+    MODEL_VERSION = os.getenv("MODEL_VERSION", "3.0.0")
+    MODEL_VALIDATION_STATUS = os.getenv(
+        "MODEL_VALIDATION_STATUS",
+        "Research model; point-in-time out-of-sample validation pending",
+    )
     # --- Email (disabled by default; enable via config_local.py) ---
     EMAIL_ENABLED = _env_bool("EMAIL_ENABLED", False)
     EMAIL_DELIVERY_METHOD = os.getenv("EMAIL_DELIVERY_METHOD", "SMTP").strip().upper()  # SMTP | BREVO | GMAIL_API
@@ -126,17 +131,27 @@ class Config:
     MIN_MEDIAN_TURNOVER_20D_INR = _env_float(
         "MIN_MEDIAN_TURNOVER_20D_INR", 50_00_000.0
     )
-    LIQUIDITY_CONVICTION_GATE_ENABLED = _env_bool(
-        "LIQUIDITY_CONVICTION_GATE_ENABLED", True
+    # Execution is position-size dependent. NSE's monthly Group I/II/III file
+    # supplies six-month trading-frequency and mean impact-cost evidence for a
+    # Rs1 lakh order. Median turnover is only a proxy for custom/larger sizes.
+    NSE_LIQUIDITY_ENABLED = _env_bool("NSE_LIQUIDITY_ENABLED", True)
+    NSE_LIQUIDITY_CACHE_MAX_AGE_DAYS = _env_int(
+        "NSE_LIQUIDITY_CACHE_MAX_AGE_DAYS", 35
     )
-    STRONG_BUY_MIN_MEDIAN_TURNOVER_INR = _env_float(
-        "STRONG_BUY_MIN_MEDIAN_TURNOVER_INR", 5_00_00_000.0
+    NSE_LIQUIDITY_TIMEOUT_SECONDS = _env_int(
+        "NSE_LIQUIDITY_TIMEOUT_SECONDS", 20
     )
-    STRONG_BUY_MAX_TURNOVER_TOP5_SHARE = _env_float(
-        "STRONG_BUY_MAX_TURNOVER_TOP5_SHARE", 0.50
+    PORTFOLIO_TARGET_POSITION_INR = _env_float(
+        "PORTFOLIO_TARGET_POSITION_INR", 1_00_000.0
     )
     LIQUIDITY_POSITION_PARTICIPATION_RATE = _env_float(
         "LIQUIDITY_POSITION_PARTICIPATION_RATE", 0.01
+    )
+    LIQUIDITY_MIN_TRADING_FREQUENCY = _env_float(
+        "LIQUIDITY_MIN_TRADING_FREQUENCY", 0.80
+    )
+    LIQUIDITY_MAX_TURNOVER_TOP5_SHARE = _env_float(
+        "LIQUIDITY_MAX_TURNOVER_TOP5_SHARE", 0.50
     )
 
     # --- P2: data-completeness gate ---
@@ -220,7 +235,10 @@ def load_local_config(config_class, config_path):
     spec.loader.exec_module(config_local)
     for key in dir(config_local):
         if not key.startswith('__') and not callable(getattr(config_local, key)) and hasattr(config_class, key):
-            setattr(config_class, key, getattr(config_local, key))
+            value = getattr(config_local, key)
+            if key in {"OUTPUT_DIR", "YFINANCE_CACHE_DIR"}:
+                value = Path(value)
+            setattr(config_class, key, value)
     logger.info('Loaded settings from config_local.py')
 
 def configure_runtime_cache(config):

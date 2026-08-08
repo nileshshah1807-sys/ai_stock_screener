@@ -15,15 +15,21 @@ logger = logging.getLogger(__name__)
 
 
 def calculate_liquidity_metrics(price_data):
-    """Return robust traded-value measures without making another data call."""
-    paired = pd.concat(
-        [
-            pd.to_numeric(price_data["Close"], errors="coerce").rename("Close"),
-            pd.to_numeric(price_data["Volume"], errors="coerce").rename("Volume"),
-        ],
-        axis=1,
-    ).dropna()
-    paired = paired[(paired["Close"] > 0) & (paired["Volume"] > 0)]
+    """Return execution and price-volume proxies from the existing OHLCV frame.
+
+    Zero-volume sessions are deliberately retained. Dropping them makes an
+    intermittently traded security appear more liquid than it is. ``CMF_21``
+    is descriptive price-volume confirmation only; it never changes the
+    investment score or recommendation.
+    """
+    columns = {}
+    for name in ("High", "Low", "Close", "Volume"):
+        source = price_data.get(name)
+        if source is None:
+            source = pd.Series(index=price_data.index, dtype=float)
+        columns[name] = pd.to_numeric(source, errors="coerce")
+    paired = pd.DataFrame(columns).dropna(subset=["Close", "Volume"])
+    paired = paired[(paired["Close"] > 0) & (paired["Volume"] >= 0)]
     if paired.empty:
         return {}
     turnover = paired["Close"] * paired["Volume"]
@@ -31,6 +37,51 @@ def calculate_liquidity_metrics(price_data):
     last_60 = turnover.tail(60)
     top_count = min(5, len(last_60))
     total_60 = float(last_60.sum())
+    recent_60 = paired.tail(60)
+    trading_frequency = float(recent_60["Volume"].gt(0).mean())
+
+    # Actual turnover uses the unadjusted exchange close. Price signals use
+    # Yahoo's adjusted close and consistently scaled high/low when available,
+    # so a split does not masquerade as distribution or a large negative return.
+    adjusted_close = pd.to_numeric(price_data.get("Adj Close"), errors="coerce") \
+        if price_data.get("Adj Close") is not None else paired["Close"]
+    adjustment_factor = adjusted_close / columns["Close"].where(columns["Close"].ne(0))
+    signal_prices = pd.DataFrame({
+        "High": columns["High"] * adjustment_factor,
+        "Low": columns["Low"] * adjustment_factor,
+        "Close": adjusted_close,
+        "Volume": columns["Volume"],
+    }).dropna(subset=["Close", "Volume"])
+    signal_prices = signal_prices[
+        (signal_prices["Close"] > 0) & (signal_prices["Volume"] >= 0)
+    ]
+
+    recent_21 = signal_prices.dropna(subset=["High", "Low"]).tail(21)
+    cmf_21 = None
+    if len(recent_21) >= 21:
+        price_range = recent_21["High"] - recent_21["Low"]
+        money_flow_multiplier = (
+            (2.0 * recent_21["Close"] - recent_21["High"] - recent_21["Low"])
+            / price_range.where(price_range.ne(0))
+        ).fillna(0.0)
+        volume_sum = float(recent_21["Volume"].sum())
+        if volume_sum > 0:
+            cmf_21 = float((money_flow_multiplier * recent_21["Volume"]).sum() / volume_sum)
+
+    recent_close = signal_prices["Close"].tail(21)
+    return_20d = None
+    if len(recent_close) >= 21 and float(recent_close.iloc[0]) > 0:
+        return_20d = (float(recent_close.iloc[-1]) / float(recent_close.iloc[0]) - 1.0) * 100.0
+
+    if cmf_21 is None or return_20d is None:
+        demand_proxy = "Unavailable"
+    elif cmf_21 > 0 and return_20d > 0:
+        demand_proxy = "Accumulation proxy"
+    elif cmf_21 < 0 and return_20d < 0:
+        demand_proxy = "Distribution proxy"
+    else:
+        demand_proxy = "Mixed"
+
     return {
         "Avg_Turnover_INR": float(turnover.mean()),
         "Median_Turnover_20D_INR": float(last_20.median()),
@@ -41,6 +92,11 @@ def calculate_liquidity_metrics(price_data):
             if total_60 > 0 else 1.0
         ),
         "Turnover_Observations": int(len(turnover)),
+        "Trading_Frequency_60D": trading_frequency,
+        "CMF_21": cmf_21,
+        "Price_Return_20D_Pct": return_20d,
+        "Demand_Proxy_Status": demand_proxy,
+        "Demand_Proxy_Method": "21D CMF plus 20-session price return; descriptive only",
     }
 
 class StockDataCollector:
@@ -123,7 +179,7 @@ class StockDataCollector:
             try:
                 data = yf.download(
                     " ".join(batch), period="6mo", group_by="ticker",
-                    progress=False, threads=True,
+                    progress=False, threads=True, auto_adjust=False,
                 )
                 for symbol in batch:
                     clean_sym = symbol.replace(".NS", "")
@@ -138,12 +194,15 @@ class StockDataCollector:
                         if price_data is None or price_data.empty:
                             failed.append(clean_sym)
                             continue
-                        closes = price_data["Close"].dropna()
+                        raw_closes = pd.to_numeric(price_data["Close"], errors="coerce").dropna()
+                        closes = pd.to_numeric(
+                            price_data.get("Adj Close", price_data["Close"]), errors="coerce"
+                        ).dropna()
                         volumes = price_data["Volume"].dropna()
-                        if len(closes) < 60 or len(volumes) == 0:
+                        if len(closes) < 60 or len(raw_closes) < 60 or len(volumes) == 0:
                             failed.append(clean_sym)
                             continue
-                        current_price = float(closes.iloc[-1])
+                        current_price = float(raw_closes.iloc[-1])
                         avg_volume = float(volumes.mean())
                         last_volume = float(volumes.iloc[-1])
                         liquidity = calculate_liquidity_metrics(price_data)
@@ -187,8 +246,12 @@ class StockDataCollector:
                         pct_6m = ((current_price / float(closes.iloc[0])) - 1) * 100
                         vol_avg_20 = float(volumes.rolling(20).mean().iloc[-1])
                         vol_ratio = last_volume / vol_avg_20 if vol_avg_20 and vol_avg_20 > 0 else 1.0
-                        high = price_data["High"].dropna()
-                        low = price_data["Low"].dropna()
+                        raw_close_aligned = pd.to_numeric(price_data["Close"], errors="coerce")
+                        adjustment_factor = pd.to_numeric(
+                            price_data.get("Adj Close", price_data["Close"]), errors="coerce"
+                        ) / raw_close_aligned.where(raw_close_aligned.ne(0))
+                        high = (pd.to_numeric(price_data["High"], errors="coerce") * adjustment_factor).dropna()
+                        low = (pd.to_numeric(price_data["Low"], errors="coerce") * adjustment_factor).dropna()
                         adx_val, adx_plus_di, adx_minus_di = TechnicalEnhancer.calculate_adx(high, low, closes, 14)
                         stoch_rsi_val = TechnicalEnhancer.calculate_stoch_rsi(closes, 14)
                         atr_val = TechnicalEnhancer.calculate_atr(high, low, closes, 14)
@@ -227,6 +290,19 @@ class StockDataCollector:
                                 liquidity["Turnover_Top5_Share_60D"], 4
                             ),
                             "Turnover_Observations": liquidity["Turnover_Observations"],
+                            "Trading_Frequency_60D": round(
+                                liquidity["Trading_Frequency_60D"], 4
+                            ),
+                            "CMF_21": (
+                                round(liquidity["CMF_21"], 4)
+                                if liquidity["CMF_21"] is not None else None
+                            ),
+                            "Price_Return_20D_Pct": (
+                                round(liquidity["Price_Return_20D_Pct"], 2)
+                                if liquidity["Price_Return_20D_Pct"] is not None else None
+                            ),
+                            "Demand_Proxy_Status": liquidity["Demand_Proxy_Status"],
+                            "Demand_Proxy_Method": liquidity["Demand_Proxy_Method"],
                             "Vol_Ratio": round(vol_ratio, 2),
                             "BB_Position": round(bb_pos, 2),
                         })
