@@ -202,7 +202,24 @@ class StockDataCollector:
     # Columns that must exist in the cache schema. If a cache file predates one
     # of these (e.g. was written before Sector/Industry were added), every row
     # in it is missing that data forever unless we force a one-time re-fetch.
-    REQUIRED_FUND_COLUMNS = ("Sector", "Industry", "Total_Debt", "Total_Cash")
+    REQUIRED_FUND_COLUMNS = ("Company", "Sector", "Industry", "Total_Debt", "Total_Cash")
+
+    @staticmethod
+    def _company_name(info, symbol):
+        """Return a displayable company name from Yahoo's quote metadata.
+
+        Yahoo's NSE quote payload is not completely uniform: most equities have
+        ``longName``, while some only provide ``shortName`` or ``displayName``.
+        A symbol is always a safer report fallback than a blank/NaN company
+        cell, including when Yahoo temporarily omits all of these fields.
+        """
+        if not isinstance(info, dict):
+            return str(symbol)
+        for key in ("longName", "shortName", "displayName"):
+            value = info.get(key)
+            if value is not None and str(value).strip() and str(value).strip().lower() != "nan":
+                return str(value).strip()
+        return str(symbol)
 
     @staticmethod
     def _split_cache(cached_df, max_age_days):
@@ -223,6 +240,13 @@ class StockDataCollector:
             fresh_mask = dates >= cutoff
         else:
             fresh_mask = pd.Series(False, index=df.index)
+
+        # A previous report version wrote an empty Company column.  Treat only
+        # those otherwise-fresh rows as stale so the next run backfills their
+        # Yahoo quote name instead of carrying NaN into another PDF.
+        if "Company" in df.columns:
+            company_values = df["Company"].fillna("").astype(str).str.strip().str.lower()
+            fresh_mask &= company_values.ne("") & company_values.ne("nan")
         fresh_records = df[fresh_mask].to_dict("records")
         stale_symbols = set(df.loc[~fresh_mask, "Symbol"])
         return fresh_records, stale_symbols
@@ -284,6 +308,7 @@ class StockDataCollector:
                     continue
                 fundamental_data.append({
                     "Symbol": symbol,
+                    "Company": self._company_name(info, symbol),
                     "Cached_Date": today_str,
                     "PE_Ratio": info.get("trailingPE"),
                     "Forward_PE": info.get("forwardPE"),

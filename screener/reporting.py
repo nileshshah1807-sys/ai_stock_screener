@@ -29,6 +29,21 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+def company_label(row):
+    """Use the Yahoo company name when available, otherwise show the symbol.
+
+    Report data may originate from an older cache or an interrupted Yahoo
+    response, both of which can leave the optional Company column empty.
+    """
+    company = row.get("Company")
+    if company is not None and not pd.isna(company):
+        company = str(company).strip()
+        if company and company.lower() != "nan":
+            return company
+    return str(row.get("Symbol", "-"))
+
+
 class InteractiveDashboard:
     @staticmethod
     def generate(scored_df, date_str, output_dir):
@@ -41,7 +56,7 @@ class InteractiveDashboard:
                 tag_class = "tag-" + str(r["Rating"]).lower().replace(" ", "-")
                 sentiment = r.get("News_Sentiment", "-")
                 rows_html += (
-                    f"<tr><td>{int(r['Rank'])}</td><td><b>{r['Symbol']}</b></td>"
+                    f"<tr><td>{int(r['Rank'])}</td><td><b>{company_label(r)}</b></td>"
                     f"<td>₹{r['Current_Price']:,.0f}</td>"
                     f"<td>{fmt_f(r.get('PE_Ratio'), 1)}</td>"
                     f"<td>{r['Fundamental_Score']:.0f}</td>"
@@ -186,7 +201,7 @@ class EmailReporter:
             wt = f"F {r.get('Dynamic_Weight_Fund', 0.7):.0%} / T {r.get('Dynamic_Weight_Tech', 0.3):.0%}"
             capped_star = "*" if r.get("Rating_Capped") else ""
             rows += (
-                f"<tr><td>{int(r['Rank'])}</td><td><b>{r['Symbol']}</b></td>"
+                f"<tr><td>{int(r['Rank'])}</td><td><b>{company_label(r)}</b></td>"
                 f"<td>₹{r['Current_Price']:,.0f}</td>"
                 f"<td>{fmt_f(r.get('PE_Ratio'), 1)}</td>"
                 f"<td>{r['Fundamental_Score']:.0f}</td>"
@@ -211,7 +226,7 @@ class EmailReporter:
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
             dcf_rows += (
-                f"<tr><td>{int(r['Rank'])}</td><td><b>{r['Symbol']}</b></td>"
+                f"<tr><td>{int(r['Rank'])}</td><td><b>{company_label(r)}</b></td>"
                 f"<td>{r.get('DCF_Sector', 'Unknown')}</td>"
                 f"<td>\u20b9{r['Current_Price']:,.0f}</td>"
                 f"<td>{fmt_cr(r.get('DCF_Market_Cap'), 0)}</td>"
@@ -249,12 +264,12 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
 <div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>SB Gate</th><th>Fundamental Model</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Company</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>SB Gate</th><th>Fundamental Model</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Rating</th></tr>
 {rows}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
 <p>Model uses a 5-year explicit forecast and a {fmt_pct(self.config.REVERSE_DCF_DISCOUNT_RATE)} discount rate. "Expected Growth" is a sector- and size-aware benchmark (mature/mega-cap sectors get a lower bar, high-growth/small-cap names get a higher one) used as the explicit growth assumption; {fmt_pct(self.config.REVERSE_DCF_TERMINAL_GROWTH)} fixed terminal growth is used when solving for implied FCF CAGR.</p>
-<table><tr><th>Rank</th><th>Symbol</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Company</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows}
 </table></div>
 <div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported FCF produces a valid DCF result; otherwise Final equals Base. Reverse DCF compares market cap to discounted free cash flow and solves for assumptions implied by today's price. * = rating capped at HOLD due to insufficient fundamental data. Not investment advice — consult a SEBI-registered advisor.</p></div>
@@ -280,12 +295,12 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 Spacer(1, 0.4 * cm),
             ]
 
-            top_header = ["Rank", "Symbol", "CMP", "PE", "Fund", "Tech", "Model", "Base", "DCF", "Final", "Transcript", "Technical Gate", "Rating"]
+            top_header = ["Rank", "Company", "CMP", "PE", "Fund", "Tech", "Model", "Base", "DCF", "Final", "Transcript", "Technical Gate", "Rating"]
             top_rows = [top_header]
             for _, r in top.iterrows():
                 top_rows.append([
                     int(r["Rank"]),
-                    r["Symbol"],
+                    company_label(r),
                     f"\u20b9{r['Current_Price']:,.0f}",
                     fmt_f(r.get("PE_Ratio"), 1),
                     f"{r['Fundamental_Score']:.0f}",
@@ -303,14 +318,14 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
             story.append(Spacer(1, 0.6 * cm))
 
             dcf_header = [
-                "Rank", "Symbol", "Sector", "CMP", "Mkt Cap", "FCF Yield",
+                "Rank", "Company", "Sector", "CMP", "Mkt Cap", "FCF Yield",
                 "Exp Growth", "Impl 5Y CAGR", "Impl Term Growth", "Upside", "Assessment", "Rating",
             ]
             dcf_rows = [dcf_header]
             for _, r in top.iterrows():
                 dcf_rows.append([
                     int(r["Rank"]),
-                    r["Symbol"],
+                    company_label(r),
                     r.get("DCF_Sector", "Unknown"),
                     f"\u20b9{r['Current_Price']:,.0f}",
                     fmt_cr(r.get("DCF_Market_Cap"), 0),

@@ -144,12 +144,13 @@ class TranscriptWorker:
         ):
             company_name = transcript.get("company_name") or "Unknown"
             logger.info(
-                "Analyzing transcript: id=%s symbol=%s company=%s call_date=%s model=%s",
+                "Analyzing transcript: id=%s symbol=%s company=%s call_date=%s model=%s analysis_version=%s",
                 transcript["id"],
                 transcript["symbol"],
                 company_name,
                 transcript.get("call_date") or "Unknown",
                 self.settings.model_name,
+                ANALYSIS_VERSION,
             )
             try:
                 result = analyze_transcript(transcript["cleaned_text"])
@@ -178,11 +179,12 @@ class TranscriptWorker:
             })
             summary["analyzed"] += 1
             logger.info(
-                "Saved transcript sentiment: id=%s symbol=%s overall_score=%s guidance=%s",
+                "Saved transcript sentiment: id=%s symbol=%s overall_score=%s guidance=%s analysis_version=%s",
                 transcript["id"],
                 transcript["symbol"],
                 result["overall_score"],
                 result["guidance_direction"],
+                ANALYSIS_VERSION,
             )
         return summary
 
