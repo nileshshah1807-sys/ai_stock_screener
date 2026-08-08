@@ -83,6 +83,29 @@ create table if not exists red_flag_snapshots (
 
 create index if not exists red_flag_snapshots_symbol_idx on red_flag_snapshots(symbol);
 
+-- Daily, point-in-time observations for audits and future walk-forward tests.
+-- Re-running the worker on the same day updates that day's observation rather
+-- than creating duplicates; a new policy retains an independent history.
+create table if not exists red_flag_snapshot_history (
+    source text not null,
+    symbol text not null,
+    policy text not null,
+    observed_on date not null,
+    severity smallint not null default 0 check (severity between 0 and 3),
+    flag_count integer not null default 0 check (flag_count >= 0),
+    summary text not null,
+    source_status text not null,
+    source_as_of date not null,
+    snapshot jsonb not null,
+    fetched_at timestamptz not null default now(),
+    primary key (source, symbol, policy, observed_on)
+);
+
+create index if not exists red_flag_snapshot_history_symbol_date_idx
+    on red_flag_snapshot_history(symbol, observed_on desc);
+create index if not exists red_flag_snapshot_history_observed_on_idx
+    on red_flag_snapshot_history(observed_on desc);
+
 -- PostgreSQL overloads by argument list, so remove both historical signatures
 -- before recreating the bounded active RPC.
 drop function if exists pending_transcripts_for_analysis(text, text, integer);
@@ -203,6 +226,7 @@ alter table transcript_filing_documents enable row level security;
 alter table transcripts enable row level security;
 alter table transcript_sentiments enable row level security;
 alter table red_flag_snapshots enable row level security;
+alter table red_flag_snapshot_history enable row level security;
 
 -- These objects contain the full cleaned transcript text. SECURITY DEFINER
 -- functions and owner-created views can otherwise bypass table RLS for callers

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -196,12 +197,44 @@ class SupabaseRepository:
             return self._request("GET", "latest_transcript_sentiment", params=params)
 
     def upsert_red_flag_snapshots(self, snapshots: list[dict[str, Any]], batch_size: int = 250) -> int:
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        rows = [{**snapshot, "fetched_at": fetched_at} for snapshot in snapshots]
         saved = 0
-        for start in range(0, len(snapshots), batch_size):
-            batch = snapshots[start:start + batch_size]
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start:start + batch_size]
             self._request(
                 "POST",
                 "red_flag_snapshots?on_conflict=source,symbol",
+                json=batch,
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            saved += len(batch)
+        return saved
+
+    def upsert_red_flag_snapshot_history(
+        self,
+        snapshots: list[dict[str, Any]],
+        observed_on: str,
+        batch_size: int = 250,
+    ) -> int:
+        """Save one idempotent point-in-time observation per policy and day."""
+
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        rows = []
+        for snapshot in snapshots:
+            details = snapshot.get("snapshot") if isinstance(snapshot.get("snapshot"), dict) else {}
+            rows.append({
+                **snapshot,
+                "policy": details.get("policy") or "legacy",
+                "observed_on": observed_on,
+                "fetched_at": fetched_at,
+            })
+        saved = 0
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start:start + batch_size]
+            self._request(
+                "POST",
+                "red_flag_snapshot_history?on_conflict=source,symbol,policy,observed_on",
                 json=batch,
                 headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )

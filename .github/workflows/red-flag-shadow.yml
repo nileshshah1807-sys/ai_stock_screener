@@ -1,6 +1,10 @@
 name: Red-flag shadow evidence
 
 on:
+  schedule:
+    # Refresh before the 03:17 UTC daily screener. The worker is a small cached
+    # data job; report generation still performs only one Supabase lookup.
+    - cron: "45 2 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -51,16 +55,16 @@ jobs:
           tests.test_supabase_repository
 
       - name: Validate live feed without writing
-        if: inputs.mode == 'dry-run'
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run'
         run: python -m workers.red_flag_worker --dry-run
 
       - name: Verify cache credentials
-        if: inputs.mode == 'populate-cache'
+        if: github.event_name == 'schedule' || inputs.mode == 'populate-cache'
         shell: bash
         run: |
           test -n "$SUPABASE_URL" || { echo "SUPABASE_URL secret is missing"; exit 1; }
           test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY secret is missing"; exit 1; }
 
       - name: Populate Supabase shadow cache
-        if: inputs.mode == 'populate-cache'
+        if: github.event_name == 'schedule' || inputs.mode == 'populate-cache'
         run: python -m workers.red_flag_worker

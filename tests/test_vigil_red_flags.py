@@ -5,6 +5,7 @@ from datetime import date
 import pandas as pd
 
 from red_flags.enricher import RedFlagEnricher
+from red_flags.shadow import RedFlagShadowSimulator
 from red_flags.vigil import VigilClient, build_red_flag_snapshots
 
 
@@ -294,6 +295,27 @@ class RedFlagEnricherTests(unittest.TestCase):
         self.assertEqual(result.loc[0, "Red_Flag_Total_Capital_Encumbered_Pct"], 22.0)
         self.assertEqual(result.loc[1, "Red_Flag_Status"], "No coverage")
         self.assertTrue(result["Red_Flag_Shadow_Mode"].all())
+
+    def test_shadow_simulator_separates_issuer_and_trading_outcomes(self):
+        source = pd.DataFrame({
+            "Symbol": ["ISSUER", "TRADING", "CLEAN", "STALE"],
+            "Final_Score": [82.0, 76.0, 72.0, 90.0],
+            "Rating": ["STRONG BUY", "STRONG BUY", "STRONG BUY", "STRONG BUY"],
+            "Red_Flag_Status": ["Available", "Available", "Available", "Partial/stale"],
+            "Red_Flag_Issuer_Severity": [3, 0, 0, 3],
+            "Red_Flag_Trading_Severity": [0, 3, 0, 0],
+        })
+
+        result = RedFlagShadowSimulator().simulate(source)
+
+        self.assertEqual(result.loc[0, "Shadow_Red_Flag_Score_If_Confirmed"], 59.99)
+        self.assertEqual(result.loc[0, "Shadow_Red_Flag_Rating_If_Confirmed"], "HOLD")
+        self.assertEqual(result.loc[1, "Shadow_Red_Flag_Score_If_Confirmed"], 76.0)
+        self.assertEqual(result.loc[1, "Shadow_Red_Flag_Rating_If_Confirmed"], "HOLD")
+        self.assertFalse(result.loc[2, "Shadow_Red_Flag_Review_Required"])
+        self.assertFalse(result.loc[3, "Shadow_Red_Flag_Would_Change"])
+        self.assertEqual(source["Final_Score"].tolist(), result["Final_Score"].tolist())
+        self.assertEqual(source["Rating"].tolist(), result["Rating"].tolist())
 
 
 if __name__ == "__main__":

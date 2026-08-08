@@ -26,9 +26,14 @@ class FakeClient:
 class FakeRepository:
     def __init__(self):
         self.snapshots = []
+        self.history = []
 
     def upsert_red_flag_snapshots(self, snapshots):
         self.snapshots = snapshots
+        return len(snapshots)
+
+    def upsert_red_flag_snapshot_history(self, snapshots, observed_on):
+        self.history = [(snapshot, observed_on) for snapshot in snapshots]
         return len(snapshots)
 
 
@@ -41,11 +46,14 @@ class RedFlagWorkerTests(unittest.TestCase):
         self.assertEqual(result["raw_rows"], 1)
         self.assertEqual(result["snapshots"], 1)
         self.assertEqual(result["saved"], 1)
+        self.assertEqual(result["history_saved"], 1)
         self.assertEqual(result["policy"], "shadow-v2")
         self.assertEqual(result["severity_0"], 1)
         self.assertEqual(result["issuer_severity_3"], 0)
         self.assertEqual(result["trading_severity_3"], 0)
         self.assertEqual(repository.snapshots[0]["symbol"], "TEST")
+        self.assertEqual(repository.history[0][0]["symbol"], "TEST")
+        self.assertEqual(repository.history[0][1], str(date.today()))
 
     def test_worker_fails_closed_when_required_freshness_is_missing(self):
         client = FakeClient()
@@ -59,6 +67,7 @@ class RedFlagWorkerTests(unittest.TestCase):
 
         self.assertEqual(result["snapshots"], 1)
         self.assertEqual(result["saved"], 0)
+        self.assertEqual(result["history_saved"], 0)
 
     def test_worker_rejects_download_manifest_count_mismatch(self):
         client = FakeClient()

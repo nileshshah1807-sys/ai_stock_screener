@@ -64,7 +64,13 @@ class RedFlagWorker:
             lookback_days=self.settings.lookback_days,
             stale_after_days=self.settings.stale_after_days,
         )
+        observed_on = date.today().isoformat()
         saved = self.repository.upsert_red_flag_snapshots(snapshots) if self.repository is not None else 0
+        history_saved = (
+            self.repository.upsert_red_flag_snapshot_history(snapshots, observed_on)
+            if self.repository is not None
+            else 0
+        )
         severity_counts = Counter(int(item["severity"]) for item in snapshots)
         issuer_counts = Counter(
             int(item["snapshot"].get("issuer_severity", 0)) for item in snapshots
@@ -78,6 +84,7 @@ class RedFlagWorker:
             "raw_rows": sum(len(rows) for rows in datasets.values()),
             "snapshots": len(snapshots),
             "saved": saved,
+            "history_saved": history_saved,
             "flags": sum(int(item["flag_count"]) for item in snapshots),
             "severity_0": severity_counts[0],
             "severity_1": severity_counts[1],

@@ -108,11 +108,19 @@ at most 60, guidance was not lowered, its technical score is at least 60, and
 its trend is confirmed. Scores from 45 to 59.99 with a confirmed trend receive
 half the sentiment weight but cannot promote the core recommendation. Weak or
 unconfirmed trends receive no transcript weight. Older calls decay toward a
-neutral score of 50 rather than toward zero. Within each recommendation class,
-fresh full-priority transcript coverage ranks ahead of stocks without a
-validated transcript; recommendation safety gates always rank first. A fresh,
-quality-validated transcript is required for `STRONG BUY`; an otherwise-
-eligible stock without one remains a `BUY` research candidate.
+neutral score of 50 rather than toward zero. Eligibility is also tied to the
+Indian quarterly-results calendar: a call remains current until the next
+result deadline plus the transcript-publication window. It then becomes
+`Prior-cycle`, stays visible for context, and has no score or rating effect.
+`Transcript_Evidence_Period`, `Transcript_Expected_Period`,
+`Transcript_Age_Days`, and `Transcript_Scoring_Eligible` make that decision
+auditable. Within each recommendation class, fresh full-priority transcript
+coverage ranks ahead of stocks without a validated transcript; recommendation
+safety gates always rank first. Companies are not required to conduct earnings
+calls, so no transcript is a neutral evidence path and does not cap an
+otherwise eligible `STRONG BUY`. Set
+`REQUIRE_TRANSCRIPT_FOR_STRONG_BUY=true` only to restore that optional stricter
+gate.
 
 The scheduled worker requires FinBERT when `TRANSCRIPT_REQUIRE_FINBERT=true`.
 Model loading or inference failures then fail the job instead of silently
@@ -134,7 +142,8 @@ revenue, margin, risk, and management-confidence signals instead of displaying
 
 1. Create a Supabase project, then run [storage/supabase_schema.sql](storage/supabase_schema.sql)
    in its SQL Editor. Re-run this schema file after pulling updates: it safely
-   creates the pending-analysis function used by the transcript worker.
+   creates the pending-analysis function used by the transcript worker and the
+   daily `red_flag_snapshot_history` audit table.
 2. In GitHub **Settings** > **Secrets and variables** > **Actions**, add:
 
    ```text
@@ -144,6 +153,17 @@ revenue, margin, risk, and management-confidence signals instead of displaying
 
 3. Run **Earnings transcript sentiment** manually once. Then run **Daily stock
    screener** and inspect the CSV columns beginning with `Transcript_`.
+
+For the free red-flag path, run **Red-flag shadow evidence** in
+`populate-cache` mode after applying the schema. It then refreshes daily at
+02:45 UTC, before the daily screen. The cache remains shadow-only: it does not
+change `Final_Score` or `Rating`. Instead, the CSV includes
+`Shadow_Red_Flag_*_If_Confirmed` counterfactuals. Severe issuer evidence shows
+a hypothetical score/rating cap; severe trading restrictions show a rating or
+liquidity constraint without rewriting the fundamental score. The underlying
+exchange or issuer filing must be confirmed before either policy is enabled.
+Ready-to-run inspection SQL is in
+[`storage/red_flag_audit_queries.sql`](storage/red_flag_audit_queries.sql).
 
 The service-role key is intentionally used only by GitHub Actions and the
 server-side daily screener. Never expose it to a browser or commit it to the

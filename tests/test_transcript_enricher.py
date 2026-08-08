@@ -6,6 +6,7 @@ import pandas as pd
 
 from app import EmailReporter
 from scoring.transcript_enricher import TranscriptSentimentEnricher, rank_by_transcript_priority, recency_weight
+from transcripts.periods import latest_expected_reporting_period
 
 
 class FakeRepository:
@@ -52,6 +53,19 @@ class NegativeGuidanceRepository:
             "risk_score": 75,
             "management_confidence": 35,
             "guidance_direction": "lowered",
+        }]
+
+
+class PriorCycleRepository:
+    def latest_sentiments(self, symbols):
+        expected = latest_expected_reporting_period(date.today())
+        return [{
+            "symbol": "RELIANCE",
+            "call_date": str(expected - timedelta(days=1)),
+            "overall_score": 95,
+            "risk_score": 5,
+            "management_confidence": 95,
+            "guidance_direction": "raised",
         }]
 
 
@@ -120,7 +134,9 @@ class TranscriptEnricherTests(unittest.TestCase):
             "Strong_Buy_Eligible": [True],
         })
 
-        result = TranscriptSentimentEnricher(SimpleNamespace(), FakeRepository()).enrich(source)
+        result = TranscriptSentimentEnricher(
+            SimpleNamespace(REQUIRE_TRANSCRIPT_FOR_STRONG_BUY=True), FakeRepository()
+        ).enrich(source)
 
         self.assertEqual(result.loc[0, "Rating"], "BUY")
         self.assertTrue(result.loc[0, "Transcript_Strong_Buy_Capped"])
@@ -128,6 +144,42 @@ class TranscriptEnricherTests(unittest.TestCase):
             result.loc[0, "Transcript_Technical_Gate"],
             "Fresh, quality transcript required for STRONG BUY",
         )
+
+    def test_missing_transcript_is_neutral_by_default(self):
+        source = pd.DataFrame({
+            "Symbol": ["TCS"],
+            "Final_Score": [75.0],
+            "Rating": ["STRONG BUY"],
+            "Technical_Score": [70.0],
+            "Trend_Confirmed": [True],
+            "Strong_Buy_Eligible": [True],
+        })
+
+        result = TranscriptSentimentEnricher(SimpleNamespace(), FakeRepository()).enrich(source)
+
+        self.assertEqual(result.loc[0, "Rating"], "STRONG BUY")
+        self.assertEqual(result.loc[0, "Final_Score"], 75.0)
+        self.assertEqual(result.loc[0, "Management_Evidence_Path"], "No transcript; base model retained")
+        self.assertFalse(result.loc[0, "Transcript_Strong_Buy_Capped"])
+
+    def test_prior_cycle_transcript_is_visible_but_cannot_change_scoring(self):
+        source = pd.DataFrame({
+            "Symbol": ["RELIANCE"],
+            "Final_Score": [62.0],
+            "Rating": ["BUY"],
+            "Technical_Score": [80.0],
+            "Trend_Confirmed": [True],
+        })
+
+        result = TranscriptSentimentEnricher(SimpleNamespace(), PriorCycleRepository()).enrich(source)
+
+        self.assertEqual(result.loc[0, "Transcript_Status"], "Prior-cycle")
+        self.assertEqual(result.loc[0, "Transcript_Evidence_Status"], "Prior cycle")
+        self.assertTrue(result.loc[0, "Transcript_Fallback_Used"])
+        self.assertFalse(result.loc[0, "Transcript_Scoring_Eligible"])
+        self.assertEqual(result.loc[0, "Final_Score"], 62.0)
+        self.assertEqual(result.loc[0, "Rating"], "BUY")
+        self.assertIn("Prior-cycle evidence", result.loc[0, "Transcript_Summary"])
 
     def test_limited_technical_score_cannot_promote_core_rating(self):
         source = pd.DataFrame({

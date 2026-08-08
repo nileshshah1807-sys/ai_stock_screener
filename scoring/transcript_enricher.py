@@ -9,6 +9,11 @@ import pandas as pd
 
 from screener.scoring import RATING_ORDER
 from storage.supabase_repository import SupabaseRepository
+from transcripts.periods import (
+    CURRENT_CYCLE,
+    PRIOR_CYCLE,
+    classify_transcript_evidence,
+)
 
 
 def recency_weight(call_date: str | None, today: date | None = None) -> float:
@@ -39,6 +44,13 @@ class TranscriptSentimentEnricher:
         base_score_column = "Final_Score" if "Final_Score" in enriched else "Combined_Score"
         base_scores = enriched[base_score_column].copy()
         enriched["Transcript_Status"] = "No transcript"
+        enriched["Transcript_Evidence_Status"] = "No transcript"
+        enriched["Transcript_Evidence_Period"] = ""
+        enriched["Transcript_Expected_Period"] = ""
+        enriched["Transcript_Age_Days"] = np.nan
+        enriched["Transcript_Scoring_Eligible"] = False
+        enriched["Transcript_Fallback_Used"] = False
+        enriched["Management_Evidence_Path"] = "No transcript; base model retained"
         enriched["Transcript_Score"] = np.nan
         enriched["Transcript_Weighted_Score"] = np.nan
         enriched["Transcript_Recency_Weight"] = 0.0
@@ -76,9 +88,34 @@ class TranscriptSentimentEnricher:
             record = by_symbol.get(str(symbol).upper())
             if record is None:
                 continue
+            evidence = classify_transcript_evidence(
+                record.get("call_date"),
+                max_age_days=getattr(self.config, "TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS", 180),
+            )
             weight = recency_weight(record.get("call_date"))
             score = _number(record.get("overall_score"))
-            enriched.at[index, "Transcript_Status"] = "Available" if weight else "Expired"
+            scoring_eligible = evidence.scoring_eligible and bool(weight)
+            if scoring_eligible:
+                transcript_status = "Available"
+                evidence_path = "Current-cycle transcript"
+            elif evidence.status == PRIOR_CYCLE and weight:
+                transcript_status = "Prior-cycle"
+                evidence_path = "Prior-cycle transcript; informational only"
+            else:
+                transcript_status = "Expired"
+                evidence_path = "Expired transcript; base model retained"
+            enriched.at[index, "Transcript_Status"] = transcript_status
+            enriched.at[index, "Transcript_Evidence_Status"] = evidence.status
+            enriched.at[index, "Transcript_Evidence_Period"] = (
+                evidence.period_end.isoformat() if evidence.period_end else ""
+            )
+            enriched.at[index, "Transcript_Expected_Period"] = (
+                evidence.expected_period_end.isoformat() if evidence.expected_period_end else ""
+            )
+            enriched.at[index, "Transcript_Age_Days"] = evidence.age_days
+            enriched.at[index, "Transcript_Scoring_Eligible"] = scoring_eligible
+            enriched.at[index, "Transcript_Fallback_Used"] = transcript_status == "Prior-cycle"
+            enriched.at[index, "Management_Evidence_Path"] = evidence_path
             enriched.at[index, "Transcript_Score"] = score
             # Age reduces confidence in the signal, not the score's absolute
             # level. Decay toward neutral (50), otherwise an old positive call
@@ -103,6 +140,7 @@ class TranscriptSentimentEnricher:
                 record.get("structured_output"),
                 _number(record.get("risk_score")),
                 _number(record.get("management_confidence")),
+                evidence.status,
             )
 
         priority_weight = _weight(getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.15))
@@ -114,7 +152,7 @@ class TranscriptSentimentEnricher:
             minimum_technical_score,
             _score_threshold(getattr(self.config, "TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE", 60.0), 60.0),
         )
-        eligible = (enriched["Transcript_Status"] == "Available") & enriched["Transcript_Weighted_Score"].notna()
+        eligible = enriched["Transcript_Scoring_Eligible"].eq(True) & enriched["Transcript_Weighted_Score"].notna()
         minimum_priority_score = _score_threshold(
             getattr(self.config, "TRANSCRIPT_MIN_PRIORITY_SCORE", 55.0),
             55.0,
@@ -239,7 +277,7 @@ class TranscriptSentimentEnricher:
                 "Rating",
             ] = "BUY"
             require_transcript_for_strong_buy = bool(
-                getattr(self.config, "REQUIRE_TRANSCRIPT_FOR_STRONG_BUY", True)
+                getattr(self.config, "REQUIRE_TRANSCRIPT_FOR_STRONG_BUY", False)
             )
             transcript_required_cap = (
                 require_transcript_for_strong_buy
@@ -313,12 +351,14 @@ def _summary(
     structured_output=None,
     risk_score=None,
     management_confidence=None,
+    evidence_status=CURRENT_CYCLE,
 ):
     if score is None or not recency_weight_value:
         return "Expired"
+    evidence_prefix = "Prior-cycle evidence | " if evidence_status == PRIOR_CYCLE else ""
     direction = str(guidance or "unclear").strip().lower()
     if direction != "unclear":
-        return f"{score:.1f} | {direction.replace('_', ' ').title()} | {str(call_date)[:10]}"
+        return f"{evidence_prefix}{score:.1f} | {direction.replace('_', ' ').title()} | {str(call_date)[:10]}"
 
     details = structured_output if isinstance(structured_output, dict) else {}
     commentary = ["No explicit guidance"]
@@ -340,4 +380,4 @@ def _summary(
             commentary.append("elevated risk" if risk_score >= 60 else "moderate risk" if risk_score >= 40 else "contained risk")
         if management_confidence is not None and management_confidence >= 65:
             commentary.append("confident management tone")
-    return f"{score:.1f} | {'; '.join(commentary)} | {str(call_date)[:10]}"
+    return f"{evidence_prefix}{score:.1f} | {'; '.join(commentary)} | {str(call_date)[:10]}"

@@ -11,6 +11,7 @@ import pandas as pd
 
 from scoring.transcript_enricher import TranscriptSentimentEnricher, rank_by_transcript_priority
 from red_flags.enricher import RedFlagEnricher
+from red_flags.shadow import RedFlagShadowSimulator
 from screener.data_collection import StockDataCollector
 from screener.market_data import AlternativeData, BacktestEngine, PriceCache, TechnicalEnhancer, fmt_cr, fmt_f, fmt_pct
 from screener.reporting import EmailReporter, InteractiveDashboard, WhatsAppReporter
@@ -112,7 +113,12 @@ def run_daily_analysis():
     if config.RED_FLAG_ENRICHMENT_ENABLED:
         try:
             scored_df = RedFlagEnricher(config).enrich(scored_df)
-            logger.info("Cached red-flag shadow evidence joined")
+            scored_df = RedFlagShadowSimulator().simulate(scored_df)
+            review_count = int(scored_df["Shadow_Red_Flag_Review_Required"].sum())
+            logger.info(
+                "Cached red-flag shadow evidence joined; %s stock(s) require evidence review",
+                review_count,
+            )
         except Exception as e:
             logger.warning(f"Red-flag enrichment skipped: {e}")
 

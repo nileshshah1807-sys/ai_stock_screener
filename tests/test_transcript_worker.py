@@ -64,6 +64,7 @@ class TranscriptWorkerTests(unittest.TestCase):
                 self.assertTrue(worker._process_filing(self.record, Path(temporary_directory)))
 
         self.assertEqual(repository.upserted_transcripts[0]["document_id"], "existing-document")
+        self.assertEqual(repository.upserted_transcripts[0]["quarter"], "2026-06-30")
         self.assertEqual(repository.links, [("filing-1", "existing-document")])
         self.assertEqual(repository.updates[-1][1]["status"], "document_ready")
 

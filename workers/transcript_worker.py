@@ -7,7 +7,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -16,6 +16,7 @@ from storage.supabase_repository import SupabaseRepository
 from transcripts.cleaner import clean_transcript_text
 from transcripts.collector import discover_nse_transcripts, filing_payload
 from transcripts.extractor import extract_pdf_text
+from transcripts.periods import reporting_period_end_for_call
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -125,7 +126,7 @@ class TranscriptWorker:
                 self.repository.upsert_transcript({
                     "document_id": document["id"],
                     "symbol": filing["symbol"],
-                    "quarter": _announcement_quarter(filing.get("announcement_date")),
+                    "quarter": _results_period(filing.get("announcement_date")),
                     "call_date": _announcement_date(filing.get("announcement_date")),
                     "cleaned_text": cleaned_text,
                     "token_count": (len(cleaned_text) + 3) // 4,
@@ -230,11 +231,14 @@ def _announcement_date(value: str | None) -> str | None:
     return value[:10] if value else None
 
 
-def _announcement_quarter(value: str | None) -> str | None:
+def _results_period(value: str | None) -> str | None:
     if not value:
         return None
-    announcement = datetime.fromisoformat(value)
-    return f"{announcement.year}-Q{(announcement.month - 1) // 3 + 1}"
+    try:
+        announcement = date.fromisoformat(value[:10])
+    except ValueError:
+        return None
+    return reporting_period_end_for_call(announcement).isoformat()
 
 
 def main() -> None:

@@ -85,6 +85,35 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
         self.assertEqual(saved, 3)
         self.assertEqual(payload_sizes, [2, 1])
 
+    def test_red_flag_history_is_idempotent_by_source_symbol_policy_and_day(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        calls = []
+
+        def request(method, path, **kwargs):
+            calls.append((method, path, kwargs))
+            return None
+
+        repository._request = request
+        saved = repository.upsert_red_flag_snapshot_history([{
+            "source": "VIGIL",
+            "symbol": "TEST",
+            "severity": 2,
+            "flag_count": 1,
+            "summary": "pledge",
+            "source_status": "current",
+            "source_as_of": "2026-08-08",
+            "snapshot": {"policy": "shadow-v2", "flags": []},
+        }], "2026-08-08")
+
+        self.assertEqual(saved, 1)
+        self.assertIn(
+            "on_conflict=source,symbol,policy,observed_on",
+            calls[0][1],
+        )
+        self.assertEqual(calls[0][2]["json"][0]["policy"], "shadow-v2")
+        self.assertEqual(calls[0][2]["json"][0]["observed_on"], "2026-08-08")
+        self.assertIn("fetched_at", calls[0][2]["json"][0])
+
 
 if __name__ == "__main__":
     unittest.main()
