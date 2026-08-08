@@ -77,9 +77,9 @@ class LiquidityMetricTests(unittest.TestCase):
             "Symbol": ["GROUP1", "GROUP2", "PROXY"],
             "Rating": ["STRONG BUY", "STRONG BUY", "BUY"],
             "Final_Score": [75.0, 80.0, 68.0],
-            "Median_Turnover_20D_INR": [20_000_000, 80_000_000, 20_000_000],
-            "Median_Turnover_60D_INR": [18_000_000, 75_000_000, 18_000_000],
-            "Turnover_P10_20D_INR": [5_000_000, 50_000_000, 5_000_000],
+            "Median_Turnover_20D_INR": [2_000_000, 80_000_000, 20_000_000],
+            "Median_Turnover_60D_INR": [1_800_000, 75_000_000, 18_000_000],
+            "Turnover_P10_20D_INR": [500_000, 50_000_000, 5_000_000],
             "Turnover_Top5_Share_60D": [0.70, 0.30, 0.30],
             "Trading_Frequency_60D": [1.0, 1.0, 1.0],
             "NSE_Liquidity_Category": [1, 2, None],
@@ -96,6 +96,8 @@ class LiquidityMetricTests(unittest.TestCase):
         ])
         self.assertEqual(result["Portfolio_Actionable"].tolist(), [True, False, True])
         self.assertIn("NSE Rs1 lakh", result.loc[0, "Portfolio_Actionability"])
+        self.assertEqual(result.loc[0, "Portfolio_Estimated_Build_Days"], 1)
+        self.assertEqual(result.loc[0, "Turnover_Proxy_Estimated_Build_Days"], 5)
         self.assertIn("Restricted", result.loc[1, "Portfolio_Actionability"])
         self.assertIn("NSE monthly", result.loc[0, "Liquidity_Methodology"])
         self.assertFalse(result["Liquidity_Rating_Capped"].any())
@@ -121,6 +123,7 @@ class LiquidityMetricTests(unittest.TestCase):
         self.assertEqual(result.loc[0, "Rating"], "STRONG BUY")
         self.assertFalse(result.loc[0, "Portfolio_Actionable"])
         self.assertEqual(result.loc[0, "Portfolio_Estimated_Build_Days"], 3)
+        self.assertEqual(result.loc[0, "Turnover_Proxy_Estimated_Build_Days"], 3)
         self.assertIn("3 trading days", result.loc[0, "Portfolio_Actionability"])
 
     def test_group_one_without_impact_cost_needs_turnover_evidence(self):

@@ -93,7 +93,10 @@ executable names first inside each rating class. For the configurable
 actionable flag, and estimated build days at a conservative 1% participation
 in median daily turnover. NSE's impact figure directly supports only its
 Rs1 lakh reference order; larger target positions also use the transparent
-turnover/concentration proxy.
+turnover/concentration proxy. The raw turnover-only estimate is retained as
+`Turnover_Proxy_Estimated_Build_Days`; when official impact-cost evidence
+directly supports the configured Rs1 lakh order, effective portfolio build
+days are reported as one so the two fields are not contradictory.
 
 `CMF_21` and 20-day price return describe whether recent price-volume behaviour
 resembles accumulation or distribution. This is labelled a demand proxy, not

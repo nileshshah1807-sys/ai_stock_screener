@@ -183,7 +183,8 @@ def run_daily_analysis():
         "Rank", "Investment_Rank", "Symbol", "Rating", "Final_Score", "Transcript_Status",
         "NSE_Liquidity_Group", "NSE_Impact_Cost_Pct",
         "Median_Turnover_20D_INR", "Portfolio_Actionable",
-        "Demand_Proxy_Status",
+        "Demand_Proxy_Status", "Shadow_Red_Flag_Review_Required",
+        "Shadow_Red_Flag_Rating_If_Confirmed",
     ]
     audit_columns = [column for column in audit_columns if column in scored_df]
     logger.info(

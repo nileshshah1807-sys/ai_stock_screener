@@ -284,7 +284,14 @@ class LiquidityQualityEnricher:
         enriched["Liquidity_Max_One_Day_Order_INR"] = max_one_day_order.round(0)
         # Compatibility alias retained for existing CSV consumers.
         enriched["Liquidity_Suggested_Max_Position_INR"] = max_one_day_order.round(0)
-        enriched["Portfolio_Estimated_Build_Days"] = build_days
+        enriched["Turnover_Proxy_Estimated_Build_Days"] = build_days
+        effective_build_days = build_days.copy()
+        # NSE directly measures a Rs1 lakh order in the order book. When that
+        # evidence fits the configured target, do not simultaneously label the
+        # same order as multi-day only because the conservative turnover proxy
+        # assumes a 1% daily participation limit.
+        effective_build_days.loc[official_direct_evidence & direct_reference] = 1.0
+        enriched["Portfolio_Estimated_Build_Days"] = effective_build_days
         enriched["Portfolio_Actionable"] = actionable
         enriched["Liquidity_Conviction_Eligible"] = actionable
         enriched["Liquidity_Rating_Capped"] = False

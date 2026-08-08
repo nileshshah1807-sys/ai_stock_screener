@@ -7,6 +7,12 @@ on:
     # when a scheduled run has already succeeded on the same UTC date.
     - cron: "17 3,5 * * *"
   workflow_dispatch:
+    inputs:
+      send_email:
+        description: Send the report email during this manual run
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -22,7 +28,9 @@ jobs:
     timeout-minutes: 360
     env:
       GH_TOKEN: ${{ github.token }}
-      EMAIL_ENABLED: "True"
+      # Scheduled runs always send. Manual verification runs can suppress a
+      # duplicate email while still generating and publishing the artifact.
+      EMAIL_ENABLED: ${{ github.event_name != 'workflow_dispatch' || inputs.send_email }}
       EMAIL_DELIVERY_METHOD: GMAIL_API
       EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
       EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
