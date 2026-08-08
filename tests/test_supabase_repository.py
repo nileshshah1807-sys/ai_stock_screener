@@ -53,6 +53,47 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
         self.assertEqual(len(requests_made), 2)
         self.assertNotIn("structured_output", requests_made[1])
 
+    def test_latest_sentiments_batches_symbols_below_postgrest_row_limit(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        requested_batches = []
+
+        def request(method, path, **kwargs):
+            symbols = kwargs["params"]["symbol"].removeprefix("in.(").removesuffix(")").split(",")
+            requested_batches.append(symbols)
+            return [{"symbol": symbol, "overall_score": 68} for symbol in symbols]
+
+        repository._request = request
+        symbols = [f"STOCK{index}" for index in range(501)]
+
+        result = repository.latest_sentiments(symbols)
+
+        self.assertEqual([len(batch) for batch in requested_batches], [200, 200, 101])
+        self.assertEqual(len(result), 501)
+        self.assertEqual(result[0]["symbol"], "STOCK0")
+        self.assertEqual(result[-1]["symbol"], "STOCK500")
+
+    def test_latest_sentiments_only_probes_missing_structured_column_once(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        requested_selects = []
+
+        def request(method, path, **kwargs):
+            select = kwargs["params"]["select"]
+            requested_selects.append(select)
+            if "structured_output" in select:
+                response = requests.Response()
+                response.status_code = 400
+                raise requests.HTTPError(response=response)
+            return []
+
+        repository._request = request
+
+        repository.latest_sentiments(["A", "B", "C"], batch_size=2)
+
+        self.assertEqual(len(requested_selects), 3)
+        self.assertIn("structured_output", requested_selects[0])
+        self.assertNotIn("structured_output", requested_selects[1])
+        self.assertNotIn("structured_output", requested_selects[2])
+
     def test_red_flag_snapshot_reads_are_batched(self):
         repository = SupabaseRepository("https://example.test", "service-role-key")
         calls = []

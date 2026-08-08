@@ -176,25 +176,61 @@ class SupabaseRepository:
         )
         return rows[0]
 
-    def latest_sentiments(self, symbols: list[str]) -> list[dict[str, Any]]:
-        if not symbols:
+    def latest_sentiments(
+        self,
+        symbols: list[str],
+        batch_size: int = 200,
+    ) -> list[dict[str, Any]]:
+        normalized = list(dict.fromkeys(
+            str(symbol).strip().upper()
+            for symbol in symbols
+            if str(symbol).strip()
+        ))
+        if not normalized:
             return []
         base_select = (
             "symbol,call_date,overall_score,optimism_score,guidance_score,"
             "risk_score,management_confidence,guidance_direction,optimism_qoq_delta,"
             "uncertainty_qoq_delta,previous_guidance_direction"
         )
-        params = {
-            "symbol": f"in.({','.join(symbols)})",
-            "select": f"{base_select},structured_output",
-        }
-        try:
-            return self._request("GET", "latest_transcript_sentiment", params=params)
-        except requests.HTTPError as exc:
-            if exc.response is None or exc.response.status_code != 400:
-                raise
-            params["select"] = base_select
-            return self._request("GET", "latest_transcript_sentiment", params=params)
+        rows: list[dict[str, Any]] = []
+        include_structured_output = True
+        safe_batch_size = max(1, int(batch_size))
+        for start in range(0, len(normalized), safe_batch_size):
+            batch = normalized[start:start + safe_batch_size]
+            params = {
+                "symbol": f"in.({','.join(batch)})",
+                "select": (
+                    f"{base_select},structured_output"
+                    if include_structured_output
+                    else base_select
+                ),
+            }
+            try:
+                batch_rows = self._request(
+                    "GET",
+                    "latest_transcript_sentiment",
+                    params=params,
+                )
+            except requests.HTTPError as exc:
+                if (
+                    not include_structured_output
+                    or exc.response is None
+                    or exc.response.status_code != 400
+                ):
+                    raise
+                # Transitional compatibility: once an older view rejects the
+                # structured column, avoid repeating the failed probe for every
+                # remaining symbol batch.
+                include_structured_output = False
+                params["select"] = base_select
+                batch_rows = self._request(
+                    "GET",
+                    "latest_transcript_sentiment",
+                    params=params,
+                )
+            rows.extend(batch_rows or [])
+        return rows
 
     def upsert_red_flag_snapshots(self, snapshots: list[dict[str, Any]], batch_size: int = 250) -> int:
         fetched_at = datetime.now(timezone.utc).isoformat()
