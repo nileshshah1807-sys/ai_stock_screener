@@ -25,9 +25,11 @@ schedule the same entry point with `python scheduler.py`.
 ## GitHub Actions
 
 The repository includes a scheduled GitHub Actions workflow that runs `app.py`
-once per day. It runs at 03:30 UTC (09:00 Asia/Kolkata). GitHub can delay
-scheduled workflows during busy periods. The workflow also supports manual
-runs from the **Actions** tab.
+once per day. Its primary trigger is 03:17 UTC (08:47 Asia/Kolkata), with a
+05:17 UTC recovery trigger because GitHub cron is best-effort and can be delayed
+or dropped. The recovery run exits before setup when that day's primary
+scheduled run already succeeded. The workflow also supports manual runs from
+the **Actions** tab.
 
 For a public repository, standard GitHub-hosted runners are free. The runner's
 filesystem is temporary, but the workflow restores and saves the reusable
@@ -42,14 +44,24 @@ and cache entries unused for seven days can be removed. Caches must not contain
 credentials; this workflow only caches `reports_advanced/`, while Gmail values
 remain GitHub Secrets.
 
-Fundamental scoring selects a model by sector. `Financial Services` uses an
-equity model based on PE/PB, ROE/ROA, profitability, growth, and dividends; it
-does not misuse operating debt, current ratio, or EV/EBITDA as bank quality
-signals. `Real Estate` uses an asset-oriented model based on PE/PB, leverage,
-liquidity, margins, and growth. Generic reverse DCF remains disabled for both
-sectors because the available feed lacks bank regulatory/asset-quality inputs
-and property-level NAV/project cash flows. The selected model is included in
-CSV, dashboard, email, and PDF output.
+Fundamental scoring selects a model by sector and financial sub-industry.
+Banks, NBFCs, insurance companies, and capital-markets firms use separate
+equity-quality models; they do not misuse operating debt, current ratio, or
+EV/EBITDA as financial-company quality signals. Bank/NBFC book-value points are
+paired with ROE, while Gross NPA, Net NPA, and capital adequacy reserve 20-25
+points of the score. Missing regulatory data earns no points and prevents a
+`STRONG BUY`; weak reported values also fail the specialized quality gate.
+`Real Estate` uses an asset-oriented model with book value paired to ROE plus
+leverage, liquidity, margins, and growth. Generic reverse DCF remains disabled
+for both sectors because the available feed lacks bank regulatory/asset-quality
+inputs and property-level NAV/project cash flows.
+
+Sub-1 PE, above-100% profitability, and above-200% point-in-time growth are
+flagged as possible one-off/data anomalies rather than receiving maximum
+points. One anomaly blocks `STRONG BUY`; multiple anomalies cap the rating at
+`HOLD`. CSV, dashboard, email, and PDF output include the selected model,
+valuation/quality/growth/income point breakdown, specialized quality reason,
+and anomaly reason.
 
 ### Setup
 
@@ -74,16 +86,44 @@ repository activity. Re-enable the workflow in the Actions tab if that occurs.
 ## Earnings Transcript Sentiment
 
 Transcript collection runs independently at 10:00, 17:00, and 21:00 IST. It
-discovers NSE earnings-call transcripts, keeps PDFs only for the duration of the
+uses a rolling 120-day, idempotent NSE backfill so a newly deployed database can
+recover the current reporting season instead of seeing only the last seven
+days. Newest filings are processed first, with up to 120 documents collected
+and 300 transcripts analyzed per scheduled run. FinBERT sentences are grouped
+across transcript chunks and processed through one cached model invocation,
+instead of invoking the model separately for every chunk. Each chunk sends at
+most 8 high-signal financial sentences to FinBERT; deterministic guidance,
+risk, and lexicon rules still inspect the complete text. The transcript batch
+and model input sizes are bounded to control runner memory. It keeps PDFs
+only for the duration of the
 job, stores cleaned text and structured results in Supabase, and writes a
-sentiment summary in the report tables. A fresh available transcript starts as
-a 5% research feature of its `Final_Score`; stocks without a fresh transcript
-retain their normal score. Increase this only after out-of-sample backtesting.
-A transcript receives
-full priority only when its technical score is at least 60 and its trend is
-confirmed. Scores from 45 to 59.99 with a confirmed trend receive half the
-sentiment weight and are capped at `HOLD`; weak or unconfirmed trends receive
-no sentiment uplift and are capped at `REDUCE`.
+sentiment summary in the report tables. A fresh validated transcript contributes
+15% of `Final_Score`; stocks without a fresh transcript retain their normal
+score. Adverse or high-risk calls can reduce a score but cannot promote it.
+A validated transcript also forms a confirmation tier within each rating class,
+so the concise Top 20 favors current management evidence without allowing a
+HOLD transcript stock to bypass a BUY recommendation.
+A transcript receives full priority only when its score is at least 55, risk is
+at most 60, guidance was not lowered, its technical score is at least 60, and
+its trend is confirmed. Scores from 45 to 59.99 with a confirmed trend receive
+half the sentiment weight but cannot promote the core recommendation. Weak or
+unconfirmed trends receive no transcript weight. Older calls decay toward a
+neutral score of 50 rather than toward zero. Within each recommendation class,
+fresh full-priority transcript coverage ranks ahead of stocks without a
+validated transcript; recommendation safety gates always rank first. A fresh,
+quality-validated transcript is required for `STRONG BUY`; an otherwise-
+eligible stock without one remains a `BUY` research candidate.
+
+The scheduled worker requires FinBERT when `TRANSCRIPT_REQUIRE_FINBERT=true`.
+Model loading or inference failures then fail the job instead of silently
+recording a lexicon-only result under a hybrid analysis version.
+Tune `TRANSCRIPT_MAX_ANALYSES_PER_RUN`, `TRANSCRIPT_ANALYSIS_BATCH_SIZE`,
+`TRANSCRIPT_FINBERT_BATCH_SIZE`, and
+`TRANSCRIPT_FINBERT_MAX_SENTENCES_PER_CHUNK` if runner CPU or memory limits
+change. CPU runners default to a model batch size of 1; larger model batches are
+intended for GPU runners and must be benchmarked. Each run logs elapsed seconds
+and transcripts per second for every analysis batch, plus progress for each
+bounded FinBERT inference window.
 
 When management gives no explicit raised/maintained/lowered guidance, the
 summary says `No explicit guidance` and adds commentary from the stored demand,
@@ -131,7 +171,10 @@ counts and freshness, and stores one compact snapshot per company in Supabase.
 The daily stock scan reads those cached snapshots in batches, so it does not
 download or analyse all disclosures while scanning stocks.
 
-This phase is deliberately evidence-only. It adds CSV columns beginning with
+This phase is deliberately evidence-only. Shadow policy v2 separates issuer
+risk from market/trading restrictions and retains the pledge filing quarter,
+the percentage of promoter holding encumbered, and the percentage of total
+capital encumbered. It adds CSV columns beginning with
 `Red_Flag_`, but cannot change `Final_Score`, rating, eligibility, or ranking.
 Missing, stale, or malformed source data is reported as unavailable rather than
 interpreted as a clean company. The less reliable or currently stale SAST and
@@ -153,9 +196,25 @@ deploy the cache:
    secrets.
 3. Run `python -m workers.red_flag_worker` once and inspect its row, severity,
    stale-source, and saved-snapshot counts.
-4. Set `RED_FLAG_ENRICHMENT_ENABLED=True` only after the cache exists and has
-   been reviewed. This still enables report columns only; scoring remains in
-   shadow mode.
+4. In GitHub, open **Settings > Secrets and variables > Actions > Variables**
+   and create the repository variable `RED_FLAG_ENRICHMENT_ENABLED`. Leave it
+   as `False` until the cache has been reviewed; the workflow also defaults to
+   false when the variable is absent. Change it to `True` to add report columns.
+   Scoring remains in shadow mode either way.
+
+Policy v2 uses the following conservative interpretation:
+
+- ESM Stage 1 is trading severity 1; ESM Stage 2 is trading severity 2.
+- GSM stages 1/2/3-4 are trading severity 1/2/3 respectively.
+- ASM Stage 1 is trading severity 1; later stages are trading severity 2.
+- Static promoter encumbrance is issuer severity 2 only when it reaches 50%
+  of promoter holding or 20% of total capital. It is never critical by itself.
+- Credit default, pledge invocation, insolvency, listing-fee default, and
+  BZ/SZ listing non-compliance can be issuer severity 3.
+
+The v2 fields live inside the existing `snapshot` JSON, so an existing Phase 1
+Supabase table needs no migration. After deploying v2, rerun the manual action
+with `populate-cache` once to replace v1 snapshots.
 
 The **Red-flag shadow evidence** GitHub Action is manual-only. Its default
 `dry-run` mode executes the focused safety tests and validates the live feed
@@ -171,7 +230,7 @@ Attach a Railway Volume and mount it at `/data`, then set:
 ```text
 OUTPUT_DIR=/data/reports_advanced
 YFINANCE_CACHE_DIR=/data/yfinance_cache
-FUND_CACHE_MAX_AGE_DAYS=30
+FUND_CACHE_MAX_AGE_DAYS=7
 PRICE_CACHE_MAX_AGE_HOURS=18
 ```
 

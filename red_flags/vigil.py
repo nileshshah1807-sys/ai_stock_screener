@@ -36,6 +36,8 @@ _CREDIT_SEVERITY = {
     "speculative_grade": 1,
 }
 
+POLICY_VERSION = "shadow-v2"
+
 
 class VigilClient:
     """Small, bounded HTTP client with explicit pagination validation."""
@@ -140,12 +142,12 @@ def build_red_flag_snapshots(
     current_date = today or date.today()
     flags: dict[str, list[dict[str, Any]]] = defaultdict(list)
     coverage: dict[str, set[str]] = defaultdict(set)
-    pledge_pct: dict[str, float] = {}
+    pledge_details: dict[str, dict[str, Any]] = {}
 
     _add_credit_flags(
         datasets.get("credit_ratings", []), flags, coverage, current_date, lookback_days
     )
-    _add_pledge_flags(datasets.get("pledge_data", []), flags, coverage, pledge_pct)
+    _add_pledge_flags(datasets.get("pledge_data", []), flags, coverage, pledge_details)
     _add_encumbrance_flags(
         datasets.get("encumbrance_events", []), flags, coverage, current_date, lookback_days
     )
@@ -166,10 +168,18 @@ def build_red_flag_snapshots(
     source_as_of = min(source_dates).isoformat() if source_dates else current_date.isoformat()
     snapshots: list[dict[str, Any]] = []
     for symbol in sorted(coverage):
-        symbol_flags = _dedupe_flags(flags.get(symbol, []))
-        symbol_flags.sort(key=lambda item: (item["severity"], item.get("date") or ""), reverse=True)
-        symbol_flags = symbol_flags[:20]
-        severity = max((int(item["severity"]) for item in symbol_flags), default=0)
+        all_symbol_flags = _dedupe_flags(flags.get(symbol, []))
+        issuer_severity = max(
+            (int(item.get("issuer_severity", 0)) for item in all_symbol_flags), default=0
+        )
+        trading_severity = max(
+            (int(item.get("trading_severity", 0)) for item in all_symbol_flags), default=0
+        )
+        severity = max(issuer_severity, trading_severity)
+        all_symbol_flags.sort(
+            key=lambda item: (item["severity"], item.get("date") or ""), reverse=True
+        )
+        symbol_flags = all_symbol_flags[:20]
         summary = "; ".join(str(item["summary"]) for item in symbol_flags[:3])
         if not summary:
             summary = "No observed flags in covered VIGIL datasets"
@@ -177,7 +187,7 @@ def build_red_flag_snapshots(
             "source": "VIGIL",
             "symbol": symbol,
             "severity": severity,
-            "flag_count": len(symbol_flags),
+            "flag_count": len(all_symbol_flags),
             "summary": summary,
             "source_status": "partial_stale" if stale_tables else "current",
             # The combined snapshot is only as current as its oldest required
@@ -185,11 +195,18 @@ def build_red_flag_snapshots(
             "source_as_of": source_as_of,
             "snapshot": {
                 "flags": symbol_flags,
+                "flags_truncated": len(all_symbol_flags) > len(symbol_flags),
                 "tables_present": sorted(coverage[symbol]),
                 "table_freshness": {table: state for table, state in table_freshness.items()},
                 "stale_tables": stale_tables,
-                "promoter_encumbered_pct": pledge_pct.get(symbol),
-                "policy": "shadow-v1",
+                "issuer_severity": issuer_severity,
+                "trading_severity": trading_severity,
+                "pledge_details": pledge_details.get(symbol),
+                # Retain the v1 key for existing report/query compatibility.
+                "promoter_encumbered_pct": (
+                    pledge_details.get(symbol, {}).get("encumbered_promoter_pct")
+                ),
+                "policy": POLICY_VERSION,
             },
         })
     return snapshots
@@ -211,6 +228,9 @@ def _add_credit_flags(rows, flags, coverage, today, lookback_days):
         flags[symbol].append({
             "type": "credit_rating",
             "severity": severity,
+            "issuer_severity": severity,
+            "trading_severity": 0,
+            "risk_axis": "issuer",
             "date": event_date.isoformat() if event_date else None,
             "summary": f"{reason.replace('_', ' ')}: {agency} {rating}",
             "source_url": row.get("xbrl_url"),
@@ -219,26 +239,66 @@ def _add_credit_flags(rows, flags, coverage, today, lookback_days):
         })
 
 
-def _add_pledge_flags(rows, flags, coverage, pledge_pct):
+def _add_pledge_flags(rows, flags, coverage, pledge_details):
+    latest_rows: dict[str, tuple[str, dict[str, Any]]] = {}
     for row in rows:
         symbol = _symbol(row.get("nse_symbol"))
         if not symbol:
             continue
         coverage[symbol].add("pledge_data")
-        value = _number(row.get("perc_encumbered_promoter"))
-        if value is None:
+        row_date = _date_text(row.get("shp_quarter") or row.get("sync_date")) or ""
+        previous = latest_rows.get(symbol)
+        if previous is None or row_date >= previous[0]:
+            latest_rows[symbol] = (row_date, row)
+
+    for symbol, (_, row) in latest_rows.items():
+        promoter_pct = _number(row.get("perc_encumbered_promoter"))
+        total_pct = _number(row.get("perc_encumbered_total"))
+        if promoter_pct is None and total_pct is None:
             continue
-        pledge_pct[symbol] = value
-        severity = 3 if value >= 50 else 2 if value >= 25 else 1 if value >= 10 else 0
+        promoter_pct = promoter_pct or 0.0
+        total_pct = total_pct or 0.0
+        filing_period = _date_text(row.get("shp_quarter"))
+        details = {
+            "filing_period": filing_period,
+            "promoter_holding_pct": _number(row.get("perc_promoter_holding")),
+            "encumbered_promoter_pct": promoter_pct,
+            "encumbered_total_pct": total_pct,
+            "encumbered_shares": _integer(row.get("encumbered_shares")),
+            "total_issued_shares": _integer(row.get("tot_issued_shares")),
+            "feed_sync_date": _date_text(row.get("sync_date")),
+            "broadcast_datetime": str(row.get("broadcast_dt") or "").strip() or None,
+        }
+        pledge_details[symbol] = details
+
+        # SEBI's detailed-reason trigger is >=50% of promoter holding or
+        # >=20% of total share capital. A static encumbrance is significant,
+        # but only an invocation is treated as critical distress.
+        if promoter_pct >= 50 or total_pct >= 20:
+            severity = 2
+        elif promoter_pct >= 10 or total_pct >= 5:
+            severity = 1
+        else:
+            severity = 0
         if not severity:
             continue
+        period_label = str(row.get("shp_quarter") or filing_period or "unknown quarter")
         flags[symbol].append({
             "type": "promoter_pledge",
             "severity": severity,
-            "date": _date_text(row.get("sync_date") or row.get("shp_quarter")),
-            "summary": f"promoter shares encumbered: {value:.1f}%",
-            "source_url": None,
+            "issuer_severity": severity,
+            "trading_severity": 0,
+            "risk_axis": "issuer",
+            "date": filing_period,
+            "summary": (
+                f"promoter encumbrance: {promoter_pct:.1f}% of promoter holding / "
+                f"{total_pct:.1f}% of total capital ({period_label})"
+            ),
+            "source_url": (
+                f"https://api.tigzig.com/vigil/v1/company/{symbol}?tables=pledge_data"
+            ),
             "provider_reason": "promoter_encumbrance",
+            "evidence": details,
             "dedupe_key": f"pledge:{symbol}",
         })
 
@@ -267,6 +327,9 @@ def _add_encumbrance_flags(rows, flags, coverage, today, lookback_days):
         flags[symbol].append({
             "type": "encumbrance_event",
             "severity": severity,
+            "issuer_severity": severity,
+            "trading_severity": 0,
+            "risk_axis": "issuer",
             "date": event_date.isoformat() if event_date else None,
             "summary": f"pledge {event_type}: {event_pct:.2f}% of shares",
             "source_url": row.get("filing_url"),
@@ -281,39 +344,76 @@ def _add_surveillance_flags(rows, flags, coverage):
         if not symbol:
             continue
         coverage[symbol].add("surveillance_flags")
-        observations: list[tuple[int, str]] = []
-        for key, label, severity in (
-            ("gsm_stage", "GSM", 3),
-            ("esm_stage", "ESM", 3),
-            ("long_term_asm_stage", "long-term ASM", 2),
-            ("short_term_asm_stage", "short-term ASM", 2),
-        ):
-            value = row.get(key)
-            if value not in (None, "", 0, "0"):
-                observations.append((severity, f"{label} stage {value}"))
-        for key, label, severity in (
-            ("is_irp", "insolvency resolution process", 3),
-            ("is_listing_fee_default", "listing-fee default", 3),
-            ("is_ica", "inter-creditor agreement", 2),
-            ("is_encumbered_50pct", "promoter encumbrance at least 50%", 3),
-            ("is_pledge_flagged", "exchange pledge flag", 2),
-            ("is_bz_sz", "BZ/SZ series", 2),
-            ("is_loss_making", "exchange loss-making flag", 1),
-        ):
-            if _truthy(row.get(key)):
-                observations.append((severity, label))
-        if not observations:
-            continue
-        severity = max(item[0] for item in observations)
-        flags[symbol].append({
-            "type": "exchange_surveillance",
-            "severity": severity,
-            "date": _date_text(row.get("sync_date")),
-            "summary": ", ".join(item[1] for item in observations),
-            "source_url": None,
-            "provider_reason": "exchange_snapshot",
-            "dedupe_key": f"surveillance:{symbol}",
-        })
+        event_date = _date_text(row.get("sync_date"))
+        source_url = "https://www.nseindia.com/static/regulations/exchange-market-surveillance-actions"
+
+        stage_specs = (
+            ("gsm_stage", "GSM", {1: 1, 2: 2, 3: 3, 4: 3}),
+            ("esm_stage", "ESM", {1: 1, 2: 2}),
+            ("long_term_asm_stage", "long-term ASM", {1: 1, 2: 2, 3: 2, 4: 2}),
+            ("short_term_asm_stage", "short-term ASM", {1: 1, 2: 2, 3: 2, 4: 2}),
+        )
+        for key, label, severity_map in stage_specs:
+            stage = _stage_number(row.get(key))
+            if stage is None:
+                continue
+            trading_severity = severity_map.get(stage, 2)
+            flags[symbol].append(_surveillance_flag(
+                symbol=symbol,
+                reason=key,
+                summary=f"{label} stage {stage}",
+                event_date=event_date,
+                source_url=source_url,
+                issuer_severity=0,
+                trading_severity=trading_severity,
+            ))
+
+        boolean_specs = (
+            ("is_irp", "insolvency resolution process", 3, 0),
+            ("is_listing_fee_default", "listing-fee default", 3, 0),
+            ("is_ica", "inter-creditor agreement", 2, 0),
+            ("is_encumbered_50pct", "promoter encumbrance at least 50%", 2, 0),
+            ("is_pledge_flagged", "exchange pledge flag", 2, 0),
+            # BZ/SZ identifies listing non-compliance and trade-for-trade.
+            ("is_bz_sz", "BZ/SZ listing non-compliance series", 3, 2),
+            ("is_loss_making", "exchange loss-making flag", 1, 0),
+        )
+        for key, label, issuer_severity, trading_severity in boolean_specs:
+            if not _truthy(row.get(key)):
+                continue
+            flags[symbol].append(_surveillance_flag(
+                symbol=symbol,
+                reason=key,
+                summary=label,
+                event_date=event_date,
+                source_url=source_url,
+                issuer_severity=issuer_severity,
+                trading_severity=trading_severity,
+            ))
+
+
+def _surveillance_flag(
+    *, symbol, reason, summary, event_date, source_url, issuer_severity, trading_severity
+):
+    severity = max(issuer_severity, trading_severity)
+    if issuer_severity and trading_severity:
+        risk_axis = "issuer_and_trading"
+    elif trading_severity:
+        risk_axis = "trading"
+    else:
+        risk_axis = "issuer"
+    return {
+        "type": "exchange_surveillance",
+        "severity": severity,
+        "issuer_severity": issuer_severity,
+        "trading_severity": trading_severity,
+        "risk_axis": risk_axis,
+        "date": event_date,
+        "summary": summary,
+        "source_url": source_url,
+        "provider_reason": reason,
+        "dedupe_key": f"surveillance:{symbol}:{reason}",
+    }
 
 
 def _freshness_state(row: dict[str, Any] | None, today: date, stale_after_days: int) -> dict[str, Any]:
@@ -338,7 +438,13 @@ def _dedupe_flags(items: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     for item in items:
         key = str(item.get("dedupe_key") or "|").strip()
         existing = best.get(key)
-        if existing is None or int(item["severity"]) > int(existing["severity"]):
+        item_rank = (str(item.get("date") or ""), int(item["severity"]))
+        existing_rank = (
+            (str(existing.get("date") or ""), int(existing["severity"]))
+            if existing is not None
+            else ("", -1)
+        )
+        if existing is None or item_rank > existing_rank:
             best[key] = item
     output = []
     for item in best.values():
@@ -357,6 +463,18 @@ def _number(value: Any) -> float | None:
         return float(value) if value not in (None, "") else None
     except (TypeError, ValueError):
         return None
+
+
+def _integer(value: Any) -> int | None:
+    number = _number(value)
+    return int(number) if number is not None else None
+
+
+def _stage_number(value: Any) -> int | None:
+    number = _number(value)
+    if number is None or number <= 0:
+        return None
+    return int(number)
 
 
 def _truthy(value: Any) -> bool:

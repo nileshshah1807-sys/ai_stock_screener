@@ -16,10 +16,16 @@ class RedFlagEnricher:
         enriched = scored_df.copy()
         enriched["Red_Flag_Status"] = "No coverage"
         enriched["Red_Flag_Severity"] = np.nan
+        enriched["Red_Flag_Issuer_Severity"] = np.nan
+        enriched["Red_Flag_Trading_Severity"] = np.nan
         enriched["Red_Flag_Count"] = 0
         enriched["Red_Flag_Summary"] = "No cached red-flag coverage"
         enriched["Red_Flag_Source"] = ""
         enriched["Red_Flag_As_Of"] = ""
+        enriched["Red_Flag_Policy"] = ""
+        enriched["Red_Flag_Pledge_Quarter"] = ""
+        enriched["Red_Flag_Promoter_Encumbered_Pct"] = np.nan
+        enriched["Red_Flag_Total_Capital_Encumbered_Pct"] = np.nan
         enriched["Red_Flag_Shadow_Mode"] = True
 
         repository = self.repository
@@ -48,9 +54,25 @@ class RedFlagEnricher:
             enriched.at[index, "Red_Flag_Status"] = (
                 "Available" if source_status == "current" else "Partial/stale"
             )
+            snapshot = record.get("snapshot") if isinstance(record.get("snapshot"), dict) else {}
+            pledge = (
+                snapshot.get("pledge_details")
+                if isinstance(snapshot.get("pledge_details"), dict)
+                else {}
+            )
             enriched.at[index, "Red_Flag_Severity"] = record.get("severity")
+            enriched.at[index, "Red_Flag_Issuer_Severity"] = snapshot.get("issuer_severity")
+            enriched.at[index, "Red_Flag_Trading_Severity"] = snapshot.get("trading_severity")
             enriched.at[index, "Red_Flag_Count"] = record.get("flag_count", 0)
             enriched.at[index, "Red_Flag_Summary"] = record.get("summary") or "No observed flags"
             enriched.at[index, "Red_Flag_Source"] = record.get("source") or "VIGIL"
             enriched.at[index, "Red_Flag_As_Of"] = record.get("source_as_of") or ""
+            enriched.at[index, "Red_Flag_Policy"] = snapshot.get("policy") or "legacy"
+            enriched.at[index, "Red_Flag_Pledge_Quarter"] = pledge.get("filing_period") or ""
+            enriched.at[index, "Red_Flag_Promoter_Encumbered_Pct"] = pledge.get(
+                "encumbered_promoter_pct"
+            )
+            enriched.at[index, "Red_Flag_Total_Capital_Encumbered_Pct"] = pledge.get(
+                "encumbered_total_pct"
+            )
         return enriched

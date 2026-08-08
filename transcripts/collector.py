@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+import logging
 from tempfile import TemporaryDirectory
+import time
 from typing import Any
 
 
@@ -24,6 +26,8 @@ _EXCLUDED_PHRASES = (
     "court proceeding",
 )
 
+logger = logging.getLogger(__name__)
+
 
 def is_earnings_transcript(record: dict[str, Any]) -> bool:
     text = " ".join(
@@ -35,20 +39,38 @@ def is_earnings_transcript(record: dict[str, Any]) -> bool:
     )
 
 
-def discover_nse_transcripts(lookback_days: int) -> list[dict[str, Any]]:
-    """Fetch a bounded recent NSE window to tolerate delayed scheduled jobs."""
+def discover_nse_transcripts(
+    lookback_days: int,
+    attempts: int = 3,
+    retry_delay_seconds: float = 5.0,
+) -> list[dict[str, Any]]:
+    """Fetch a bounded NSE window, retrying transient discovery failures."""
     from nse import NSE
 
     end_date = date.today()
-    start_date = end_date - timedelta(days=lookback_days)
-    with TemporaryDirectory(prefix="nse_discovery_") as download_folder:
-        with NSE(download_folder=download_folder, timeout=60, server=False) as nse:
-            records = nse.announcements(
-                index="equities",
-                from_date=datetime.combine(start_date, datetime.min.time()),
-                to_date=datetime.combine(end_date, datetime.max.time()),
-            )
-    return [record for record in records if is_earnings_transcript(record)]
+    start_date = end_date - timedelta(days=max(1, lookback_days))
+    attempts = max(1, attempts)
+    for attempt in range(1, attempts + 1):
+        try:
+            with TemporaryDirectory(prefix="nse_discovery_") as download_folder:
+                with NSE(download_folder=download_folder, timeout=60, server=False) as nse:
+                    records = nse.announcements(
+                        index="equities",
+                        from_date=datetime.combine(start_date, datetime.min.time()),
+                        to_date=datetime.combine(end_date, datetime.max.time()),
+                    )
+            break
+        except Exception:
+            if attempt == attempts:
+                raise
+            logger.warning("NSE transcript discovery attempt %s/%s failed", attempt, attempts)
+            time.sleep(max(0.0, retry_delay_seconds))
+    matching = [record for record in records if is_earnings_transcript(record)]
+    return sorted(
+        matching,
+        key=lambda record: _parse_nse_datetime(record.get("an_dt") or record.get("sort_date")) or "",
+        reverse=True,
+    )
 
 
 def filing_payload(record: dict[str, Any]) -> dict[str, Any] | None:
@@ -74,6 +96,10 @@ def _parse_nse_datetime(value: Any) -> str | None:
     if not value:
         return None
     text = str(value).strip()
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).isoformat()
+    except ValueError:
+        pass
     for pattern in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y %H:%M", "%d-%b-%Y", "%Y-%m-%d %H:%M:%S"):
         try:
             return datetime.strptime(text, pattern).isoformat()

@@ -18,9 +18,9 @@ from .market_data import fmt_cr, fmt_f, fmt_pct
 from .runtime import IPv4SMTP, IPv4SMTP_SSL
 
 try:
-    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
-    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
     REPORTLAB_AVAILABLE = True
@@ -31,16 +31,18 @@ logger = logging.getLogger(__name__)
 
 
 def company_label(row):
-    """Use the Yahoo company name when available, otherwise show the symbol.
+    """Return Yahoo's company name, falling back to the NSE symbol.
 
-    Report data may originate from an older cache or an interrupted Yahoo
-    response, both of which can leave the optional Company column empty.
+    The source data formerly used ``Company_Name`` while the current collector
+    writes ``Company``.  Support both during the cache transition and never
+    send a literal NaN into the PDF.
     """
-    company = row.get("Company")
-    if company is not None and not pd.isna(company):
-        company = str(company).strip()
-        if company and company.lower() != "nan":
-            return company
+    for column in ("Company", "Company_Name"):
+        value = row.get(column)
+        if value is not None and not pd.isna(value):
+            value = str(value).strip()
+            if value and value.lower() != "nan":
+                return value
     return str(row.get("Symbol", "-"))
 
 
@@ -65,13 +67,16 @@ class InteractiveDashboard:
                     f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                     f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                     f"<td>{r.get('Fundamental_Model', 'Generic Fundamental Model')}</td>"
+                    f"<td>{r.get('Fund_Component_Summary', '-')}</td>"
+                    f"<td>{r.get('Specialized_Quality_Gate_Reason', 'passed')}</td>"
+                    f"<td>{r.get('Fundamental_Anomaly_Reason') or 'none'}</td>"
                     f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
                     f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
                     f"<td>{sentiment}</td>"
                     f"<td><span class='tag {tag_class}'>{r['Rating']}</span></td></tr>"
                 )
                 dcf_rows_html += (
-                    f"<tr><td>{int(r['Rank'])}</td><td><b>{r['Symbol']}</b></td>"
+                    f"<tr><td>{int(r['Rank'])}</td><td><b>{company_label(r)}</b></td>"
                     f"<td>{r.get('DCF_Sector', 'Unknown')}</td>"
                     f"<td>\u20b9{r['Current_Price']:,.0f}</td>"
                     f"<td>{fmt_cr(r.get('DCF_Market_Cap'), 0)}</td>"
@@ -142,11 +147,11 @@ tr:hover {{ background-color: #f8f9ff; }}
 </div>
 </div>
 <div class="card"><h2>🏆 Top 10 Picks</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Fundamental Model</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>News</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Company</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>News</th><th>Rating</th></tr>
 {rows_html}
 </table></div>
 <div class="card"><h2>🔎 Reverse DCF</h2>
-<table><tr><th>Rank</th><th>Symbol</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Company</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows_html}
 </table>
 <div style="font-size:12px;color:#777;margin-top:8px;">Reverse DCF solves the market-implied assumptions behind today's market cap using a 5-year DCF model. "Expected Growth" is a sector- and size-aware benchmark (not a single flat rate) used as the explicit growth assumption; "Implied 5Y FCF CAGR" is what the market is actually pricing in.</div>
@@ -200,6 +205,7 @@ class EmailReporter:
             css = "tag-" + str(r["Rating"]).lower().replace(" ", "-")
             wt = f"F {r.get('Dynamic_Weight_Fund', 0.7):.0%} / T {r.get('Dynamic_Weight_Tech', 0.3):.0%}"
             capped_star = "*" if r.get("Rating_Capped") else ""
+            rating_gate = r.get("Rating_Cap_Reason") or r.get("Strong_Buy_Gate_Reason") or "passed"
             rows += (
                 f"<tr><td>{int(r['Rank'])}</td><td><b>{company_label(r)}</b></td>"
                 f"<td>₹{r['Current_Price']:,.0f}</td>"
@@ -216,13 +222,17 @@ class EmailReporter:
                 f"<td>{fmt_f(r.get('Pct_Change_3M'), 1)}%</td>"
                 f"<td>{fmt_f(r.get('MA50_Slope_Pct'), 1)}%</td>"
                 f"<td>{fmt_f(r.get('ADX_Plus_DI'), 1)} / {fmt_f(r.get('ADX_Minus_DI'), 1)}</td>"
-                f"<td>{r.get('Strong_Buy_Gate_Reason') or 'passed'}</td>"
+                f"<td>{rating_gate}</td>"
                 f"<td>{r.get('Fundamental_Model', 'Generic Fundamental Model')}</td>"
+                f"<td>{r.get('Fund_Component_Summary', '-')}</td>"
+                f"<td>{r.get('Specialized_Quality_Gate_Reason', 'passed')}</td>"
+                f"<td>{r.get('Fundamental_Anomaly_Reason') or 'none'}</td>"
                 f"<td>{r['Combined_Score']:.1f}</td>"
                 f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
                 f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                 f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
                 f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
+                f"<td>{r.get('Transcript_Quality_Gate', 'No transcript')}</td>"
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
             dcf_rows += (
@@ -264,23 +274,20 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
 <div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks</h2>
-<table><tr><th>Rank</th><th>Company</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>SB Gate</th><th>Fundamental Model</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Rating</th></tr>
+<table><tr><th>Rank</th><th>Company</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Transcript Quality Gate</th><th>Rating</th></tr>
 {rows}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
-<p>Model uses a 5-year explicit forecast and a {fmt_pct(self.config.REVERSE_DCF_DISCOUNT_RATE)} discount rate. "Expected Growth" is a sector- and size-aware benchmark (mature/mega-cap sectors get a lower bar, high-growth/small-cap names get a higher one) used as the explicit growth assumption; {fmt_pct(self.config.REVERSE_DCF_TERMINAL_GROWTH)} fixed terminal growth is used when solving for implied FCF CAGR.</p>
+<p>Model uses a 5-year explicit forecast and a {fmt_pct(self.config.REVERSE_DCF_DISCOUNT_RATE)} required equity return. Yahoo's operating-cash-flow-less-capex field is treated as an equity cash-flow proxy, not mislabeled as FCFF. "Expected Growth" is a sector- and size-aware benchmark used as the explicit growth assumption; {fmt_pct(self.config.REVERSE_DCF_TERMINAL_GROWTH)} fixed terminal growth is used when solving for implied FCF CAGR.</p>
 <table><tr><th>Rank</th><th>Company</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows}
 </table></div>
-<div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported FCF produces a valid DCF result; otherwise Final equals Base. Reverse DCF compares market cap to discounted free cash flow and solves for assumptions implied by today's price. * = rating capped at HOLD due to insufficient fundamental data. Not investment advice — consult a SEBI-registered advisor.</p></div>
+<div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported cash flow produces a valid proxy result; otherwise Final equals Base. Reverse DCF compares market cap to a discounted equity cash-flow proxy and solves for assumptions implied by today's price. * = rating capped at HOLD by a data-quality, model, or price-trend gate. Not investment advice — consult a SEBI-registered advisor.</p></div>
 </body></html>"""
         return html
 
     def create_pdf_report(self, df, date_str):
-        """Render the same Top-N + Reverse DCF data shown in the email as a
-        formatted PDF, using reportlab (pure Python, no OS-level dependencies).
-        Returns the output path, or None if reportlab isn't installed or the
-        PDF could not be built."""
+        """Create a compact presentation PDF; detailed analytics stay in CSV."""
         if not REPORTLAB_AVAILABLE:
             logger.warning("PDF report skipped: reportlab is not installed (add it to requirements.txt).")
             return None
@@ -288,72 +295,58 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
             top = df.head(self.config.TOP_STOCKS_COUNT)
             pdf_path = self.config.OUTPUT_DIR / f"stock_report_{date_str.replace('-', '')}.pdf"
 
-            styles = getSampleStyleSheet()
+            section_style = ParagraphStyle(
+                "PdfSection",
+                fontName="Helvetica-Bold",
+                fontSize=12,
+                leading=15,
+                textColor=colors.HexColor("#102A43"),
+                spaceAfter=10,
+            )
             story = [
-                Paragraph("Advanced Stock Screener Report", styles["Title"]),
-                Paragraph(f"Date: {date_str}", styles["Normal"]),
-                Spacer(1, 0.4 * cm),
+                Paragraph(f"Top {len(top)} Ranked Stocks", section_style),
+                Spacer(1, 0.08 * cm),
             ]
 
-            top_header = ["Rank", "Company", "CMP", "PE", "Fund", "Tech", "Model", "Base", "DCF", "Final", "Transcript", "Technical Gate", "Rating"]
-            top_rows = [top_header]
+            top_rows = [[
+                "Rank", "Company", "CMP\n(INR)", "PE", "Fund", "Tech",
+                "Transcript\nScore", "Rating",
+            ]]
             for _, r in top.iterrows():
+                price = r.get("Current_Price")
+                price_text = "-" if price is None or pd.isna(price) else f"{float(price):,.0f}"
                 top_rows.append([
                     int(r["Rank"]),
                     company_label(r),
-                    f"\u20b9{r['Current_Price']:,.0f}",
+                    price_text,
                     fmt_f(r.get("PE_Ratio"), 1),
                     f"{r['Fundamental_Score']:.0f}",
                     f"{r['Technical_Score']:.0f}",
-                    r.get("Fundamental_Model", "Generic Fundamental Model"),
-                    f"{r['Combined_Score']:.1f}",
-                    fmt_f(r.get("DCF_Valuation_Score"), 1),
-                    f"{r.get('Final_Score', r['Combined_Score']):.1f}",
-                    r.get("Transcript_Summary", "No transcript"),
-                    r.get("Transcript_Technical_Gate", "No transcript"),
+                    fmt_f(r.get("Transcript_Score"), 1),
                     r["Rating"],
                 ])
-            story.append(Paragraph(f"Top {self.config.TOP_STOCKS_COUNT} Stocks", styles["Heading2"]))
-            story.append(self._pdf_table(top_rows, [1.0, 1.8, 1.4, 1.0, 1.0, 1.0, 2.4, 1.0, 1.0, 1.0, 2.4, 2.5, 1.4]))
-            story.append(Spacer(1, 0.6 * cm))
-
-            dcf_header = [
-                "Rank", "Company", "Sector", "CMP", "Mkt Cap", "FCF Yield",
-                "Exp Growth", "Impl 5Y CAGR", "Impl Term Growth", "Upside", "Assessment", "Rating",
-            ]
-            dcf_rows = [dcf_header]
-            for _, r in top.iterrows():
-                dcf_rows.append([
-                    int(r["Rank"]),
-                    company_label(r),
-                    r.get("DCF_Sector", "Unknown"),
-                    f"\u20b9{r['Current_Price']:,.0f}",
-                    fmt_cr(r.get("DCF_Market_Cap"), 0),
-                    fmt_pct(r.get("DCF_FCF_Yield"), 1),
-                    fmt_pct(r.get("DCF_Expected_Growth"), 1),
-                    fmt_pct(r.get("DCF_Implied_FCF_CAGR"), 1),
-                    fmt_pct(r.get("DCF_Implied_Terminal_Growth"), 1),
-                    fmt_pct(r.get("DCF_Base_Case_Upside"), 1),
-                    r.get("DCF_Assessment", "-"),
-                    r["Rating"],
-                ])
-            story.append(Paragraph("Reverse DCF: Market-Implied Expectations", styles["Heading2"]))
             story.append(self._pdf_table(
-                dcf_rows,
-                [1.1, 2.0, 2.2, 1.8, 2.0, 1.8, 1.8, 2.0, 2.1, 1.6, 2.2, 1.8],
-            ))
-            story.append(Spacer(1, 0.4 * cm))
-            story.append(Paragraph(
-                "Not investment advice - consult a SEBI-registered advisor.",
-                styles["Italic"],
+                top_rows,
+                [1.1, 2.9, 2.3, 1.5, 2.0, 2.0, 3.0, 2.5],
             ))
 
             doc = SimpleDocTemplate(
                 str(pdf_path),
-                pagesize=landscape(A4),
-                topMargin=1.2 * cm, bottomMargin=1.2 * cm, leftMargin=1.2 * cm, rightMargin=1.2 * cm,
+                pagesize=A4,
+                topMargin=3.8 * cm,
+                bottomMargin=1.7 * cm,
+                leftMargin=1.4 * cm,
+                rightMargin=1.4 * cm,
             )
-            doc.build(story)
+            doc.build(
+                story,
+                onFirstPage=lambda canvas, document: self._draw_pdf_page(
+                    canvas, document, date_str
+                ),
+                onLaterPages=lambda canvas, document: self._draw_pdf_page(
+                    canvas, document, date_str
+                ),
+            )
             return pdf_path
         except Exception as e:
             logger.warning(f"PDF report generation failed: {e}")
@@ -361,20 +354,83 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 
     @staticmethod
     def _pdf_table(rows, col_widths_cm):
-        table = Table(rows, colWidths=[w * cm for w in col_widths_cm], repeatRows=1)
-        table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a237e")),
+        table = Table(
+            rows,
+            colWidths=[w * cm for w in col_widths_cm],
+            repeatRows=1,
+            hAlign="LEFT",
+        )
+        style = TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#102A43")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTSIZE", (0, 0), (-1, -1), 7),
-            ("FONTSIZE", (0, 0), (-1, 0), 7.5),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 8.5),
+            ("FONTSIZE", (0, 1), (-1, -1), 8.5),
             ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("ALIGN", (1, 1), (1, -1), "LEFT"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#cccccc")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f7fa")]),
-            ("TOPPADDING", (0, 0), (-1, -1), 4),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ]))
+            ("FONTNAME", (1, 1), (1, -1), "Helvetica-Bold"),
+            ("TEXTCOLOR", (1, 1), (1, -1), colors.HexColor("#102A43")),
+            ("TEXTCOLOR", (4, 1), (6, -1), colors.HexColor("#0E6473")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [
+                colors.white,
+                colors.HexColor("#F2F6F7"),
+            ]),
+            ("LINEBELOW", (0, 0), (-1, 0), 1.5, colors.HexColor("#22A6A1")),
+            ("LINEBELOW", (0, 1), (-1, -1), 0.35, colors.HexColor("#D8E2E8")),
+            ("TOPPADDING", (0, 0), (-1, 0), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 7),
+            ("TOPPADDING", (0, 1), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 1), (-1, -1), 6),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ])
+        rating_colors = {
+            "STRONG BUY": ("#D9F5E8", "#12613D"),
+            "BUY": ("#DDF3EE", "#146B5B"),
+            "HOLD": ("#FFF0C7", "#8A5A00"),
+            "REDUCE": ("#FCE2D6", "#9A3F18"),
+            "SELL": ("#F8D9DA", "#9F2730"),
+        }
+        for row_index, row in enumerate(rows[1:], start=1):
+            background, foreground = rating_colors.get(
+                str(row[-1]).upper(),
+                ("#E8EDF1", "#344A5E"),
+            )
+            style.add("BACKGROUND", (-1, row_index), (-1, row_index), colors.HexColor(background))
+            style.add("TEXTCOLOR", (-1, row_index), (-1, row_index), colors.HexColor(foreground))
+            style.add("FONTNAME", (-1, row_index), (-1, row_index), "Helvetica-Bold")
+            style.add("FONTSIZE", (-1, row_index), (-1, row_index), 8)
+        table.setStyle(style)
         return table
+
+    @staticmethod
+    def _draw_pdf_page(canvas, document, date_str):
+        width, height = A4
+        canvas.saveState()
+        canvas.setFillColor(colors.HexColor("#F7F5EF"))
+        canvas.rect(0, 0, width, height, fill=1, stroke=0)
+        canvas.setFillColor(colors.HexColor("#102A43"))
+        canvas.rect(0, height - 3.15 * cm, width, 3.15 * cm, fill=1, stroke=0)
+        canvas.setFillColor(colors.HexColor("#22A6A1"))
+        canvas.rect(1.4 * cm, height - 0.78 * cm, 1.0 * cm, 0.08 * cm, fill=1, stroke=0)
+        canvas.setFillColor(colors.HexColor("#A9DAD7"))
+        canvas.setFont("Helvetica-Bold", 8)
+        canvas.drawString(1.4 * cm, height - 1.10 * cm, "AI STOCK SCREENER")
+        canvas.setFillColor(colors.white)
+        canvas.setFont("Helvetica-Bold", 19)
+        canvas.drawString(1.4 * cm, height - 1.78 * cm, "Daily Stock Selection")
+        canvas.setFillColor(colors.HexColor("#C8D8E4"))
+        canvas.setFont("Helvetica", 9)
+        canvas.drawString(1.4 * cm, height - 2.28 * cm, "A concise view of today's highest-ranked opportunities")
+        canvas.drawRightString(width - 1.4 * cm, height - 1.10 * cm, date_str)
+        canvas.setStrokeColor(colors.HexColor("#CDD7DE"))
+        canvas.line(1.4 * cm, 1.15 * cm, width - 1.4 * cm, 1.15 * cm)
+        canvas.setFillColor(colors.HexColor("#687B8C"))
+        canvas.setFont("Helvetica", 7.5)
+        canvas.drawString(1.4 * cm, 0.72 * cm, "Detailed analytics are available in the attached CSV. Not investment advice.")
+        canvas.drawRightString(width - 1.4 * cm, 0.72 * cm, f"Page {document.page}")
+        canvas.restoreState()
 
     def _build_message(self, html_content, date_str, csv_path, pdf_path=None):
         recipients = [addr.strip() for addr in self.config.EMAIL_RECEIVER.split(",") if addr.strip()]

@@ -1,4 +1,5 @@
 name: Earnings transcript sentiment
+run-name: Earnings transcript sentiment (${{ github.event_name }})
 
 on:
   schedule:
@@ -9,7 +10,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: transcript-sentiment
+  # Manual debugging must not replace a delayed scheduled run in GitHub's
+  # single-pending concurrency slot.
+  group: transcript-sentiment-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
@@ -19,11 +22,20 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      TRANSCRIPT_LOOKBACK_DAYS: "7"
+      # Idempotent upserts make this a rolling backfill, not duplicate storage.
+      TRANSCRIPT_LOOKBACK_DAYS: "120"
       TRANSCRIPT_OCR_ENABLED: "true"
       TRANSCRIPT_MAX_PAGES: "120"
       TRANSCRIPT_MIN_TEXT_CHARACTERS: "1000"
+      TRANSCRIPT_MAX_DOCUMENTS_PER_RUN: "120"
+      TRANSCRIPT_MAX_ANALYSES_PER_RUN: "300"
+      TRANSCRIPT_ANALYSIS_BATCH_SIZE: "10"
+      # GitHub-hosted runners are CPU-only; HF recommends batch size 1 on CPU.
+      TRANSCRIPT_FINBERT_BATCH_SIZE: "1"
+      TRANSCRIPT_FINBERT_MAX_SENTENCES_PER_CHUNK: "8"
+      TRANSCRIPT_FINBERT_INFERENCE_WINDOW: "256"
       TRANSCRIPT_ENABLE_FINBERT: "true"
+      TRANSCRIPT_REQUIRE_FINBERT: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +56,11 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: huggingface-finbert-v1
+
+      - name: Run regression tests
+        env:
+          TRANSCRIPT_ENABLE_FINBERT: "false"
+        run: python -m unittest discover -s tests
 
       - name: Collect and analyze transcripts
         run: python -m workers.transcript_worker

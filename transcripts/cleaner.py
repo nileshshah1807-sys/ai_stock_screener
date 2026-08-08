@@ -3,6 +3,8 @@
 import re
 from collections import Counter
 
+from .segmenter import is_speaker_line
+
 
 _PAGE_NUMBER = re.compile(r"^(?:page\s*)?\d+(?:\s*(?:of|/)\s*\d+)?$", re.IGNORECASE)
 _SAFE_HARBOR = re.compile(
@@ -27,7 +29,7 @@ def clean_transcript_text(text: str) -> str:
 
     repeated_short_lines = {
         line for line, count in Counter(candidate_lines).items()
-        if count >= 3 and len(line) <= 120
+        if count >= 3 and len(line) <= 120 and not is_speaker_line(line)
     }
     cleaned_lines = [line for line in candidate_lines if line not in repeated_short_lines]
     return "\n".join(cleaned_lines).strip()

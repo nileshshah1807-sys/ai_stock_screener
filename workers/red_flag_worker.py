@@ -9,7 +9,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 
-from red_flags.vigil import VIGIL_TABLES, VigilClient, build_red_flag_snapshots
+from red_flags.vigil import POLICY_VERSION, VIGIL_TABLES, VigilClient, build_red_flag_snapshots
 from storage.supabase_repository import SupabaseRepository
 
 
@@ -42,7 +42,7 @@ class RedFlagWorker:
             settings.timeout_seconds,
         )
 
-    def run(self) -> dict[str, int]:
+    def run(self) -> dict[str, int | str]:
         freshness = self.client.freshness()
         missing = sorted(set(VIGIL_TABLES) - set(freshness))
         if missing:
@@ -66,7 +66,14 @@ class RedFlagWorker:
         )
         saved = self.repository.upsert_red_flag_snapshots(snapshots) if self.repository is not None else 0
         severity_counts = Counter(int(item["severity"]) for item in snapshots)
+        issuer_counts = Counter(
+            int(item["snapshot"].get("issuer_severity", 0)) for item in snapshots
+        )
+        trading_counts = Counter(
+            int(item["snapshot"].get("trading_severity", 0)) for item in snapshots
+        )
         return {
+            "policy": POLICY_VERSION,
             "tables": len(datasets),
             "raw_rows": sum(len(rows) for rows in datasets.values()),
             "snapshots": len(snapshots),
@@ -76,6 +83,12 @@ class RedFlagWorker:
             "severity_1": severity_counts[1],
             "severity_2": severity_counts[2],
             "severity_3": severity_counts[3],
+            "issuer_severity_1": issuer_counts[1],
+            "issuer_severity_2": issuer_counts[2],
+            "issuer_severity_3": issuer_counts[3],
+            "trading_severity_1": trading_counts[1],
+            "trading_severity_2": trading_counts[2],
+            "trading_severity_3": trading_counts[3],
             "partial_stale": sum(item["source_status"] != "current" for item in snapshots),
         }
 
