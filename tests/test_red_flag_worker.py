@@ -2,6 +2,8 @@ import unittest
 from datetime import date
 from unittest.mock import patch
 
+import requests
+
 from red_flags.vigil import VIGIL_TABLES
 from workers.red_flag_worker import RedFlagSettings, RedFlagWorker
 
@@ -68,6 +70,24 @@ class RedFlagWorkerTests(unittest.TestCase):
         self.assertEqual(result["snapshots"], 1)
         self.assertEqual(result["saved"], 0)
         self.assertEqual(result["history_saved"], 0)
+
+    def test_worker_keeps_active_cache_when_audit_history_table_is_not_deployed(self):
+        repository = FakeRepository()
+        response = requests.Response()
+        response.status_code = 404
+
+        def missing_history_table(snapshots, observed_on):
+            raise requests.HTTPError(response=response)
+
+        repository.upsert_red_flag_snapshot_history = missing_history_table
+
+        with self.assertLogs("workers.red_flag_worker", level="WARNING") as logs:
+            result = RedFlagWorker(repository, RedFlagSettings(), FakeClient()).run()
+
+        self.assertEqual(result["saved"], 1)
+        self.assertEqual(result["history_saved"], 0)
+        self.assertEqual(repository.snapshots[0]["symbol"], "TEST")
+        self.assertIn("audit history was skipped", logs.output[0])
 
     def test_worker_rejects_download_manifest_count_mismatch(self):
         client = FakeClient()

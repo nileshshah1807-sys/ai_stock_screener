@@ -97,7 +97,7 @@ class ModuleWiringTests(unittest.TestCase):
         scored = pd.DataFrame([{
             "Rank": 1,
             "Symbol": "SYRMA",
-            "Company": "Syrma SGS Technology Limited",
+            "Company": "Monarch Networth Capital Limited",
             "Current_Price": 823.45,
             "PE_Ratio": 28.7,
             "Fundamental_Score": 84.0,
@@ -123,8 +123,10 @@ class ModuleWiringTests(unittest.TestCase):
 
         for expected in ("Rank", "Company", "CMP", "PE", "Fund", "Tech", "Transcript", "Score", "Rating"):
             self.assertIn(expected, pdf_text)
-        for expected in ("Syrma SGS Technology Limited", "823", "28.7", "84", "76", "73.7", "STRONG BUY"):
-            self.assertIn(expected, pdf_text)
+        normalized_pdf_text = " ".join(pdf_text.split())
+        for expected in ("Monarch Networth Capital Limited", "823", "28.7", "84", "76", "73.7", "STRONG BUY"):
+            self.assertIn(expected, normalized_pdf_text)
+        self.assertIn("Monarch Networth Capital\nLimited", pdf_text)
         for excluded in (
             "Generic Fundamental Model",
             "Detailed fundamental evidence",

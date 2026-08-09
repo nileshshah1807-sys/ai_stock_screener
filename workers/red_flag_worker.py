@@ -9,6 +9,8 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 
+import requests
+
 from red_flags.vigil import POLICY_VERSION, VIGIL_TABLES, VigilClient, build_red_flag_snapshots
 from storage.supabase_repository import SupabaseRepository
 
@@ -66,11 +68,20 @@ class RedFlagWorker:
         )
         observed_on = date.today().isoformat()
         saved = self.repository.upsert_red_flag_snapshots(snapshots) if self.repository is not None else 0
-        history_saved = (
-            self.repository.upsert_red_flag_snapshot_history(snapshots, observed_on)
-            if self.repository is not None
-            else 0
-        )
+        history_saved = 0
+        if self.repository is not None:
+            try:
+                history_saved = self.repository.upsert_red_flag_snapshot_history(snapshots, observed_on)
+            except requests.HTTPError as exc:
+                # The current cache is already safely written above.  Keep the
+                # optional audit history from blocking refreshes while an
+                # existing Supabase project is waiting for its schema update.
+                if exc.response is None or exc.response.status_code != 404:
+                    raise
+                logger.warning(
+                    "Red-flag audit history was skipped because the Supabase "
+                    "table is not deployed; run storage/supabase_schema.sql"
+                )
         severity_counts = Counter(int(item["severity"]) for item in snapshots)
         issuer_counts = Counter(
             int(item["snapshot"].get("issuer_severity", 0)) for item in snapshots

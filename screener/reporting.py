@@ -10,6 +10,7 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 import pandas as pd
 import requests
@@ -369,6 +370,13 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 textColor=colors.HexColor("#102A43"),
                 spaceAfter=10,
             )
+            company_style = ParagraphStyle(
+                "PdfCompany",
+                fontName="Helvetica-Bold",
+                fontSize=7.5,
+                leading=9,
+                textColor=colors.HexColor("#102A43"),
+            )
             story = [
                 Paragraph(f"Top {len(top)} Ranked Stocks", section_style),
                 Spacer(1, 0.08 * cm),
@@ -383,7 +391,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 price_text = "-" if price is None or pd.isna(price) else f"{float(price):,.0f}"
                 top_rows.append([
                     int(r["Rank"]),
-                    company_label(r),
+                    Paragraph(escape(company_label(r)), company_style),
                     price_text,
                     fmt_f(r.get("PE_Ratio"), 1),
                     f"{r['Fundamental_Score']:.0f}",
@@ -393,7 +401,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 ])
             story.append(self._pdf_table(
                 top_rows,
-                [1.1, 2.9, 2.3, 1.5, 2.0, 2.0, 3.0, 2.5],
+                [0.9, 4.1, 1.8, 1.3, 1.55, 1.55, 2.3, 2.4],
             ))
 
             doc = SimpleDocTemplate(
