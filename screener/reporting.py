@@ -178,13 +178,22 @@ def red_flag_summary(row):
 
 class InteractiveDashboard:
     @staticmethod
-    def generate(scored_df, date_str, output_dir):
+    def generate(scored_df, date_str, output_dir, top_n=None):
         output_path = Path(output_dir) / f"dashboard_{date_str.replace('-', '')}.html"
         try:
-            top10 = scored_df.head(10)
+            # The dashboard used to be hardcoded to 10 while the emailed PDF and
+            # CSV used TOP_STOCKS_COUNT, so the same run reported two different
+            # top lists. Default to the configured count and keep the argument
+            # optional for callers that want a different depth.
+            try:
+                count = int(top_n) if top_n is not None else 20
+            except (TypeError, ValueError):
+                count = 20
+            count = max(1, count)
+            top_rows = scored_df.head(count)
             rows_html = ""
             dcf_rows_html = ""
-            for _, r in top10.iterrows():
+            for _, r in top_rows.iterrows():
                 tag_class = "tag-" + str(r["Rating"]).lower().replace(" ", "-")
                 sentiment = r.get("News_Sentiment", "-")
                 rows_html += (
@@ -282,7 +291,7 @@ tr:hover {{ background-color: #f8f9ff; }}
 <div class="stat-box"><div class="stat-value">{len(scored_df[scored_df['Rating'] == 'SELL'])}</div><div class="stat-label">Sell</div></div>
 </div>
 </div>
-<div class="card"><h2>🏆 Top 10 Picks by Decision Score</h2>
+<div class="card"><h2>🏆 Top {len(top_rows)} Picks by Decision Score</h2>
 <table><tr><th>Investment Rank</th><th>Rank Audit</th><th>Company</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Evidence Coverage</th><th>Core</th><th>DCF Evidence</th><th>Evidence Score</th><th>Decision Score</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Liquidity / Execution</th><th>Demand Proxy</th><th>Red-flag Review</th><th>News</th><th>Rating</th></tr>
 {rows_html}
 </table></div>

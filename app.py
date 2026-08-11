@@ -400,8 +400,14 @@ def run_daily_analysis():
     else:
         logger.info("Backtest writes disabled for this isolated run")
 
-    # Dashboard
-    dashboard_path = InteractiveDashboard.generate(scored_df, date_str, config.OUTPUT_DIR)
+    # Dashboard. Same depth as the emailed PDF/CSV so one run cannot publish
+    # two different "top" lists.
+    dashboard_path = InteractiveDashboard.generate(
+        scored_df,
+        date_str,
+        config.OUTPUT_DIR,
+        top_n=getattr(config, "TOP_STOCKS_COUNT", 20),
+    )
 
     # Email (send_email handles its own retries and returns False on failure; no re-raise)
     if config.EMAIL_ENABLED:

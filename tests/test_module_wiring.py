@@ -92,6 +92,34 @@ class ModuleWiringTests(unittest.TestCase):
         self.assertNotIn("ZOMATO", symbols)
         self.assertNotIn("TATAMOTORS", symbols)
 
+    def test_dashboard_depth_follows_the_configured_top_count(self):
+        """The dashboard was hardcoded to 10 while the PDF/CSV used
+        TOP_STOCKS_COUNT, so one run published two different top lists."""
+
+        scored = pd.DataFrame([
+            {
+                "Rank": index + 1,
+                "Investment_Rank": index + 1,
+                "Symbol": f"SYM{index}",
+                "Current_Price": 100.0 + index,
+                "Rating": "BUY",
+                "Fundamental_Score": 70.0,
+                "Technical_Score": 65.0,
+                "Combined_Score": 68.0,
+                "Final_Score": 69.0 - index,
+            }
+            for index in range(25)
+        ])
+        with tempfile.TemporaryDirectory() as output_dir:
+            path = InteractiveDashboard.generate(
+                scored, "11-08-2026", output_dir, top_n=20
+            )
+            html = Path(path).read_text(encoding="utf-8")
+
+        self.assertIn("Top 20 Picks by Decision Score", html)
+        self.assertIn("SYM19", html)
+        self.assertNotIn("SYM20", html)
+
     def test_dashboard_generates_with_pandas_histogram(self):
         scored = pd.DataFrame([{
             "Rank": 1,

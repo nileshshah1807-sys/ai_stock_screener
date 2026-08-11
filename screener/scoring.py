@@ -931,10 +931,25 @@ class StockScorer:
 
         pct_1m = s(row.get("Pct_Change_1M"))
         if pct_1m is not None:
+            # Monotonically non-decreasing and saturating. The previous curve
+            # peaked at +5..15% then fell away, so a stock up 48% scored 7.2
+            # while a flat stock scored 8 and one down 5% scored 6 -- a strong
+            # advance was ranked below a decline, which no momentum or reversal
+            # result supports.
+            #
+            # Extension risk is still priced, but once: RSI, StochRSI, Bollinger
+            # position and ATR already spend 40 of the 132 technical points
+            # penalising an overbought, stretched, volatile chart. Discounting
+            # it a fifth time here made the technical score structurally unable
+            # to rank a breakout above neutral.
+            #
+            # Saturating rather than rising without limit keeps a parabolic move
+            # from dominating the component, which is the defensible half of the
+            # short-term reversal evidence at this one-month horizon.
             scores["MOM"] = cls._interpolate(
                 pct_1m,
-                [(-30, 1), (-10, 2), (-5, 6), (0, 8), (5, 20),
-                 (15, 20), (25, 14), (40, 8), (80, 4)],
+                [(-30, 1), (-10, 2), (-5, 6), (0, 8), (5, 14),
+                 (15, 18), (25, 20), (40, 20), (80, 20)],
             )
 
         bb_pos = s(row.get("BB_Position"))
