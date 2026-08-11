@@ -3,41 +3,54 @@
 from __future__ import annotations
 
 from datetime import date
+import json
+import math
 
 import numpy as np
 import pandas as pd
 
+from screener.numeric import round_half_up, round_series_half_up
 from screener.scoring import RATING_ORDER
 from storage.supabase_repository import SupabaseRepository
 from transcripts.periods import (
     CURRENT_CYCLE,
     PRIOR_CYCLE,
     classify_transcript_evidence,
+    cycle_transition_confidence,
 )
 
 
-def recency_weight(call_date: str | None, today: date | None = None) -> float:
+def recency_weight(
+    call_date: str | None,
+    today: date | None = None,
+    half_life_days: float = 90.0,
+    max_age_days: int = 180,
+) -> float:
+    """Return a continuous confidence weight for current transcript evidence.
+
+    The old 30/60/90/180-day staircase produced deterministic rank jumps on
+    calendar boundaries. Exponential decay is continuous, monotone and easy to
+    audit. Evidence outside the configured horizon remains informational only.
+    """
     if not call_date:
         return 0.0
     try:
         age_days = max(0, ((today or date.today()) - date.fromisoformat(str(call_date)[:10])).days)
     except ValueError:
         return 0.0
-    if age_days <= 30:
-        return 1.0
-    if age_days <= 60:
-        return 0.75
-    if age_days <= 90:
-        return 0.50
-    if age_days <= 180:
-        return 0.25
-    return 0.0
+    if age_days > max(0, int(max_age_days)):
+        return 0.0
+    half_life = max(1.0, float(half_life_days))
+    return round_half_up(
+        math.exp(-math.log(2.0) * age_days / half_life), 6
+    )
 
 
 class TranscriptSentimentEnricher:
-    def __init__(self, config, repository=None):
+    def __init__(self, config, repository=None, analysis_date=None):
         self.config = config
         self.repository = repository
+        self.analysis_date = analysis_date or date.today()
 
     def enrich(self, scored_df):
         enriched = scored_df.copy()
@@ -54,6 +67,9 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Score"] = np.nan
         enriched["Transcript_Weighted_Score"] = np.nan
         enriched["Transcript_Recency_Weight"] = 0.0
+        enriched["Transcript_Cycle_Weight"] = 0.0
+        enriched["Transcript_Cycle_Transition_Date"] = ""
+        enriched["Transcript_Days_To_Cycle_Transition"] = np.nan
         enriched["Transcript_Guidance"] = ""
         enriched["Transcript_Risk"] = np.nan
         enriched["Transcript_Management_Confidence"] = np.nan
@@ -68,8 +84,12 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Strong_Buy_Capped"] = False
         enriched["Transcript_Technical_Gate"] = "No transcript"
         enriched["Transcript_Quality_Gate"] = "No transcript"
-        enriched["Final_Score"] = base_scores
-        base_ratings = enriched["Rating"].copy() if "Rating" in enriched else None
+        enriched["Transcript_Quality_Gate_Failures"] = "[]"
+        enriched["Transcript_Quality_Gate_Failure_Count"] = 0
+        enriched["Transcript_Blend_Eligible"] = False
+        enriched["Transcript_Blend_Weight"] = 0.0
+        enriched["Transcript_Signal_Direction"] = "unknown"
+        enriched["Transcript_Proposed_Delta_Core"] = 0.0
 
         repository = self.repository
         if repository is None:
@@ -81,6 +101,7 @@ class TranscriptSentimentEnricher:
                 self.config.SUPABASE_URL,
                 self.config.SUPABASE_SERVICE_ROLE_KEY,
                 getattr(self.config, "SUPABASE_TIMEOUT_SECONDS", 30),
+                read_only=bool(getattr(self.config, "SUPABASE_READ_ONLY", False)),
             )
         records = repository.latest_sentiments(enriched["Symbol"].astype(str).str.upper().tolist())
         by_symbol = {str(record["symbol"]).upper(): record for record in records}
@@ -90,15 +111,37 @@ class TranscriptSentimentEnricher:
                 continue
             evidence = classify_transcript_evidence(
                 record.get("call_date"),
+                as_of=self.analysis_date,
                 max_age_days=getattr(self.config, "TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS", 180),
+                market_holidays=getattr(
+                    self.config, "NSE_MARKET_HOLIDAYS", ()
+                ),
             )
-            weight = recency_weight(record.get("call_date"))
+            weight = recency_weight(
+                record.get("call_date"),
+                today=self.analysis_date,
+                half_life_days=getattr(
+                    self.config, "TRANSCRIPT_RECENCY_HALF_LIFE_DAYS", 90.0
+                ),
+                max_age_days=getattr(
+                    self.config, "TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS", 180
+                ),
+            )
+            cycle_weight, transition_date, transition_days = (
+                cycle_transition_confidence(
+                    evidence.period_end,
+                    self.analysis_date,
+                    getattr(self.config, "TRANSCRIPT_CYCLE_TAPER_DAYS", 20),
+                    getattr(self.config, "NSE_MARKET_HOLIDAYS", ()),
+                )
+            )
+            weight *= cycle_weight
             score = _number(record.get("overall_score"))
             scoring_eligible = evidence.scoring_eligible and bool(weight)
             if scoring_eligible:
                 transcript_status = "Available"
                 evidence_path = "Current-cycle transcript"
-            elif evidence.status == PRIOR_CYCLE and weight:
+            elif evidence.status == PRIOR_CYCLE:
                 transcript_status = "Prior-cycle"
                 evidence_path = "Prior-cycle transcript; informational only"
             else:
@@ -121,10 +164,17 @@ class TranscriptSentimentEnricher:
             # level. Decay toward neutral (50), otherwise an old positive call
             # is incorrectly transformed into a strongly negative score.
             enriched.at[index, "Transcript_Weighted_Score"] = (
-                round(50.0 + (score - 50.0) * weight, 2)
+                round_half_up(50.0 + (score - 50.0) * weight, 2)
                 if score is not None and weight else np.nan
             )
             enriched.at[index, "Transcript_Recency_Weight"] = weight
+            enriched.at[index, "Transcript_Cycle_Weight"] = cycle_weight
+            enriched.at[index, "Transcript_Cycle_Transition_Date"] = (
+                transition_date.isoformat() if transition_date else ""
+            )
+            enriched.at[index, "Transcript_Days_To_Cycle_Transition"] = (
+                transition_days
+            )
             enriched.at[index, "Transcript_Guidance"] = record.get("guidance_direction", "")
             enriched.at[index, "Transcript_Risk"] = _number(record.get("risk_score"))
             enriched.at[index, "Transcript_Management_Confidence"] = _number(record.get("management_confidence"))
@@ -143,14 +193,8 @@ class TranscriptSentimentEnricher:
                 evidence.status,
             )
 
-        priority_weight = _weight(getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.15))
-        minimum_technical_score = _score_threshold(
-            getattr(self.config, "TRANSCRIPT_MIN_TECHNICAL_SCORE", 45.0),
-            45.0,
-        )
-        full_weight_technical_score = max(
-            minimum_technical_score,
-            _score_threshold(getattr(self.config, "TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE", 60.0), 60.0),
+        priority_weight = _weight(
+            getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.15)
         )
         eligible = enriched["Transcript_Scoring_Eligible"].eq(True) & enriched["Transcript_Weighted_Score"].notna()
         minimum_priority_score = _score_threshold(
@@ -170,194 +214,120 @@ class TranscriptSentimentEnricher:
             & (transcript_risk.isna() | (transcript_risk <= maximum_priority_risk))
             & ~lowered_guidance
         )
-        enriched.loc[eligible, "Transcript_Quality_Gate"] = "Passed"
-        enriched.loc[eligible & (transcript_scores < minimum_priority_score), "Transcript_Quality_Gate"] = (
-            "Sentiment below priority threshold"
-        )
-        enriched.loc[eligible & (transcript_risk > maximum_priority_risk), "Transcript_Quality_Gate"] = (
-            "Risk above priority threshold"
-        )
-        enriched.loc[eligible & lowered_guidance, "Transcript_Quality_Gate"] = "Guidance lowered"
-        downside_weight = eligible & ~quality_eligible
-        technical_scores = pd.to_numeric(
-            enriched.get("Technical_Score", pd.Series(np.nan, index=enriched.index)),
-            errors="coerce",
-        )
-        trend_confirmed = enriched.get("Trend_Confirmed", pd.Series(False, index=enriched.index)).eq(True)
-        full_weight = quality_eligible & (technical_scores >= full_weight_technical_score) & trend_confirmed
-        limited_weight = (
-            quality_eligible
-            & (technical_scores >= minimum_technical_score)
-            & trend_confirmed
-            & ~full_weight
-        )
-        weak_technical = quality_eligible & ~full_weight & ~limited_weight
-        enriched.loc[full_weight, "Transcript_Technical_Gate"] = "Full weight"
-        enriched.loc[limited_weight, "Transcript_Technical_Gate"] = "Limited weight; no rating promotion"
-        enriched.loc[
-            quality_eligible & ~trend_confirmed,
-            "Transcript_Technical_Gate",
-        ] = "Trend not confirmed; no transcript weight"
-        enriched.loc[
-            weak_technical & trend_confirmed,
-            "Transcript_Technical_Gate",
-        ] = "Weak technicals; no transcript weight"
-        enriched["Transcript_Priority_Applied"] = full_weight
-        enriched.loc[full_weight | limited_weight, "Transcript_Effective_Score"] = enriched.loc[
-            full_weight | limited_weight,
-            "Transcript_Weighted_Score",
-        ]
-        enriched.loc[full_weight, "Final_Score"] = (
-            base_scores.loc[full_weight] * (1 - priority_weight)
-            + enriched.loc[full_weight, "Transcript_Weighted_Score"] * priority_weight
-        ).round(2)
-        limited_weight_value = priority_weight / 2
-        enriched.loc[limited_weight, "Final_Score"] = (
-            base_scores.loc[limited_weight] * (1 - limited_weight_value)
-            + enriched.loc[limited_weight, "Transcript_Weighted_Score"] * limited_weight_value
-        ).round(2)
+        enriched["Transcript_Quality_Eligible"] = quality_eligible
+        for index in enriched.index[eligible]:
+            failures = []
+            if transcript_scores.loc[index] < minimum_priority_score:
+                failures.append("Sentiment below priority threshold")
+            if transcript_risk.loc[index] > maximum_priority_risk:
+                failures.append("Risk above priority threshold")
+            if lowered_guidance.loc[index]:
+                failures.append("Guidance lowered")
+            enriched.at[index, "Transcript_Quality_Gate"] = (
+                "; ".join(failures) if failures else "Passed"
+            )
+            enriched.at[index, "Transcript_Quality_Gate_Failures"] = json.dumps(
+                failures, separators=(",", ":")
+            )
+            enriched.at[index, "Transcript_Quality_Gate_Failure_Count"] = len(
+                failures
+            )
+        # The enricher is evidence-only. It never mutates Final_Score, Rating or
+        # ranks; the versioned recommendation policy is their sole writer.
+        # Risk already contributes to the stored overall score, so using
+        # ``100-risk`` here would count it twice. Guidance/risk remain explicit
+        # audit fields and quality classifications, not a second numerical cap.
+        # Recency reduces the amount of evidence applied, not its score toward
+        # an absolute 50 anchor. Decaying a positive 80 score toward 50 while
+        # retaining the full 15% blend would perversely make an older positive
+        # call penalize a high-quality core more than a fresh call.
+        effective = transcript_scores
+        recency = pd.to_numeric(
+            enriched["Transcript_Recency_Weight"], errors="coerce"
+        ).fillna(0.0).clip(0.0, 1.0)
+        applied_weight = priority_weight * recency
+        high_risk = eligible & transcript_risk.gt(maximum_priority_risk)
+        tone_direction = pd.Series("unknown", index=enriched.index, dtype=object)
+        tone_direction.loc[eligible & effective.lt(45.0)] = "negative"
+        tone_direction.loc[
+            eligible & effective.between(45.0, 55.0, inclusive="left")
+        ] = "cautious"
+        tone_direction.loc[eligible & effective.ge(55.0)] = "positive"
 
-        # Adverse calls are evidence even when they fail the positive-priority
-        # gate. Apply their downside regardless of chart strength; otherwise a
-        # lowered outlook or high-risk call is paradoxically ignored. A failed
-        # gate can only reduce the core score, never promote it.
-        downside_score = pd.to_numeric(
-            enriched["Transcript_Weighted_Score"], errors="coerce"
-        ).copy()
-        high_risk = downside_weight & transcript_risk.gt(maximum_priority_risk)
-        downside_score.loc[high_risk] = np.minimum(
-            downside_score.loc[high_risk],
-            100.0 - transcript_risk.loc[high_risk],
+        enriched.loc[eligible, "Transcript_Effective_Score"] = (
+            round_series_half_up(effective.loc[eligible], 2)
         )
-        downside_score.loc[downside_weight & lowered_guidance] = np.minimum(
-            downside_score.loc[downside_weight & lowered_guidance],
-            45.0,
+        enriched.loc[eligible, "Transcript_Blend_Eligible"] = True
+        enriched.loc[eligible, "Transcript_Blend_Weight"] = applied_weight.loc[
+            eligible
+        ]
+        enriched.loc[eligible, "Transcript_Tone_Direction"] = tone_direction.loc[
+            eligible
+        ]
+        enriched.loc[eligible, "Transcript_Technical_Gate"] = (
+            "Downside-only evidence; finalized centrally"
         )
-        downside_score.loc[downside_weight] = np.minimum(
-            downside_score.loc[downside_weight],
-            base_scores.loc[downside_weight],
+        # This is an attribution estimate against the core score. The central
+        # policy recomputes the exact delta after any eligible DCF evidence.
+        proposed_delta = applied_weight * np.minimum(effective - 50.0, 0.0)
+        enriched.loc[eligible, "Transcript_Proposed_Delta_Core"] = proposed_delta.loc[
+            eligible
+        ].map(lambda value: round_half_up(value, 2))
+        enriched.loc[eligible & proposed_delta.lt(0), "Transcript_Downside_Applied"] = True
+        enriched.loc[eligible, "Transcript_Signal_Direction"] = "neutral"
+        enriched.loc[eligible & proposed_delta.lt(0), "Transcript_Signal_Direction"] = (
+            "downside"
         )
-        enriched.loc[downside_weight, "Transcript_Effective_Score"] = downside_score.loc[
-            downside_weight
-        ].round(2)
-        enriched.loc[downside_weight, "Final_Score"] = (
-            base_scores.loc[downside_weight] * (1 - priority_weight)
-            + downside_score.loc[downside_weight] * priority_weight
-        ).round(2)
-        enriched.loc[downside_weight, "Transcript_Downside_Applied"] = True
-        enriched.loc[downside_weight, "Transcript_Technical_Gate"] = (
-            "Downside applied; transcript quality gate failed"
-        )
-        if "Rating" in enriched:
-            blended_rows = full_weight | limited_weight | downside_weight
-            enriched.loc[blended_rows, "Rating"] = enriched.loc[blended_rows, "Final_Score"].map(_rating_from_score)
-            # Limited transcript weight may lower conviction, but it cannot
-            # promote a stock above the recommendation earned by the core model.
-            if base_ratings is not None:
-                promoted = limited_weight & (
-                    enriched["Rating"].map(RATING_ORDER).fillna(len(RATING_ORDER))
-                    < base_ratings.map(RATING_ORDER).fillna(len(RATING_ORDER))
-                )
-                enriched.loc[promoted, "Rating"] = base_ratings.loc[promoted]
-            if "Rating_Capped" in enriched:
-                capped_above_hold = (
-                    eligible
-                    & enriched["Rating_Capped"].eq(True)
-                    & enriched["Rating"].map(RATING_ORDER).lt(RATING_ORDER["HOLD"])
-                )
-                enriched.loc[capped_above_hold, "Rating"] = "HOLD"
-            strong_buy_eligible = enriched.get(
-                "Strong_Buy_Eligible",
-                pd.Series(False, index=enriched.index),
-            ).eq(True)
-            enriched.loc[
-                eligible
-                & (enriched["Rating"] == "STRONG BUY")
-                & ~strong_buy_eligible,
-                "Rating",
-            ] = "BUY"
-            require_transcript_for_strong_buy = bool(
-                getattr(self.config, "REQUIRE_TRANSCRIPT_FOR_STRONG_BUY", False)
-            )
-            transcript_required_cap = (
-                require_transcript_for_strong_buy
-                & (enriched["Rating"] == "STRONG BUY")
-                & ~quality_eligible
-            )
-            enriched.loc[transcript_required_cap, "Rating"] = "BUY"
-            enriched.loc[transcript_required_cap, "Transcript_Strong_Buy_Capped"] = True
-            enriched.loc[
-                transcript_required_cap,
-                "Transcript_Technical_Gate",
-            ] = "Fresh, quality transcript required for STRONG BUY"
+        enriched["Transcript_Priority_Applied"] = False
         return enriched
 
 
 def rank_actionable_recommendations(scored_df):
-    """Expose separate investment and execution-aware ranks.
+    """Add an execution rank without rewriting investment conviction.
 
-    Transcript evidence is already blended into ``Final_Score`` at its
-    configured weight.  Making availability a higher-order sort key gives it
-    an unlimited hidden weight and lets a much lower-scoring company outrank a
-    stronger no-call company.  Missing calls must remain neutral.
-
-    Persistent liquidity is different: it is an execution constraint, so
-    liquid names form the actionable report inside each recommendation class.
-    ``Investment_Rank`` preserves the pure rating/score order; ``Rank`` and
-    ``Actionable_Rank`` put executable names first. Thin names remain in the
-    CSV for research.
+    V4 makes the primary top list score-first. ``Investment_Rank`` is produced
+    by the recommendation policy from ``Decision_Score`` and is independent of
+    transcript availability and liquidity. This function only adds the
+    execution overlay; rows remain ordered by investment conviction for CSV and
+    report compatibility.
     """
-    transcript_priority = scored_df.get(
-        "Transcript_Priority_Applied",
-        pd.Series(False, index=scored_df.index),
-    ).fillna(False)
-    liquidity_eligible = scored_df.get(
-        "Liquidity_Conviction_Eligible",
-        pd.Series(True, index=scored_df.index),
-    ).fillna(False)
-    # StockScorer adds audit columns incrementally. Copy once here to
-    # consolidate pandas blocks before the final sort and avoid fragmented
-    # frame warnings on the full NSE universe.
     ranking_source = scored_df.copy().reset_index(drop=True)
-    ranking_source = ranking_source.assign(
-        _Rating_Order=ranking_source["Rating"].map(RATING_ORDER).fillna(len(RATING_ORDER)),
-        _Liquidity_Actionable=liquidity_eligible.reset_index(drop=True),
-        _Transcript_Tie_Break=transcript_priority.reset_index(drop=True),
-    )
-    investment_order = ranking_source.sort_values(
-        ["_Rating_Order", "Final_Score", "_Transcript_Tie_Break", "Symbol"],
-        ascending=[True, False, False, True],
+    score_column = "Decision_Score" if "Decision_Score" in ranking_source else "Final_Score"
+    scores = pd.to_numeric(ranking_source[score_column], errors="coerce").fillna(-np.inf)
+    if "Investment_Rank" not in ranking_source:
+        investment_order = ranking_source.assign(_Score=scores).sort_values(
+            ["_Score", "Symbol"],
+            ascending=[False, True],
+            kind="mergesort",
+        ).index
+        ranking_source["Investment_Rank"] = pd.Series(
+            range(1, len(ranking_source) + 1), index=investment_order
+        )
+
+    actionable = ranking_source.get(
+        "Portfolio_Actionable",
+        ranking_source.get(
+            "Liquidity_Conviction_Eligible",
+            pd.Series(True, index=ranking_source.index),
+        ),
+    ).fillna(False).astype(bool)
+    # Within each actionability bucket preserve the exact primary investment
+    # order (Decision Score, Evidence Score, Symbol). This avoids a different
+    # symbol-only tie break when several gated rows share a 69.99/59.99 ceiling.
+    action_order = ranking_source.assign(
+        _Actionable=actionable,
+    ).sort_values(
+        ["_Actionable", "Investment_Rank"],
+        ascending=[False, True],
         kind="mergesort",
     ).index
-    ranking_source["Investment_Rank"] = pd.Series(
-        range(1, len(ranking_source) + 1), index=investment_order
+    ranking_source["Actionable_Rank"] = pd.Series(
+        range(1, len(ranking_source) + 1), index=action_order
     )
-    ranked = (
-        ranking_source
-        .sort_values(
-            [
-                "_Rating_Order",
-                "_Liquidity_Actionable",
-                "Final_Score",
-                "_Transcript_Tie_Break",
-                "Symbol",
-            ],
-            ascending=[True, False, False, False, True],
-            kind="mergesort",
-        )
-        .drop(
-            columns=[
-                "_Rating_Order",
-                "_Liquidity_Actionable",
-                "_Transcript_Tie_Break",
-            ]
-        )
-        .reset_index(drop=True)
-    )
-    ranked["Actionable_Rank"] = range(1, len(ranked) + 1)
-    # Backwards-compatible report rank is explicitly the execution-aware rank.
-    ranked["Rank"] = ranked["Actionable_Rank"]
-    return ranked
+    ranking_source["Rank"] = ranking_source["Investment_Rank"]
+    return ranking_source.sort_values(
+        ["Investment_Rank", "Symbol"], kind="mergesort"
+    ).reset_index(drop=True)
 
 
 def rank_by_transcript_priority(scored_df):
@@ -408,7 +378,9 @@ def _summary(
     management_confidence=None,
     evidence_status=CURRENT_CYCLE,
 ):
-    if score is None or not recency_weight_value:
+    if score is None:
+        return "Unavailable"
+    if evidence_status != PRIOR_CYCLE and not recency_weight_value:
         return "Expired"
     evidence_prefix = "Prior-cycle evidence | " if evidence_status == PRIOR_CYCLE else ""
     direction = str(guidance or "unclear").strip().lower()

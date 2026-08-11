@@ -5,6 +5,7 @@ config_local.py
 
 # Generated reports and logs
 reports_advanced/
+.validation-output/
 *.log
 scheduler.log
 stock_screener_advanced.log
@@ -20,3 +21,6 @@ venv/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Downloaded CI validation artifacts
+candidate-model-validation-*/

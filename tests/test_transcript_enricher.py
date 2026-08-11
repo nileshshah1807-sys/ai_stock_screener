@@ -72,8 +72,9 @@ class PriorCycleRepository:
 class TranscriptEnricherTests(unittest.TestCase):
     def test_recency_weight_matches_policy_boundaries(self):
         today = date(2026, 8, 5)
-        self.assertEqual(recency_weight("2026-07-06", today), 1.0)
-        self.assertEqual(recency_weight("2026-07-05", today), 0.75)
+        self.assertEqual(recency_weight("2026-08-05", today), 1.0)
+        self.assertAlmostEqual(recency_weight("2026-07-06", today), 0.793701, places=6)
+        self.assertEqual(recency_weight("2026-05-07", today), 0.5)
         self.assertEqual(recency_weight("2026-02-06", today), 0.25)
         self.assertEqual(recency_weight("2026-02-05", today), 0.0)
 
@@ -92,12 +93,21 @@ class TranscriptEnricherTests(unittest.TestCase):
 
         self.assertEqual(result["Combined_Score"].tolist(), [72.0, 65.0])
         self.assertEqual(result.loc[0, "Transcript_Status"], "Available")
-        self.assertEqual(result.loc[0, "Transcript_Weighted_Score"], 72.5)
-        self.assertEqual(result.loc[0, "Final_Score"], 72.07)
+        self.assertEqual(result.loc[0, "Transcript_Weighted_Score"], 73.63)
+        self.assertEqual(result.loc[0, "Final_Score"], 72.0)
         self.assertEqual(result.loc[0, "Rating"], "BUY")
         self.assertEqual(result.loc[0, "Transcript_Uncertainty_QoQ_Delta"], -0.03)
         self.assertEqual(result.loc[0, "Transcript_Previous_Guidance"], "raised")
-        self.assertTrue(result.loc[0, "Transcript_Priority_Applied"])
+        self.assertFalse(result.loc[0, "Transcript_Priority_Applied"])
+        self.assertTrue(result.loc[0, "Transcript_Blend_Eligible"])
+        expected_weight = 0.15 * recency_weight(
+            str(date.today() - timedelta(days=31))
+        )
+        self.assertAlmostEqual(
+            result.loc[0, "Transcript_Blend_Weight"], expected_weight, places=6
+        )
+        self.assertEqual(result.loc[0, "Transcript_Signal_Direction"], "neutral")
+        self.assertEqual(result.loc[0, "Transcript_Tone_Direction"], "positive")
         self.assertEqual(result.loc[0, "Transcript_Summary"].split(" | ")[:2], ["80.0", "Maintained"])
         self.assertEqual(result.loc[1, "Transcript_Status"], "No transcript")
         self.assertEqual(result.loc[1, "Final_Score"], 65.0)
@@ -106,7 +116,7 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertEqual(ranked["Symbol"].tolist(), ["RELIANCE", "TCS"])
         self.assertEqual(ranked["Rank"].tolist(), [1, 2])
 
-    def test_ranking_uses_transcript_only_after_rating_and_score(self):
+    def test_legacy_rank_helper_is_score_first_not_rating_first(self):
         source = pd.DataFrame({
             "Symbol": ["NO_TRANSCRIPT_BUY", "TRANSCRIPT_BUY", "TRANSCRIPT_REDUCE", "STRONG_BUY"],
             "Final_Score": [85.0, 70.0, 95.0, 72.0],
@@ -117,15 +127,15 @@ class TranscriptEnricherTests(unittest.TestCase):
         ranked = rank_by_transcript_priority(source)
 
         self.assertEqual(ranked["Symbol"].tolist(), [
-            "STRONG_BUY",
-            "NO_TRANSCRIPT_BUY",
-            "TRANSCRIPT_BUY",
             "TRANSCRIPT_REDUCE",
+            "NO_TRANSCRIPT_BUY",
+            "STRONG_BUY",
+            "TRANSCRIPT_BUY",
         ])
 
     def test_transcript_confirmation_breaks_only_an_exact_score_tie(self):
         source = pd.DataFrame({
-            "Symbol": ["NO_CALL", "CONFIRMED"],
+            "Symbol": ["A_NO_CALL", "Z_CONFIRMED"],
             "Final_Score": [70.0, 70.0],
             "Rating": ["STRONG BUY", "STRONG BUY"],
             "Transcript_Priority_Applied": [False, True],
@@ -133,9 +143,9 @@ class TranscriptEnricherTests(unittest.TestCase):
 
         ranked = rank_by_transcript_priority(source)
 
-        self.assertEqual(ranked["Symbol"].tolist(), ["CONFIRMED", "NO_CALL"])
+        self.assertEqual(ranked["Symbol"].tolist(), ["A_NO_CALL", "Z_CONFIRMED"])
 
-    def test_missing_transcript_caps_strong_buy_at_buy(self):
+    def test_missing_transcript_remains_neutral_even_if_legacy_flag_is_set(self):
         source = pd.DataFrame({
             "Symbol": ["TCS"],
             "Combined_Score": [75.0],
@@ -150,12 +160,9 @@ class TranscriptEnricherTests(unittest.TestCase):
             SimpleNamespace(REQUIRE_TRANSCRIPT_FOR_STRONG_BUY=True), FakeRepository()
         ).enrich(source)
 
-        self.assertEqual(result.loc[0, "Rating"], "BUY")
-        self.assertTrue(result.loc[0, "Transcript_Strong_Buy_Capped"])
-        self.assertEqual(
-            result.loc[0, "Transcript_Technical_Gate"],
-            "Fresh, quality transcript required for STRONG BUY",
-        )
+        self.assertEqual(result.loc[0, "Rating"], "STRONG BUY")
+        self.assertFalse(result.loc[0, "Transcript_Strong_Buy_Capped"])
+        self.assertFalse(result.loc[0, "Transcript_Blend_Eligible"])
 
     def test_missing_transcript_is_neutral_by_default(self):
         source = pd.DataFrame({
@@ -205,10 +212,12 @@ class TranscriptEnricherTests(unittest.TestCase):
 
         result = TranscriptSentimentEnricher(SimpleNamespace(), FakeRepository()).enrich(source)
 
-        self.assertEqual(result.loc[0, "Final_Score"], 65.56)
+        self.assertEqual(result.loc[0, "Final_Score"], 65.0)
         self.assertEqual(result.loc[0, "Rating"], "BUY")
         self.assertFalse(result.loc[0, "Transcript_Priority_Applied"])
-        self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Limited weight; no rating promotion")
+        self.assertTrue(result.loc[0, "Transcript_Blend_Eligible"])
+        self.assertEqual(result.loc[0, "Transcript_Proposed_Delta_Core"], 0.0)
+        self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Downside-only evidence; finalized centrally")
 
     def test_unconfirmed_trend_prevents_sentiment_uplift_without_availability_penalty(self):
         source = pd.DataFrame({
@@ -225,7 +234,7 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertEqual(result.loc[0, "Final_Score"], 65.0)
         self.assertEqual(result.loc[0, "Rating"], "HOLD")
         self.assertFalse(result.loc[0, "Transcript_Priority_Applied"])
-        self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Trend not confirmed; no transcript weight")
+        self.assertEqual(result.loc[0, "Transcript_Technical_Gate"], "Downside-only evidence; finalized centrally")
 
     def test_negative_high_risk_transcript_applies_downside_without_priority(self):
         source = pd.DataFrame({
@@ -241,16 +250,23 @@ class TranscriptEnricherTests(unittest.TestCase):
         result = TranscriptSentimentEnricher(SimpleNamespace(), NegativeGuidanceRepository()).enrich(source)
 
         self.assertEqual(result.loc[0, "Transcript_Weighted_Score"], 40.0)
-        self.assertEqual(result.loc[0, "Transcript_Effective_Score"], 25.0)
-        self.assertEqual(result.loc[0, "Final_Score"], 67.5)
+        self.assertEqual(result.loc[0, "Transcript_Effective_Score"], 40.0)
+        self.assertEqual(result.loc[0, "Final_Score"], 75.0)
         self.assertFalse(result.loc[0, "Transcript_Priority_Applied"])
         self.assertTrue(result.loc[0, "Transcript_Downside_Applied"])
-        self.assertEqual(result.loc[0, "Transcript_Quality_Gate"], "Guidance lowered")
+        self.assertEqual(
+            result.loc[0, "Transcript_Quality_Gate"],
+            "Sentiment below priority threshold; Risk above priority threshold; Guidance lowered",
+        )
+        self.assertEqual(
+            result.loc[0, "Transcript_Quality_Gate_Failure_Count"], 3
+        )
+        self.assertEqual(result.loc[0, "Transcript_Proposed_Delta_Core"], -1.5)
         self.assertEqual(
             result.loc[0, "Transcript_Technical_Gate"],
-            "Downside applied; transcript quality gate failed",
+            "Downside-only evidence; finalized centrally",
         )
-        self.assertEqual(result.loc[0, "Rating"], "BUY")
+        self.assertEqual(result.loc[0, "Rating"], "STRONG BUY")
 
     def test_recommendation_cap_is_a_ceiling_not_a_forced_hold(self):
         source = pd.DataFrame({
@@ -268,8 +284,9 @@ class TranscriptEnricherTests(unittest.TestCase):
             SimpleNamespace(), NegativeGuidanceRepository()
         ).enrich(source)
 
-        self.assertEqual(result.loc[0, "Final_Score"], 46.25)
-        self.assertEqual(result.loc[0, "Rating"], "REDUCE")
+        self.assertEqual(result.loc[0, "Final_Score"], 50.0)
+        self.assertEqual(result.loc[0, "Rating"], "HOLD")
+        self.assertEqual(result.loc[0, "Transcript_Proposed_Delta_Core"], -1.5)
 
     def test_unclear_guidance_summary_provides_evidence_based_commentary(self):
         source = pd.DataFrame({

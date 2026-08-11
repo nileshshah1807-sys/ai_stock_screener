@@ -40,6 +40,7 @@ class RedFlagEnricher:
                 self.config.SUPABASE_URL,
                 self.config.SUPABASE_SERVICE_ROLE_KEY,
                 getattr(self.config, "SUPABASE_TIMEOUT_SECONDS", 30),
+                read_only=bool(getattr(self.config, "SUPABASE_READ_ONLY", False)),
             )
 
         records = repository.latest_red_flag_snapshots(

@@ -21,6 +21,15 @@ OUTPUT_DIR = "reports_advanced"
 YFINANCE_CACHE_DIR = "reports_advanced/yfinance_cache"
 FUND_CACHE_MAX_AGE_DAYS = 7
 PRICE_CACHE_MAX_AGE_HOURS = 18
+# Version this list from the current official NSE Capital Market holiday
+# circular. A normal weekday with no same-session bar fails closed after 16:15.
+NSE_MARKET_HOLIDAYS = [
+    "2026-01-15", "2026-01-26", "2026-03-03", "2026-03-26", "2026-03-31",
+    "2026-04-03", "2026-04-14", "2026-05-01", "2026-05-28",
+    "2026-06-26", "2026-09-14", "2026-10-02", "2026-10-20",
+    "2026-11-10", "2026-11-24", "2026-12-25",
+]
+NSE_MARKET_CALENDAR_VERSION = "NSE-CMTR-71775+72260-asof-2026-08-10"
 
 # Financial Services and Real Estate have built-in sector models. Add a sector
 # here only when it should be capped until another dedicated model is written.
@@ -36,7 +45,6 @@ REVERSE_DCF_ENABLED = True
 REVERSE_DCF_FORECAST_YEARS = 5
 REVERSE_DCF_DISCOUNT_RATE = 0.11
 REVERSE_DCF_TERMINAL_GROWTH = 0.04
-REVERSE_DCF_BASE_GROWTH = 0.15
 REVERSE_DCF_RANKING_WEIGHT = 0.10
 
 # Fresh, validated calls are a material confirmation signal, not a replacement
@@ -45,8 +53,6 @@ TRANSCRIPT_SENTIMENT_ENABLED = True
 TRANSCRIPT_SENTIMENT_WEIGHT = 0.15
 REQUIRE_TRANSCRIPT_FOR_STRONG_BUY = False
 TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS = 180
-TRANSCRIPT_MIN_TECHNICAL_SCORE = 45.0
-TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE = 60.0
 TRANSCRIPT_MIN_PRIORITY_SCORE = 55.0
 TRANSCRIPT_MAX_PRIORITY_RISK = 60.0
 TRANSCRIPT_FAIL_ON_ERROR = True

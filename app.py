@@ -3,8 +3,9 @@
 
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -15,7 +16,10 @@ from scoring.transcript_enricher import (
 )
 from red_flags.enricher import RedFlagEnricher
 from red_flags.shadow import RedFlagShadowSimulator
-from screener.data_collection import StockDataCollector
+from screener.data_collection import (
+    StockDataCollector,
+    align_valuation_to_completed_price_bar,
+)
 from screener.liquidity import (
     LiquidityQualityEnricher,
     NSELiquidityProvider,
@@ -23,9 +27,16 @@ from screener.liquidity import (
 )
 from screener.market_data import AlternativeData, BacktestEngine, PriceCache, TechnicalEnhancer, fmt_cr, fmt_f, fmt_pct
 from screener.reporting import EmailReporter, InteractiveDashboard, WhatsAppReporter
+from screener.recommendation import finalize_recommendations
 from screener.runtime import Config, IPv4SMTP, IPv4SMTP_SSL, configure_runtime_cache, load_local_config
 from screener.scoring import StockScorer, fundamental_model_for_row, score_financial_services, score_fundamentals, score_real_estate, sector_relative_fund_scores, sort_by_recommendation
 from screener.valuation import ReverseDCFModel
+from validation.reproducibility import (
+    build_run_manifest,
+    canonical_config_hash,
+    sha256_file,
+    write_run_manifest,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,8 +50,29 @@ logger = logging.getLogger(__name__)
 
 load_local_config(Config, Path(__file__).with_name("config_local.py"))
 
+
+def merge_research_universe(tech_df, fund_df):
+    """Left-join fundamentals without deleting successfully collected symbols."""
+
+    merged = pd.merge(
+        tech_df,
+        fund_df,
+        on="Symbol",
+        how="left",
+        validate="one_to_one",
+        indicator="_Fundamental_Merge",
+    )
+    merged["Fundamental_Record_Available"] = merged[
+        "_Fundamental_Merge"
+    ].eq("both")
+    return merged.drop(columns="_Fundamental_Merge")
+
+
 def run_daily_analysis():
     config = Config()
+    analysis_now = datetime.now(
+        ZoneInfo(getattr(config, "ANALYSIS_TIMEZONE", "Asia/Kolkata"))
+    )
     logger.info("=" * 60)
     logger.info(
         "STARTING ADVANCED STOCK ANALYSIS (model %s)",
@@ -48,7 +80,7 @@ def run_daily_analysis():
     )
     logger.info("=" * 60)
     configure_runtime_cache(config)
-    date_str = datetime.now().strftime("%d-%m-%Y")
+    date_str = analysis_now.strftime("%d-%m-%Y")
     logger.info(f"Analysis date: {date_str}")
 
     collector = StockDataCollector(config)
@@ -62,8 +94,15 @@ def run_daily_analysis():
     # turnover remains the fallback and supports custom position sizes.
     tech_df = NSELiquidityProvider(config).enrich(tech_df)
 
-    # P3: liquidity pre-filter before the slow per-ticker fundamentals stage
-    if config.LIQUIDITY_FILTER_ENABLED and config.SCAN_ALL_NSE:
+    # V4 keeps research conviction independent of execution liquidity. The
+    # legacy prefilter remains an explicit emergency/runtime escape hatch, but
+    # normal official runs score the full collected universe and add liquidity
+    # only as an Actionable_Rank overlay later.
+    if (
+        config.LIQUIDITY_FILTER_ENABLED
+        and config.SCAN_ALL_NSE
+        and getattr(config, "PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY", False)
+    ):
         before = len(tech_df)
         # Defensive fallback: if Avg_Turnover_INR is missing/NaN for any rows (e.g. a
         # stale cache written before this column existed slipped through), recompute
@@ -103,6 +142,12 @@ def run_daily_analysis():
         )
         if tech_df.empty:
             raise RuntimeError("Liquidity filter removed every stock")
+    elif config.LIQUIDITY_FILTER_ENABLED and config.SCAN_ALL_NSE:
+        logger.info(
+            "Research-universe liquidity prefilter disabled; all %d collected "
+            "symbols continue to fundamentals and liquidity remains an execution overlay",
+            len(tech_df),
+        )
 
     alt_data = AlternativeData.get_fii_dii_snapshot()
     logger.info(f"Alternative data (FII/DII): {alt_data}")
@@ -111,7 +156,22 @@ def run_daily_analysis():
     if fund_df.empty:
         raise RuntimeError("No fundamental data was collected")
 
-    merged_df = pd.merge(tech_df, fund_df, on="Symbol", how="inner")
+    # Preserve the entire successfully collected market universe. A transient
+    # fundamental miss is evidence of zero coverage, not permission to delete
+    # the symbol before ranking; the policy will cap it below BUY.
+    merged_df = merge_research_universe(tech_df, fund_df)
+    missing_fundamentals = int((~merged_df["Fundamental_Record_Available"]).sum())
+    if missing_fundamentals:
+        logger.warning(
+            "Fundamental collection unavailable for %d symbol(s); retained with "
+            "zero coverage so the decision policy can fail closed",
+            missing_fundamentals,
+        )
+    # Quote metadata can be cached for days while the completed close changes
+    # every session. Recompute price-dependent valuation ratios from the same
+    # completed close used by every technical indicator whenever the required
+    # raw denominator is available, preserving fetched values for audit.
+    merged_df = align_valuation_to_completed_price_bar(merged_df)
     logger.info(f"Merged: {len(merged_df)} stocks")
     if merged_df.empty:
         raise RuntimeError("No symbols remain after merging technical and fundamental data")
@@ -129,13 +189,21 @@ def run_daily_analysis():
     # higher-order ranking tier.
     if config.TRANSCRIPT_SENTIMENT_ENABLED:
         try:
-            scored_df = TranscriptSentimentEnricher(config).enrich(scored_df)
+            scored_df = TranscriptSentimentEnricher(
+                config, analysis_date=analysis_now.date()
+            ).enrich(scored_df)
             available_transcripts = int((scored_df["Transcript_Status"] == "Available").sum())
             logger.info(f"Transcript sentiment available for {available_transcripts} stock(s)")
         except Exception as e:
             if getattr(config, "TRANSCRIPT_FAIL_ON_ERROR", True):
                 raise RuntimeError("Transcript sentiment enrichment failed") from e
             logger.warning(f"Transcript sentiment enrichment skipped: {e}")
+
+    # Evidence stages never publish ratings. One versioned policy blends all
+    # eligible evidence, applies every coverage/trend gate, and creates the
+    # score-first research ranks. This prevents a later enrichment (such as
+    # DCF) from resurrecting a recommendation that failed an earlier gate.
+    scored_df = finalize_recommendations(scored_df, config)
 
     # Filing-derived governance/risk evidence is intentionally shadow-only.
     # It is precomputed by a separate worker, so this is a single cached lookup.
@@ -167,7 +235,66 @@ def run_daily_analysis():
     # confirmation is only a tie-break because its effect is already in score.
     scored_df = rank_actionable_recommendations(scored_df)
     scored_df["Model_Version"] = config.MODEL_VERSION
+    scored_df["Recommendation_Policy_Version"] = config.RECOMMENDATION_POLICY_VERSION
+    scored_df["Output_Schema_Version"] = config.OUTPUT_SCHEMA_VERSION
     scored_df["Model_Validation_Status"] = config.MODEL_VALIDATION_STATUS
+    scored_df["Model_Config_SHA256"] = canonical_config_hash(config)
+
+    # Freeze the exact research universe and collection losses. Network-driven
+    # symbol failures otherwise make two runs with identical code/config look
+    # reproducible while ranking different cross-sections.
+    collection_diagnostics = dict(collector.collection_diagnostics)
+    collection_diagnostics.update(
+        {
+            "analysis_as_of": analysis_now.isoformat(timespec="seconds"),
+            "research_universe_after_optional_prefilter": sorted(
+                tech_df["Symbol"].dropna().astype(str).str.upper().tolist()
+            ),
+            "fundamental_record_missing_after_merge": sorted(
+                merged_df.loc[
+                    ~merged_df["Fundamental_Record_Available"], "Symbol"
+                ]
+                .dropna()
+                .astype(str)
+                .str.upper()
+                .tolist()
+            ),
+            "scored_symbols": sorted(
+                scored_df["Symbol"].dropna().astype(str).str.upper().tolist()
+            ),
+        }
+    )
+    diagnostics_path = config.OUTPUT_DIR / (
+        f"collection_diagnostics_{analysis_now.strftime('%Y%m%d')}.json"
+    )
+    write_run_manifest(diagnostics_path, collection_diagnostics)
+    diagnostics_sha256 = sha256_file(diagnostics_path)
+    technical_requested_count = len(
+        collection_diagnostics.get("technical_requested_symbols", [])
+    )
+    technical_collected_count = len(
+        collection_diagnostics.get("technical_collected_symbols", [])
+    )
+    technical_failed_count = len(
+        collection_diagnostics.get("technical_failed_symbols", [])
+    )
+    fundamental_missing_count = len(
+        collection_diagnostics.get("fundamental_missing_symbols", [])
+    )
+    scored_df["Run_Universe_Selected_Count"] = len(
+        collection_diagnostics.get("universe_selected_symbols", [])
+    )
+    scored_df["Run_Technical_Requested_Count"] = technical_requested_count
+    scored_df["Run_Technical_Collected_Count"] = technical_collected_count
+    scored_df["Run_Technical_Failed_Count"] = technical_failed_count
+    scored_df["Run_Fundamental_Missing_Count"] = fundamental_missing_count
+    scored_df["Run_Universe_Source_SHA256"] = collection_diagnostics.get(
+        "universe_source_sha256"
+    )
+    scored_df["Run_Collection_Diagnostics_SHA256"] = diagnostics_sha256
+    scored_df["Run_Market_Calendar_Version"] = getattr(
+        config, "NSE_MARKET_CALENDAR_VERSION", "unconfigured"
+    )
 
     # News sentiment for the top N picks (post-scoring, so it's the *actual* top N)
     n = min(config.NEWS_SENTIMENT_TOP_N, len(scored_df))
@@ -180,36 +307,107 @@ def run_daily_analysis():
     logger.info(f"News sentiment fetched for top {len(sentiment_map)} symbols")
 
     audit_columns = [
-        "Rank", "Investment_Rank", "Symbol", "Rating", "Final_Score", "Transcript_Status",
+        "Rank", "Investment_Rank", "Score_Rank", "Recommendation_Rank",
+        "Actionable_Rank", "Symbol", "Rating", "Core_Score",
+        "Evidence_Score", "Decision_Score", "Final_Score", "Transcript_Status",
         "NSE_Liquidity_Group", "NSE_Impact_Cost_Pct",
         "Median_Turnover_20D_INR", "Portfolio_Actionable",
-        "Demand_Proxy_Status", "Shadow_Red_Flag_Review_Required",
+        "Demand_Proxy_Status", "Demand_Proxy_Points", "Gate_Failures",
+        "Shadow_Red_Flag_Review_Required",
         "Shadow_Red_Flag_Rating_If_Confirmed",
     ]
     audit_columns = [column for column in audit_columns if column in scored_df]
     logger.info(
-        "Top-%d decision audit (demand is descriptive, liquidity does not alter rating):\n%s",
+        "Top-%d decision audit (demand is a scored technical confirmation; "
+        "liquidity changes only Actionable_Rank):\n%s",
         min(config.TOP_STOCKS_COUNT, len(scored_df)),
         scored_df[audit_columns].head(config.TOP_STOCKS_COUNT).to_string(index=False),
     )
 
-    csv_path = config.OUTPUT_DIR / f"advanced_analysis_{datetime.now().strftime('%Y%m%d')}.csv"
+    input_files = [
+        path
+        for path in (
+            config.OUTPUT_DIR / "price_cache.csv",
+            config.OUTPUT_DIR / "fundamental_cache.csv",
+            config.OUTPUT_DIR / "nse_liquidity_categories.csv",
+        )
+        if path.exists()
+    ]
+    manifest = build_run_manifest(
+        config,
+        input_files=input_files,
+        generated_at=analysis_now.astimezone(timezone.utc),
+        cwd=Path(__file__).parent,
+        extra={
+            "analysis_as_of": analysis_now.isoformat(timespec="seconds"),
+            "row_count": len(scored_df),
+            "collection_diagnostics": {
+                "path": diagnostics_path.name,
+                "sha256": diagnostics_sha256,
+                "universe_selected_count": len(
+                    collection_diagnostics.get("universe_selected_symbols", [])
+                ),
+                "technical_requested_count": technical_requested_count,
+                "technical_collected_count": technical_collected_count,
+                "technical_failed_count": technical_failed_count,
+                "fundamental_missing_count": fundamental_missing_count,
+            },
+            "research_universe_prefiltered_by_liquidity": bool(
+                config.LIQUIDITY_FILTER_ENABLED
+                and config.SCAN_ALL_NSE
+                and config.PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY
+            ),
+        },
+    )
+    scored_df["Run_Git_SHA"] = manifest["git_sha"]
+    scored_df["Run_Git_Dirty"] = manifest["git_dirty"]
+    scored_df["Run_Manifest_Schema_Version"] = manifest["schema_version"]
+
+    csv_path = config.OUTPUT_DIR / f"advanced_analysis_{analysis_now.strftime('%Y%m%d')}.csv"
     scored_df.to_csv(csv_path, index=False)
     logger.info(f"Results saved: {csv_path}")
 
-    # Backtest log
-    backtest = BacktestEngine(config.OUTPUT_DIR, config.MODEL_VERSION)
-    backtest.log_run(date_str, scored_df)
-    perf = backtest.analyze_performance()
-    if perf:
-        logger.info(
-            "Realized performance by rating for model %s: %s",
-            config.MODEL_VERSION,
-            perf,
-        )
+    if getattr(config, "RUN_MANIFEST_ENABLED", True):
+        manifest["outputs"] = [
+            {
+                "path": csv_path.name,
+                "sha256": sha256_file(csv_path),
+                "size_bytes": csv_path.stat().st_size,
+                "rows": len(scored_df),
+            },
+            {
+                "path": diagnostics_path.name,
+                "sha256": diagnostics_sha256,
+                "size_bytes": diagnostics_path.stat().st_size,
+                "kind": "collection_diagnostics",
+            },
+        ]
+        manifest_path = csv_path.with_suffix(".manifest.json")
+        write_run_manifest(manifest_path, manifest)
+        logger.info("Run manifest saved: %s", manifest_path)
 
-    # Dashboard
-    dashboard_path = InteractiveDashboard.generate(scored_df, date_str, config.OUTPUT_DIR)
+    # Backtest log
+    if getattr(config, "BACKTEST_WRITES_ENABLED", True):
+        backtest = BacktestEngine(config.OUTPUT_DIR, config.MODEL_VERSION)
+        backtest.log_run(date_str, scored_df)
+        perf = backtest.analyze_performance()
+        if perf:
+            logger.info(
+                "Realized performance by rating for model %s: %s",
+                config.MODEL_VERSION,
+                perf,
+            )
+    else:
+        logger.info("Backtest writes disabled for this isolated run")
+
+    # Dashboard. Same depth as the emailed PDF/CSV so one run cannot publish
+    # two different "top" lists.
+    dashboard_path = InteractiveDashboard.generate(
+        scored_df,
+        date_str,
+        config.OUTPUT_DIR,
+        top_n=getattr(config, "TOP_STOCKS_COUNT", 20),
+    )
 
     # Email (send_email handles its own retries and returns False on failure; no re-raise)
     if config.EMAIL_ENABLED:

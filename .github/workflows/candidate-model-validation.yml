@@ -46,8 +46,12 @@ jobs:
       NSE_MARKET_HOLIDAYS: "2026-01-15,2026-01-26,2026-03-03,2026-03-26,2026-03-31,2026-04-03,2026-04-14,2026-05-01,2026-05-28,2026-06-26,2026-09-14,2026-10-02,2026-10-20,2026-11-10,2026-11-24,2026-12-25"
       NSE_MARKET_CALENDAR_VERSION: "NSE-CMTR-71775+72260-asof-2026-08-10"
       RED_FLAG_ENRICHMENT_ENABLED: "False"
-      SUPABASE_URL: ""
-      SUPABASE_SERVICE_ROLE_KEY: ""
+      # Transcript sentiment must load or the candidate is compared against a
+      # baseline that has it, which silently removes transcript evidence from
+      # the diff. SupabaseRepository refuses every non-GET while this is set.
+      SUPABASE_READ_ONLY: "True"
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SCAN_ALL_NSE: ${{ inputs.scan_all_nse }}
       CUSTOM_WATCHLIST: ${{ inputs.custom_watchlist }}
       GH_TOKEN: ${{ github.token }}
@@ -72,6 +76,68 @@ jobs:
           mkdir -p "$root/candidate"
           echo "VALIDATION_ROOT=$root" >> "$GITHUB_ENV"
           echo "CANDIDATE_OUTPUT_DIR=$root/candidate" >> "$GITHUB_ENV"
+
+      # Restore only -- there is deliberately no actions/cache/save step, so the
+      # production cache entry this reads can never be modified by a candidate
+      # run. Beyond saving the ~60 minute cold fundamentals fetch, this gives
+      # the candidate the SAME vendor inputs the baseline used, so a top-20 diff
+      # reflects the model change instead of fundamentals that happened to be
+      # refetched hours later. A missed restore is not fatal: the run refetches.
+      # This path list MUST stay byte-identical to the save step in
+      # daily-stock-screener.yml. GitHub derives a cache *version* from the
+      # paths, so dropping even one entry makes every key silently miss and the
+      # run falls back to a cold ~60 minute fetch. backtest_history.csv is
+      # therefore restored but deliberately never copied into the candidate
+      # workspace; it is deleted with the rest of the production copy below.
+      - name: Restore production market data (read-only)
+        id: production-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            reports_advanced/price_cache.csv
+            reports_advanced/fundamental_cache.csv
+            reports_advanced/nse_liquidity_categories.csv
+            reports_advanced/backtest_history.csv
+            reports_advanced/yfinance_cache
+          key: stock-screener-data-v2-${{ runner.os }}-read-only-probe
+          restore-keys: |
+            stock-screener-data-v2-${{ runner.os }}-
+
+      - name: Seed the isolated workspace from the restored cache
+        shell: bash
+        env:
+          CACHE_MATCHED_KEY: ${{ steps.production-cache.outputs.cache-matched-key }}
+        run: |
+          set -euo pipefail
+          # State the outcome explicitly. A silent miss previously looked like a
+          # successful step while the run quietly refetched everything.
+          if [[ -n "$CACHE_MATCHED_KEY" ]]; then
+            echo "cache HIT: $CACHE_MATCHED_KEY"
+          else
+            echo "cache MISS: no production entry matched; this run will be cold"
+          fi
+          # backtest_history.csv is deliberately NOT copied: it is production
+          # decision state, not vendor data. It is restored only so the path
+          # list matches the save step's cache version.
+          for name in price_cache.csv fundamental_cache.csv \
+                      nse_liquidity_categories.csv; do
+            if [[ -f "reports_advanced/$name" ]]; then
+              cp "reports_advanced/$name" "$CANDIDATE_OUTPUT_DIR/$name"
+              echo "seeded $name ($(wc -c < "reports_advanced/$name") bytes)"
+            else
+              echo "no cached $name; it will be refetched"
+            fi
+          done
+          if [[ -d reports_advanced/yfinance_cache ]]; then
+            mkdir -p "$CANDIDATE_OUTPUT_DIR/yfinance_cache"
+            cp -r reports_advanced/yfinance_cache/. \
+                  "$CANDIDATE_OUTPUT_DIR/yfinance_cache/"
+            echo "seeded yfinance_cache (warms the tz lookup that causes the"
+            echo "  'database is locked' failures on a cold run)"
+          fi
+          # Nothing may read the production copy after this point.
+          rm -rf reports_advanced
 
       - name: Install dependencies
         shell: bash
