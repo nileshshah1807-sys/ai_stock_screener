@@ -9,12 +9,29 @@ from typing import Any
 import requests
 
 
+READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+class SupabaseReadOnlyError(RuntimeError):
+    """Raised when a read-only repository is asked to modify stored data."""
+
+
 class SupabaseRepository:
-    def __init__(self, url: str, service_role_key: str, timeout_seconds: int = 30):
+    def __init__(
+        self,
+        url: str,
+        service_role_key: str,
+        timeout_seconds: int = 30,
+        read_only: bool = False,
+    ):
         if not url or not service_role_key:
             raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
         self.base_url = f"{url.rstrip('/')}/rest/v1"
         self.timeout_seconds = timeout_seconds
+        # A validation run needs the cached transcript sentiment to produce a
+        # comparable ranking, but must not be able to alter shared state. This
+        # enforces that at the transport instead of trusting every call site.
+        self.read_only = bool(read_only)
         self.session = requests.Session()
         self.headers = {
             "apikey": service_role_key,
@@ -28,9 +45,15 @@ class SupabaseRepository:
             os.getenv("SUPABASE_URL", ""),
             os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
             int(os.getenv("SUPABASE_TIMEOUT_SECONDS", "30")),
+            read_only=str(os.getenv("SUPABASE_READ_ONLY", "")).strip().lower()
+            in {"1", "true", "yes", "y"},
         )
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        if self.read_only and str(method).upper() not in READ_ONLY_METHODS:
+            raise SupabaseReadOnlyError(
+                f"{method} {path} blocked: this Supabase client is read-only"
+            )
         headers = {**self.headers, **kwargs.pop("headers", {})}
         response = self.session.request(
             method,

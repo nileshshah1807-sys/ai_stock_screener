@@ -4,7 +4,7 @@ import logging
 import re
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -39,6 +39,27 @@ def is_expected_nse_session(day, market_holidays=()):
     return day.weekday() < 5 and day not in normalize_market_holidays(
         market_holidays
     )
+
+
+def expected_sessions_behind(bar_date, expected_session, market_holidays=()):
+    """How many expected NSE sessions ``bar_date`` lags ``expected_session``.
+
+    0 means aligned. A positive count is the real staleness of the observation
+    and must be exported rather than left null, so a lagging bar can never be
+    mistaken for a current one.
+    """
+
+    if bar_date is None or expected_session is None:
+        return None
+    if bar_date >= expected_session:
+        return 0
+    behind = 0
+    candidate = bar_date + timedelta(days=1)
+    while candidate <= expected_session:
+        if is_expected_nse_session(candidate, market_holidays):
+            behind += 1
+        candidate += timedelta(days=1)
+    return behind
 
 
 def latest_expected_completed_nse_session(

@@ -21,3 +21,6 @@ venv/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Downloaded CI validation artifacts
+candidate-model-validation-*/

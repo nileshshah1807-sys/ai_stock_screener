@@ -101,6 +101,7 @@ class TranscriptSentimentEnricher:
                 self.config.SUPABASE_URL,
                 self.config.SUPABASE_SERVICE_ROLE_KEY,
                 getattr(self.config, "SUPABASE_TIMEOUT_SECONDS", 30),
+                read_only=bool(getattr(self.config, "SUPABASE_READ_ONLY", False)),
             )
         records = repository.latest_sentiments(enriched["Symbol"].astype(str).str.upper().tolist())
         by_symbol = {str(record["symbol"]).upper(): record for record in records}

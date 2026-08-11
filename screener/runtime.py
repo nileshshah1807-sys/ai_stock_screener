@@ -200,6 +200,12 @@ class Config:
     REQUIRE_UPTREND_FOR_BUY = _env_bool("REQUIRE_UPTREND_FOR_BUY", True)
     BUY_MIN_MA50_SLOPE = _env_float("BUY_MIN_MA50_SLOPE", 0.0)
     BUY_MIN_3M_RETURN = _env_float("BUY_MIN_3M_RETURN", 0.0)
+    # A row measured on an older session cannot be compared with the rest of the
+    # cross-section, so it is published but cannot hold BUY conviction. Disable
+    # only if you accept mixed measurement dates inside one ranking.
+    REQUIRE_ALIGNED_PRICE_BAR_FOR_BUY = _env_bool(
+        "REQUIRE_ALIGNED_PRICE_BAR_FOR_BUY", True
+    )
 
     # Sectors listed here must use a dedicated fundamental branch rather than
     # generic industrial-company ratios before they can receive a BUY rating.
@@ -292,6 +298,8 @@ class Config:
     RED_FLAG_ENRICHMENT_ENABLED = _env_bool("RED_FLAG_ENRICHMENT_ENABLED", False)
     SUPABASE_URL = os.getenv("SUPABASE_URL", "")
     SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    # Validation runs read cached transcript sentiment but must not mutate it.
+    SUPABASE_READ_ONLY = _env_bool("SUPABASE_READ_ONLY", False)
     SUPABASE_TIMEOUT_SECONDS = _env_int("SUPABASE_TIMEOUT_SECONDS", 30)
 
     # A snapshot score is not a backtest. Measure the realized return after a

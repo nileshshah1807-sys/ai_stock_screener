@@ -1,4 +1,5 @@
 import json
+import re
 import logging
 import os
 import sys
@@ -430,8 +431,9 @@ class IsolatedRunnerSafetyTests(unittest.TestCase):
         self.assertFalse(config.BACKTEST_LOG_ENABLED)
         self.assertFalse(config.BACKTEST_WRITES_ENABLED)
         self.assertTrue(config.RUN_MANIFEST_ENABLED)
-        self.assertEqual(config.SUPABASE_URL, "")
-        self.assertEqual(config.SUPABASE_SERVICE_ROLE_KEY, "")
+        # Supabase credentials stay so transcript sentiment loads; the
+        # read-only flag is what prevents this run mutating shared state.
+        self.assertTrue(config.SUPABASE_READ_ONLY)
         self.assertEqual(config.TWILIO_ACCOUNT_SID, "")
         self.assertEqual(config.TWILIO_AUTH_TOKEN, "")
         self.assertEqual(config.TWILIO_WHATSAPP_NUMBER, "")
@@ -464,7 +466,7 @@ class IsolatedRunnerSafetyTests(unittest.TestCase):
                     custom_watchlist=[],
                 )
 
-    def test_environment_is_reasserted_without_secrets(self):
+    def test_environment_is_reasserted_without_notification_secrets(self):
         with tempfile.TemporaryDirectory() as directory:
             output_dir = Path(directory).resolve()
             with patch.dict(
@@ -494,8 +496,12 @@ class IsolatedRunnerSafetyTests(unittest.TestCase):
                 self.assertEqual(os.environ["EMAIL_ENABLED"], "False")
                 self.assertEqual(os.environ["WHATSAPP_ENABLED"], "False")
                 self.assertEqual(os.environ["BACKTEST_WRITES_ENABLED"], "False")
-                self.assertEqual(os.environ["SUPABASE_URL"], "")
-                self.assertEqual(os.environ["SUPABASE_SERVICE_ROLE_KEY"], "")
+                # Transcript reads must keep working; writes are blocked by the
+                # read-only transport rather than by removing the credentials.
+                self.assertEqual(
+                    os.environ["SUPABASE_URL"], "https://production.example"
+                )
+                self.assertEqual(os.environ["SUPABASE_READ_ONLY"], "True")
                 self.assertEqual(os.environ["TWILIO_ACCOUNT_SID"], "")
                 self.assertEqual(os.environ["TWILIO_AUTH_TOKEN"], "")
                 self.assertEqual(os.environ["WHATSAPP_RECEIVER"], "")
@@ -519,7 +525,7 @@ class IsolatedRunnerSafetyTests(unittest.TestCase):
                     "whatsapp_receiver": config.WHATSAPP_RECEIVER,
                     "twilio_token": config.TWILIO_AUTH_TOKEN,
                     "backtest_writes_enabled": config.BACKTEST_WRITES_ENABLED,
-                    "supabase_url": config.SUPABASE_URL,
+                    "supabase_read_only": config.SUPABASE_READ_ONLY,
                     "scan_all_nse": config.SCAN_ALL_NSE,
                     "watchlist": list(config.CUSTOM_WATCHLIST),
                 })
@@ -561,7 +567,7 @@ class IsolatedRunnerSafetyTests(unittest.TestCase):
         self.assertEqual(run_observations["whatsapp_receiver"], "")
         self.assertEqual(run_observations["twilio_token"], "")
         self.assertFalse(run_observations["backtest_writes_enabled"])
-        self.assertEqual(run_observations["supabase_url"], "")
+        self.assertTrue(run_observations["supabase_read_only"])
         self.assertFalse(run_observations["scan_all_nse"])
         self.assertEqual(run_observations["watchlist"], ["RELIANCE", "TCS"])
         self.assertEqual(
@@ -610,7 +616,13 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
         self.assertIn('WHATSAPP_ENABLED: "False"', workflow)
         self.assertIn('BACKTEST_WRITES_ENABLED: "False"', workflow)
         self.assertIn('RED_FLAG_ENRICHMENT_ENABLED: "False"', workflow)
-        self.assertNotIn("secrets.", workflow)
+        # Read-only Supabase is the one permitted secret: without it the
+        # candidate has no transcript evidence and the baseline diff is
+        # meaningless. Every notification secret stays out.
+        self.assertIn('SUPABASE_READ_ONLY: "True"', workflow)
+        permitted_secrets = {"secrets.SUPABASE_URL", "secrets.SUPABASE_SERVICE_ROLE_KEY"}
+        used_secrets = set(re.findall(r"secrets\.[A-Z0-9_]+", workflow))
+        self.assertEqual(used_secrets - permitted_secrets, set())
         self.assertNotIn("actions/cache/save", workflow)
         self.assertNotIn("reports_advanced/price_cache.csv", workflow)
         self.assertNotIn("MCLOUD", workflow)

@@ -24,8 +24,6 @@ FALSE_SAFETY_SETTINGS = (
     "BACKTEST_WRITES_ENABLED",
 )
 EMPTY_SAFETY_SETTINGS = (
-    "SUPABASE_URL",
-    "SUPABASE_SERVICE_ROLE_KEY",
     "TWILIO_ACCOUNT_SID",
     "TWILIO_AUTH_TOKEN",
     "TWILIO_WHATSAPP_NUMBER",
@@ -110,6 +108,11 @@ def _set_isolated_environment(
     os.environ["RUN_MANIFEST_ENABLED"] = "True"
     for setting in EMPTY_SAFETY_SETTINGS:
         os.environ[setting] = ""
+    # Transcript sentiment is read from Supabase so the candidate ranking is
+    # comparable with production. Blanking the credentials instead made every
+    # row "Not configured" and silently removed transcript evidence from the
+    # comparison. Writes stay blocked at the transport layer.
+    os.environ["SUPABASE_READ_ONLY"] = "True"
     os.environ["SCAN_ALL_NSE"] = "True" if scan_all_nse else "False"
     if custom_watchlist:
         os.environ["CUSTOM_WATCHLIST"] = ",".join(custom_watchlist)
@@ -133,6 +136,10 @@ def _reassert_isolated_config(
     config.RUN_MANIFEST_ENABLED = True
     for setting in EMPTY_SAFETY_SETTINGS:
         setattr(config, setting, "")
+    # Both surfaces matter: enrichers build the client from config, while
+    # worker entry points use SupabaseRepository.from_environment().
+    config.SUPABASE_READ_ONLY = True
+    os.environ["SUPABASE_READ_ONLY"] = "True"
     config.SCAN_ALL_NSE = scan_all_nse
     if custom_watchlist:
         config.CUSTOM_WATCHLIST = list(custom_watchlist)
@@ -174,6 +181,14 @@ def _validate_isolated_config(
     for setting in EMPTY_SAFETY_SETTINGS:
         if getattr(config, setting, None) != "":
             violations.append(setting)
+    # Supabase credentials are deliberately present so transcripts load; the
+    # read-only flag is what keeps this run from mutating shared state.
+    if getattr(config, "SUPABASE_READ_ONLY", None) is not True:
+        violations.append("SUPABASE_READ_ONLY")
+    if str(os.environ.get("SUPABASE_READ_ONLY", "")).strip().lower() not in {
+        "1", "true", "yes", "y",
+    }:
+        violations.append("SUPABASE_READ_ONLY(env)")
     if getattr(config, "SCAN_ALL_NSE", None) is not scan_all_nse:
         violations.append("SCAN_ALL_NSE")
     if custom_watchlist and list(getattr(config, "CUSTOM_WATCHLIST", [])) != custom_watchlist:

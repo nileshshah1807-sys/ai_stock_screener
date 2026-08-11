@@ -15,6 +15,7 @@ import yfinance as yf
 from .market_data import (
     PriceCache,
     TechnicalEnhancer,
+    expected_sessions_behind,
     is_expected_nse_session,
     latest_expected_completed_nse_session,
     normalize_market_holidays,
@@ -479,7 +480,10 @@ class StockDataCollector:
             cached = cached.copy()
             cached["Analysis_As_Of"] = analysis_as_of_text
             cached["Expected_Price_Bar_As_Of"] = expected_price_session.isoformat()
+            # PriceCache.load only returns rows already equal to the expected
+            # session, so anything surviving here is aligned by construction.
             cached["Price_Bar_Session_Lag"] = 0
+            cached["Price_Bar_Aligned"] = True
             cached["Price_Session_Status"] = (
                 "current_completed_session"
                 if expected_price_session == analysis_as_of.date()
@@ -551,12 +555,21 @@ class StockDataCollector:
                         )
                         if usable_bar_dates is not None and usable_bar_dates[-1] is not None:
                             price_bar_as_of = usable_bar_dates[-1]
+                            # The usable-rows filter above can drop the expected
+                            # session itself when the vendor leaves a NaN close
+                            # or volume on it. Alignment was checked before that
+                            # filter, so it has to be re-established here: being
+                            # older than today does NOT make a bar the completed
+                            # session the cross-section is measured on.
                             price_bar_complete = (
-                                price_bar_as_of < analysis_as_of.date()
-                                or (
-                                    price_bar_as_of == analysis_as_of.date()
-                                    and analysis_as_of.time().replace(tzinfo=None)
-                                    >= self.price_bar_completion_cutoff
+                                price_bar_as_of == expected_price_session
+                                and (
+                                    price_bar_as_of < analysis_as_of.date()
+                                    or (
+                                        price_bar_as_of == analysis_as_of.date()
+                                        and analysis_as_of.time().replace(tzinfo=None)
+                                        >= self.price_bar_completion_cutoff
+                                    )
                                 )
                             )
                         if len(closes) < 60 or len(raw_closes) < 60 or len(volumes) == 0:
@@ -646,8 +659,16 @@ class StockDataCollector:
                                 if price_bar_as_of is not None else None
                             ),
                             "Expected_Price_Bar_As_Of": expected_price_session.isoformat(),
-                            "Price_Bar_Session_Lag": (
-                                0 if price_bar_as_of == expected_price_session else None
+                            # A real count, never null: a null lag reads as
+                            # "unknown" and hid 64% of the 2026-08-11 universe
+                            # sitting three sessions behind the cross-section.
+                            "Price_Bar_Session_Lag": expected_sessions_behind(
+                                price_bar_as_of,
+                                expected_price_session,
+                                self.market_holidays,
+                            ),
+                            "Price_Bar_Aligned": bool(
+                                price_bar_as_of == expected_price_session
                             ),
                             "Price_Bar_Complete": bool(price_bar_complete),
                             "Price_Session_Status": (

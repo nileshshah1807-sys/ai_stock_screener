@@ -274,6 +274,23 @@ class RecommendationPolicy:
         if _as_bool(row.get("Fund_Data_Stale")):
             buy_failures.append("stale fundamental fallback")
 
+        # A price bar behind the expected completed session makes this row's
+        # trend, returns and peer percentiles incomparable with the rest of the
+        # cross-section, so it must not carry BUY conviction that day. The row
+        # is still scored and published -- excluding it outright would discard
+        # most of the universe whenever the vendor has a session gap.
+        if _as_bool(
+            getattr(self.config, "REQUIRE_ALIGNED_PRICE_BAR_FOR_BUY", True), True
+        ) and "Price_Bar_Aligned" in row.index:
+            if not _as_bool(row.get("Price_Bar_Aligned"), True):
+                sessions_behind = _safe_float(row.get("Price_Bar_Session_Lag"))
+                detail = (
+                    f" ({int(sessions_behind)} session(s) behind)"
+                    if sessions_behind
+                    else ""
+                )
+                buy_failures.append(f"price bar behind expected session{detail}")
+
         anomaly_reason = _safe_text(row.get("Fundamental_Anomaly_Reason"))
         anomaly_parts = [part.strip() for part in anomaly_reason.split(",") if part.strip()]
         anomaly_count = _safe_float(row.get("Fundamental_Anomaly_Count"))

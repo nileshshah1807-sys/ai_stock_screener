@@ -46,8 +46,12 @@ jobs:
       NSE_MARKET_HOLIDAYS: "2026-01-15,2026-01-26,2026-03-03,2026-03-26,2026-03-31,2026-04-03,2026-04-14,2026-05-01,2026-05-28,2026-06-26,2026-09-14,2026-10-02,2026-10-20,2026-11-10,2026-11-24,2026-12-25"
       NSE_MARKET_CALENDAR_VERSION: "NSE-CMTR-71775+72260-asof-2026-08-10"
       RED_FLAG_ENRICHMENT_ENABLED: "False"
-      SUPABASE_URL: ""
-      SUPABASE_SERVICE_ROLE_KEY: ""
+      # Transcript sentiment must load or the candidate is compared against a
+      # baseline that has it, which silently removes transcript evidence from
+      # the diff. SupabaseRepository refuses every non-GET while this is set.
+      SUPABASE_READ_ONLY: "True"
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SCAN_ALL_NSE: ${{ inputs.scan_all_nse }}
       CUSTOM_WATCHLIST: ${{ inputs.custom_watchlist }}
       GH_TOKEN: ${{ github.token }}

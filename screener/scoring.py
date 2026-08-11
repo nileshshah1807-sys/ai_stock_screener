@@ -123,6 +123,136 @@ FINANCIAL_SPECIALIZED_FIELDS = {
     ),
 }
 
+# Declared point capacity of every fundamental component, per model. Each model
+# sums to MAX_FUND_SCORE. The scorers still own the point curves; these tables
+# only describe how much capacity a component represents, so a component whose
+# input was never reported can be removed from BOTH the numerator and the
+# denominator instead of silently scoring zero -- which is what made an
+# unreported ROA indistinguishable from the worst ROA in the market.
+# ``test_fundamental_capacity_tables_match_scorers`` locks these against the
+# scorers so the two cannot drift apart.
+_CAPITAL_MARKETS_COMPONENT_MAX = {
+    "PE": 15, "PB_ROE": 15, "ROE": 20, "ROA": 10,
+    "PM": 15, "RG": 10, "EG": 10, "DY": 5,
+}
+FUNDAMENTAL_COMPONENT_MAX = {
+    "Generic Fundamental Model": {
+        "PE": 15, "PB": 8, "ROE": 15, "ROA": 5, "DE": 10, "CR": 7,
+        "PM": 10, "RG": 10, "EG": 10, "DY": 5, "EV": 5,
+    },
+    "Bank Equity Quality Model": {
+        "PE": 10, "PB_ROE": 15, "ROE": 15, "ROA": 10, "PM": 5, "RG": 8,
+        "EG": 7, "DY": 5, "GROSS_NPA": 8, "NET_NPA": 7, "CAPITAL_ADEQUACY": 10,
+    },
+    "NBFC Equity Quality Model": {
+        "PE": 10, "PB_ROE": 15, "ROE": 15, "ROA": 10, "PM": 5, "RG": 10,
+        "EG": 10, "DY": 5, "GROSS_NPA": 6, "NET_NPA": 5, "CAPITAL_ADEQUACY": 9,
+    },
+    "Insurance Equity Quality Model": {
+        "PE": 15, "PB_ROE": 15, "ROE": 20, "ROA": 10, "PM": 10, "RG": 10,
+        "EG": 10, "DY": 5, "SOLVENCY": 5,
+    },
+    "Capital Markets Earnings Quality Model": _CAPITAL_MARKETS_COMPONENT_MAX,
+    "Financial Services Data-Limited Model": _CAPITAL_MARKETS_COMPONENT_MAX,
+    "Real Estate Asset Model": {
+        "PE": 15, "PB_ROE": 15, "DE": 15, "CR": 10, "PM": 15, "RG": 15, "EG": 15,
+    },
+}
+
+# Inputs a component needs before it can be called observed. The outer tuple is
+# an AND of requirement groups; each inner tuple is an OR of interchangeable
+# source columns.
+FUNDAMENTAL_COMPONENT_INPUTS = {
+    "PE": (("PE_Ratio",),),
+    "PB": (("PB_Ratio",),),
+    "PB_ROE": (("PB_Ratio",), ("ROE",)),
+    "ROE": (("ROE",),),
+    "ROA": (("ROA",),),
+    "DE": (("Debt_to_Equity",),),
+    "CR": (("Current_Ratio",),),
+    "PM": (("Profit_Margin",),),
+    "RG": (("Revenue_Growth",),),
+    "EG": (("Earnings_Growth",),),
+    "DY": (("Dividend_Yield_Ratio", "Dividend_Yield"),),
+    "EV": (("EV_EBITDA",),),
+    "GROSS_NPA": (("Gross_NPA",),),
+    "NET_NPA": (("Net_NPA",),),
+    "CAPITAL_ADEQUACY": (("Capital_Adequacy",),),
+    "SOLVENCY": (("Solvency_Ratio",),),
+}
+
+# Components where an absent input would be genuine evidence rather than a data
+# gap. Dividend yield is the tempting candidate -- a non-payer has nothing to
+# report -- but the feed does not distinguish "pays nothing" from "not
+# reported", so treating absence as a zero would penalise a paying company whose
+# data is merely missing, which is the exact error this module now fixes. The
+# right place to settle it is the collector, by recording an explicit 0.0 when
+# the vendor states a company pays no dividend.
+FUNDAMENTAL_ABSENCE_IS_ZERO = frozenset()
+
+
+def fundamental_component_capacity(fundamental_model):
+    """Point capacity per component for the given fundamental model."""
+
+    return FUNDAMENTAL_COMPONENT_MAX.get(
+        fundamental_model, FUNDAMENTAL_COMPONENT_MAX["Generic Fundamental Model"]
+    )
+
+
+def fundamental_score_details(row, fundamental_model, components):
+    """Coverage-normalised fundamental score.
+
+    Mirrors ``technical_score_details``: unobservable components leave both the
+    numerator and the denominator, and the resulting observed score is shrunk
+    toward neutral 50 by how much of the model was actually measurable. Absent
+    evidence therefore lowers confidence instead of asserting the worst value.
+    """
+
+    capacity = fundamental_component_capacity(fundamental_model)
+    observed_capacity = 0.0
+    observed_points = 0.0
+    missing = []
+    for key, component_max in capacity.items():
+        if _fundamental_component_observed(row, key):
+            observed_capacity += float(component_max)
+            observed_points += float(components.get(key) or 0.0)
+        else:
+            missing.append(key)
+
+    total_capacity = float(sum(capacity.values())) or 1.0
+    coverage = observed_capacity / total_capacity
+    if observed_capacity <= 0:
+        observed_score = 50.0
+    else:
+        observed_score = max(
+            0.0, min(100.0, observed_points / observed_capacity * 100.0)
+        )
+    adjusted_score = 50.0 + coverage * (observed_score - 50.0)
+    return {
+        "points": observed_points,
+        "observed_capacity": observed_capacity,
+        "total_capacity": total_capacity,
+        "coverage": coverage,
+        "observed_score": observed_score,
+        "adjusted_score": max(0.0, min(100.0, adjusted_score)),
+        "missing_components": missing,
+    }
+
+
+def _fundamental_component_observed(row, key):
+    if key in FUNDAMENTAL_ABSENCE_IS_ZERO:
+        return True
+    requirements = FUNDAMENTAL_COMPONENT_INPUTS.get(key)
+    if not requirements:
+        return True
+    for alternatives in requirements:
+        if not any(
+            StockScorer.safe_float(row.get(column)) is not None
+            for column in alternatives
+        ):
+            return False
+    return True
+
 
 def sort_by_recommendation(df, score_column):
     """Order recommendation classes first, then score within each class."""
@@ -355,12 +485,18 @@ class StockScorer:
                     row, sector_relative, sector_relative_weight, return_components=True
                 )
             f_raw = sum(fund_components.values())
+            fundamental = fundamental_score_details(
+                row, fundamental_model, fund_components
+            )
             technical = self.technical_score_details(row)
             t_raw = technical["adjusted_raw"]
 
-            # normalize both to 0-100
+            # Both sides are coverage-normalised: a component whose input was
+            # never reported is dropped from the denominator and the score is
+            # shrunk toward neutral, rather than being scored as the worst
+            # possible observation.
             f_score = round_half_up(
-                max(0.0, min(100.0, f_raw / self.MAX_FUND_SCORE * 100)), 2
+                max(0.0, min(100.0, fundamental["adjusted_score"])), 2
             )
             t_score = round_half_up(
                 max(0.0, min(100.0, t_raw / self.MAX_TECH_SCORE * 100)), 2
@@ -590,6 +726,18 @@ class StockScorer:
             merged_df.at[idx, "Fundamental_Coverage"] = round(fundamental_coverage, 4)
             merged_df.at[idx, "Fundamental_Missing_Fields"] = ", ".join(missing_fund_fields)
             merged_df.at[idx, "Fundamental_Coverage_Eligible"] = fundamental_coverage_eligible
+            # Capacity coverage weights each component by the points it can
+            # contribute; the field-count coverage above still drives the gates.
+            merged_df.at[idx, "Fundamental_Observed_Score"] = round(
+                fundamental["observed_score"], 2
+            )
+            merged_df.at[idx, "Fundamental_Capacity_Coverage"] = round(
+                fundamental["coverage"], 4
+            )
+            merged_df.at[idx, "Fundamental_Missing_Components"] = ", ".join(
+                fundamental["missing_components"]
+            )
+            merged_df.at[idx, "Fundamental_Raw_Points"] = round(f_raw, 2)
             merged_df.at[idx, "Technical_Coverage"] = round(technical["coverage"], 4)
             merged_df.at[idx, "Technical_Observed_Score"] = round(
                 technical["observed_score"], 2
