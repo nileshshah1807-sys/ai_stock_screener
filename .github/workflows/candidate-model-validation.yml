@@ -77,6 +77,51 @@ jobs:
           echo "VALIDATION_ROOT=$root" >> "$GITHUB_ENV"
           echo "CANDIDATE_OUTPUT_DIR=$root/candidate" >> "$GITHUB_ENV"
 
+      # Restore only -- there is deliberately no actions/cache/save step, so the
+      # production cache entry this reads can never be modified by a candidate
+      # run. Beyond saving the ~60 minute cold fundamentals fetch, this gives
+      # the candidate the SAME vendor inputs the baseline used, so a top-20 diff
+      # reflects the model change instead of fundamentals that happened to be
+      # refetched hours later. A missed restore is not fatal: the run refetches.
+      - name: Restore production market data (read-only)
+        id: production-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            reports_advanced/price_cache.csv
+            reports_advanced/fundamental_cache.csv
+            reports_advanced/nse_liquidity_categories.csv
+            reports_advanced/yfinance_cache
+          key: stock-screener-data-v2-${{ runner.os }}-read-only-probe
+          restore-keys: |
+            stock-screener-data-v2-${{ runner.os }}-
+
+      - name: Seed the isolated workspace from the restored cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          # backtest_history.csv is deliberately NOT copied: it is production
+          # decision state, not vendor data.
+          for name in price_cache.csv fundamental_cache.csv \
+                      nse_liquidity_categories.csv; do
+            if [[ -f "reports_advanced/$name" ]]; then
+              cp "reports_advanced/$name" "$CANDIDATE_OUTPUT_DIR/$name"
+              echo "seeded $name ($(wc -c < "reports_advanced/$name") bytes)"
+            else
+              echo "no cached $name; it will be refetched"
+            fi
+          done
+          if [[ -d reports_advanced/yfinance_cache ]]; then
+            mkdir -p "$CANDIDATE_OUTPUT_DIR/yfinance_cache"
+            cp -r reports_advanced/yfinance_cache/. \
+                  "$CANDIDATE_OUTPUT_DIR/yfinance_cache/"
+            echo "seeded yfinance_cache (warms the tz lookup that causes the"
+            echo "  'database is locked' failures on a cold run)"
+          fi
+          # Nothing may read the production copy after this point.
+          rm -rf reports_advanced
+
       - name: Install dependencies
         shell: bash
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt

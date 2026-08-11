@@ -611,22 +611,35 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
             / "workflows"
             / "candidate-model-validation.yml"
         ).read_text(encoding="utf-8")
-        self.assertIn("workflow_dispatch", workflow)
-        self.assertIn('EMAIL_ENABLED: "False"', workflow)
-        self.assertIn('WHATSAPP_ENABLED: "False"', workflow)
-        self.assertIn('BACKTEST_WRITES_ENABLED: "False"', workflow)
-        self.assertIn('RED_FLAG_ENRICHMENT_ENABLED: "False"', workflow)
+        # Assert against directives only. Explanatory comments legitimately name
+        # the very things being forbidden, and matching raw text made this test
+        # fail on its own documentation.
+        directives = "\n".join(
+            line for line in workflow.splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        self.assertIn("workflow_dispatch", directives)
+        self.assertIn('EMAIL_ENABLED: "False"', directives)
+        self.assertIn('WHATSAPP_ENABLED: "False"', directives)
+        self.assertIn('BACKTEST_WRITES_ENABLED: "False"', directives)
+        self.assertIn('RED_FLAG_ENRICHMENT_ENABLED: "False"', directives)
         # Read-only Supabase is the one permitted secret: without it the
         # candidate has no transcript evidence and the baseline diff is
         # meaningless. Every notification secret stays out.
-        self.assertIn('SUPABASE_READ_ONLY: "True"', workflow)
+        self.assertIn('SUPABASE_READ_ONLY: "True"', directives)
         permitted_secrets = {"secrets.SUPABASE_URL", "secrets.SUPABASE_SERVICE_ROLE_KEY"}
-        used_secrets = set(re.findall(r"secrets\.[A-Z0-9_]+", workflow))
+        used_secrets = set(re.findall(r"secrets\.[A-Z0-9_]+", directives))
         self.assertEqual(used_secrets - permitted_secrets, set())
-        self.assertNotIn("actions/cache/save", workflow)
-        self.assertNotIn("reports_advanced/price_cache.csv", workflow)
-        self.assertNotIn("MCLOUD", workflow)
-        self.assertIn("default: RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY", workflow)
+        # Production vendor data may be restored so the candidate scores the
+        # same inputs as the baseline, but never written back, and the restored
+        # copy must not outlive the seeding step.
+        self.assertIn("uses: actions/cache/restore", directives)
+        self.assertNotIn("uses: actions/cache/save", directives)
+        self.assertIn("rm -rf reports_advanced", directives)
+        # Backtest history is production decision state, not vendor data.
+        self.assertNotIn("backtest_history.csv", directives)
+        self.assertNotIn("MCLOUD", directives)
+        self.assertIn("default: RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY", directives)
 
     def test_manual_daily_dispatch_is_isolated_from_production_state(self):
         workflow = (
