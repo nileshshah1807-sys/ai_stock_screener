@@ -636,10 +636,62 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
         self.assertIn("uses: actions/cache/restore", directives)
         self.assertNotIn("uses: actions/cache/save", directives)
         self.assertIn("rm -rf reports_advanced", directives)
-        # Backtest history is production decision state, not vendor data.
-        self.assertNotIn("backtest_history.csv", directives)
+        # Backtest history is production decision state, not vendor data. It is
+        # restored only so the path list matches the save step's cache version,
+        # and must never be copied into the candidate workspace.
+        seeded = re.search(r"for name in (.+?); do", directives, re.S)
+        self.assertIsNotNone(seeded, "seeding loop not found")
+        self.assertNotIn("backtest_history", seeded.group(1))
+        self.assertNotIn('cp "reports_advanced/backtest_history', directives)
         self.assertNotIn("MCLOUD", directives)
         self.assertIn("default: RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY", directives)
+
+    @staticmethod
+    def _cache_paths(workflow_text, action_suffix):
+        """Paths listed under the given actions/cache step."""
+
+        lines = workflow_text.splitlines()
+        for index, line in enumerate(lines):
+            if f"uses: actions/cache/{action_suffix}" not in line:
+                continue
+            paths = []
+            inside = False
+            for candidate in lines[index:]:
+                stripped = candidate.strip()
+                if stripped.startswith("path:"):
+                    inside = True
+                    continue
+                if inside:
+                    if stripped.startswith("reports_advanced/"):
+                        paths.append(stripped)
+                    elif stripped and not stripped.startswith("#"):
+                        break
+            return paths
+        return []
+
+    def test_restore_path_list_matches_the_production_save_path_list(self):
+        """GitHub derives the cache version from the path list.
+
+        Dropping a single entry makes every key miss silently: the restore step
+        still reports success, the workspace is never seeded, and the run falls
+        back to a ~60 minute cold fetch that looks like normal behaviour.
+        """
+
+        workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        candidate = (workflows / "candidate-model-validation.yml").read_text(
+            encoding="utf-8"
+        )
+        daily = (workflows / "daily-stock-screener.yml").read_text(encoding="utf-8")
+
+        restored = self._cache_paths(candidate, "restore")
+        saved = self._cache_paths(daily, "save")
+
+        self.assertTrue(saved, "daily workflow must declare cached paths")
+        self.assertEqual(
+            restored, saved,
+            "candidate restore paths must match the production save paths "
+            "exactly or the cache version differs and every restore misses",
+        )
 
     def test_manual_daily_dispatch_is_isolated_from_production_state(self):
         workflow = (
