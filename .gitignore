@@ -5,6 +5,7 @@ config_local.py
 
 # Generated reports and logs
 reports_advanced/
+.validation-output/
 *.log
 scheduler.log
 stock_screener_advanced.log

@@ -145,7 +145,7 @@ class LiquidityMetricTests(unittest.TestCase):
         self.assertFalse(result.loc[0, "Portfolio_Actionable"])
         self.assertIn("5 trading days", result.loc[0, "Portfolio_Actionability"])
 
-    def test_actionable_liquid_buy_ranks_before_higher_scoring_thin_buy(self):
+    def test_investment_rank_is_score_first_and_actionable_rank_is_execution_overlay(self):
         source = pd.DataFrame({
             "Symbol": ["THIN", "LIQUID"],
             "Rating": ["BUY", "BUY"],
@@ -156,10 +156,29 @@ class LiquidityMetricTests(unittest.TestCase):
 
         ranked = rank_actionable_recommendations(source)
 
-        self.assertEqual(ranked["Symbol"].tolist(), ["LIQUID", "THIN"])
-        self.assertEqual(ranked["Actionable_Rank"].tolist(), [1, 2])
-        self.assertEqual(ranked.set_index("Symbol").loc["THIN", "Investment_Rank"], 1)
-        self.assertEqual(ranked.set_index("Symbol").loc["LIQUID", "Investment_Rank"], 2)
+        self.assertEqual(ranked["Symbol"].tolist(), ["THIN", "LIQUID"])
+        by_symbol = ranked.set_index("Symbol")
+        self.assertEqual(by_symbol.loc["THIN", "Investment_Rank"], 1)
+        self.assertEqual(by_symbol.loc["LIQUID", "Investment_Rank"], 2)
+        self.assertEqual(by_symbol.loc["LIQUID", "Actionable_Rank"], 1)
+        self.assertEqual(by_symbol.loc["THIN", "Actionable_Rank"], 2)
+        self.assertEqual(ranked["Rank"].tolist(), ranked["Investment_Rank"].tolist())
+
+    def test_actionable_rank_preserves_evidence_tie_break(self):
+        source = pd.DataFrame(
+            {
+                "Symbol": ["ALPHA", "BETA"],
+                "Decision_Score": [69.99, 69.99],
+                "Evidence_Score": [70.1, 75.0],
+                "Investment_Rank": [2, 1],
+                "Portfolio_Actionable": [True, True],
+            }
+        )
+
+        ranked = rank_actionable_recommendations(source).set_index("Symbol")
+
+        self.assertEqual(ranked.loc["BETA", "Actionable_Rank"], 1)
+        self.assertEqual(ranked.loc["ALPHA", "Actionable_Rank"], 2)
 
     def test_universe_uses_nse_group_before_absolute_turnover(self):
         source = pd.DataFrame({

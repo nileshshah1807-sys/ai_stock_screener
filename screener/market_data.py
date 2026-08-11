@@ -4,8 +4,9 @@ import logging
 import re
 import time
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -14,6 +15,50 @@ import requests
 from .runtime import Config
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_market_holidays(values):
+    """Return configured exchange holidays as validated ``date`` objects."""
+
+    if values is None:
+        return frozenset()
+    if isinstance(values, str):
+        values = values.split(",")
+    holidays = set()
+    for value in values:
+        try:
+            holidays.add(pd.Timestamp(str(value).strip()).date())
+        except (TypeError, ValueError):
+            logger.warning("Ignoring invalid NSE market holiday %r", value)
+    return frozenset(holidays)
+
+
+def is_expected_nse_session(day, market_holidays=()):
+    """Whether a normal NSE cash-market daily bar is expected for ``day``."""
+
+    return day.weekday() < 5 and day not in normalize_market_holidays(
+        market_holidays
+    )
+
+
+def latest_expected_completed_nse_session(
+    day, current_time, completion_cutoff, market_holidays=()
+):
+    """Latest regular NSE session whose daily bar should be complete."""
+
+    candidate = day
+    if (
+        not is_expected_nse_session(candidate, market_holidays)
+        or current_time < completion_cutoff
+    ):
+        candidate = candidate - pd.Timedelta(days=1)
+        if hasattr(candidate, "date"):
+            candidate = candidate.date()
+    while not is_expected_nse_session(candidate, market_holidays):
+        candidate = candidate - pd.Timedelta(days=1)
+        if hasattr(candidate, "date"):
+            candidate = candidate.date()
+    return candidate
 
 class AlternativeData:
     """News sentiment (Google News RSS) + FII/DII placeholder.
@@ -103,7 +148,9 @@ class AlternativeData:
 # TECHNICAL INDICATORS
 # =====================================================
 class TechnicalEnhancer:
-    INDICATOR_VERSION = 5
+    # Increment whenever indicator semantics change so cached rows cannot mix
+    # fabricated defaults from an older model with explicit missing evidence.
+    INDICATOR_VERSION = 6
 
     @staticmethod
     def _rsi(close, window=14):
@@ -138,20 +185,31 @@ class TechnicalEnhancer:
                 axis=1,
             ).max(axis=1)
             atr = tr.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
-            plus_di = 100 * plus_dm.ewm(alpha=1 / window, adjust=False, min_periods=window).mean() / atr
-            minus_di = 100 * minus_dm.ewm(alpha=1 / window, adjust=False, min_periods=window).mean() / atr
-            dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+            smoothed_plus_dm = plus_dm.ewm(
+                alpha=1 / window, adjust=False, min_periods=window
+            ).mean()
+            smoothed_minus_dm = minus_dm.ewm(
+                alpha=1 / window, adjust=False, min_periods=window
+            ).mean()
+            plus_di = 100 * smoothed_plus_dm / atr.where(atr.ne(0))
+            minus_di = 100 * smoothed_minus_dm / atr.where(atr.ne(0))
+            # A sufficiently long, genuinely flat series has zero directional
+            # movement, not missing data. Keep that legitimate zero while short
+            # or otherwise invalid histories remain NaN.
+            plus_di = plus_di.where(~atr.eq(0), 0.0)
+            minus_di = minus_di.where(~atr.eq(0), 0.0)
+            di_sum = plus_di + minus_di
+            dx = 100 * (plus_di - minus_di).abs() / di_sum.where(di_sum.ne(0))
+            dx = dx.where(~di_sum.eq(0), 0.0)
             adx = dx.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
             val = adx.iloc[-1]
             plus_di_val = plus_di.iloc[-1]
             minus_di_val = minus_di.iloc[-1]
-            return (
-                float(val) if not pd.isna(val) else 25.0,
-                float(plus_di_val) if not pd.isna(plus_di_val) else 25.0,
-                float(minus_di_val) if not pd.isna(minus_di_val) else 25.0,
-            )
+            if any(pd.isna(value) for value in (val, plus_di_val, minus_di_val)):
+                return np.nan, np.nan, np.nan
+            return float(val), float(plus_di_val), float(minus_di_val)
         except Exception:
-            return 25.0, 25.0, 25.0
+            return np.nan, np.nan, np.nan
 
     @staticmethod
     def calculate_stoch_rsi(close, window=14, k_window=3):
@@ -163,9 +221,9 @@ class TechnicalEnhancer:
             raw_stoch = ((rsi_series - rsi_min) / (rsi_max - rsi_min).replace(0, np.nan)) * 100
             stoch_k = raw_stoch.rolling(k_window, min_periods=k_window).mean()
             val = stoch_k.iloc[-1]
-            return float(val) if not pd.isna(val) else 50.0
+            return float(val) if not pd.isna(val) else np.nan
         except Exception:
-            return 50.0
+            return np.nan
 
     @staticmethod
     def calculate_atr(high, low, close, window=14):
@@ -181,11 +239,29 @@ class TechnicalEnhancer:
             ).max(axis=1)
             atr = tr.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
             val = atr.iloc[-1]
-            if pd.isna(val):
-                return float(close.iloc[-1] * 0.01)
-            return float(val)
+            return float(val) if not pd.isna(val) else np.nan
         except Exception:
-            return float(close.iloc[-1] * 0.01)
+            return np.nan
+
+    @staticmethod
+    def calculate_pct_return(close, lookback_sessions):
+        """Return an adjusted-close percentage change or explicit missing.
+
+        A real unchanged price is exactly ``0.0``. Insufficient history and
+        invalid/nonpositive endpoints are unknown evidence and therefore NaN.
+        """
+        try:
+            values = pd.to_numeric(close, errors="coerce")
+            lookback_sessions = int(lookback_sessions)
+            if lookback_sessions <= 0 or len(values) <= lookback_sessions:
+                return np.nan
+            current = float(values.iloc[-1])
+            prior = float(values.iloc[-(lookback_sessions + 1)])
+            if not np.isfinite(current) or not np.isfinite(prior) or prior <= 0:
+                return np.nan
+            return (current / prior - 1.0) * 100.0
+        except (TypeError, ValueError, IndexError):
+            return np.nan
 
 # =====================================================
 # PRICE CACHE
@@ -196,12 +272,16 @@ class PriceCache:
     # in it is missing that data and any filter relying on it would silently
     # drop everything - so treat such a cache as stale and force a refresh.
     REQUIRED_COLUMNS = (
+        "Technical_Price",
         "Avg_Turnover_INR", "Median_Turnover_20D_INR",
         "Turnover_P10_20D_INR", "Median_Turnover_60D_INR",
         "Turnover_Top5_Share_60D", "Trading_Frequency_60D", "CMF_21",
         "Price_Return_20D_Pct", "Demand_Proxy_Status", "MA50_Slope_Pct",
         "ADX_Plus_DI", "ADX_Minus_DI",
         "Technical_Indicator_Version",
+        "Price_Bar_As_Of", "Expected_Price_Bar_As_Of", "Price_Bar_Session_Lag",
+        "Price_Bar_Complete", "Price_Session_Status", "Analysis_As_Of",
+        "Price_Fetched_At",
     )
 
     @staticmethod
@@ -212,14 +292,40 @@ class PriceCache:
             logger.warning(f"Price cache save failed: {e}")
 
     @staticmethod
-    def load(cache_path, max_age_hours=18):
-        """Return cached DataFrame only if the file is fresh enough and has the
-        expected schema."""
+    def load(
+        cache_path,
+        max_age_hours=18,
+        *,
+        as_of=None,
+        completion_cutoff="16:15",
+        market_timezone="Asia/Kolkata",
+        market_holidays=(),
+    ):
+        """Return a schema-, age-, and exchange-session-current cache.
+
+        File mtime remains a maximum-age guard, but it is not sufficient on its
+        own: a cache fetched before today's completion cutoff must be refreshed
+        once that cutoff passes, and a same-day bar is never reused before it.
+        A prior bar after cutoff is reusable only on a configured exchange
+        holiday or weekend. On a normal session it is stale and forces refresh.
+        """
         try:
             p = Path(cache_path)
             if not p.exists():
                 return pd.DataFrame()
-            age_hours = (time.time() - p.stat().st_mtime) / 3600
+            timezone_info = (
+                market_timezone
+                if isinstance(market_timezone, ZoneInfo)
+                else ZoneInfo(str(market_timezone))
+            )
+            current = pd.Timestamp(
+                as_of if as_of is not None else datetime.now(timezone.utc)
+            )
+            if current.tzinfo is None:
+                current = current.tz_localize(timezone_info)
+            else:
+                current = current.tz_convert(timezone_info)
+            age_hours = max(0.0, (current.timestamp() - p.stat().st_mtime) / 3600)
             if age_hours > max_age_hours:
                 logger.info(f"Price cache is {age_hours:.1f}h old (> {max_age_hours}h) - ignoring")
                 return pd.DataFrame()
@@ -235,6 +341,94 @@ class PriceCache:
             if versions.isna().any() or not versions.eq(TechnicalEnhancer.INDICATOR_VERSION).all():
                 logger.info("Price cache uses an older technical-indicator version - refreshing")
                 return pd.DataFrame()
+
+            complete = df["Price_Bar_Complete"].map(
+                lambda value: value is True
+                or (isinstance(value, (int, float)) and value == 1)
+                or str(value).strip().lower() in {"true", "1", "yes"}
+            )
+            bar_dates = pd.to_datetime(df["Price_Bar_As_Of"], errors="coerce").dt.date
+            fetched_at = pd.to_datetime(
+                df["Price_Fetched_At"], errors="coerce", utc=True
+            )
+            analysis_at = pd.to_datetime(
+                df["Analysis_As_Of"], errors="coerce", utc=True
+            )
+            if (
+                not complete.all()
+                or bar_dates.isna().any()
+                or fetched_at.isna().any()
+                or analysis_at.isna().any()
+            ):
+                logger.info("Price cache has incomplete or invalid provenance - refreshing")
+                return pd.DataFrame()
+
+            fetch_age_hours = (
+                current.tz_convert("UTC") - fetched_at
+            ).dt.total_seconds() / 3600.0
+            if (fetch_age_hours > max_age_hours).any():
+                logger.info(
+                    "Price cache source fetch is older than %sh - refreshing",
+                    max_age_hours,
+                )
+                return pd.DataFrame()
+
+            if hasattr(completion_cutoff, "hour") and hasattr(completion_cutoff, "minute"):
+                cutoff_time = completion_cutoff
+            else:
+                cutoff_time = None
+                for pattern in ("%H:%M", "%H:%M:%S"):
+                    try:
+                        cutoff_time = datetime.strptime(
+                            str(completion_cutoff).strip(), pattern
+                        ).time()
+                        break
+                    except ValueError:
+                        continue
+                if cutoff_time is None:
+                    raise ValueError(f"Invalid completion cutoff: {completion_cutoff!r}")
+
+            today = current.date()
+            current_time = current.time().replace(tzinfo=None)
+            today_is_session = is_expected_nse_session(today, market_holidays)
+            expected_session = latest_expected_completed_nse_session(
+                today, current_time, cutoff_time, market_holidays
+            )
+            if (bar_dates > today).any():
+                logger.info("Price cache contains a future-dated bar - refreshing")
+                return pd.DataFrame()
+            if not pd.Series(bar_dates).eq(expected_session).all():
+                logger.info(
+                    "Price cache is not aligned to expected completed NSE session %s - refreshing",
+                    expected_session,
+                )
+                return pd.DataFrame()
+
+            if not today_is_session:
+                # NSE has no regular daily bar on weekends; use the latest prior
+                # completed session on weekends/configured holidays, subject to
+                # the configured maximum age.
+                if (bar_dates >= today).any():
+                    logger.info(
+                        "Price cache contains a same-day non-session bar - refreshing"
+                    )
+                    return pd.DataFrame()
+            elif current_time < cutoff_time:
+                if (bar_dates >= today).any():
+                    logger.info(
+                        "Price cache contains today's still-incomplete NSE daily bar - refreshing"
+                    )
+                    return pd.DataFrame()
+            else:
+                cutoff_at = pd.Timestamp(
+                    datetime.combine(today, cutoff_time), tz=timezone_info
+                ).tz_convert("UTC")
+                if (fetched_at < cutoff_at).any() or (analysis_at < cutoff_at).any():
+                    logger.info(
+                        "Price cache snapshot predates today's completed-session "
+                        "cutoff - refreshing"
+                    )
+                    return pd.DataFrame()
             return df
         except Exception:
             return pd.DataFrame()

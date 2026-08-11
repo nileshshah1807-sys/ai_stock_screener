@@ -58,45 +58,103 @@ def disclosure_deadline(period_end: date) -> date:
     return period_end + timedelta(days=days)
 
 
-def transcript_availability_deadline(period_end: date) -> date:
-    """Add NSE's five-working-day transcript window (weekends excluded)."""
+def _holiday_dates(values) -> frozenset[date]:
+    if values is None:
+        return frozenset()
+    if isinstance(values, str):
+        values = values.split(",")
+    holidays = set()
+    for value in values:
+        parsed = _parse_date(value)
+        if parsed is not None:
+            holidays.add(parsed)
+    return frozenset(holidays)
+
+
+def transcript_availability_deadline(
+    period_end: date, market_holidays=()
+) -> date:
+    """Add NSE's five trading-working-day transcript window."""
 
     deadline = disclosure_deadline(period_end)
+    holidays = _holiday_dates(market_holidays)
     working_days = 0
     while working_days < 5:
         deadline += timedelta(days=1)
-        if deadline.weekday() < 5:
+        if deadline.weekday() < 5 and deadline not in holidays:
             working_days += 1
     return deadline
 
 
-def latest_expected_reporting_period(as_of: date) -> date:
+def latest_expected_reporting_period(as_of: date, market_holidays=()) -> date:
     """Latest period whose results and transcript window have normally passed."""
 
     candidates = [
         quarter_end
         for year in range(as_of.year - 3, as_of.year + 1)
         for quarter_end in _quarter_ends(year)
-        if transcript_availability_deadline(quarter_end) <= as_of
+        if transcript_availability_deadline(quarter_end, market_holidays) <= as_of
     ]
     if not candidates:
         raise ValueError("could not determine an expected reporting period")
     return max(candidates)
 
 
+def next_reporting_period_end(period_end: date) -> date:
+    """Return the quarter end immediately following ``period_end``."""
+
+    candidates = [
+        quarter_end
+        for year in range(period_end.year, period_end.year + 2)
+        for quarter_end in _quarter_ends(year)
+        if quarter_end > period_end
+    ]
+    return min(candidates)
+
+
+def cycle_transition_confidence(
+    period_end: date | None,
+    as_of: date,
+    taper_days: int = 20,
+    market_holidays=(),
+) -> tuple[float, date | None, int | None]:
+    """Taper evidence before the next statutory cycle transition.
+
+    Without this taper, every call for the preceding quarter goes from full
+    eligibility to zero on one calendar day. Calls already assigned to the
+    newer quarter naturally have a later transition and retain full weight.
+    """
+
+    if period_end is None:
+        return 0.0, None, None
+    transition = transcript_availability_deadline(
+        next_reporting_period_end(period_end), market_holidays
+    )
+    days = (transition - as_of).days
+    window = max(1, int(taper_days))
+    confidence = max(0.0, min(1.0, days / window))
+    return confidence, transition, days
+
+
 def classify_transcript_evidence(
     call_date: str | date | None,
     as_of: date | None = None,
     max_age_days: int = 180,
+    market_holidays=(),
 ) -> TranscriptEvidence:
     today = as_of or date.today()
     parsed = _parse_date(call_date)
     if parsed is None:
-        return TranscriptEvidence(INVALID_DATE, None, None, latest_expected_reporting_period(today))
+        return TranscriptEvidence(
+            INVALID_DATE,
+            None,
+            None,
+            latest_expected_reporting_period(today, market_holidays),
+        )
 
     age_days = (today - parsed).days
     period_end = reporting_period_end_for_call(parsed)
-    expected_period_end = latest_expected_reporting_period(today)
+    expected_period_end = latest_expected_reporting_period(today, market_holidays)
     if age_days < 0:
         return TranscriptEvidence(INVALID_DATE, age_days, period_end, expected_period_end)
     if age_days > max(0, int(max_age_days)):

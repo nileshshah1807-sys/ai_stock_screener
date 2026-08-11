@@ -73,13 +73,88 @@ def demand_proxy_summary(row):
     status = str(row.get("Demand_Proxy_Status") or "Unavailable")
     cmf = row.get("CMF_21")
     price_return = row.get("Price_Return_20D_Pct")
+    points = row.get("Demand_Proxy_Points", row.get("Tech_Component_VOL"))
     cmf_text = "-" if cmf is None or pd.isna(cmf) else f"CMF {float(cmf):.2f}"
     return_text = (
         "-"
         if price_return is None or pd.isna(price_return)
         else f"20D {float(price_return):+.1f}%"
     )
-    return f"{status} | {cmf_text} | {return_text} | descriptive only"
+    points_text = (
+        "technical points unavailable"
+        if points is None or pd.isna(points)
+        else f"technical {float(points):.1f}/15"
+    )
+    return (
+        f"{status} | {cmf_text} | {return_text} | {points_text} | "
+        "scored confirmation, not institutional flow"
+    )
+
+
+def rank_summary(row):
+    """Show the four deliberately different v4 rank views compactly."""
+
+    def rank_value(column, fallback="-"):
+        value = row.get(column, fallback)
+        if value is None or pd.isna(value):
+            return "-"
+        try:
+            return str(int(value))
+        except (TypeError, ValueError):
+            return str(value)
+
+    investment = rank_value("Investment_Rank", rank_value("Rank"))
+    score = rank_value("Score_Rank")
+    recommendation = rank_value("Recommendation_Rank")
+    actionable = rank_value("Actionable_Rank")
+    return (
+        f"Investment {investment} | Score {score} | "
+        f"Recommendation {recommendation} | Actionable {actionable}"
+    )
+
+
+def coverage_summary(row):
+    """Render evidence coverage without treating missing inputs as good data."""
+
+    def percent(column):
+        value = row.get(column)
+        if value is None or pd.isna(value):
+            return "-"
+        return f"{float(value):.0%}"
+
+    eligible = row.get("Coverage_Eligible")
+    if eligible is None or pd.isna(eligible):
+        eligibility = "not exported"
+    else:
+        eligibility = "BUY coverage passed" if bool(eligible) else "BUY coverage failed"
+    return (
+        f"Fund {percent('Fundamental_Coverage')} | "
+        f"Tech {percent('Technical_Coverage')} | {eligibility}"
+    )
+
+
+def model_method_summary():
+    """Exact compact v4 formula and rank contract for rendered reports."""
+
+    return (
+        "Core = 0.70 x Fundamental + 0.30 x Technical. For eligible reported "
+        "cash-flow evidence, After DCF = Core + wDCF x (DCF Evidence - 50); "
+        "the value-to-market mapping is symmetric around 50, so it "
+        "can raise or lower the score. Estimated, missing, unsupported, or "
+        "unusable DCF evidence leaves Core unchanged. A current eligible "
+        "transcript is downside-only in v4: Evidence = After DCF + wTx x "
+        "min(Transcript Evidence - 50, 0); missing and prior-cycle "
+        "calls are neutral. One finalizer applies every coverage, data-quality, "
+        "specialized-model, anomaly, and trend ceiling: Decision = Final = "
+        "min(Evidence, applicable ceiling), then maps Decision to Rating. "
+        "Score Rank orders uncapped Evidence; Recommendation Rank groups Rating "
+        "first; score-first Investment Rank is the primary Rank; Actionable "
+        "Rank is a separate execution-only view. Demand Proxy Points are a "
+        "scored technical confirmation, not institutional-flow evidence. "
+        "Price, indicators, turnover, and aligned valuation ratios use the "
+        "same completed bar, admitted for the current session only at or after "
+        "the default 16:15 IST cutoff."
+    )
 
 
 def red_flag_summary(row):
@@ -113,13 +188,16 @@ class InteractiveDashboard:
                 tag_class = "tag-" + str(r["Rating"]).lower().replace(" ", "-")
                 sentiment = r.get("News_Sentiment", "-")
                 rows_html += (
-                    f"<tr><td>{int(r['Rank'])}</td><td><b>{company_label(r)}</b></td>"
+                    f"<tr><td>{int(r.get('Investment_Rank', r['Rank']))}</td>"
+                    f"<td>{rank_summary(r)}</td><td><b>{company_label(r)}</b></td>"
                     f"<td>₹{r['Current_Price']:,.0f}</td>"
                     f"<td>{fmt_f(r.get('PE_Ratio'), 1)}</td>"
                     f"<td>{r['Fundamental_Score']:.0f}</td>"
                     f"<td>{r['Technical_Score']:.0f}</td>"
-                    f"<td>{r['Combined_Score']:.1f}</td>"
+                    f"<td>{coverage_summary(r)}</td>"
+                    f"<td>{fmt_f(r.get('Core_Score', r['Combined_Score']), 1)}</td>"
                     f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
+                    f"<td>{fmt_f(r.get('Evidence_Score'), 1)}</td>"
                     f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                     f"<td>{r.get('Fundamental_Model', 'Generic Fundamental Model')}</td>"
                     f"<td>{r.get('Fund_Component_Summary', '-')}</td>"
@@ -134,7 +212,7 @@ class InteractiveDashboard:
                     f"<td><span class='tag {tag_class}'>{r['Rating']}</span></td></tr>"
                 )
                 dcf_rows_html += (
-                    f"<tr><td>{int(r['Rank'])}</td><td><b>{company_label(r)}</b></td>"
+                    f"<tr><td>{int(r.get('Investment_Rank', r['Rank']))}</td><td><b>{company_label(r)}</b></td>"
                     f"<td>{r.get('DCF_Sector', 'Unknown')}</td>"
                     f"<td>\u20b9{r['Current_Price']:,.0f}</td>"
                     f"<td>{fmt_cr(r.get('DCF_Market_Cap'), 0)}</td>"
@@ -204,15 +282,15 @@ tr:hover {{ background-color: #f8f9ff; }}
 <div class="stat-box"><div class="stat-value">{len(scored_df[scored_df['Rating'] == 'SELL'])}</div><div class="stat-label">Sell</div></div>
 </div>
 </div>
-<div class="card"><h2>🏆 Top 10 Picks</h2>
-<table><tr><th>Rank</th><th>Company</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Base</th><th>DCF</th><th>Final</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Liquidity / Execution</th><th>Demand Proxy</th><th>Red-flag Review</th><th>News</th><th>Rating</th></tr>
+<div class="card"><h2>🏆 Top 10 Picks by Decision Score</h2>
+<table><tr><th>Investment Rank</th><th>Rank Audit</th><th>Company</th><th>Price</th><th>PE</th><th>Fund</th><th>Tech</th><th>Evidence Coverage</th><th>Core</th><th>DCF Evidence</th><th>Evidence Score</th><th>Decision Score</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Liquidity / Execution</th><th>Demand Proxy</th><th>Red-flag Review</th><th>News</th><th>Rating</th></tr>
 {rows_html}
 </table></div>
 <div class="card"><h2>🔎 Reverse DCF</h2>
-<table><tr><th>Rank</th><th>Company</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
+<table><tr><th>Investment Rank</th><th>Company</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows_html}
 </table>
-<div style="font-size:12px;color:#777;margin-top:8px;">Reverse DCF solves the market-implied assumptions behind today's market cap using a 5-year DCF model. "Expected Growth" is a sector- and size-aware benchmark (not a single flat rate) used as the explicit growth assumption; "Implied 5Y FCF CAGR" is what the market is actually pricing in.</div>
+<div style="font-size:12px;color:#777;margin-top:8px;">Reverse DCF is an evidence stage, not a recommendation writer. It solves the assumptions implied by today's market cap and maps the single base-case value/market-cap ratio smoothly around neutral. Only reliable reported cash flow is blend-eligible; favorable and adverse evidence use the same configured weight, while estimated, missing, unsupported, or failed results are neutral.</div>
 </div>
 <div class="card"><h2>📊 Score Distribution</h2>
 <svg viewBox="0 0 {chart_w} 255" style="width:100%;max-height:280px;background:#f8f9ff;border-radius:8px;">
@@ -220,16 +298,20 @@ tr:hover {{ background-color: #f8f9ff; }}
 </svg>
 <div style="font-size:12px;color:#777;margin-top:6px;">Final score buckets (0–100) vs number of stocks</div>
 </div>
+<div class="card"><h2>Model v4 score and rank contract</h2>
+<p style="line-height:1.6;">{model_method_summary()}</p></div>
 <div class="card"><h2>💡 Advanced Features Active</h2>
 <ul style="line-height:1.8;font-size:15px;color:#333;">
 <li>✅ ADX (Wilder) + Stochastic RSI + ATR technical indicators</li>
 <li>✅ Freshness-checked caching (prices 18h / fundamentals 7d)</li>
 <li>✅ NSE Group I/II/III and Rs1 lakh impact-cost evidence, with turnover fallback</li>
-<li>✅ Investment rating separated from portfolio-size execution suitability</li>
-<li>✅ Data-completeness gate (thin-data stocks capped at HOLD)</li>
-<li>✅ Version-isolated outcome log (point-in-time validation is still pending)</li>
+<li>✅ Score-first Investment Rank separated from execution-only Actionable Rank</li>
+<li>✅ Fundamental and technical coverage exported; insufficient evidence cannot earn BUY</li>
+<li>✅ One recommendation finalizer applies DCF, transcript, and all policy gates once</li>
+<li>✅ Completed daily bars after the official 16:15 IST finalization cutoff</li>
+<li>✅ Versioned manifests and isolated candidate comparison (out-of-sample validation is still pending)</li>
 <li>✅ Word-boundary news sentiment for top picks (FII/DII feed = placeholder)</li>
-<li>✅ Reverse DCF market-implied growth and terminal-growth analysis</li>
+<li>✅ Symmetric, smooth reverse-DCF evidence with neutral unavailable paths</li>
 <li>✅ Interactive HTML dashboard with embedded SVG charts</li>
 </ul>
 </div>
@@ -263,19 +345,21 @@ class EmailReporter:
         for _, r in top.iterrows():
             css = "tag-" + str(r["Rating"]).lower().replace(" ", "-")
             wt = f"F {r.get('Dynamic_Weight_Fund', 0.7):.0%} / T {r.get('Dynamic_Weight_Tech', 0.3):.0%}"
-            capped_star = "*" if r.get("Rating_Capped") or r.get("Liquidity_Rating_Capped") else ""
+            capped_star = "*" if r.get("Decision_Cap_Applied", r.get("Rating_Capped")) else ""
             rating_gate = (
-                r.get("Rating_Cap_Reason")
-                or r.get("Liquidity_Cap_Reason")
+                r.get("Decision_Cap_Reason")
+                or r.get("Rating_Cap_Reason")
                 or r.get("Strong_Buy_Gate_Reason")
                 or "passed"
             )
             rows += (
-                f"<tr><td>{int(r['Rank'])}</td><td><b>{company_label(r)}</b></td>"
+                f"<tr><td>{int(r.get('Investment_Rank', r['Rank']))}</td>"
+                f"<td>{rank_summary(r)}</td><td><b>{company_label(r)}</b></td>"
                 f"<td>₹{r['Current_Price']:,.0f}</td>"
                 f"<td>{fmt_f(r.get('PE_Ratio'), 1)}</td>"
                 f"<td>{r['Fundamental_Score']:.0f}</td>"
                 f"<td>{r['Technical_Score']:.0f}</td>"
+                f"<td>{coverage_summary(r)}</td>"
                 f"<td>{wt}</td>"
                 f"<td>{fmt_f(r.get('ADX_14'), 1)}</td>"
                 f"<td>{fmt_f(r.get('RSI_14'), 1)}</td>"
@@ -291,8 +375,9 @@ class EmailReporter:
                 f"<td>{r.get('Fund_Component_Summary', '-')}</td>"
                 f"<td>{r.get('Specialized_Quality_Gate_Reason', 'passed')}</td>"
                 f"<td>{r.get('Fundamental_Anomaly_Reason') or 'none'}</td>"
-                f"<td>{r['Combined_Score']:.1f}</td>"
+                f"<td>{fmt_f(r.get('Core_Score', r['Combined_Score']), 1)}</td>"
                 f"<td>{fmt_f(r.get('DCF_Valuation_Score'), 1)}</td>"
+                f"<td>{fmt_f(r.get('Evidence_Score'), 1)}</td>"
                 f"<td><b>{r.get('Final_Score', r['Combined_Score']):.1f}</b></td>"
                 f"<td>{r.get('Transcript_Summary', 'No transcript')}</td>"
                 f"<td>{r.get('Transcript_Technical_Gate', 'No transcript')}</td>"
@@ -303,7 +388,7 @@ class EmailReporter:
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
             dcf_rows += (
-                f"<tr><td>{int(r['Rank'])}</td><td><b>{company_label(r)}</b></td>"
+                f"<tr><td>{int(r.get('Investment_Rank', r['Rank']))}</td><td><b>{company_label(r)}</b></td>"
                 f"<td>{r.get('DCF_Sector', 'Unknown')}</td>"
                 f"<td>\u20b9{r['Current_Price']:,.0f}</td>"
                 f"<td>{fmt_cr(r.get('DCF_Market_Cap'), 0)}</td>"
@@ -340,16 +425,16 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-hold">Hold: {summary['hold']}</span> |
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
-<div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks</h2>
-<table><tr><th>Rank</th><th>Company</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Base</th><th>DCF</th><th>Final</th><th>Transcript Summary</th><th>Transcript Technical Gate</th><th>Transcript Quality Gate</th><th>Liquidity / Execution</th><th>Demand Proxy</th><th>Red-flag Review</th><th>Rating</th></tr>
+<div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks by Decision Score</h2>
+<table><tr><th>Investment Rank</th><th>Rank Audit</th><th>Company</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Evidence Coverage</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Core</th><th>DCF Evidence</th><th>Evidence Score</th><th>Decision Score</th><th>Transcript Summary</th><th>Transcript Policy</th><th>Transcript Quality Gate</th><th>Liquidity / Execution</th><th>Demand Proxy</th><th>Red-flag Review</th><th>Rating</th></tr>
 {rows}
 </table></div>
 <div class="card"><h2>Reverse DCF: Market-Implied Expectations</h2>
-<p>Model uses a 5-year explicit forecast and a {fmt_pct(self.config.REVERSE_DCF_DISCOUNT_RATE)} required equity return. Yahoo's operating-cash-flow-less-capex field is treated as an equity cash-flow proxy, not mislabeled as FCFF. "Expected Growth" is a sector- and size-aware benchmark used as the explicit growth assumption; {fmt_pct(self.config.REVERSE_DCF_TERMINAL_GROWTH)} fixed terminal growth is used when solving for implied FCF CAGR.</p>
-<table><tr><th>Rank</th><th>Company</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
+<p>Model uses a 5-year explicit forecast and a {fmt_pct(self.config.REVERSE_DCF_DISCOUNT_RATE)} required equity return. Yahoo's operating-cash-flow-less-capex field is treated as an equity cash-flow proxy, not mislabeled as FCFF. The single base-case value/market-cap ratio is mapped smoothly and symmetrically around neutral. Only reliable reported cash flow is blend-eligible; favorable and adverse results receive the same configured weight. Estimated, missing, unsupported, and failed results remain neutral. Price-dependent market cap is aligned to the same completed close used by the technical model when shares outstanding are available.</p>
+<table><tr><th>Investment Rank</th><th>Company</th><th>Sector</th><th>CMP</th><th>Market Cap</th><th>Base FCF</th><th>FCF Yield</th><th>Expected Growth</th><th>Implied 5Y FCF CAGR</th><th>Implied Terminal Growth</th><th>Base Case Upside</th><th>Assessment</th><th>Rating</th></tr>
 {dcf_rows}
 </table></div>
-<div class="card"><p><b>Note:</b> Base = weighted Fundamental and Technical scores. Final = Base blended with DCF only when reported cash flow produces a valid proxy result; otherwise Final equals Base. Reverse DCF compares market cap to a discounted equity cash-flow proxy and solves for assumptions implied by today's price. * = recommendation capped by a data-quality, model, or trend gate. Liquidity describes whether the configured portfolio order is executable; it never changes investment score or rating. Demand is a descriptive CMF/price-volume confirmation proxy, not proof of institutional buying and not a rating input. Red-flag outcomes are shadow counterfactuals and never change the live score/rating. This research model has not yet completed point-in-time out-of-sample validation. Not investment advice — consult a SEBI-registered advisor.</p></div>
+<div class="card"><p><b>Method:</b> {model_method_summary()} * marks an applied policy cap. Liquidity and shadow red flags never rewrite Decision Score or Rating. This research model has not completed point-in-time out-of-sample validation. Not investment advice — consult a SEBI-registered advisor.</p></div>
 </body></html>"""
         return html
 
@@ -378,19 +463,19 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
                 textColor=colors.HexColor("#102A43"),
             )
             story = [
-                Paragraph(f"Top {len(top)} Ranked Stocks", section_style),
+                Paragraph(f"Top {len(top)} Stocks by Decision Score", section_style),
                 Spacer(1, 0.08 * cm),
             ]
 
             top_rows = [[
-                "Rank", "Company", "CMP\n(INR)", "PE", "Fund", "Tech",
+                "Investment\nRank", "Company", "CMP\n(INR)", "PE", "Fund", "Tech",
                 "Transcript\nScore", "Rating",
             ]]
             for _, r in top.iterrows():
                 price = r.get("Current_Price")
                 price_text = "-" if price is None or pd.isna(price) else f"{float(price):,.0f}"
                 top_rows.append([
-                    int(r["Rank"]),
+                    int(r.get("Investment_Rank", r["Rank"])),
                     Paragraph(escape(company_label(r)), company_style),
                     price_text,
                     fmt_f(r.get("PE_Ratio"), 1),
@@ -737,7 +822,7 @@ class WhatsAppReporter:
         )
         for _, r in top.iterrows():
             msg += (
-                f"{int(r['Rank'])}. {r['Symbol']} ₹{r['Current_Price']:,.0f} "
+                f"{int(r.get('Investment_Rank', r['Rank']))}. {r['Symbol']} ₹{r['Current_Price']:,.0f} "
                 f"Score:{r.get('Final_Score', r['Combined_Score']):.0f} {r['Rating']} "
                 f"ADX:{fmt_f(r.get('ADX_14'), 0)} | "
                 f"{r.get('Portfolio_Actionability', 'execution unknown')}\n"

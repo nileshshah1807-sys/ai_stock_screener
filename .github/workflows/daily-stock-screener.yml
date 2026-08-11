@@ -3,15 +3,16 @@ run-name: Daily stock screener (${{ github.event_name }})
 
 on:
   schedule:
-    # Primary at 08:47 IST; fallback at 10:47 IST. The fallback exits quickly
+    # Primary at 16:30 IST; fallback at 18:30 IST, after the 16:15 NSE
+    # trade-modification cutoff. The fallback exits quickly
     # when a scheduled run has already succeeded on the same UTC date.
-    - cron: "17 3,5 * * *"
+    - cron: "0 11,13 * * *"
   workflow_dispatch:
     inputs:
       send_email:
-        description: Send the report email during this manual run
+        description: Reserved for compatibility; manual validation never sends email
         required: true
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -28,27 +29,41 @@ jobs:
     timeout-minutes: 360
     env:
       GH_TOKEN: ${{ github.token }}
-      # Scheduled runs always send. Manual verification runs can suppress a
-      # duplicate email while still generating and publishing the artifact.
-      EMAIL_ENABLED: ${{ github.event_name != 'workflow_dispatch' || inputs.send_email }}
+      # Every manual dispatch is an isolated candidate run. Scheduled runs
+      # alone may reuse production caches, append backtest history, query the
+      # red-flag store, or send notifications.
+      OUTPUT_DIR: ${{ github.event_name == 'workflow_dispatch' && format('.validation-output/{0}', github.run_id) || 'reports_advanced' }}
+      YFINANCE_CACHE_DIR: ${{ github.event_name == 'workflow_dispatch' && format('.validation-output/{0}/yfinance_cache', github.run_id) || 'reports_advanced/yfinance_cache' }}
+      BACKTEST_WRITES_ENABLED: ${{ github.event_name == 'schedule' }}
+      RUN_MANIFEST_ENABLED: "True"
+      # Manual dispatches are validation-only and never notify recipients.
+      EMAIL_ENABLED: ${{ github.event_name == 'schedule' }}
       EMAIL_DELIVERY_METHOD: GMAIL_API
-      EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
-      EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
-      GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
-      GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
-      GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+      EMAIL_SENDER: ${{ github.event_name == 'schedule' && secrets.EMAIL_SENDER || '' }}
+      EMAIL_RECEIVER: ${{ github.event_name == 'schedule' && secrets.EMAIL_RECEIVER || '' }}
+      GMAIL_CLIENT_ID: ${{ github.event_name == 'schedule' && secrets.GMAIL_CLIENT_ID || '' }}
+      GMAIL_CLIENT_SECRET: ${{ github.event_name == 'schedule' && secrets.GMAIL_CLIENT_SECRET || '' }}
+      GMAIL_REFRESH_TOKEN: ${{ github.event_name == 'schedule' && secrets.GMAIL_REFRESH_TOKEN || '' }}
       ATTACH_CSV: "True"
       ATTACH_PDF: "True"
       TRANSCRIPT_SENTIMENT_ENABLED: "True"
       TRANSCRIPT_SENTIMENT_WEIGHT: "0.15"
       # A call is not mandatory. Missing transcript evidence must remain neutral.
       REQUIRE_TRANSCRIPT_FOR_STRONG_BUY: "False"
-      TRANSCRIPT_MIN_TECHNICAL_SCORE: "45"
-      TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE: "60"
       TRANSCRIPT_MIN_PRIORITY_SCORE: "55"
       TRANSCRIPT_MAX_PRIORITY_RISK: "60"
       TRANSCRIPT_FAIL_ON_ERROR: "True"
       MIN_MEDIAN_TURNOVER_20D_INR: "5000000"
+      # Liquidity is an execution overlay; it must not select the research
+      # universe used by Investment_Rank.
+      PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY: "False"
+      ALLOW_PROVISIONAL_MARKET_BARS: "False"
+      MARKET_BAR_COMPLETE_AFTER_IST: "16:15"
+      # NSE/CMTR/71775 plus partial modification NSE/CMTR/72260,
+      # weekday Capital Market holidays known as of 10-Aug-2026.
+      # Update annually from the official NSE circular; it is config-hashed.
+      NSE_MARKET_HOLIDAYS: "2026-01-15,2026-01-26,2026-03-03,2026-03-26,2026-03-31,2026-04-03,2026-04-14,2026-05-01,2026-05-28,2026-06-26,2026-09-14,2026-10-02,2026-10-20,2026-11-10,2026-11-24,2026-12-25"
+      NSE_MARKET_CALENDAR_VERSION: "NSE-CMTR-71775+72260-asof-2026-08-10"
       NSE_LIQUIDITY_ENABLED: "True"
       # Configurable reference order. NSE impact cost directly supports Rs1 lakh;
       # larger values also require the turnover-participation proxy.
@@ -57,9 +72,9 @@ jobs:
       LIQUIDITY_MIN_TRADING_FREQUENCY: "0.80"
       LIQUIDITY_MAX_TURNOVER_TOP5_SHARE: "0.50"
       # Shadow-only evidence: it adds audit columns and never changes live score/rating.
-      RED_FLAG_ENRICHMENT_ENABLED: ${{ vars.RED_FLAG_ENRICHMENT_ENABLED || 'True' }}
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RED_FLAG_ENRICHMENT_ENABLED: ${{ github.event_name == 'schedule' && (vars.RED_FLAG_ENRICHMENT_ENABLED || 'True') || 'False' }}
+      SUPABASE_URL: ${{ github.event_name == 'schedule' && secrets.SUPABASE_URL || '' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
     steps:
       - name: Skip successful scheduled duplicate
         id: schedule-dedupe
@@ -86,7 +101,7 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: Restore market-data cache
-        if: steps.schedule-dedupe.outputs.skip != 'true'
+        if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
         id: market-data-cache
         uses: actions/cache/restore@v6
         with:
@@ -121,14 +136,15 @@ jobs:
         with:
           name: stock-screener-report-${{ github.run_id }}
           path: |
-            reports_advanced/advanced_analysis_*.csv
-            reports_advanced/dashboard_*.html
-            reports_advanced/stock_report_*.pdf
+            ${{ env.OUTPUT_DIR }}/advanced_analysis_*.csv
+            ${{ env.OUTPUT_DIR }}/advanced_analysis_*.manifest.json
+            ${{ env.OUTPUT_DIR }}/dashboard_*.html
+            ${{ env.OUTPUT_DIR }}/stock_report_*.pdf
           if-no-files-found: error
           retention-days: 7
 
       - name: Save refreshed market-data cache
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true'
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
         uses: actions/cache/save@v6
         with:
           path: |

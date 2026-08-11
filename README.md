@@ -1,6 +1,8 @@
 # AI Stock Screener
 
-Daily NSE stock screener with Reverse DCF analysis, CSV reports, dashboard output, and email delivery.
+Daily NSE research screener with auditable fundamental, technical, reverse-DCF,
+and management-transcript evidence. Model v4 uses one recommendation finalizer
+and separates investment conviction from execution suitability.
 
 The score is a transparent research heuristic, not a validated return forecast.
 The evidence, assumptions, known limitations, and validation requirements for
@@ -19,7 +21,8 @@ screener/
    market_data.py      Alternative data, technical indicators, caches, backtests
    data_collection.py  NSE universe, price history, and fundamentals collection
    scoring.py          Generic and sector-specific fundamental/technical scoring
-   valuation.py        Reverse DCF analysis and ranking enrichment
+   valuation.py        Evidence-only reverse DCF analysis
+   recommendation.py   Single score, gate, rating, and investment-rank policy
    reporting.py        Dashboard, email, PDF, and WhatsApp reporting
 ```
 
@@ -29,12 +32,13 @@ schedule the same entry point with `python scheduler.py`.
 
 ## GitHub Actions
 
-The repository includes a scheduled GitHub Actions workflow that runs `app.py`
-once per day. Its primary trigger is 03:17 UTC (08:47 Asia/Kolkata), with a
-05:17 UTC recovery trigger because GitHub cron is best-effort and can be delayed
-or dropped. The recovery run exits before setup when that day's primary
-scheduled run already succeeded. The workflow also supports manual runs from
-the **Actions** tab.
+The production workflow runs after the configured completed-bar cutoff: 11:00
+UTC (16:30 Asia/Kolkata), with a 13:00 UTC (18:30 Asia/Kolkata) recovery trigger
+because GitHub cron is best-effort. The collector rejects a same-day bar before
+the default 16:15 IST completion cutoff and records `Price_Bar_As_Of`,
+`Price_Bar_Complete`, `Price_Fetched_At`, and `Analysis_As_Of`. An after-cutoff
+prior-session bar is valid on an exchange holiday; a provisional same-day bar
+is not silently reused as an official daily observation.
 
 For a public repository, standard GitHub-hosted runners are free. The runner's
 filesystem is temporary, but the workflow restores and saves the reusable
@@ -42,7 +46,20 @@ market-data cache between runs. This retains price data, fundamentals, yfinance
 metadata, and backtest history while keeping generated reports out of Git. The
 first full-NSE run can take around an hour; later runs should reuse data within
 the configured cache lifetimes (18 hours for prices and 7 days for
-fundamentals). The report is delivered by email as usual.
+fundamentals). The report is delivered by email as usual. The run also records
+model, recommendation-policy, and output-schema versions plus a secret-free
+configuration hash and manifest metadata so two runs can be compared exactly.
+
+The separate **Candidate model validation (isolated)** workflow is the safe
+path for a branch or model candidate. It runs tests and the screener in a
+runner-temporary output/cache directory with email, persistent backtest writes,
+red-flag enrichment, and Supabase access disabled. It can download a chosen
+production artifact and emits top-20 churn, rank shifts, rating transitions,
+gate changes, and per-component score deltas. Its artifacts are evidence for
+review; they do not promote a candidate or mutate production state. Because
+that secret-free live job cannot read Supabase transcripts, its live comparison
+is explicitly non-parity for transcript evidence; the frozen-export replay
+exercises the stored transcript path and records that limitation in its manifest.
 
 GitHub Actions cache storage is limited to 10 GB per repository by default,
 and cache entries unused for seven days can be removed. Caches must not contain
@@ -54,8 +71,11 @@ Banks, NBFCs, insurance companies, and capital-markets firms use separate
 equity-quality models; they do not misuse operating debt, current ratio, or
 EV/EBITDA as financial-company quality signals. Bank/NBFC book-value points are
 paired with ROE, while Gross NPA, Net NPA, and capital adequacy reserve 20-25
-points of the score. Missing regulatory data earns no points and prevents a
-`STRONG BUY`; weak reported values also fail the specialized quality gate.
+points of the score. The current live collector does not yet populate Gross
+NPA, Net NPA, capital adequacy, or insurer solvency from a versioned primary
+source. It therefore fails closed at `HOLD` for affected bank/NBFC/insurer rows;
+weak reported values also fail the specialized quality gate. This is a material
+sector-coverage limitation, not evidence that those sectors are unattractive.
 `Real Estate` uses an asset-oriented model with book value paired to ROE plus
 leverage, liquidity, margins, and growth. Generic reverse DCF remains disabled
 for both sectors because the available feed lacks bank regulatory/asset-quality
@@ -68,6 +88,81 @@ points. One anomaly blocks `STRONG BUY`; multiple anomalies cap the rating at
 valuation/quality/growth/income point breakdown, specialized quality reason,
 and anomaly reason.
 
+### Model v4 score, coverage, and rank contract
+
+Fundamental, technical, reverse-DCF, and transcript modules produce evidence;
+they do not publish the authoritative recommendation. The single finalizer in
+`screener/recommendation.py` recomputes the following sequence once, after all
+evidence is present:
+
+```text
+Core_Score = 0.70 * Fundamental_Score + 0.30 * Technical_Score
+Score_After_DCF = Core_Score
+                  + w_dcf * (DCF_Valuation_Score - 50) # eligible DCF only
+Evidence_Score = Score_After_DCF
+                 + w_tx * min(Transcript_Effective_Score - 50, 0)
+                                                         # eligible transcript only
+Decision_Score = min(Evidence_Score, applicable policy ceiling)
+Final_Score = Decision_Score
+```
+
+An ineligible evidence stage leaves the preceding score unchanged. DCF uses a
+single smooth score, `50 + 50 * tanh(log(base-case value / market cap) / scale)`,
+which treats reciprocal favorable/adverse valuation gaps symmetrically around
+50. Only a usable result based on reported positive cash flow is blend-eligible
+(10% by default); estimated, missing, unsupported-sector, and failed solves are
+neutral audit evidence. Reported non-positive cash flow is kept distinct as
+unmodelled adverse cash-flow-quality evidence and, by default, caps STRONG BUY
+pending a validated normalization model. Transcript evidence is applied after
+DCF, at up to 15% by default, and is downside-only in v4. Its applied weight
+decays with age and near the reporting-cycle transition. A missing, expired, or
+prior-cycle call does not add points, subtract points, cap a rating, or create a
+ranking priority.
+
+Technical components report explicit coverage. Their observed score is shrunk
+toward neutral when inputs are missing:
+`Technical_Score = 50 + Technical_Coverage * (Technical_Observed_Score - 50)`.
+Fundamental coverage is the share of fields expected by the selected sector
+model. The default BUY minimums are 55% fundamental and 75% technical coverage;
+the default STRONG BUY minimums are 75% and 90%. Missing required coverage is
+an exported gate failure and caps the final decision below BUY rather than being
+treated as neutral evidence.
+
+`Decision_Score` maps mechanically to `STRONG BUY` (70+), `BUY` (60-69.99),
+`HOLD` (50-59.99), `REDUCE` (40-49.99), or `SELL` (below 40), after all
+coverage, data-quality, specialized-model, anomaly, and trend ceilings. The CSV
+keeps four rank views so their purposes are not conflated:
+
+- `Score_Rank`: `Evidence_Score` before decision ceilings.
+- `Recommendation_Rank`: published rating class first, then decision/evidence.
+- `Investment_Rank`: `Decision_Score` first, then evidence; this is the primary
+  `Rank` and the order used by the top-stock report.
+- `Actionable_Rank`: executable target orders first, then decision score; this
+  liquidity overlay never changes `Decision_Score`, `Rating`, or
+  `Investment_Rank`.
+
+### Completed daily-bar snapshot
+
+Price, returns, indicators, volume/turnover, and liquidity statistics use one
+completed daily-bar snapshot. Price-dependent valuation ratios are recomputed
+onto that close when their raw denominators are available; otherwise their
+alignment status identifies fetched metadata rather than claiming false same-
+bar precision. Before
+the configured `MARKET_BAR_COMPLETE_AFTER_IST` cutoff (16:15 Asia/Kolkata by
+default), the collector excludes a same-day Yahoo bar and uses the latest prior
+completed session. At or after the cutoff it requires the same-day bar on a
+normal session. A symbol lagging the latest expected session is rejected instead
+of mixing dates. The
+default follows
+[NSE's official 16:15 capital-market trade-modification cutoff](https://www.nseindia.com/static/market-data/market-timings);
+`ALLOW_PROVISIONAL_MARKET_BARS` remains false by default. The exported
+`Price_Bar_As_Of`, `Expected_Price_Bar_As_Of`, `Price_Bar_Session_Lag`,
+`Price_Bar_Complete`, `Analysis_As_Of`, `Price_Fetched_At`, and valuation-
+alignment fields make the snapshot auditable. Weekday holidays use a versioned,
+config-hashed NSE calendar snapshot; the 2026 workflow incorporates
+NSE/CMTR/71775 and its NSE/CMTR/72260 modification. Ad-hoc circulars and special
+sessions still require an explicit calendar update before the run.
+
 ### Liquidity and actionability
 
 The price download calculates traded value as each day's `Close * Volume`.
@@ -78,16 +173,17 @@ avoid treating a one-day volume spike as normal liquidity.
 
 The scan downloads one cached NSE monthly security-category file. Its Group I,
 II, and III classification uses six-month trading frequency and mean impact
-cost for a Rs1 lakh order. Group I names enter the research universe even when
-they are small companies below the old Rs50 lakh turnover fallback; Group II
-and III names are excluded from the slow full-universe fundamentals pass. The
-Rs50 lakh mean-and-median turnover rule is used only when official category
-evidence is unavailable.
+cost for a Rs1 lakh order. In v4 this evidence does not prefilter the normal
+research universe: every collected symbol proceeds to fundamentals and
+scoring, and liquidity is applied later as an execution overlay. The legacy
+`PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY` escape hatch is false by default and
+should be enabled only when runtime constraints require an explicitly filtered
+research run.
 
 Investment conviction and execution suitability are separate outputs.
-Liquidity never changes `Final_Score` or `Rating`. `Investment_Rank` preserves
-the pure rating/score order, while the report's `Rank`/`Actionable_Rank` puts
-executable names first inside each rating class. For the configurable
+Liquidity never changes `Final_Score` or `Rating`. The report's primary `Rank`
+is the score-first `Investment_Rank`; `Actionable_Rank` is the separate view
+that puts executable names first. For the configurable
 `PORTFOLIO_TARGET_POSITION_INR`
 (Rs1 lakh by default), the CSV reports the official NSE impact cost, an
 actionable flag, and estimated build days at a conservative 1% participation
@@ -100,9 +196,12 @@ days are reported as one so the two fields are not contradictory.
 
 `CMF_21` and 20-day price return describe whether recent price-volume behaviour
 resembles accumulation or distribution. This is labelled a demand proxy, not
-institutional-flow proof. It is visible in the CSV/report and only prevents a
-high raw volume ratio from being rewarded when price-volume direction is
-negative; it does not add a new rating weight.
+institutional-flow proof: OHLCV cannot identify who traded. It is a scored
+technical confirmation, not a display-only label. Together with relative
+volume it supplies the `VOL`/`Demand_Proxy_Points` component (maximum 15 points)
+inside `Technical_Score`: accumulation can confirm high volume, distribution
+penalizes it, mixed evidence is neutral, and unavailable evidence contributes
+no observed component. It has no separate post-score bonus or rating override.
 
 ### Setup
 
@@ -138,25 +237,23 @@ risk, and lexicon rules still inspect the complete text. The transcript batch
 and model input sizes are bounded to control runner memory. It keeps PDFs
 only for the duration of the
 job, stores cleaned text and structured results in Supabase, and writes a
-sentiment summary in the report tables. A fresh validated transcript contributes
-15% of `Final_Score`; stocks without a fresh transcript retain their normal
-score. Adverse or high-risk calls can reduce a score but cannot promote it.
-A transcript receives full priority only when its score is at least 55, risk is
-at most 60, guidance was not lowered, its technical score is at least 60, and
-its trend is confirmed. Scores from 45 to 59.99 with a confirmed trend receive
-half the sentiment weight but cannot promote the core recommendation. Weak or
-unconfirmed trends receive no transcript weight. Older calls decay toward a
-neutral score of 50 rather than toward zero. Eligibility is also tied to the
-Indian quarterly-results calendar: a call remains current until the next
-result deadline plus the transcript-publication window. It then becomes
-`Prior-cycle`, stays visible for context, and has no score or rating effect.
+sentiment summary in the report tables. A fresh, validated current-cycle
+transcript may contribute at the configured 15% weight, but v4 clamps its
+centered contribution to zero or below. It can therefore reduce conviction but
+cannot promote the score or recommendation. Lowered guidance,
+high risk, and the normalized transcript score remain separately visible for
+audit; they are not stacked as duplicate numerical penalties. Older calls have
+continuously lower applied weight, and that weight tapers before a reporting-
+cycle transition rather than disappearing in a single calendar-day jump.
+Eligibility is tied to the Indian quarterly-results calendar: a call remains
+current until the next result deadline plus the transcript-publication window.
+It then becomes `Prior-cycle`, stays visible for context, and has no score,
+rating, or rank effect.
 `Transcript_Evidence_Period`, `Transcript_Expected_Period`,
 `Transcript_Age_Days`, and `Transcript_Scoring_Eligible` make that decision
-auditable. Ranking is recommendation first and `Final_Score` second. Transcript
-confirmation is only an exact-score tie-break because its configured impact is
-already present in `Final_Score`; availability therefore has no hidden,
-unlimited ranking weight. Companies are not required to conduct earnings calls,
-so no transcript is a neutral evidence path and does not cap an
+auditable. Transcript availability is not a rank tier or tie-break. Companies
+are not required to conduct earnings calls, so no transcript is a neutral
+evidence path and does not cap an
 otherwise eligible `STRONG BUY`. Set
 `REQUIRE_TRANSCRIPT_FOR_STRONG_BUY=true` only to restore that optional stricter
 gate.

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from app import run_daily_analysis
+from app import merge_research_universe, run_daily_analysis
 from screener.data_collection import StockDataCollector
 from screener.reporting import (
     EmailReporter,
@@ -18,6 +18,24 @@ from screener.runtime import load_local_config
 
 
 class ModuleWiringTests(unittest.TestCase):
+    def test_missing_fundamental_record_is_retained_for_coverage_gate(self):
+        technical = pd.DataFrame(
+            [
+                {"Symbol": "HASDATA", "Current_Price": 100.0},
+                {"Symbol": "MISSING", "Current_Price": 80.0},
+            ]
+        )
+        fundamentals = pd.DataFrame(
+            [{"Symbol": "HASDATA", "PE_Ratio": 15.0}]
+        )
+
+        merged = merge_research_universe(technical, fundamentals).set_index("Symbol")
+
+        self.assertEqual(set(merged.index), {"HASDATA", "MISSING"})
+        self.assertTrue(merged.loc["HASDATA", "Fundamental_Record_Available"])
+        self.assertFalse(merged.loc["MISSING", "Fundamental_Record_Available"])
+        self.assertTrue(pd.isna(merged.loc["MISSING", "PE_Ratio"]))
+
     def test_local_config_converts_output_paths_from_strings(self):
         class LocalConfigTarget:
             OUTPUT_DIR = Path("default-output")
@@ -50,14 +68,18 @@ class ModuleWiringTests(unittest.TestCase):
 
     def test_nse_master_response_populates_full_universe(self):
         config = SimpleNamespace(SCAN_ALL_NSE=True, CUSTOM_WATCHLIST=[])
+        master_csv = (
+            "SYMBOL,NAME OF COMPANY\n"
+            "20MICRONS,20 Microns Limited\n"
+            "BAJAJ-AUTO,Bajaj Auto Limited\n"
+            "RELIANCE,Reliance Industries\n"
+        )
+        # ``content`` is required: the collector hashes the raw bytes to record
+        # universe provenance, so a text-only stub would fall back silently.
         response = SimpleNamespace(
             status_code=200,
-            text=(
-                "SYMBOL,NAME OF COMPANY\n"
-                "20MICRONS,20 Microns Limited\n"
-                "BAJAJ-AUTO,Bajaj Auto Limited\n"
-                "RELIANCE,Reliance Industries\n"
-            ),
+            text=master_csv,
+            content=master_csv.encode("utf-8"),
         )
 
         with patch("screener.data_collection.requests.get", return_value=response):

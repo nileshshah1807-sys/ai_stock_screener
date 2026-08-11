@@ -33,13 +33,19 @@ class CompanyNameTests(unittest.TestCase):
                 "Symbol": "INFY", "Company": float("nan"),
                 "Cached_Date": datetime.now().strftime("%Y-%m-%d"),
                 "Sector": "Technology", "Industry": "Information Technology Services",
-                "Total_Debt": 0, "Total_Cash": 0,
+                "EPS": 1, "Book_Value": 1, "Shares_Outstanding": 1, "EBITDA": 1,
+                "Total_Debt": 0, "Total_Cash": 0, "Dividend_Rate": 0,
+                "Fundamental_Fetched_At": datetime.now().isoformat(),
+                "Fundamental_Source": "Yahoo Finance quote metadata",
             },
             {
                 "Symbol": "TCS", "Company": "Tata Consultancy Services Limited",
                 "Cached_Date": datetime.now().strftime("%Y-%m-%d"),
                 "Sector": "Technology", "Industry": "Information Technology Services",
-                "Total_Debt": 0, "Total_Cash": 0,
+                "EPS": 1, "Book_Value": 1, "Shares_Outstanding": 1, "EBITDA": 1,
+                "Total_Debt": 0, "Total_Cash": 0, "Dividend_Rate": 0,
+                "Fundamental_Fetched_At": datetime.now().isoformat(),
+                "Fundamental_Source": "Yahoo Finance quote metadata",
             },
         ])
         fresh, stale = StockDataCollector._split_cache(cache, max_age_days=7)

@@ -65,7 +65,14 @@ class IPv4SMTP_SSL(smtplib.SMTP_SSL):
 # CONFIGURATION
 # =====================================================
 class Config:
-    MODEL_VERSION = os.getenv("MODEL_VERSION", "3.0.0")
+    # Model and policy versions are deliberately separate from the report schema.
+    # Any semantic ranking change must bump MODEL_VERSION; additive audit columns
+    # bump OUTPUT_SCHEMA_VERSION without pretending the signal itself changed.
+    MODEL_VERSION = os.getenv("MODEL_VERSION", "4.0.0-candidate")
+    RECOMMENDATION_POLICY_VERSION = os.getenv(
+        "RECOMMENDATION_POLICY_VERSION", "4.0.0-candidate"
+    )
+    OUTPUT_SCHEMA_VERSION = os.getenv("OUTPUT_SCHEMA_VERSION", "4.0.0")
     MODEL_VALIDATION_STATUS = os.getenv(
         "MODEL_VALIDATION_STATUS",
         "Research model; point-in-time out-of-sample validation pending",
@@ -117,9 +124,29 @@ class Config:
     NEWS_SENTIMENT_TOP_N = _env_int("NEWS_SENTIMENT_TOP_N", 20)     # fetch news sentiment for top N picks only
     PRICE_CACHE_MAX_AGE_HOURS = _env_int("PRICE_CACHE_MAX_AGE_HOURS", 18)
     FUND_CACHE_MAX_AGE_DAYS = _env_int("FUND_CACHE_MAX_AGE_DAYS", 7)
+    ANALYSIS_TIMEZONE = os.getenv("ANALYSIS_TIMEZONE", "Asia/Kolkata")
+    MARKET_BAR_COMPLETE_AFTER_IST = os.getenv(
+        "MARKET_BAR_COMPLETE_AFTER_IST", "16:15"
+    )
+    # Fail closed after the completion cutoff if a normal weekday has no
+    # same-session bar. Populate official weekday exchange holidays as ISO dates.
+    NSE_MARKET_HOLIDAYS = _env_list("NSE_MARKET_HOLIDAYS", [])
+    NSE_MARKET_CALENDAR_VERSION = os.getenv(
+        "NSE_MARKET_CALENDAR_VERSION",
+        "unconfigured-local-calendar",
+    )
+    ALLOW_PROVISIONAL_MARKET_BARS = _env_bool(
+        "ALLOW_PROVISIONAL_MARKET_BARS", False
+    )
 
     # --- P3: liquidity pre-filter (applied before the slow fundamentals stage) ---
     LIQUIDITY_FILTER_ENABLED = _env_bool("LIQUIDITY_FILTER_ENABLED", True)
+    # In v4 liquidity is an execution overlay, not a research-universe selector.
+    # Set this legacy escape hatch only when runtime/API constraints make a full
+    # research pass impossible; the output then names itself as filtered.
+    PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY = _env_bool(
+        "PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY", False
+    )
     MIN_PRICE_INR = _env_float("MIN_PRICE_INR", 0.0)          # drop penny stocks
     # Rupee-value average daily turnover (Avg_Volume * Current_Price), not just a raw
     # share count - a 50-lakh turnover bar is a much more meaningful liquidity floor
@@ -155,8 +182,18 @@ class Config:
     )
 
     # --- P2: data-completeness gate ---
-    REQUIRE_FUND_DATA_FOR_BUY = _env_bool("REQUIRE_FUND_DATA_FOR_BUY", True)
-    MIN_FUND_KEY_FIELDS = _env_int("MIN_FUND_KEY_FIELDS", 3)       # of: PE_Ratio, ROE, Profit_Margin, Revenue_Growth
+    FUNDAMENTAL_MIN_COVERAGE_FOR_BUY = _env_float(
+        "FUNDAMENTAL_MIN_COVERAGE_FOR_BUY", 0.55
+    )
+    FUNDAMENTAL_MIN_COVERAGE_FOR_STRONG_BUY = _env_float(
+        "FUNDAMENTAL_MIN_COVERAGE_FOR_STRONG_BUY", 0.75
+    )
+    TECHNICAL_MIN_COVERAGE_FOR_BUY = _env_float(
+        "TECHNICAL_MIN_COVERAGE_FOR_BUY", 0.75
+    )
+    TECHNICAL_MIN_COVERAGE_FOR_STRONG_BUY = _env_float(
+        "TECHNICAL_MIN_COVERAGE_FOR_STRONG_BUY", 0.90
+    )
 
     # A valuation/fundamental score may identify a research candidate, but BUY
     # still requires a constructive medium-term chart.
@@ -179,6 +216,30 @@ class Config:
     STRONG_BUY_MIN_TECH_SCORE = _env_float("STRONG_BUY_MIN_TECH_SCORE", 55.0)
     STRONG_BUY_MIN_ADX = _env_float("STRONG_BUY_MIN_ADX", 20.0)
 
+    # Audit-only stability bands. They do not change a rating; they identify
+    # observations close enough to a hard policy boundary that a small data
+    # revision could flip the label. Widths must be validated before any future
+    # stateful hysteresis policy is enabled.
+    BORDERLINE_SCORE_BAND = _env_float("BORDERLINE_SCORE_BAND", 1.0)
+    BORDERLINE_PRICE_MA50_PCT_BAND = _env_float(
+        "BORDERLINE_PRICE_MA50_PCT_BAND", 1.0
+    )
+    BORDERLINE_MA50_SLOPE_PCT_BAND = _env_float(
+        "BORDERLINE_MA50_SLOPE_PCT_BAND", 0.25
+    )
+    BORDERLINE_3M_RETURN_PCT_BAND = _env_float(
+        "BORDERLINE_3M_RETURN_PCT_BAND", 1.0
+    )
+    BORDERLINE_GROWTH_RATIO_BAND = _env_float(
+        "BORDERLINE_GROWTH_RATIO_BAND", 0.01
+    )
+    BORDERLINE_ADX_BAND = _env_float("BORDERLINE_ADX_BAND", 1.0)
+    BORDERLINE_DI_BAND = _env_float("BORDERLINE_DI_BAND", 1.0)
+    BORDERLINE_TECH_SCORE_BAND = _env_float(
+        "BORDERLINE_TECH_SCORE_BAND", 2.0
+    )
+    BORDERLINE_COVERAGE_BAND = _env_float("BORDERLINE_COVERAGE_BAND", 0.05)
+
     # --- Sector-relative fundamental scoring ---
     # Blend each fundamental ratio's fixed absolute-threshold score with its
     # percentile rank against same-sector peers in the current scan, so e.g. a PE
@@ -194,7 +255,6 @@ class Config:
     REVERSE_DCF_FORECAST_YEARS = _env_int("REVERSE_DCF_FORECAST_YEARS", 5)
     REVERSE_DCF_DISCOUNT_RATE = _env_float("REVERSE_DCF_DISCOUNT_RATE", 0.11)          # required equity return for the Yahoo FCF proxy
     REVERSE_DCF_TERMINAL_GROWTH = _env_float("REVERSE_DCF_TERMINAL_GROWTH", 0.04)       # fixed terminal growth for implied FCF CAGR
-    REVERSE_DCF_BASE_GROWTH = _env_float("REVERSE_DCF_BASE_GROWTH", 0.15)           # explicit growth for implied terminal growth
     REVERSE_DCF_FCF_MARGIN_FALLBACK = _env_float("REVERSE_DCF_FCF_MARGIN_FALLBACK", 0.08)   # used only when FCF is missing but revenue exists
     REVERSE_DCF_MIN_GROWTH = _env_float("REVERSE_DCF_MIN_GROWTH", -0.30)
     REVERSE_DCF_MAX_GROWTH = _env_float("REVERSE_DCF_MAX_GROWTH", 0.60)
@@ -202,16 +262,31 @@ class Config:
     REVERSE_DCF_MAX_TERMINAL_GROWTH = _env_float("REVERSE_DCF_MAX_TERMINAL_GROWTH", 0.09)
     REVERSE_DCF_MIN_VALID_FCF_YIELD = _env_float("REVERSE_DCF_MIN_VALID_FCF_YIELD", 0.005)
     REVERSE_DCF_RANKING_WEIGHT = _env_float("REVERSE_DCF_RANKING_WEIGHT", 0.10)
+    CAP_STRONG_BUY_ON_REPORTED_NEGATIVE_FCF = _env_bool(
+        "CAP_STRONG_BUY_ON_REPORTED_NEGATIVE_FCF", True
+    )
+    # Smooth score mapping and neutral band for the single independent
+    # value-to-market signal. These replace stacked threshold bonuses.
+    REVERSE_DCF_SCORE_LOG_SCALE = _env_float(
+        "REVERSE_DCF_SCORE_LOG_SCALE", 1.0
+    )
+    REVERSE_DCF_NEUTRAL_LOG_BAND = _env_float(
+        "REVERSE_DCF_NEUTRAL_LOG_BAND", 0.05
+    )
 
     # --- Earnings transcript sentiment ---
     TRANSCRIPT_SENTIMENT_ENABLED = _env_bool("TRANSCRIPT_SENTIMENT_ENABLED", True)
     TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 0.15)
     REQUIRE_TRANSCRIPT_FOR_STRONG_BUY = _env_bool("REQUIRE_TRANSCRIPT_FOR_STRONG_BUY", False)
     TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS = _env_int("TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS", 180)
-    TRANSCRIPT_MIN_TECHNICAL_SCORE = _env_float("TRANSCRIPT_MIN_TECHNICAL_SCORE", 45.0)
-    TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE = _env_float("TRANSCRIPT_FULL_WEIGHT_TECHNICAL_SCORE", 60.0)
     TRANSCRIPT_MIN_PRIORITY_SCORE = _env_float("TRANSCRIPT_MIN_PRIORITY_SCORE", 55.0)
     TRANSCRIPT_MAX_PRIORITY_RISK = _env_float("TRANSCRIPT_MAX_PRIORITY_RISK", 60.0)
+    TRANSCRIPT_RECENCY_HALF_LIFE_DAYS = _env_float(
+        "TRANSCRIPT_RECENCY_HALF_LIFE_DAYS", 90.0
+    )
+    TRANSCRIPT_CYCLE_TAPER_DAYS = _env_int(
+        "TRANSCRIPT_CYCLE_TAPER_DAYS", 20
+    )
     TRANSCRIPT_FAIL_ON_ERROR = _env_bool("TRANSCRIPT_FAIL_ON_ERROR", True)
     # Shadow mode: adds evidence columns only and never mutates score/rating.
     RED_FLAG_ENRICHMENT_ENABLED = _env_bool("RED_FLAG_ENRICHMENT_ENABLED", False)
@@ -222,6 +297,8 @@ class Config:
     # A snapshot score is not a backtest. Measure the realized return after a
     # fixed holding period before making any claim about rating performance.
     BACKTEST_HORIZON_DAYS = _env_int("BACKTEST_HORIZON_DAYS", 30)
+    BACKTEST_WRITES_ENABLED = _env_bool("BACKTEST_WRITES_ENABLED", True)
+    RUN_MANIFEST_ENABLED = _env_bool("RUN_MANIFEST_ENABLED", True)
 
     OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "reports_advanced"))
     YFINANCE_CACHE_DIR = Path(os.getenv("YFINANCE_CACHE_DIR", str(OUTPUT_DIR / "yfinance_cache")))

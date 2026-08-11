@@ -1,15 +1,24 @@
 """NSE universe, price history, and fundamentals collection."""
 
 import io
+import hashlib
 import logging
+import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
 import yfinance as yf
 
-from .market_data import PriceCache, TechnicalEnhancer
+from .market_data import (
+    PriceCache,
+    TechnicalEnhancer,
+    is_expected_nse_session,
+    latest_expected_completed_nse_session,
+    normalize_market_holidays,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +28,8 @@ def calculate_liquidity_metrics(price_data):
 
     Zero-volume sessions are deliberately retained. Dropping them makes an
     intermittently traded security appear more liquid than it is. ``CMF_21``
-    is descriptive price-volume confirmation only; it never changes the
-    investment score or recommendation.
+    with the 20-session return is a scored technical price-volume confirmation;
+    it is not proof of institutional buying or selling.
     """
     columns = {}
     for name in ("High", "Low", "Close", "Volume"):
@@ -96,32 +105,321 @@ def calculate_liquidity_metrics(price_data):
         "CMF_21": cmf_21,
         "Price_Return_20D_Pct": return_20d,
         "Demand_Proxy_Status": demand_proxy,
-        "Demand_Proxy_Method": "21D CMF plus 20-session price return; descriptive only",
+        "Demand_Proxy_Method": (
+            "21D CMF plus 20-session adjusted-price return; scored technical "
+            "confirmation, not institutional-flow proof"
+        ),
     }
+
+
+def align_valuation_to_completed_price_bar(merged_df):
+    """Align price-dependent valuation fields to ``Current_Price``.
+
+    Yahoo quote metadata and the completed daily close can be observed at
+    different times. This helper preserves the fetched values for audit, then
+    recomputes each metric only when all required raw inputs are available.
+    Call it immediately after merging technical and fundamental frames.
+    """
+    frame = merged_df.copy()
+    if frame.empty:
+        return frame
+
+    def numeric(column):
+        return pd.to_numeric(
+            frame.get(column, pd.Series(index=frame.index, dtype=float)),
+            errors="coerce",
+        )
+
+    source_columns = {
+        "PE_Ratio": "PE_Ratio_As_Fetched",
+        "PB_Ratio": "PB_Ratio_As_Fetched",
+        "Market_Cap": "Market_Cap_As_Fetched",
+        "EV_EBITDA": "EV_EBITDA_As_Fetched",
+        "Dividend_Yield": "Dividend_Yield_As_Fetched",
+        "Dividend_Yield_Ratio": "Dividend_Yield_Ratio_As_Fetched",
+    }
+    for metric, audit_column in source_columns.items():
+        if audit_column not in frame.columns:
+            frame[audit_column] = numeric(metric)
+
+    price = numeric("Current_Price")
+    eps = numeric("EPS")
+    book_value = numeric("Book_Value")
+    shares = numeric("Shares_Outstanding")
+    ebitda = numeric("EBITDA")
+    debt = numeric("Total_Debt")
+    cash = numeric("Total_Cash")
+    dividend_rate = numeric("Dividend_Rate")
+    fetched_dividend_ratio = numeric("Dividend_Yield_Ratio_As_Fetched")
+    fetched_dividend_ratio = fetched_dividend_ratio.where(
+        fetched_dividend_ratio.notna(), numeric("Dividend_Yield_As_Fetched") / 100.0
+    )
+
+    pe_valid = price.gt(0) & eps.notna() & eps.ne(0)
+    pb_valid = price.gt(0) & book_value.notna() & book_value.ne(0)
+    market_cap_valid = price.gt(0) & shares.gt(0)
+    recomputed_market_cap = price * shares
+    ev_valid = (
+        market_cap_valid
+        & debt.notna()
+        & cash.notna()
+        & ebitda.notna()
+        & ebitda.ne(0)
+    )
+    fetched_price = numeric("Market_Cap_As_Fetched") / shares
+    derived_dividend_rate = fetched_dividend_ratio * fetched_price
+    dividend_rate_used = dividend_rate.where(
+        dividend_rate.notna(), derived_dividend_rate
+    )
+    dividend_valid = price.gt(0) & dividend_rate_used.notna() & dividend_rate_used.ge(0)
+
+    frame["PE_Ratio"] = (price / eps).where(pe_valid, numeric("PE_Ratio"))
+    frame["PB_Ratio"] = (price / book_value).where(pb_valid, numeric("PB_Ratio"))
+    frame["Market_Cap"] = recomputed_market_cap.where(
+        market_cap_valid, numeric("Market_Cap")
+    )
+    enterprise_value = recomputed_market_cap + debt - cash
+    frame["EV_EBITDA"] = (enterprise_value / ebitda).where(
+        ev_valid, numeric("EV_EBITDA")
+    )
+    aligned_dividend_ratio = dividend_rate_used / price
+    # An unaligned cached yield is excluded from scoring; its fetched value is
+    # retained in the *_As_Fetched columns. Most legacy rows can be aligned by
+    # deriving annual dividend/share from fetched yield and fetched price.
+    frame["Dividend_Yield_Ratio"] = aligned_dividend_ratio.where(dividend_valid)
+    frame["Dividend_Yield"] = (aligned_dividend_ratio * 100.0).where(dividend_valid)
+
+    frame["PE_Ratio_Price_Aligned"] = pe_valid
+    frame["PB_Ratio_Price_Aligned"] = pb_valid
+    frame["Market_Cap_Price_Aligned"] = market_cap_valid
+    frame["EV_EBITDA_Price_Aligned"] = ev_valid
+    frame["Dividend_Yield_Price_Aligned"] = dividend_valid
+    frame["Dividend_Rate_Alignment_Source"] = "unavailable"
+    frame.loc[dividend_valid & dividend_rate.notna(), "Dividend_Rate_Alignment_Source"] = (
+        "reported_dividend_rate"
+    )
+    frame.loc[
+        dividend_valid & dividend_rate.isna() & derived_dividend_rate.notna(),
+        "Dividend_Rate_Alignment_Source",
+    ] = "derived_from_fetched_yield_and_price"
+    aligned_count = pd.concat(
+        [pe_valid, pb_valid, market_cap_valid, ev_valid, dividend_valid], axis=1
+    ).sum(axis=1)
+    frame["Valuation_Price_Alignment_Status"] = "partial"
+    frame.loc[aligned_count.eq(5), "Valuation_Price_Alignment_Status"] = "complete"
+    frame.loc[aligned_count.eq(0), "Valuation_Price_Alignment_Status"] = "unavailable"
+    frame["Valuation_Price_As_Of"] = frame.get(
+        "Price_Bar_As_Of", pd.Series(index=frame.index, dtype="object")
+    )
+    frame["Valuation_Alignment_Method"] = (
+        "Completed close with raw EPS/book value/shares/EBITDA/debt/cash; "
+        "fetched value retained where raw inputs are unavailable"
+    )
+    return frame
+
 
 class StockDataCollector:
     # key fundamental fields used by the data-completeness gate (P2)
     FUND_KEY_FIELDS = ("PE_Ratio", "ROE", "Profit_Margin", "Revenue_Growth")
+    DEFAULT_MARKET_TIMEZONE = "Asia/Kolkata"
+    # NSE permits trade modifications through 16:15. A daily observation is
+    # therefore not treated as final until that exchange deadline has passed.
+    DEFAULT_PRICE_BAR_COMPLETION_CUTOFF = "16:15"
 
-    def __init__(self, config):
+    def __init__(
+        self,
+        config,
+        *,
+        clock=None,
+        completion_cutoff=None,
+        market_timezone=None,
+    ):
         self.config = config
+        self.collection_diagnostics = {
+            "schema_version": 1,
+            "universe_source_url": (
+                "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+            ),
+            "universe_fetch_status": "not_started",
+            "universe_source_sha256": None,
+            "universe_source_symbol_count": 0,
+            "universe_selected_symbols": [],
+            "technical_requested_symbols": [],
+            "technical_collected_symbols": [],
+            "technical_failed_symbols": [],
+            "fundamental_requested_symbols": [],
+            "fundamental_fetch_requested_symbols": [],
+            "fundamental_collected_symbols": [],
+            "fundamental_missing_symbols": [],
+        }
+        timezone_name = (
+            market_timezone
+            or getattr(config, "ANALYSIS_TIMEZONE", None)
+            or getattr(config, "NSE_MARKET_TIMEZONE", None)
+            or os.getenv("NSE_MARKET_TIMEZONE")
+            or self.DEFAULT_MARKET_TIMEZONE
+        )
+        self.market_timezone = ZoneInfo(str(timezone_name))
+        cutoff_value = (
+            completion_cutoff
+            or getattr(config, "MARKET_BAR_COMPLETE_AFTER_IST", None)
+            or getattr(config, "NSE_PRICE_BAR_COMPLETION_CUTOFF", None)
+            or os.getenv("MARKET_BAR_COMPLETE_AFTER_IST")
+            or os.getenv("NSE_PRICE_BAR_COMPLETION_CUTOFF")
+            or self.DEFAULT_PRICE_BAR_COMPLETION_CUTOFF
+        )
+        try:
+            self.price_bar_completion_cutoff = self._parse_completion_cutoff(cutoff_value)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid NSE price-bar completion cutoff %r; using %s",
+                cutoff_value,
+                self.DEFAULT_PRICE_BAR_COMPLETION_CUTOFF,
+            )
+            self.price_bar_completion_cutoff = self._parse_completion_cutoff(
+                self.DEFAULT_PRICE_BAR_COMPLETION_CUTOFF
+            )
+        # A clock callable makes the session boundary deterministic in tests.
+        # Naive injected datetimes are interpreted as local exchange time.
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self.allow_provisional_market_bars = bool(
+            getattr(config, "ALLOW_PROVISIONAL_MARKET_BARS", False)
+        )
+        self.market_holidays = normalize_market_holidays(
+            getattr(config, "NSE_MARKET_HOLIDAYS", ())
+        )
+        self.collection_diagnostics["market_calendar_version"] = getattr(
+            config, "NSE_MARKET_CALENDAR_VERSION", "unconfigured"
+        )
+        self.collection_diagnostics["market_holidays"] = sorted(
+            day.isoformat() for day in self.market_holidays
+        )
+
+    @staticmethod
+    def _parse_completion_cutoff(value):
+        if hasattr(value, "hour") and hasattr(value, "minute"):
+            return value
+        text = str(value).strip()
+        for pattern in ("%H:%M", "%H:%M:%S"):
+            try:
+                return datetime.strptime(text, pattern).time()
+            except ValueError:
+                continue
+        raise ValueError(f"Invalid completion cutoff: {value!r}")
+
+    def _now_market(self):
+        current = pd.Timestamp(self._clock())
+        if current.tzinfo is None:
+            current = current.tz_localize(self.market_timezone)
+        else:
+            current = current.tz_convert(self.market_timezone)
+        return current
+
+    @staticmethod
+    def _market_bar_dates(index, market_timezone):
+        """Return exchange-local dates for a daily-price index, or ``None``.
+
+        Yahoo daily frames use a DatetimeIndex. Numeric indexes are deliberately
+        not interpreted as nanoseconds since 1970: without a date, completion
+        cannot be proved and the output is marked accordingly.
+        """
+        if isinstance(index, pd.DatetimeIndex):
+            parsed = index
+        elif getattr(index, "dtype", None) is not None and not pd.api.types.is_numeric_dtype(
+            index.dtype
+        ):
+            parsed = pd.DatetimeIndex(pd.to_datetime(index, errors="coerce"))
+        else:
+            return None
+        if len(parsed) == 0 or parsed.isna().all():
+            return None
+        if parsed.tz is not None:
+            parsed = parsed.tz_convert(market_timezone)
+        return [timestamp.date() if not pd.isna(timestamp) else None for timestamp in parsed]
+
+    def _select_completed_price_bars(self, price_data, analysis_as_of):
+        """Select only daily bars complete at ``analysis_as_of``.
+
+        The same selected frame is subsequently used for current price,
+        indicators, returns, volume and liquidity. Older bars are complete;
+        today's bar becomes complete only at/after the configured NSE cutoff.
+        """
+        bar_dates = self._market_bar_dates(price_data.index, self.market_timezone)
+        if bar_dates is None:
+            return price_data.copy(), None, False
+
+        today = analysis_as_of.date()
+        current_time = analysis_as_of.time().replace(tzinfo=None)
+        today_complete = current_time >= self.price_bar_completion_cutoff
+        today_is_session = is_expected_nse_session(today, self.market_holidays)
+        expected_session = latest_expected_completed_nse_session(
+            today,
+            current_time,
+            self.price_bar_completion_cutoff,
+            self.market_holidays,
+        )
+        selected_positions = [
+            position
+            for position, bar_date in enumerate(bar_dates)
+            if bar_date is not None
+            and (
+                bar_date < today
+                or (
+                    bar_date == today
+                    and (today_complete or self.allow_provisional_market_bars)
+                )
+            )
+        ]
+        if not selected_positions:
+            return price_data.iloc[0:0].copy(), None, False
+
+        # A daily provider normally returns ascending rows, but sorting here
+        # prevents the current price and rolling indicators selecting different
+        # observations when a provider response arrives out of order.
+        selected_positions.sort(key=lambda position: bar_dates[position])
+        selected = price_data.iloc[selected_positions].copy()
+        latest_date = bar_dates[selected_positions[-1]]
+        if latest_date != expected_session:
+            # A symbol lagging the cross-section (suspension/vendor delay) is
+            # data-limited, even if its last observation is historically final.
+            return price_data.iloc[0:0].copy(), latest_date, False
+        latest_complete = latest_date < today or (
+            latest_date == today and today_complete
+        )
+        return selected, latest_date, latest_complete
 
     def get_comprehensive_stock_list(self):
         logger.info("Fetching comprehensive NSE stock list...")
         all_symbols = set()
         try:
-            url = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+            url = self.collection_diagnostics["universe_source_url"]
             resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
             if resp.status_code == 200:
+                self.collection_diagnostics["universe_fetch_status"] = "ok"
+                self.collection_diagnostics["universe_fetched_at"] = (
+                    self._now_market().to_pydatetime().isoformat(timespec="seconds")
+                )
+                self.collection_diagnostics["universe_source_sha256"] = (
+                    hashlib.sha256(resp.content).hexdigest()
+                )
                 df = pd.read_csv(io.StringIO(resp.text))
                 all_symbols.update(df["SYMBOL"].dropna().str.strip().tolist())
+                self.collection_diagnostics["universe_source_symbol_count"] = len(
+                    all_symbols
+                )
                 logger.info(f"NSE Master: {len(all_symbols)} symbols")
             else:
+                self.collection_diagnostics["universe_fetch_status"] = (
+                    f"http_{resp.status_code}"
+                )
                 logger.error(
                     f"NSE master list returned HTTP {resp.status_code} - "
                     "falling back to built-in watchlist only!"
                 )
         except Exception as e:
+            self.collection_diagnostics["universe_fetch_status"] = (
+                f"error:{type(e).__name__}"
+            )
             logger.error(f"NSE Master fetch failed ({e}) - falling back to built-in watchlist only!")
 
         # Well-known liquid names as a safety net
@@ -143,20 +441,50 @@ class StockDataCollector:
         }
         if not self.config.SCAN_ALL_NSE:
             filtered = {s.upper() for s in self.config.CUSTOM_WATCHLIST}
+            self.collection_diagnostics["universe_fetch_status"] += (
+                ":custom_watchlist_override"
+            )
+        self.collection_diagnostics["universe_selected_symbols"] = sorted(filtered)
         logger.info(f"Total symbols to scan: {len(filtered)}")
         return sorted(filtered)
 
     def download_stock_data(self, symbols):
         logger.info(f"Technical download for {len(symbols)} stocks...")
+        requested_symbols = sorted({str(symbol).strip().upper() for symbol in symbols})
+        self.collection_diagnostics["technical_requested_symbols"] = requested_symbols
         results = []
         failed = []
+        analysis_as_of = self._now_market()
+        analysis_as_of_text = analysis_as_of.to_pydatetime().isoformat(timespec="seconds")
+        expected_price_session = latest_expected_completed_nse_session(
+            analysis_as_of.date(),
+            analysis_as_of.time().replace(tzinfo=None),
+            self.price_bar_completion_cutoff,
+            self.market_holidays,
+        )
 
         # --- Feature: price cache reuse ---
         cache_path = self.config.OUTPUT_DIR / "price_cache.csv"
-        cached = PriceCache.load(cache_path, self.config.PRICE_CACHE_MAX_AGE_HOURS)
+        cached = PriceCache.load(
+            cache_path,
+            self.config.PRICE_CACHE_MAX_AGE_HOURS,
+            as_of=analysis_as_of,
+            completion_cutoff=self.price_bar_completion_cutoff,
+            market_timezone=self.market_timezone,
+            market_holidays=self.market_holidays,
+        )
         cached_records = []
         to_download = list(symbols)
         if not cached.empty and "Symbol" in cached.columns:
+            cached = cached.copy()
+            cached["Analysis_As_Of"] = analysis_as_of_text
+            cached["Expected_Price_Bar_As_Of"] = expected_price_session.isoformat()
+            cached["Price_Bar_Session_Lag"] = 0
+            cached["Price_Session_Status"] = (
+                "current_completed_session"
+                if expected_price_session == analysis_as_of.date()
+                else "prior_completed_non_session"
+            )
             cached_symbols = set(cached["Symbol"].astype(str))
             cached_records = cached[cached["Symbol"].isin(symbols)].to_dict("records")
             to_download = [s for s in symbols if s not in cached_symbols]
@@ -181,6 +509,7 @@ class StockDataCollector:
                     " ".join(batch), period="6mo", group_by="ticker",
                     progress=False, threads=True, auto_adjust=False,
                 )
+                fetched_at_text = self._now_market().to_pydatetime().isoformat(timespec="seconds")
                 for symbol in batch:
                     clean_sym = symbol.replace(".NS", "")
                     try:
@@ -194,15 +523,47 @@ class StockDataCollector:
                         if price_data is None or price_data.empty:
                             failed.append(clean_sym)
                             continue
-                        raw_closes = pd.to_numeric(price_data["Close"], errors="coerce").dropna()
-                        closes = pd.to_numeric(
+                        price_data, price_bar_as_of, price_bar_complete = (
+                            self._select_completed_price_bars(price_data, analysis_as_of)
+                        )
+                        if price_data.empty:
+                            failed.append(clean_sym)
+                            continue
+                        raw_close_aligned = pd.to_numeric(price_data["Close"], errors="coerce")
+                        adjusted_close_aligned = pd.to_numeric(
                             price_data.get("Adj Close", price_data["Close"]), errors="coerce"
-                        ).dropna()
-                        volumes = price_data["Volume"].dropna()
+                        )
+                        volume_aligned = pd.to_numeric(price_data["Volume"], errors="coerce")
+                        usable_rows = (
+                            raw_close_aligned.notna()
+                            & adjusted_close_aligned.notna()
+                            & volume_aligned.notna()
+                        )
+                        price_data = price_data.loc[usable_rows].copy()
+                        if price_data.empty:
+                            failed.append(clean_sym)
+                            continue
+                        raw_closes = raw_close_aligned.loc[usable_rows]
+                        closes = adjusted_close_aligned.loc[usable_rows]
+                        volumes = volume_aligned.loc[usable_rows]
+                        usable_bar_dates = self._market_bar_dates(
+                            price_data.index, self.market_timezone
+                        )
+                        if usable_bar_dates is not None and usable_bar_dates[-1] is not None:
+                            price_bar_as_of = usable_bar_dates[-1]
+                            price_bar_complete = (
+                                price_bar_as_of < analysis_as_of.date()
+                                or (
+                                    price_bar_as_of == analysis_as_of.date()
+                                    and analysis_as_of.time().replace(tzinfo=None)
+                                    >= self.price_bar_completion_cutoff
+                                )
+                            )
                         if len(closes) < 60 or len(raw_closes) < 60 or len(volumes) == 0:
                             failed.append(clean_sym)
                             continue
                         current_price = float(raw_closes.iloc[-1])
+                        signal_current_price = float(closes.iloc[-1])
                         avg_volume = float(volumes.mean())
                         last_volume = float(volumes.iloc[-1])
                         liquidity = calculate_liquidity_metrics(price_data)
@@ -225,9 +586,12 @@ class StockDataCollector:
                         if len(ma50_series) >= 21 and pd.notna(ma50_series.iloc[-21]) and ma50_series.iloc[-21] != 0:
                             ma50_slope_pct = ((ma50 / float(ma50_series.iloc[-21])) - 1) * 100
                         else:
-                            ma50_slope_pct = 0.0
+                            ma50_slope_pct = float("nan")
                         rsi_series = TechnicalEnhancer._rsi(closes, 14)
-                        current_rsi = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50.0
+                        current_rsi = (
+                            float(rsi_series.iloc[-1])
+                            if not pd.isna(rsi_series.iloc[-1]) else float("nan")
+                        )
                         ema12 = closes.ewm(span=12, adjust=False).mean()
                         ema26 = closes.ewm(span=26, adjust=False).mean()
                         macd = ema12 - ema26
@@ -238,26 +602,71 @@ class StockDataCollector:
                         bb_lower = bb_mid - 2 * bb_std
                         bb_range = float(bb_upper.iloc[-1]) - float(bb_lower.iloc[-1])
                         bb_pos = (
-                            (current_price - float(bb_lower.iloc[-1])) / bb_range
+                            (signal_current_price - float(bb_lower.iloc[-1])) / bb_range
                             if bb_range and bb_range > 0 else 0.5
                         )
-                        pct_1m = ((current_price / float(closes.iloc[-22])) - 1) * 100 if len(closes) >= 22 else 0.0
-                        pct_3m = ((current_price / float(closes.iloc[-66])) - 1) * 100 if len(closes) >= 66 else 0.0
-                        pct_6m = ((current_price / float(closes.iloc[0])) - 1) * 100
+                        pct_1m = TechnicalEnhancer.calculate_pct_return(closes, 21)
+                        pct_3m = TechnicalEnhancer.calculate_pct_return(closes, 65)
+                        pct_6m = TechnicalEnhancer.calculate_pct_return(
+                            closes, len(closes) - 1
+                        )
                         vol_avg_20 = float(volumes.rolling(20).mean().iloc[-1])
                         vol_ratio = last_volume / vol_avg_20 if vol_avg_20 and vol_avg_20 > 0 else 1.0
                         raw_close_aligned = pd.to_numeric(price_data["Close"], errors="coerce")
                         adjustment_factor = pd.to_numeric(
                             price_data.get("Adj Close", price_data["Close"]), errors="coerce"
                         ) / raw_close_aligned.where(raw_close_aligned.ne(0))
-                        high = (pd.to_numeric(price_data["High"], errors="coerce") * adjustment_factor).dropna()
-                        low = (pd.to_numeric(price_data["Low"], errors="coerce") * adjustment_factor).dropna()
-                        adx_val, adx_plus_di, adx_minus_di = TechnicalEnhancer.calculate_adx(high, low, closes, 14)
+                        high = pd.to_numeric(price_data["High"], errors="coerce") * adjustment_factor
+                        low = pd.to_numeric(price_data["Low"], errors="coerce") * adjustment_factor
+                        directional_prices = pd.DataFrame({
+                            "High": high,
+                            "Low": low,
+                            "Close": closes,
+                        }).dropna()
+                        high = directional_prices["High"]
+                        low = directional_prices["Low"]
+                        directional_closes = directional_prices["Close"]
+                        adx_val, adx_plus_di, adx_minus_di = TechnicalEnhancer.calculate_adx(
+                            high, low, directional_closes, 14
+                        )
                         stoch_rsi_val = TechnicalEnhancer.calculate_stoch_rsi(closes, 14)
-                        atr_val = TechnicalEnhancer.calculate_atr(high, low, closes, 14)
+                        atr_val = TechnicalEnhancer.calculate_atr(
+                            high, low, directional_closes, 14
+                        )
                         results.append({
                             "Symbol": clean_sym,
                             "Current_Price": round(current_price, 2),
+                            # All indicators are calculated on adjusted OHLC.
+                            # Keep their price denominator on that same scale;
+                            # raw close remains Current_Price for valuation,
+                            # turnover and display.
+                            "Technical_Price": round(signal_current_price, 2),
+                            "Price_Bar_As_Of": (
+                                price_bar_as_of.isoformat()
+                                if price_bar_as_of is not None else None
+                            ),
+                            "Expected_Price_Bar_As_Of": expected_price_session.isoformat(),
+                            "Price_Bar_Session_Lag": (
+                                0 if price_bar_as_of == expected_price_session else None
+                            ),
+                            "Price_Bar_Complete": bool(price_bar_complete),
+                            "Price_Session_Status": (
+                                "current_completed_session"
+                                if price_bar_as_of == analysis_as_of.date()
+                                and price_bar_complete
+                                else "prior_completed_pending_session"
+                                if price_bar_as_of is not None
+                                and price_bar_as_of < analysis_as_of.date()
+                                and is_expected_nse_session(
+                                    analysis_as_of.date(), self.market_holidays
+                                )
+                                else "prior_completed_non_session"
+                                if price_bar_as_of is not None
+                                and price_bar_as_of < analysis_as_of.date()
+                                else "provisional_current_session"
+                            ),
+                            "Analysis_As_Of": analysis_as_of_text,
+                            "Price_Fetched_At": fetched_at_text,
                             "MA20": round(ma20, 2),
                             "MA50": round(ma50, 2),
                             "MA50_Slope_Pct": round(ma50_slope_pct, 2),
@@ -313,6 +722,24 @@ class StockDataCollector:
                 continue
 
         all_records = cached_records + results
+        collected_symbols = sorted(
+            {
+                str(record.get("Symbol", "")).strip().upper()
+                for record in all_records
+                if str(record.get("Symbol", "")).strip()
+            }
+        )
+        self.collection_diagnostics["technical_collected_symbols"] = collected_symbols
+        self.collection_diagnostics["technical_failed_symbols"] = sorted(
+            set(requested_symbols) - set(collected_symbols)
+        )
+        self.collection_diagnostics["technical_cached_symbols"] = sorted(
+            {
+                str(record.get("Symbol", "")).strip().upper()
+                for record in cached_records
+                if str(record.get("Symbol", "")).strip()
+            }
+        )
         if all_records:
             PriceCache.save(cache_path, all_records)
             logger.info(f"Price cache saved ({len(all_records)} records) -> {cache_path}")
@@ -328,7 +755,12 @@ class StockDataCollector:
     # Columns that must exist in the cache schema. If a cache file predates one
     # of these (e.g. was written before Sector/Industry were added), every row
     # in it is missing that data forever unless we force a one-time re-fetch.
-    REQUIRED_FUND_COLUMNS = ("Company", "Sector", "Industry", "Total_Debt", "Total_Cash")
+    REQUIRED_FUND_COLUMNS = (
+        "Company", "Sector", "Industry", "EPS", "Book_Value",
+        "Shares_Outstanding", "EBITDA", "Total_Debt", "Total_Cash",
+        "Dividend_Rate",
+        "Fundamental_Fetched_At", "Fundamental_Source",
+    )
 
     @staticmethod
     def _prepare_fundamental_frame(records):
@@ -336,6 +768,31 @@ class StockDataCollector:
         frame = pd.DataFrame(records)
         if frame.empty:
             return frame
+        legacy_date = frame.get(
+            "Cached_Date", pd.Series(index=frame.index, dtype="object")
+        )
+        fetched_at = frame.get(
+            "Fundamental_Fetched_At", pd.Series(index=frame.index, dtype="object")
+        )
+        precise_timestamp = fetched_at.notna() & fetched_at.astype(str).str.strip().ne("")
+        fetched_at = fetched_at.where(precise_timestamp, legacy_date)
+        frame["Fundamental_Fetched_At"] = fetched_at
+        fundamental_as_of = frame.get(
+            "Fundamental_As_Of", pd.Series(index=frame.index, dtype="object")
+        )
+        frame["Fundamental_As_Of"] = fundamental_as_of.where(
+            fundamental_as_of.notna() & fundamental_as_of.astype(str).str.strip().ne(""),
+            fetched_at,
+        )
+        quality = pd.Series("fetch_timestamp", index=frame.index, dtype="object")
+        quality.loc[~precise_timestamp] = "legacy_cache_date"
+        frame["Fundamental_As_Of_Quality"] = frame.get(
+            "Fundamental_As_Of_Quality", quality
+        ).fillna(quality)
+        source = frame.get(
+            "Fundamental_Source", pd.Series(index=frame.index, dtype="object")
+        )
+        frame["Fundamental_Source"] = source.fillna("Yahoo Finance quote metadata")
         raw_yield = pd.to_numeric(
             frame.get("Dividend_Yield", pd.Series(index=frame.index, dtype=float)),
             errors="coerce",
@@ -394,6 +851,20 @@ class StockDataCollector:
         stale_symbols = set(df.loc[~fresh_mask, "Symbol"])
         return fresh_records, stale_symbols
 
+    def _record_fundamental_diagnostics(self, frame, requested_symbols):
+        collected = (
+            set(frame["Symbol"].dropna().astype(str).str.strip().str.upper())
+            if frame is not None and not frame.empty and "Symbol" in frame
+            else set()
+        )
+        requested = {str(symbol).strip().upper() for symbol in requested_symbols}
+        self.collection_diagnostics["fundamental_collected_symbols"] = sorted(
+            collected
+        )
+        self.collection_diagnostics["fundamental_missing_symbols"] = sorted(
+            requested - collected
+        )
+
     def get_fundamental_data(self, tech_df):
         cache_file = self.config.OUTPUT_DIR / "fundamental_cache.csv"
         fresh_records, stale_symbols = [], set()
@@ -419,8 +890,14 @@ class StockDataCollector:
                 logger.warning(f"Fundamental cache load failed: {e}")
 
         all_symbols = set(tech_df["Symbol"].astype(str))
+        self.collection_diagnostics["fundamental_requested_symbols"] = sorted(
+            {str(symbol).strip().upper() for symbol in all_symbols}
+        )
         fresh_symbols = {r["Symbol"] for r in fresh_records} & all_symbols
         needs_fetch = sorted(all_symbols - fresh_symbols)
+        self.collection_diagnostics["fundamental_fetch_requested_symbols"] = [
+            str(symbol).strip().upper() for symbol in needs_fetch
+        ]
         logger.info(
             f"Fundamentals: {len(fresh_symbols)} fresh-cached, "
             f"{len(stale_symbols & all_symbols)} expired (> {self.config.FUND_CACHE_MAX_AGE_DAYS}d), "
@@ -431,12 +908,14 @@ class StockDataCollector:
             for r in fresh_records if r["Symbol"] in all_symbols
         ]
         if not needs_fetch:
-            return self._prepare_fundamental_frame(fundamental_data)
+            frame = self._prepare_fundamental_frame(fundamental_data)
+            self._record_fundamental_diagnostics(frame, all_symbols)
+            return frame
 
         rate_limit_hits = 0
         last_reset = time.time()
         requests_this_minute = 0
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_str = self._now_market().strftime("%Y-%m-%d")
         for idx, symbol in enumerate(needs_fetch):
             ticker_str = symbol + ".NS"
             if (idx + 1) % 100 == 0:
@@ -453,10 +932,17 @@ class StockDataCollector:
                 info = yf.Ticker(ticker_str).info
                 if not info or len(info) < 5:
                     continue
+                fundamental_fetched_at = (
+                    self._now_market().to_pydatetime().isoformat(timespec="seconds")
+                )
                 fundamental_data.append({
                     "Symbol": symbol,
                     "Company": self._company_name(info, symbol),
                     "Cached_Date": today_str,
+                    "Fundamental_As_Of": fundamental_fetched_at,
+                    "Fundamental_Fetched_At": fundamental_fetched_at,
+                    "Fundamental_As_Of_Quality": "fetch_timestamp",
+                    "Fundamental_Source": "Yahoo Finance quote metadata",
                     "PE_Ratio": info.get("trailingPE"),
                     "Forward_PE": info.get("forwardPE"),
                     "PB_Ratio": info.get("priceToBook"),
@@ -471,8 +957,10 @@ class StockDataCollector:
                     "Earnings_Growth": info.get("earningsGrowth"),
                     "EPS": info.get("trailingEps"),
                     "Dividend_Yield": info.get("dividendYield"),
+                    "Dividend_Rate": info.get("dividendRate"),
                     "Market_Cap": info.get("marketCap"),
                     "EV_EBITDA": info.get("enterpriseToEbitda"),
+                    "EBITDA": info.get("ebitda"),
                     "Free_CashFlow": info.get("freeCashflow"),
                     "Total_Debt": info.get("totalDebt"),
                     "Total_Cash": info.get("totalCash"),
@@ -518,4 +1006,5 @@ class StockDataCollector:
             logger.info(f"Fundamental cache saved ({len(fundamental_data)} records)")
         except Exception as e:
             logger.warning(f"Fundamental cache save failed: {e}")
+        self._record_fundamental_diagnostics(fundamental_frame, all_symbols)
         return fundamental_frame

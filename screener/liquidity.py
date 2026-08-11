@@ -270,9 +270,10 @@ class LiquidityQualityEnricher:
         )
         actionable = official_actionable | fallback_actionable
 
+        # Derived compatibility alias: never preserve a stale rating from an
+        # earlier model/replay stage.
         enriched["Investment_Rating"] = enriched.get(
-            "Investment_Rating",
-            enriched.get("Rating", pd.Series("", index=enriched.index)),
+            "Rating", pd.Series("", index=enriched.index)
         )
         enriched["Portfolio_Target_Position_INR"] = round(target_position)
         enriched["Liquidity_Participation_Rate"] = participation_rate

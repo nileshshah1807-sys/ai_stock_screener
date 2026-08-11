@@ -1,0 +1,125 @@
+name: Candidate model validation (isolated)
+run-name: Candidate validation (${{ github.ref_name }} @ ${{ github.run_id }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      scan_all_nse:
+        description: Run the full NSE collector (required for a production-like top-20 comparison)
+        required: true
+        default: false
+        type: boolean
+      custom_watchlist:
+        description: Comma-separated smoke-test symbols when scan_all_nse is false
+        required: true
+        default: RELIANCE,TCS,HDFCBANK,ICICIBANK,INFY,ITC,HINDUNILVR,BHARTIARTL,LT,SBIN,SUNPHARMA,MARUTI,NTPC,POWERGRID,ONGC,TMCV,ASIANPAINT,ULTRACEMCO,TITAN,NESTLEIND,BAJFINANCE,KOTAKBANK,AXISBANK,DRREDDY,COALINDIA
+        type: string
+      baseline_run_id:
+        description: Optional successful daily workflow run ID whose report artifact should be compared
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: candidate-model-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      VALIDATION_ROOT: ${{ runner.temp }}/candidate-validation/${{ github.run_id }}-${{ github.run_attempt }}
+      CANDIDATE_OUTPUT_DIR: ${{ runner.temp }}/candidate-validation/${{ github.run_id }}-${{ github.run_attempt }}/candidate
+      MODEL_VERSION: candidate-${{ github.sha }}
+      EMAIL_ENABLED: "False"
+      WHATSAPP_ENABLED: "False"
+      BACKTEST_LOG_ENABLED: "False"
+      BACKTEST_WRITES_ENABLED: "False"
+      RUN_MANIFEST_ENABLED: "True"
+      NSE_MARKET_HOLIDAYS: "2026-01-15,2026-01-26,2026-03-03,2026-03-26,2026-03-31,2026-04-03,2026-04-14,2026-05-01,2026-05-28,2026-06-26,2026-09-14,2026-10-02,2026-10-20,2026-11-10,2026-11-24,2026-12-25"
+      NSE_MARKET_CALENDAR_VERSION: "NSE-CMTR-71775+72260-asof-2026-08-10"
+      RED_FLAG_ENRICHMENT_ENABLED: "False"
+      SUPABASE_URL: ""
+      SUPABASE_SERVICE_ROLE_KEY: ""
+      SCAN_ALL_NSE: ${{ inputs.scan_all_nse }}
+      CUSTOM_WATCHLIST: ${{ inputs.custom_watchlist }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Prepare isolated validation workspace
+        shell: bash
+        run: mkdir -p "$VALIDATION_ROOT" "$CANDIDATE_OUTPUT_DIR"
+
+      - name: Install dependencies
+        shell: bash
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Run regression tests
+        shell: bash
+        run: |
+          set -o pipefail
+          TRANSCRIPT_ENABLE_FINBERT=false python -m unittest discover -s tests -v 2>&1 | tee "$VALIDATION_ROOT/tests.log"
+
+      - name: Run candidate screener without notifications or persistent backtest
+        shell: bash
+        run: |
+          set -o pipefail
+          if [[ "$SCAN_ALL_NSE" == "true" ]]; then
+            python tools/run_isolated_validation.py \
+              --output-dir "$CANDIDATE_OUTPUT_DIR" \
+              --model-version "$MODEL_VERSION" 2>&1 | tee "$VALIDATION_ROOT/candidate-run.log"
+          else
+            python tools/run_isolated_validation.py \
+              --output-dir "$CANDIDATE_OUTPUT_DIR" \
+              --model-version "$MODEL_VERSION" \
+              --custom-watchlist "$CUSTOM_WATCHLIST" 2>&1 | tee "$VALIDATION_ROOT/candidate-run.log"
+          fi
+
+      - name: Download optional production baseline artifact
+        if: inputs.baseline_run_id != ''
+        shell: bash
+        env:
+          BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+        run: |
+          mkdir -p "$VALIDATION_ROOT/baseline"
+          gh run download "$BASELINE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "stock-screener-report-${BASELINE_RUN_ID}" \
+            --dir "$VALIDATION_ROOT/baseline"
+
+      - name: Compare candidate with optional baseline
+        if: inputs.baseline_run_id != ''
+        shell: bash
+        run: |
+          set -o pipefail
+          baseline_csv="$(find "$VALIDATION_ROOT/baseline" -type f -name 'advanced_analysis_*.csv' | sort | tail -n 1)"
+          candidate_csv="$(find "$CANDIDATE_OUTPUT_DIR" -maxdepth 1 -type f -name 'advanced_analysis_*.csv' | sort | tail -n 1)"
+          test -n "$baseline_csv"
+          test -n "$candidate_csv"
+          python tools/compare_screener_outputs.py \
+            "$baseline_csv" \
+            "$candidate_csv" \
+            --output-dir "$VALIDATION_ROOT/comparison" \
+            --top-n 20 2>&1 | tee "$VALIDATION_ROOT/comparison.log"
+
+      - name: Upload isolated validation evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: candidate-model-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.VALIDATION_ROOT }}
+          if-no-files-found: warn
+          retention-days: 14
