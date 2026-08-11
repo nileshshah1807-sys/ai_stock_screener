@@ -33,8 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
-      VALIDATION_ROOT: ${{ runner.temp }}/candidate-validation/${{ github.run_id }}-${{ github.run_attempt }}
-      CANDIDATE_OUTPUT_DIR: ${{ runner.temp }}/candidate-validation/${{ github.run_id }}-${{ github.run_attempt }}/candidate
+      # VALIDATION_ROOT and CANDIDATE_OUTPUT_DIR are exported by the "Prepare
+      # isolated validation workspace" step below. They cannot be set here:
+      # the runner context is unavailable in job-level env, so ${{ runner.temp }}
+      # is rejected as an unrecognized named-value at workflow parse time.
       MODEL_VERSION: candidate-${{ github.sha }}
       EMAIL_ENABLED: "False"
       WHATSAPP_ENABLED: "False"
@@ -61,7 +63,15 @@ jobs:
 
       - name: Prepare isolated validation workspace
         shell: bash
-        run: mkdir -p "$VALIDATION_ROOT" "$CANDIDATE_OUTPUT_DIR"
+        run: |
+          set -euo pipefail
+          # $RUNNER_TEMP is the environment-variable form of runner.temp and is
+          # always defined inside a step. Keeping the workspace outside the
+          # checkout is what keeps this run from touching production state.
+          root="${RUNNER_TEMP}/candidate-validation/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$root/candidate"
+          echo "VALIDATION_ROOT=$root" >> "$GITHUB_ENV"
+          echo "CANDIDATE_OUTPUT_DIR=$root/candidate" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         shell: bash
