@@ -72,7 +72,14 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
     failed = Boolean(error);
   } else {
-    return NextResponse.redirect(`${origin}/login?error=missing_code`);
+    // No credential in the query. Supabase's implicit flow puts the session in
+    // the URL fragment, which never reaches the server, so an empty query here
+    // is far more likely to be a fragment-carrying link than a broken one.
+    // Hand off to a browser page that can actually read it.
+    //
+    // Browsers re-apply the original fragment when a redirect target carries
+    // none of its own, so `#access_token=...` survives this hop.
+    return NextResponse.redirect(`${origin}/auth/complete`);
   }
 
   if (failed) {
