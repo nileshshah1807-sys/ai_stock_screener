@@ -9,12 +9,20 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const params = await searchParams;
   const errorCode = typeof params.error === "string" ? params.error : null;
 
+  // Each case names what actually happened. "Expired or already used" is by far
+  // the most common, and it is worth saying that a link can be spent before it
+  // is clicked: mail providers routinely prefetch URLs to scan them, which
+  // consumes a single-use token and makes the real click look broken.
   const errorMessage =
-    errorCode === "invalid_link"
-      ? "That sign-in link has expired or was already used. Request a new one."
-      : errorCode === "missing_code"
-        ? "That link was incomplete. Request a new one."
-        : null;
+    errorCode === "expired"
+      ? "That link had already been used or has expired. Sign-in links work once, and some mail providers open them automatically to scan for spam — which can use one up before you click it. Request a new one below."
+      : errorCode === "denied"
+        ? "That sign-in link was rejected. It may have been issued for a different address, or access may have been revoked."
+        : errorCode === "invalid_link"
+          ? "That sign-in link could not be verified. Request a new one."
+          : errorCode === "missing_code"
+            ? "That link was incomplete — it arrived without a sign-in token. Request a new one."
+            : null;
 
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-12">

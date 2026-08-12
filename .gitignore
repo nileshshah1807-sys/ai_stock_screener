@@ -33,3 +33,6 @@ stock-screener-report-*.zip
 # which has its own .gitignore for node_modules and .next.
 dashboard/.env*.local
 dashboard/.vercel
+
+# One-off local sign-in link (contains a single-use auth token)
+SIGN-IN-LINK.html

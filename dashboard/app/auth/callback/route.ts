@@ -25,12 +25,37 @@ const OTP_TYPES = new Set<EmailOtpType>([
   "email",
 ]);
 
+/**
+ * Map Supabase's error codes onto the reasons the login page explains.
+ *
+ * Supabase reports a rejected link by redirecting here with `error` query
+ * parameters rather than by failing the request, so a route that only looks
+ * for a credential sees an empty query and reports the wrong cause -- telling
+ * someone their link was malformed when it had simply already been used.
+ */
+function mapAuthError(errorCode: string | null, error: string | null): string {
+  if (errorCode === "otp_expired") return "expired";
+  if (errorCode === "access_denied" || error === "access_denied") return "denied";
+  return "invalid_link";
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = request.nextUrl;
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const rawType = searchParams.get("type");
   const next = searchParams.get("next") ?? "/";
+
+  // Check for a reported failure before looking for a credential: when
+  // Supabase rejects a link it sends these instead of one, and its reason is
+  // more specific than anything this route could infer.
+  const errorParam = searchParams.get("error");
+  const errorCode = searchParams.get("error_code");
+  if (errorParam || errorCode) {
+    return NextResponse.redirect(
+      `${origin}/login?error=${mapAuthError(errorCode, errorParam)}`,
+    );
+  }
 
   const supabase = await createClient();
   let failed = false;
