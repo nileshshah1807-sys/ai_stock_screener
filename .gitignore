@@ -1,5 +1,6 @@
 # Local secrets
 config_local.py
+.claude
 .env
 *.env
 
@@ -24,3 +25,11 @@ Thumbs.db
 
 # Downloaded CI validation artifacts
 candidate-model-validation-*/
+candidate-model-validation-*.zip
+stock-screener-report-*/
+stock-screener-report-*.zip
+
+# Dashboard build output and local secrets. Source lives in dashboard/,
+# which has its own .gitignore for node_modules and .next.
+dashboard/.env*.local
+dashboard/.vercel

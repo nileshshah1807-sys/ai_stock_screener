@@ -154,3 +154,21 @@ jobs:
             reports_advanced/backtest_history.csv
             reports_advanced/yfinance_cache
           key: ${{ steps.market-data-cache.outputs.cache-primary-key }}
+
+      - name: Publish dashboard read model
+        # Deliberately the last step. The report artifact and the refreshed
+        # cache are both saved first, so a Supabase outage costs only the
+        # dashboard refresh -- it keeps serving the previous run behind its
+        # staleness banner -- and never the day's report or the warm cache that
+        # a cold rebuild would take about an hour to recreate.
+        #
+        # Scheduled runs only: a manual dispatch is an isolated candidate run
+        # and must never overwrite what production serves.
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          csv="$(ls -1 "${OUTPUT_DIR}"/advanced_analysis_*.csv | sort | tail -n 1)"
+          echo "Publishing ${csv} to the dashboard read model"
+          python -m workers.dashboard_publisher --csv "${csv}"

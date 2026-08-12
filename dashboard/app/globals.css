@@ -1,0 +1,237 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-fira-sans);
+  --font-mono: var(--font-fira-code);
+  --font-heading: var(--font-fira-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  /* Rating scale, exposed as utilities (bg-rating-buy, text-rating-sell, ...). */
+  --color-rating-strong-buy: var(--rating-strong-buy);
+  --color-rating-buy: var(--rating-buy);
+  --color-rating-hold: var(--rating-hold);
+  --color-rating-reduce: var(--rating-reduce);
+  --color-rating-sell: var(--rating-sell);
+
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-caution: var(--caution);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * Palette: blue primary with amber as the single accent, on slate surfaces.
+ * Body text is slate-900 rather than a tinted blue so dense numeric columns
+ * hold 4.5:1 contrast; blue is reserved for interactive and identity elements.
+ *
+ * The rating scale runs teal -> slate -> amber -> red instead of the
+ * conventional green -> red. Red/green is the single most common confusion
+ * pair (deuteranopia/protanopia), and this grid's whole purpose is separating
+ * BUY from SELL. Ratings are additionally always rendered with their text
+ * label, so hue is never the only carrier of meaning.
+ */
+:root {
+  --background: oklch(0.984 0.003 247.858); /* slate-50 */
+  --foreground: oklch(0.208 0.042 265.755); /* slate-900 */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.208 0.042 265.755);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.208 0.042 265.755);
+  --primary: oklch(0.424 0.199 265.638); /* blue-800 */
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.968 0.007 247.896); /* slate-100 */
+  --secondary-foreground: oklch(0.279 0.041 260.031);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.446 0.043 257.281); /* slate-600, 4.6:1 on card */
+  --accent: oklch(0.932 0.032 255.585); /* blue-100 */
+  --accent-foreground: oklch(0.424 0.199 265.638);
+  --destructive: oklch(0.577 0.245 27.325); /* red-600 */
+  --border: oklch(0.929 0.013 255.508); /* slate-200 */
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.424 0.199 265.638);
+
+  /*
+   * Rating ramp, light mode. Measured text-on-tint contrast (the colour is
+   * used as badge text over a 12% tint of itself), all >= 4.5:1:
+   *   STRONG BUY 6.29  BUY 4.64  HOLD 6.34  REDUCE 6.04  SELL 5.12
+   * REDUCE is orange-800 rather than amber-700 because amber measured 4.25:1
+   * and failed.
+   */
+  --rating-strong-buy: #115e59; /* teal-800 */
+  --rating-buy: #0f766e; /* teal-700 */
+  --rating-hold: #475569; /* slate-600, diverging midpoint */
+  --rating-reduce: #9a3412; /* orange-800 */
+  --rating-sell: #be123c; /* rose-700 */
+
+  --positive: #0f766e;
+  --negative: #be123c;
+  --caution: #9a3412;
+
+  /* Sequential ramp for score/coverage visuals, ordered light -> dark. */
+  --chart-1: oklch(0.424 0.199 265.638);
+  --chart-2: oklch(0.546 0.215 262.881);
+  --chart-3: oklch(0.623 0.214 259.815);
+  --chart-4: oklch(0.707 0.165 254.624);
+  --chart-5: oklch(0.809 0.105 251.813);
+
+  --radius: 0.5rem;
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.208 0.042 265.755);
+  --sidebar-primary: oklch(0.424 0.199 265.638);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.968 0.007 247.896);
+  --sidebar-accent-foreground: oklch(0.279 0.041 260.031);
+  --sidebar-border: oklch(0.929 0.013 255.508);
+  --sidebar-ring: oklch(0.424 0.199 265.638);
+}
+
+/*
+ * Dark mode is a separate tonal design, not an inversion: hues are
+ * desaturated and lightened so they stay legible on a dark surface, and each
+ * pair is contrast-checked independently of its light counterpart.
+ */
+.dark {
+  --background: oklch(0.129 0.042 264.695); /* slate-950 */
+  --foreground: oklch(0.968 0.007 247.896);
+  --card: oklch(0.208 0.042 265.755); /* slate-900 */
+  --card-foreground: oklch(0.968 0.007 247.896);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.968 0.007 247.896);
+  --primary: oklch(0.707 0.165 254.624); /* blue-400: legible on slate-950 */
+  --primary-foreground: oklch(0.129 0.042 264.695);
+  --secondary: oklch(0.279 0.041 260.031); /* slate-800 */
+  --secondary-foreground: oklch(0.968 0.007 247.896);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788); /* slate-400, 4.7:1 on card */
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.809 0.105 251.813);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.707 0.165 254.624);
+
+  /*
+   * Rating ramp, dark mode: separately chosen steps, not an inversion of the
+   * light values. Measured text-on-tint contrast over the dark card, all
+   * >= 4.5:1:
+   *   STRONG BUY 7.38  BUY 6.09  HOLD 4.62  REDUCE 6.78  SELL 4.55
+   */
+  --rating-strong-buy: #5eead4; /* teal-300 */
+  --rating-buy: #2dd4bf; /* teal-400 */
+  --rating-hold: #94a3b8; /* slate-400, diverging midpoint */
+  --rating-reduce: #fbbf24; /* amber-400 */
+  --rating-sell: #fb7185; /* rose-400 */
+
+  --positive: #2dd4bf;
+  --negative: #fb7185;
+  --caution: #fbbf24;
+
+  --chart-1: oklch(0.809 0.105 251.813);
+  --chart-2: oklch(0.707 0.165 254.624);
+  --chart-3: oklch(0.623 0.214 259.815);
+  --chart-4: oklch(0.546 0.215 262.881);
+  --chart-5: oklch(0.488 0.243 264.376);
+
+  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar-foreground: oklch(0.968 0.007 247.896);
+  --sidebar-primary: oklch(0.707 0.165 254.624);
+  --sidebar-primary-foreground: oklch(0.129 0.042 264.695);
+  --sidebar-accent: oklch(0.279 0.041 260.031);
+  --sidebar-accent-foreground: oklch(0.968 0.007 247.896);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.707 0.165 254.624);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* Dense grid: kerning and ligatures off so tickers read literally. */
+    font-feature-settings: "liga" 0, "calt" 0;
+  }
+  html {
+    @apply font-sans;
+  }
+
+  /*
+   * Every figure in a column must occupy the same width, or the eye cannot
+   * compare magnitudes down a scrolling column of 2,000+ rows.
+   */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+}
+
+@layer utilities {
+  /* Sticky table headers over a scroll container need an opaque backdrop,
+     otherwise rows show through as they pass underneath. */
+  .sticky-head {
+    @apply sticky top-0 z-20 bg-card;
+    box-shadow: inset 0 -1px 0 var(--border);
+  }
+
+  .sticky-col {
+    @apply sticky left-0 z-10 bg-card;
+    box-shadow: inset -1px 0 0 var(--border);
+  }
+}
+
+/*
+ * Honour the OS reduced-motion setting globally. Individual components should
+ * not have to remember this, and a data tool has no animation worth forcing on
+ * someone who has asked for less of it.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
