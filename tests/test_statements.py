@@ -209,8 +209,64 @@ class CollectorTests(unittest.TestCase):
     def test_expired_cache_is_refetched(self):
         self.collector([]).collect(["TCS"])
         later = []
-        self.collector(later, clock=lambda: datetime(2027, 1, 1)).collect(["TCS"])
+        refreshed = self.collector(
+            later, clock=lambda: datetime(2027, 1, 1)
+        ).collect(["TCS"])
         self.assertEqual(later, ["TCS.NS"])
+        self.assertEqual(refreshed["Statement_Cached_Date"].iloc[0], "2027-01-01")
+
+    def test_expired_row_outside_budget_is_retained_but_not_scored(self):
+        self.collector([]).collect(["TCS", "INFY"])
+        self.config.STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN = 1
+        calls = []
+        frame = pd.DataFrame(
+            {
+                "Symbol": ["TCS", "INFY"],
+                "Median_Turnover_20D_INR": [2.0, 1.0],
+            }
+        )
+
+        enriched = self.collector(
+            calls, clock=lambda: datetime(2027, 1, 1)
+        ).enrich(frame).set_index("Symbol")
+
+        self.assertEqual(calls, ["TCS.NS"])
+        self.assertTrue(bool(enriched.loc["TCS", "Statement_Record_Available"]))
+        self.assertFalse(bool(enriched.loc["INFY", "Statement_Record_Available"]))
+        self.assertTrue(pd.isna(enriched.loc["INFY", "ROIC"]))
+        cached = pd.read_csv(Path(self._temp.name) / "statement_cache.csv").set_index(
+            "Symbol"
+        )
+        self.assertEqual(set(cached.index), {"TCS", "INFY"})
+        self.assertEqual(cached.loc["TCS", "Statement_Cached_Date"], "2027-01-01")
+        self.assertEqual(cached.loc["INFY", "Statement_Cached_Date"], "2026-08-13")
+
+    def test_failed_refresh_retains_expired_row_but_does_not_score_it(self):
+        self.collector([]).collect(["TCS"])
+        calls = []
+
+        def failing_factory(symbol):
+            calls.append(symbol)
+            raise RuntimeError("temporary Yahoo failure")
+
+        collector = FinancialStatementCollector(
+            self.config,
+            ticker_factory=failing_factory,
+            clock=lambda: datetime(2027, 1, 1),
+        )
+        with self.assertLogs("screener.statements", level="WARNING") as logs:
+            enriched = collector.enrich(
+                pd.DataFrame({"Symbol": ["TCS"], "Current_Price": [1.0]})
+            ).iloc[0]
+
+        self.assertEqual(calls, ["TCS.NS"])
+        self.assertFalse(bool(enriched["Statement_Record_Available"]))
+        self.assertTrue(pd.isna(enriched["ROIC"]))
+        self.assertEqual(enriched["Statement_Universe_Coverage"], 0.0)
+        self.assertTrue(any("Statement coverage is 0%" in line for line in logs.output))
+        cached = pd.read_csv(Path(self._temp.name) / "statement_cache.csv")
+        self.assertEqual(cached["Symbol"].tolist(), ["TCS"])
+        self.assertEqual(cached["Statement_Cached_Date"].iloc[0], "2026-08-13")
 
     def test_fetch_budget_bounds_a_cold_run(self):
         self.config.STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN = 2
@@ -235,6 +291,51 @@ class CollectorTests(unittest.TestCase):
         calls = []
         self.collector(calls).collect(["TCS"])
         self.assertEqual(calls, ["TCS.NS"])
+
+    def test_partial_build_fetches_the_most_traded_names_first(self):
+        # The per-run budget used to take sorted(missing)[:n], i.e. the front of
+        # the alphabet. Because the factor model's coverage gate makes statement
+        # data a prerequisite for BUY eligibility, that let a symbol's first
+        # letter decide whether it could be rated: on a full-NSE run every one
+        # of the 31 BUY-eligible names began with A-E.
+        self.config.STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN = 2
+        calls = []
+        frame = pd.DataFrame(
+            {
+                "Symbol": ["ZEBRA", "APPLE", "MANGO"],
+                "Median_Turnover_20D_INR": [9e9, 1e6, 5e9],
+            }
+        )
+        self.collector(calls).enrich(frame)
+        self.assertEqual(calls, ["ZEBRA.NS", "MANGO.NS"])
+        self.assertNotIn("APPLE.NS", calls)
+
+    def test_priority_falls_back_through_liquidity_measures(self):
+        self.config.STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN = 1
+        calls = []
+        frame = pd.DataFrame(
+            {"Symbol": ["AAA", "ZZZ"], "Market_Cap": [1.0, 9.0]}
+        )
+        self.collector(calls).enrich(frame)
+        self.assertEqual(calls, ["ZZZ.NS"])
+
+    def test_collect_preserves_caller_order(self):
+        self.config.STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN = 2
+        calls = []
+        self.collector(calls).collect(["ZEBRA", "APPLE", "MANGO"])
+        self.assertEqual(calls, ["ZEBRA.NS", "APPLE.NS"])
+
+    def test_partial_coverage_is_reported(self):
+        self.config.STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN = 1
+        frame = pd.DataFrame(
+            {"Symbol": ["AAA", "BBB"], "Market_Cap": [9.0, 1.0]}
+        )
+        with self.assertLogs("screener.statements", level="WARNING") as logs:
+            enriched = self.collector([]).enrich(frame)
+        self.assertEqual(enriched["Statement_Universe_Coverage"].iloc[0], 0.5)
+        self.assertTrue(
+            any("NOT representative" in message for message in logs.output)
+        )
 
     def test_enrich_left_joins_without_dropping_symbols(self):
         base = pd.DataFrame({"Symbol": ["TCS", "UNKNOWNCO"], "Current_Price": [1.0, 2.0]})

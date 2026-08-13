@@ -358,6 +358,7 @@ def run_daily_analysis():
         for path in (
             config.OUTPUT_DIR / "price_cache.csv",
             config.OUTPUT_DIR / "fundamental_cache.csv",
+            config.OUTPUT_DIR / "statement_cache.csv",
             config.OUTPUT_DIR / "nse_liquidity_categories.csv",
         )
         if path.exists()

@@ -34,7 +34,7 @@ The main design principles implemented in the code are:
                                   External sources
           ┌──────────────────────────────────────────────────────────────┐
           │ NSE equity master / monthly liquidity category & impact cost │
-          │ Yahoo Finance via yfinance: 6-month OHLCV + fundamentals     │
+          │ Yahoo Finance: 4.x 6mo/v6; Model 5.0 2y/v7 + fundamentals   │
           │ Supabase: precomputed transcript / red-flag records          │
           │ Google News RSS: display-only headline sentiment             │
           └──────────────────────────────────────────────────────────────┘
@@ -90,7 +90,7 @@ The main design principles implemented in the code are:
 |---|---|---|---|
 | Composition root | `app.py::run_daily_analysis` | Orders the daily job, handles output/reporting, assigns run provenance. | Indirectly, by calling finalizer once. |
 | Runtime configuration | `screener/runtime.py::Config` | Environment-backed defaults; optionally overridden by `config_local.py`. | Policy parameters only. |
-| Collection | `screener/data_collection.py::StockDataCollector` | NSE universe, Yahoo 6-month OHLCV, cache reuse, Yahoo fundamentals, collection diagnostics. | No. |
+| Collection | `screener/data_collection.py::StockDataCollector` | NSE universe, model-specific Yahoo OHLCV (4.x `6mo`/v6; Model 5.0 `2y`/v7), cache reuse, Yahoo fundamentals, collection diagnostics. | No. |
 | Technical calculation | `screener/market_data.py::TechnicalEnhancer` | RSI, ADX/+DI/-DI, StochRSI, ATR, returns. | No. |
 | Liquidity source | `screener/liquidity.py::NSELiquidityProvider` | Joins NSE monthly Group I/II/III and Rs1 lakh mean impact cost. | No. |
 | Core model | `screener/scoring.py::StockScorer` | Fundamental/technical component scores, sector-relative comparison, coverage, specialist quality checks. | Exports only provisional `Core_*` diagnostics. |
@@ -107,19 +107,21 @@ The main design principles implemented in the code are:
 
 1. Instantiate `Config`, determine `analysis_now` in `Asia/Kolkata` by default, and initialize cache folders.
 2. Build the universe through `StockDataCollector.get_comprehensive_stock_list()`.
-3. Download/reuse six months of OHLCV data; retain only symbols with a valid completed and aligned daily bar and enough usable history.
+3. Download/reuse the model-specific OHLCV window (`6mo` for the default 4.x path, `2y` for Model 5.0); retain only symbols with a valid completed and aligned daily bar and enough usable history.
 4. Join NSE liquidity categories and impact-cost evidence once for the collected symbols.
 5. Apply the liquidity prefilter only when all of these are true: `LIQUIDITY_FILTER_ENABLED`, `SCAN_ALL_NSE`, and `PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY`. The default is **not** to prefilter.
 6. Fetch or reuse fundamentals and left-join them to the technical universe. A fundamental miss does not delete a technically collected symbol; it becomes missing/limited evidence and is later prevented from receiving BUY conviction.
 7. Recalculate price-dependent valuation ratios using the same completed close used for price technicals.
-8. Run `StockScorer.score_all_stocks()` to create `Fundamental_Score`, `Technical_Score`, `Combined_Score`, `Core_Score`, coverage, component, model, anomaly, and provisional core fields.
-9. If enabled, run `ReverseDCFModel.enrich()`.
-10. If enabled, load precomputed transcript evidence. A transcript failure is fatal by default (`TRANSCRIPT_FAIL_ON_ERROR=True`), but can be configured to log and skip.
-11. Run `finalize_recommendations()`: the sole writer of canonical decision fields and primary research ranks.
-12. Optionally attach red-flag records and generate a shadow-only counterfactual.
-13. Add liquidity actionability, then generate `Actionable_Rank` without changing the primary investment ordering.
-14. Add model/config/run provenance, fetch display-only news sentiment for the already-ranked top N rows, write CSV/manifest/diagnostics/dashboard, and optionally send reports.
-15. Optionally append the result to a model-version-separated backtest history.
+8. When Model 5.0 is enabled, fetch/reuse annual statements and benchmark history for the factor inputs.
+9. Run `StockScorer.score_all_stocks()` to create the 4.x core diagnostics.
+10. If enabled, run `ReverseDCFModel.enrich()`.
+11. If enabled, load precomputed transcript evidence. A transcript failure is fatal by default (`TRANSCRIPT_FAIL_ON_ERROR=True`), but can be configured to log and skip.
+12. When Model 5.0 is selected, load benchmark context and run the factor model to create its block scores and research score.
+13. Attach liquidity/actionability evidence before policy finalization so Model 5.0 can enforce its BUY liquidity gate without letting execution capacity prefilter the research universe.
+14. Run `finalize_recommendations()`: the sole writer of canonical decision fields and primary research ranks.
+15. Optionally attach red-flag records and generate a shadow-only counterfactual, then generate `Actionable_Rank` without changing the primary investment ordering.
+16. Add model/config/run provenance, fetch display-only news sentiment for the already-ranked top N rows, write CSV/manifest/diagnostics/dashboard, and optionally send reports.
+17. Optionally append the result to a model-version-separated backtest history.
 
 ## 5. Research universe, data contracts, and collection controls
 
@@ -132,11 +134,13 @@ The main design principles implemented in the code are:
 
 ### 5.2 Completed market-bar policy
 
-Daily history is downloaded over `PRICE_HISTORY_PERIOD` (default `2y`). The window was six
-months until Model 5.0 required a 200-day average, a 12-1 momentum formation window and a
-one-year drawdown, none of which a six-month history can express.
+The history contract is selected with the model. With `FACTOR_MODEL_ENABLED=false`, the
+default 4.x path retains its established `6mo` download and technical-cache contract v6.
+Enabling Model 5.0 selects `2y` and technical-cache contract v7 because its 200-day average,
+12-1 momentum formation window and one-year drawdown cannot be expressed in six months.
+The distinct cache versions prevent either model from accepting incompatible technical rows.
 
-Lengthening the window does **not** redefine the features that are *defined* on a six-month
+The longer Model 5.0 window does **not** redefine features that are *defined* on a six-month
 basis. `Avg_Turnover_INR`, `Pct_Change_6M`, `High_6M` and `Low_6M` are pinned to
 `LEGACY_HISTORY_WINDOW_SESSIONS` (126) so a liquidity floor or a "6M" return stays comparable
 with previously published runs. One related defect was fixed in the same change:
@@ -783,8 +787,9 @@ The standard run produces:
 | `collection_diagnostics_YYYYMMDD.json` | Selected/collected/missing symbol sets, source state, calendar, and collection metadata. |
 | Dashboard output | Interactive report generated by `InteractiveDashboard`. |
 | Optional HTML/PDF/email/WhatsApp | Delivery layers; disabled by default for email/WhatsApp. |
-| `price_cache.csv`, `fundamental_cache.csv`, `nse_liquidity_categories.csv` | Reusable cached inputs. |
-| Backtest history | Model-version-separated snapshot/outcome monitor when writes are enabled. |
+| Production market-data cache | The original five paths: `price_cache.csv`, `fundamental_cache.csv`, `nse_liquidity_categories.csv`, `backtest_history.csv`, and `yfinance_cache/`. |
+| `statement_cache.csv` | Annual-statement input, stored in a separate production or candidate cache namespace rather than the market-data composite. |
+| Backtest history | Model-version-separated snapshot/outcome monitor when writes are enabled; it remains one of the five production composite-cache paths. |
 
 ### 15.2 Run manifest
 
@@ -802,6 +807,31 @@ The CSV also carries run-level fields such as model/config hash, Git SHA, univer
 ### 15.3 Backtest boundary
 
 `BacktestEngine` logs snapshots and later calculates realized returns only within the same `MODEL_VERSION`; it does not mix different model versions. This is necessary monitoring infrastructure but is not a complete point-in-time out-of-sample backtest: it does not itself solve survivorship bias, benchmark comparison, transaction costs, delistings, or look-ahead-control requirements.
+
+### 15.4 GitHub Actions cache and candidate-isolation contract
+
+The production composite cache keeps its original five-path declaration exactly:
+`price_cache.csv`, `fundamental_cache.csv`, `nse_liquidity_categories.csv`,
+`backtest_history.csv`, and `yfinance_cache/`. GitHub incorporates the declared path list into
+an internal cache version, so adding `statement_cache.csv` there would make otherwise valid
+production entries unreachable. The daily workflow therefore restores and saves statements
+under a separate production-only statement-cache key.
+
+The candidate workflow can read production vendor inputs but cannot update either production
+cache namespace. When `baseline_run_id` is supplied, it validates the baseline report artifact
+before dependency installation and expensive screening, restores the exact five-path production
+cache saved by that run, and verifies that the baseline and candidate use the same completed
+price session. Without a baseline ID it may use the latest production cache only as a read-only
+seed.
+
+Candidate statements have their own branch-scoped cache. A run may restore its accumulated
+tranches or explicitly seed from the statement artifact of an earlier candidate run, and it
+saves a successful statement backfill immediately after screening even if comparison later
+fails. Candidate transcript parity does require the Supabase URL and service-role secret, but
+`SUPABASE_READ_ONLY=True` rejects non-GET requests. The job does not publish to Supabase,
+append production backtests, send notifications, or include secrets in caches or artifacts.
+A factor-model comparison is refused until statement coverage reaches at least 95% of the
+full candidate universe.
 
 ## 16. Configuration defaults that materially change decisions
 
@@ -1003,15 +1033,23 @@ profit, no cash-flow history and no multi-year series, and it omits `returnOnEqu
 `returnOnAssets` outright for part of the universe (RELIANCE and HDFCBANK both returned `None`
 in the audit).
 
-**Collection cost.** Measured at 1.57 s/symbol, i.e. about 52 minutes for a cold 2000-symbol
-universe. Statements restate quarterly at most, so `STATEMENT_CACHE_MAX_AGE_DAYS` defaults to 90
-and `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` bounds each run's backfill (400 locally, 600 in
-validation). A cold universe fills in over several runs; the steady-state marginal cost is near
-zero. Symbols not yet backfilled report no statement evidence and fail closed.
+**Collection cost.** In candidate run `31674195181`, a cold full-NSE screen spent about 59
+minutes fetching fundamentals for 2,310 symbols and about 15.5 minutes on the first bounded
+statement tranche (600 attempted, 594 usable); the complete screener step took about 80 minutes.
+The dominant cost was therefore the cold fundamental fetch, not the statement fetch. Statements
+restate quarterly at most, so `STATEMENT_CACHE_MAX_AGE_DAYS` defaults to 90 and
+`STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` bounds each run's backfill (400 locally and 600 by default
+in candidate validation). Candidate validation also accepts 2,500 for a deliberate one-time
+full-universe completion. Symbols not yet backfilled report no statement evidence and fail
+closed, while the comparison step refuses factor-model evidence below 95% universe coverage.
 
-`statement_cache.csv` was added to the GitHub Actions cache path lists in **both**
-`daily-stock-screener.yml` and `candidate-model-validation.yml`. GitHub derives a cache *version*
-from the path list, so the first run after this change is a guaranteed cold miss.
+Statements are deliberately **not** a sixth path in the production market-data composite.
+The failed validation run changed that path list, which changed GitHub's hidden cache version
+and forced the 59-minute cold fundamental refill. Production now keeps the original five-path
+composite and uses a separate production statement-cache namespace. Candidate runs use a
+different, branch-scoped statement namespace, may seed it from a prior candidate artifact, and
+checkpoint each successful tranche before any later comparison can fail. This preserves the
+bounded backfill without allowing a candidate to mutate production cache state.
 
 ### 20.5 Gates
 
@@ -1182,6 +1220,13 @@ screen but **not** for a look-ahead-free historical backtest without a point-in-
 fundamentals source. This is the single largest obstacle to executing the validation protocol
 above and should be scoped before any promotion decision.
 
+The isolated candidate workflow adds an operational guard, not a predictive claim: comparison
+fails below 95% statement coverage so an alphabetical or otherwise partial backfill cannot be
+mistaken for a full-universe result. A successful screen checkpoints its candidate-only
+statement tranche before that guard or a later baseline comparison can fail. For transcript
+parity the workflow may bulk-read Supabase using the service-role secret, but read-only mode
+rejects every write and the secret is never placed in a manifest, cache, or artifact.
+
 ### 20.10 Model 5.0 configuration reference
 
 | Parameter | Default | Effect |
@@ -1192,7 +1237,7 @@ above and should be scoped before any promotion decision.
 | `FACTOR_SECTOR_NEUTRAL` / `FACTOR_MIN_SECTOR_PEERS` | true / 8 | Rank inside sector when it is large enough |
 | `FACTOR_MIN_BLOCK_COVERAGE` | 0.50 | Block coverage floor for BUY |
 | `FACTOR_VALUE_QUALITY_FLOOR_PCT` / `FACTOR_VALUE_CEILING_WHEN_LOW_QUALITY` | 30 / 50 | Value-trap cap |
-| `PRICE_HISTORY_PERIOD` / `LEGACY_HISTORY_WINDOW_SESSIONS` | 2y / 126 | Download depth; six-month feature pinning |
+| History/cache contract / `LEGACY_HISTORY_WINDOW_SESSIONS` | 4.x: 6mo/v6; Model 5.0: 2y/v7; 126 | Model-selected download depth and cache schema; six-month feature pinning applies to the longer Model 5.0 frame |
 | `BENCHMARK_INDEX_SYMBOL` / `BENCHMARK_INDEX_FALLBACK` | ^CRSLDX / ^NSEI | Relative strength and regime source |
 | `MARKET_REGIME_ENABLED` / `MARKET_REGIME_MA_SESSIONS` / `MARKET_REGIME_NEUTRAL_BAND_PCT` | true / 200 / 2.0 | Regime classification |
 | `REQUIRE_MA200_TREND_FOR_BUY` / `BUY_MA200_TOLERANCE` | true / 0.98 | Trend gate and hysteresis band |
@@ -1202,4 +1247,4 @@ above and should be scoped before any promotion decision.
 | `REQUIRE_LIQUIDITY_FOR_BUY` | true | Execution liquidity as a BUY gate |
 | `RANK_BY_ELIGIBILITY_CLASS` | true | Eligibility-first primary ranking |
 | `FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT` | false | See 20.8 — risk-policy decision |
-| `STATEMENT_CACHE_MAX_AGE_DAYS` / `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` | 90 / 400 | Statement cache TTL and per-run backfill budget |
+| `STATEMENT_CACHE_MAX_AGE_DAYS` / `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` | 90 / 400 | Statement cache TTL and local per-run backfill budget; candidate workflow defaults to 600 and allows 2,500 for one-time completion |

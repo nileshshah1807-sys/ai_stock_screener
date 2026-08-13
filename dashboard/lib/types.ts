@@ -176,13 +176,17 @@ export const ELIGIBILITY_CLASSES = [
   { value: 3, label: "Unscorable" },
 ] as const;
 
-/** The five factor blocks, in blend-weight order. */
+/**
+ * The five factor blocks. Weights are intentionally not declared here: the
+ * runtime normalizes configurable weights and publishes the actual values in
+ * each row's payload, which is the only truthful source for the dashboard.
+ */
 export const FACTOR_BLOCKS = [
-  { key: "quality", label: "Quality", weight: 0.35 },
-  { key: "momentum", label: "Momentum", weight: 0.25 },
-  { key: "growth", label: "Growth", weight: 0.2 },
-  { key: "value", label: "Value", weight: 0.15 },
-  { key: "risk", label: "Risk", weight: 0.05 },
+  { key: "quality", label: "Quality", weightPayloadKey: "Quality_Weight" },
+  { key: "momentum", label: "Momentum", weightPayloadKey: "Momentum_Weight" },
+  { key: "growth", label: "Growth", weightPayloadKey: "Growth_Weight" },
+  { key: "value", label: "Value", weightPayloadKey: "Value_Weight" },
+  { key: "risk", label: "Risk", weightPayloadKey: "Risk_Weight" },
 ] as const;
 
 /** Snapshot row including the complete source record, used by drill-down. */

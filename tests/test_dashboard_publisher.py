@@ -3,6 +3,7 @@ import re
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -37,6 +38,63 @@ def minimal_frame(**overrides):
     }
     row.update(overrides)
     return pd.DataFrame([row])
+
+
+class RecordingDashboardRepository:
+    """Small fake that exposes publication order without contacting Supabase."""
+
+    def __init__(self, *, existing_run=False, fail_at=None):
+        self.existing_run = existing_run
+        self.fail_at = fail_at
+        self.calls = []
+
+    def _request(self, method, path, **kwargs):
+        if method == "GET" and path == "screener_runs":
+            self.calls.append(("check_run", kwargs))
+            if self.existing_run == "incomplete":
+                return [{"run_date": "2026-08-11", "row_count": 0}]
+            return (
+                [{"run_date": "2026-08-11", "row_count": 1}]
+                if self.existing_run
+                else []
+            )
+        if method == "POST" and path == "screener_runs":
+            self.calls.append(("reserve_run", kwargs))
+            return None
+        if method == "DELETE" and path == "screener_history":
+            self.calls.append(("cleanup_history", kwargs))
+            return None
+        if method == "DELETE" and path == "screener_runs":
+            self.calls.append(("cleanup_run", kwargs))
+            return None
+        raise AssertionError(f"Unexpected repository request: {method} {path}")
+
+    def replace_snapshot_rows(self, run_date, rows, chunk_size):
+        self.calls.append(("snapshot", {"run_date": run_date, "rows": rows}))
+        if self.fail_at == "snapshot":
+            raise RuntimeError("snapshot write failed")
+        return len(rows)
+
+    def delete_stale_snapshot_rows(self, run_date, symbols):
+        self.calls.append(("delete_stale", {"run_date": run_date}))
+
+    def upsert_history_rows(self, rows):
+        self.calls.append(("history", {"rows": rows}))
+        if self.fail_at == "history":
+            raise RuntimeError("history write failed")
+        return len(rows)
+
+    def upsert_run(self, row):
+        self.calls.append(("publish_run", {"row": row}))
+        if self.fail_at == "publish_run":
+            raise RuntimeError("run metadata write failed")
+        return row
+
+    def prune_snapshots(self, keep_runs):
+        self.calls.append(("prune", {"keep_runs": keep_runs}))
+        if self.fail_at == "prune":
+            raise RuntimeError("snapshot prune failed")
+        return 0
 
 
 class CoercionTests(unittest.TestCase):
@@ -254,6 +312,95 @@ class RunRowTests(unittest.TestCase):
 
 
 class PublishTests(unittest.TestCase):
+    @staticmethod
+    def publish_with(repository):
+        with TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "advanced_analysis_20260811.csv"
+            minimal_frame().to_csv(csv_path, index=False)
+            with patch(
+                "workers.dashboard_publisher.DashboardRepository.from_environment",
+                return_value=repository,
+            ):
+                return publish(csv_path=csv_path)
+
+    def test_complete_run_metadata_is_written_after_snapshot_and_history(self):
+        repository = RecordingDashboardRepository()
+
+        summary = self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertLess(labels.index("snapshot"), labels.index("publish_run"))
+        self.assertLess(labels.index("history"), labels.index("publish_run"))
+        reservation = next(
+            details["json"]
+            for name, details in repository.calls
+            if name == "reserve_run"
+        )
+        self.assertEqual(
+            set(reservation), {"run_date", "generated_at_utc", "row_count"}
+        )
+        self.assertEqual(reservation["row_count"], 0)
+        published = next(
+            details["row"]
+            for name, details in repository.calls
+            if name == "publish_run"
+        )
+        self.assertEqual(published["row_count"], 1)
+        self.assertEqual(summary["snapshot_rows_written"], 1)
+
+    def test_snapshot_failure_never_publishes_run_metadata_and_cleans_reservation(self):
+        repository = RecordingDashboardRepository(fail_at="snapshot")
+
+        with self.assertRaisesRegex(RuntimeError, "snapshot write failed"):
+            self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertNotIn("publish_run", labels)
+        self.assertIn("cleanup_history", labels)
+        self.assertIn("cleanup_run", labels)
+
+    def test_history_failure_never_publishes_run_metadata_and_cleans_partial_rows(self):
+        repository = RecordingDashboardRepository(fail_at="history")
+
+        with self.assertRaisesRegex(RuntimeError, "history write failed"):
+            self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertNotIn("publish_run", labels)
+        self.assertLess(labels.index("history"), labels.index("cleanup_history"))
+        self.assertIn("cleanup_run", labels)
+
+    def test_existing_same_date_run_is_preserved_by_refusing_replacement(self):
+        repository = RecordingDashboardRepository(existing_run=True)
+
+        with self.assertRaisesRegex(RuntimeError, "already published"):
+            self.publish_with(repository)
+
+        self.assertEqual([name for name, _ in repository.calls], ["check_run"])
+
+    def test_abandoned_same_date_reservation_is_reclaimed_before_retry(self):
+        repository = RecordingDashboardRepository(existing_run="incomplete")
+
+        summary = self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertEqual(
+            labels[:4],
+            ["check_run", "cleanup_history", "cleanup_run", "reserve_run"],
+        )
+        self.assertLess(labels.index("cleanup_run"), labels.index("snapshot"))
+        self.assertEqual(summary["snapshot_rows_written"], 1)
+
+    def test_prune_failure_is_non_fatal_after_completed_publish(self):
+        repository = RecordingDashboardRepository(fail_at="prune")
+
+        summary = self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertLess(labels.index("publish_run"), labels.index("prune"))
+        self.assertEqual(summary["runs_pruned"], 0)
+        self.assertEqual(summary["prune_error"], "snapshot prune failed")
+
     def test_dry_run_reports_drift_without_failing(self):
         with TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "advanced_analysis_20260811.csv"

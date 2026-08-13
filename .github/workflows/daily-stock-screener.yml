@@ -108,7 +108,6 @@ jobs:
           path: |
             reports_advanced/price_cache.csv
             reports_advanced/fundamental_cache.csv
-            reports_advanced/statement_cache.csv
             reports_advanced/nse_liquidity_categories.csv
             reports_advanced/backtest_history.csv
             reports_advanced/yfinance_cache
@@ -116,6 +115,19 @@ jobs:
           restore-keys: |
             stock-screener-data-v2-${{ runner.os }}-
             stock-screener-data-v1-${{ runner.os }}-
+
+      # Statements have a separate cache contract. Adding this path to the
+      # composite cache changes GitHub's hidden cache version and invalidates
+      # every warm production entry created before Model 5.0.
+      - name: Restore production statement cache
+        if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        id: production-statement-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: reports_advanced/statement_cache.csv
+          key: stock-screener-statements-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            stock-screener-statements-v1-${{ runner.os }}-
 
       - name: Install dependencies
         if: steps.schedule-dedupe.outputs.skip != 'true'
@@ -151,11 +163,17 @@ jobs:
           path: |
             reports_advanced/price_cache.csv
             reports_advanced/fundamental_cache.csv
-            reports_advanced/statement_cache.csv
             reports_advanced/nse_liquidity_categories.csv
             reports_advanced/backtest_history.csv
             reports_advanced/yfinance_cache
           key: ${{ steps.market-data-cache.outputs.cache-primary-key }}
+
+      - name: Save refreshed production statement cache
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule' && hashFiles('reports_advanced/statement_cache.csv') != ''
+        uses: actions/cache/save@v6
+        with:
+          path: reports_advanced/statement_cache.csv
+          key: ${{ steps.production-statement-cache.outputs.cache-primary-key }}
 
       - name: Publish dashboard read model
         # Deliberately the last step. The report artifact and the refreshed

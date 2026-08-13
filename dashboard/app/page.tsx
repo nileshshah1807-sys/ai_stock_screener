@@ -10,6 +10,7 @@ import { StockSearch } from "@/components/screener/stock-search";
 import { Skeleton } from "@/components/ui/skeleton";
 import { requireAccess } from "@/lib/auth";
 import { parseFilters, toSearchParams } from "@/lib/filters";
+import { investmentRankExplanation } from "@/lib/model-display.mjs";
 import {
   getLatestRun,
   getSearchIndex,
@@ -109,9 +110,9 @@ export default async function ScreenerPage({ searchParams }: PageProps<"/">) {
         />
 
         <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
-          <span className="font-medium">Reading the ranks.</span> Investment
-          Rank is decision-score-first and is the primary order. Score Rank uses
-          uncapped evidence, Recommendation Rank groups by published rating, and
+          <span className="font-medium">Reading the ranks.</span>{" "}
+          {investmentRankExplanation(factorModel)} Score Rank uses uncapped
+          evidence, Recommendation Rank groups by published rating, and
           Actionable Rank is an execution-only view that never changes a score
           or rating. Price, indicators, turnover, and aligned valuation ratios
           all use the same completed daily bar.

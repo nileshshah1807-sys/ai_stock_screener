@@ -171,10 +171,14 @@ class AlternativeData:
 class TechnicalEnhancer:
     # Increment whenever indicator semantics change so cached rows cannot mix
     # fabricated defaults from an older model with explicit missing evidence.
-    # v7 adds the long-trend, 12-1/6-1 momentum and downside-risk features and
-    # pins the six-month features to an explicit window, so a v6 row cached from
-    # a six-month download cannot be mixed into a v7 cross-section.
-    INDICATOR_VERSION = 7
+    # ``INDICATOR_VERSION`` remains the public/default 4.x contract. Model 5.0
+    # deliberately uses a separate version because its two-year input history
+    # changes the initialization of EWM-based legacy indicators in addition to
+    # adding long-trend, momentum and downside-risk fields. Keeping the two
+    # contracts distinct lets a disabled factor model reuse the exact v6 cache
+    # that production already has, while an enabled candidate refreshes to v7.
+    INDICATOR_VERSION = 6
+    FACTOR_INDICATOR_VERSION = 7
 
     @staticmethod
     def _rsi(close, window=14):
@@ -457,17 +461,21 @@ class PriceCache:
         "Turnover_Top5_Share_60D", "Trading_Frequency_60D", "CMF_21",
         "Price_Return_20D_Pct", "Demand_Proxy_Status", "MA50_Slope_Pct",
         "ADX_Plus_DI", "ADX_Minus_DI",
-        # Model 5.0 trend/momentum/risk features.
+        "Technical_Indicator_Version",
+        "Price_Bar_As_Of", "Expected_Price_Bar_As_Of", "Price_Bar_Session_Lag",
+        "Price_Bar_Complete", "Price_Session_Status", "Analysis_As_Of",
+        "Price_Fetched_At",
+    )
+    # Required only for the Model 5.0/two-year cache contract. These columns
+    # cannot be required from a 4.x v6 row without invalidating the production
+    # cache even though the master factor switch is disabled.
+    FACTOR_REQUIRED_COLUMNS = (
         "MA200", "MA200_Slope_Pct", "Price_To_MA200_Pct", "MA50_To_MA200_Pct",
         "Sessions_Above_MA200_Share", "Below_MA200_Streak",
         "Momentum_12_1_Pct", "Momentum_6_1_Pct", "Pct_Change_12M",
         "Volatility_Ann_Pct", "Downside_Deviation_Pct", "Max_Drawdown_1Y_Pct",
         "Gap_Risk_Pct", "Return_Concentration_1Y", "Trend_Quality_R2",
         "Price_History_Sessions",
-        "Technical_Indicator_Version",
-        "Price_Bar_As_Of", "Expected_Price_Bar_As_Of", "Price_Bar_Session_Lag",
-        "Price_Bar_Complete", "Price_Session_Status", "Analysis_As_Of",
-        "Price_Fetched_At",
     )
 
     @staticmethod
@@ -482,6 +490,7 @@ class PriceCache:
         cache_path,
         max_age_hours=18,
         *,
+        factor_model_enabled=False,
         as_of=None,
         completion_cutoff="16:15",
         market_timezone="Asia/Kolkata",
@@ -516,16 +525,28 @@ class PriceCache:
                 logger.info(f"Price cache is {age_hours:.1f}h old (> {max_age_hours}h) - ignoring")
                 return pd.DataFrame()
             df = pd.read_csv(p)
-            missing_columns = [c for c in PriceCache.REQUIRED_COLUMNS if c not in df.columns]
+            required_columns = PriceCache.REQUIRED_COLUMNS + (
+                PriceCache.FACTOR_REQUIRED_COLUMNS
+                if factor_model_enabled
+                else ()
+            )
+            missing_columns = [c for c in required_columns if c not in df.columns]
             if missing_columns and not df.empty:
                 logger.info(
                     f"Price cache is missing columns {missing_columns} - "
                     "ignoring and forcing a one-off full refresh."
                 )
                 return pd.DataFrame()
+            expected_version = (
+                TechnicalEnhancer.FACTOR_INDICATOR_VERSION
+                if factor_model_enabled
+                else TechnicalEnhancer.INDICATOR_VERSION
+            )
             versions = pd.to_numeric(df["Technical_Indicator_Version"], errors="coerce")
-            if versions.isna().any() or not versions.eq(TechnicalEnhancer.INDICATOR_VERSION).all():
-                logger.info("Price cache uses an older technical-indicator version - refreshing")
+            if versions.isna().any() or not versions.eq(expected_version).all():
+                logger.info(
+                    "Price cache uses a different technical-indicator contract - refreshing"
+                )
                 return pd.DataFrame()
 
             complete = df["Price_Bar_Complete"].map(

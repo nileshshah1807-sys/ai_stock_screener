@@ -47,6 +47,12 @@ transaction costs, and no look-ahead data.
   session must match the latest expected completed NSE date; lagging symbols
   are excluded. The exchange holiday list is a versioned, config-hashed
   snapshot and must be updated for ad-hoc circulars and special sessions.
+- Price-history depth and technical-cache schema follow the selected model.
+  With `FACTOR_MODEL_ENABLED=false`, the active 4.x path remains `6mo` with
+  cache contract v6. Model 5.0 selects `2y` and v7 for MA200, 12-1 momentum,
+  one-year drawdown, and relative-strength inputs; legacy six-month features
+  remain pinned to 126 sessions inside the longer frame. Distinct versions
+  prevent cached technical rows from being mixed across the two contracts.
 - Transcript discovery starts from NSE corporate filings. Parsed text and
   derived NLP output are cached in Supabase by a separate worker so the daily
   scan performs a bulk lookup rather than per-company document analysis.
@@ -264,3 +270,16 @@ screener, not a proven return-generation model.
    MA200 gate; proposed with the regime overlay) and report all five. Selecting
    the best of many variants on one sample and calling that sample a holdout is
    the specific failure mode this protocol exists to prevent.
+9. **Require a substantially complete statement cross-section.** The isolated
+   candidate workflow refuses a Model 5.0 comparison below 95% statement
+   coverage of the full candidate universe. It accumulates bounded backfill
+   tranches in a branch-scoped candidate cache, optionally seeds from a prior
+   candidate artifact, and checkpoints a successful tranche before comparison.
+   This prevents a partial, order-dependent cross-section from being treated as
+   validation evidence; it does not solve the point-in-time limitation in
+   condition 6.
+
+The candidate job may use `SUPABASE_URL` and the service-role secret to bulk-read
+the same cached transcript evidence as production. `SUPABASE_READ_ONLY=True`
+rejects non-GET requests: validation does not publish to Supabase, and neither
+the secret nor any other credential is included in its cache or artifacts.

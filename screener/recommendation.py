@@ -817,6 +817,11 @@ class RecommendationPolicy:
         frame["Decision_Rating"] = ratings
         frame["Final_Score"] = frame["Decision_Score"]
         frame["Rating"] = frame["Decision_Rating"]
+        # Compatibility alias.  Liquidity now runs before this policy so Model
+        # 5.0 can use execution suitability as a gate; at that earlier stage no
+        # final Rating exists yet.  The policy is the sole rating writer and
+        # must therefore refresh the alias after every finalization/replay.
+        frame["Investment_Rating"] = frame["Decision_Rating"]
         frame["Buy_Eligible"] = buy_eligible_values
         frame["Strong_Buy_Eligible"] = strong_eligible_values
         frame["Trend_Confirmed"] = trend_confirmed_values
@@ -1134,9 +1139,18 @@ class RecommendationPolicy:
         )
         # Primary investment rank is decision-score first.  Recommendation_Rank
         # remains available for consumers that explicitly want rating classes.
-        if _as_bool(
-            getattr(self.config, "RANK_BY_ELIGIBILITY_CLASS", False)
-        ) and "Eligibility_Class" in ranked:
+        factor_model_run = (
+            _as_bool(getattr(self.config, "FACTOR_MODEL_ENABLED", False))
+            and "Factor_Model_Applied" in ranked
+            and bool(_bool_series(ranked, "Factor_Model_Applied", False).all())
+        )
+        if (
+            factor_model_run
+            and _as_bool(
+                getattr(self.config, "RANK_BY_ELIGIBILITY_CLASS", False)
+            )
+            and "Eligibility_Class" in ranked
+        ):
             # Eligibility first, then the uncapped research score. Every capped
             # candidate shares one ceiling, so ordering them by Decision_Score
             # sorts a column that is constant by construction and falls through

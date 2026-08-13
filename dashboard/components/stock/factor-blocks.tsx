@@ -1,32 +1,44 @@
 import { cn } from "@/lib/utils";
 import { MISSING } from "@/lib/format";
 import { eligibilityClass, marketRegime, primaryGate } from "@/lib/labels";
-import { FACTOR_BLOCKS, type SnapshotRow } from "@/lib/types";
+import {
+  factorContribution,
+  publishedFactorWeight,
+  researchScoreMode,
+} from "@/lib/model-display.mjs";
+import { FACTOR_BLOCKS, type SnapshotRowWithPayload } from "@/lib/types";
 
 /**
  * Model 5.0 factor breakdown.
  *
- * Shows each block's contribution to the blend alongside its percentile and
- * how much of it was actually observed. The three are deliberately kept
- * distinct: a block can score well on thin evidence, and the coverage figure is
- * the only thing that says so. The published research score is the percentile
- * of the blend, not the blend itself, so both are shown -- otherwise the
- * weighted contributions visibly fail to add up to the headline number.
+ * Shows each block's score, actual normalized run weight, weighted
+ * contribution, percentile and coverage. The values are deliberately kept
+ * distinct: a block can score well on thin evidence, and the coverage figure
+ * is the only thing that says so. When the run publishes the blend's
+ * cross-sectional percentile, both the raw blend and percentile are shown.
  */
-export function FactorBlocks({ row }: { row: SnapshotRow }) {
+export function FactorBlocks({ row }: { row: SnapshotRowWithPayload }) {
   if (!row.factor_model_applied) return null;
 
+  const payload = row.payload ?? {};
+  const scoreMode = researchScoreMode(row.research_score_basis);
   const blocks = FACTOR_BLOCKS.map((block) => {
-    const score = row[`${block.key}_score` as keyof SnapshotRow] as
+    const score = row[`${block.key}_score` as keyof SnapshotRowWithPayload] as
       | number
       | null;
-    const percentile = row[`${block.key}_percentile` as keyof SnapshotRow] as
+    const percentile = row[
+      `${block.key}_percentile` as keyof SnapshotRowWithPayload
+    ] as
       | number
       | null;
-    const coverage = row[`${block.key}_coverage` as keyof SnapshotRow] as
+    const coverage = row[
+      `${block.key}_coverage` as keyof SnapshotRowWithPayload
+    ] as
       | number
       | null;
-    return { ...block, score, percentile, coverage };
+    const weight = publishedFactorWeight(payload, block.weightPayloadKey);
+    const contribution = factorContribution(score, weight);
+    return { ...block, score, percentile, coverage, weight, contribution };
   });
 
   return (
@@ -40,7 +52,9 @@ export function FactorBlocks({ row }: { row: SnapshotRow }) {
                 <span className="font-medium">
                   {block.label}
                   <span className="ml-1.5 text-xs text-muted-foreground">
-                    {Math.round(block.weight * 100)}%
+                    {block.weight === null
+                      ? MISSING
+                      : `${(block.weight * 100).toFixed(1)}%`}
                   </span>
                 </span>
                 <span className="tabular font-mono text-xs">
@@ -81,7 +95,11 @@ export function FactorBlocks({ row }: { row: SnapshotRow }) {
               </div>
 
               <p className="text-[11px] text-muted-foreground">
-                Coverage{" "}
+                Contribution{" "}
+                {block.contribution === null
+                  ? MISSING
+                  : `${block.contribution.toFixed(2)} pts`}
+                {" · "}Coverage{" "}
                 {block.coverage === null
                   ? MISSING
                   : `${Math.round(block.coverage * 100)}%`}
@@ -133,9 +151,8 @@ export function FactorBlocks({ row }: { row: SnapshotRow }) {
 
       {row.value_quality_cap_applied ? (
         <p className="rounded border border-caution/40 bg-caution/10 p-2 text-[11px] leading-snug">
-          Value was capped at 50 because quality sits in the bottom{" "}
-          {Math.round(30)}% of the cross-section — the classic value trap. The
-          uncapped value score was{" "}
+          The configured low-quality guard capped the Value block to avoid
+          promoting a cheap-but-weak company. The uncapped value score was{" "}
           <span className="tabular font-mono">
             {row.value_score_uncapped?.toFixed(1) ?? MISSING}
           </span>
@@ -143,13 +160,27 @@ export function FactorBlocks({ row }: { row: SnapshotRow }) {
         </p>
       ) : null}
 
-      <p className="text-[11px] leading-snug text-muted-foreground">
-        The published research score is the percentile of the weighted blend
-        across this run&apos;s universe, so it will not equal the weighted sum
-        above. Ratings are therefore relative to the cross-section; the absolute
-        protections are the trend, coverage and liquidity gates and the regime
-        overlay.
-      </p>
+      {scoreMode === "percentile" ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          The contributions sum to the raw blend shown above. The published
+          research score is that blend&apos;s percentile across this run&apos;s
+          universe, so it will not equal their sum. Ratings are relative to the
+          cross-section; trend, coverage, liquidity and regime gates provide
+          the absolute protections.
+        </p>
+      ) : scoreMode === "weighted" ? (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          This run publishes the weighted block average directly, so the
+          contributions sum to the research score apart from display rounding.
+          The configured policy gates are applied after that research score.
+        </p>
+      ) : (
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          The contributions sum to the raw weighted blend. This row does not
+          identify whether the published research score is that blend or its
+          cross-sectional percentile, so no basis is inferred by the dashboard.
+        </p>
+      )}
     </div>
   );
 }

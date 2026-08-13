@@ -382,6 +382,63 @@ class RecommendationPolicyTests(unittest.TestCase):
         self.assertEqual(result.loc["HIGH_EVIDENCE_CAPPED", "Investment_Rank"], 3)
         self.assertEqual(result.loc["STRONG", "Recommendation_Rank"], 1)
 
+    def test_factor_eligibility_ranking_does_not_leak_into_four_x(self):
+        settings = config()
+        settings.FACTOR_MODEL_ENABLED = False
+        # This secondary setting defaults on for Model 5.0, but the master
+        # switch must keep it from changing a 4.x production run.
+        settings.RANK_BY_ELIGIBILITY_CLASS = True
+        source = pd.DataFrame(
+            [
+                row("LOW_CLEAR", 45.0),
+                row(
+                    "HIGH_BUY_ONLY",
+                    80.0,
+                    Revenue_Growth=0.0,
+                    Earnings_Growth=0.0,
+                ),
+            ]
+        )
+
+        result = finalize_recommendations(source, settings).set_index("Symbol")
+
+        self.assertEqual(result.loc["HIGH_BUY_ONLY", "Rating"], "BUY")
+        self.assertEqual(result.loc["LOW_CLEAR", "Rating"], "REDUCE")
+        self.assertEqual(result.loc["HIGH_BUY_ONLY", "Investment_Rank"], 1)
+        self.assertEqual(result.loc["LOW_CLEAR", "Investment_Rank"], 2)
+
+    def test_factor_eligibility_ranking_requires_factor_rows(self):
+        settings = config()
+        settings.FACTOR_MODEL_ENABLED = True
+        settings.RANK_BY_ELIGIBILITY_CLASS = True
+        source = pd.DataFrame(
+            [
+                row("LOW_CLEAR", 45.0, Factor_Model_Applied=False),
+                row(
+                    "HIGH_BUY_ONLY",
+                    80.0,
+                    Factor_Model_Applied=False,
+                    Revenue_Growth=0.0,
+                    Earnings_Growth=0.0,
+                ),
+            ]
+        )
+
+        result = finalize_recommendations(source, settings).set_index("Symbol")
+
+        self.assertEqual(result.loc["HIGH_BUY_ONLY", "Investment_Rank"], 1)
+        self.assertEqual(result.loc["LOW_CLEAR", "Investment_Rank"], 2)
+
+    def test_final_policy_refreshes_investment_rating_alias(self):
+        source = pd.DataFrame(
+            [row("ALPHA", 65.0, Investment_Rating="")]
+        )
+
+        result = finalize_recommendations(source, config()).iloc[0]
+
+        self.assertEqual(result["Rating"], "BUY")
+        self.assertEqual(result["Investment_Rating"], result["Rating"])
+
     def test_finalizer_is_pure_and_deterministic(self):
         source = pd.DataFrame([row("A", 70.0), row("B", 65.0)])
         original = source.copy(deep=True)

@@ -129,6 +129,10 @@ export async function getLatestRun(): Promise<ScreenerRun | null> {
   const { data, error } = await supabase
     .from("screener_runs")
     .select("*")
+    // The publisher reserves a run_date with row_count=0 before writing its
+    // dependent rows, then replaces this with the completed manifest. Never
+    // let an in-flight or abandoned reservation displace the last good run.
+    .gt("row_count", 0)
     .order("run_date", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -145,6 +149,7 @@ export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
   const { data, error } = await supabase
     .from("screener_runs")
     .select("*")
+    .gt("row_count", 0)
     .order("run_date", { ascending: false })
     .limit(limit);
 

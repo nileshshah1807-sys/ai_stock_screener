@@ -72,7 +72,7 @@ class Config:
     RECOMMENDATION_POLICY_VERSION = os.getenv(
         "RECOMMENDATION_POLICY_VERSION", "4.0.0-candidate"
     )
-    OUTPUT_SCHEMA_VERSION = os.getenv("OUTPUT_SCHEMA_VERSION", "4.0.0")
+    OUTPUT_SCHEMA_VERSION = os.getenv("OUTPUT_SCHEMA_VERSION", "4.1.0")
     MODEL_VALIDATION_STATUS = os.getenv(
         "MODEL_VALIDATION_STATUS",
         "Research model; point-in-time out-of-sample validation pending",

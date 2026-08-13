@@ -405,7 +405,17 @@ class FinancialStatementCollector:
         one run into a multi-hour job; symbols still missing are simply reported
         as having no statement evidence and the policy fails them closed.
         """
-        wanted = sorted({str(s).strip().upper() for s in symbols if str(s).strip()})
+        # Caller order is a PRIORITY order and is preserved. Sorting here would
+        # make the per-run budget fetch alphabetically, and because the factor
+        # model's coverage gate treats statement data as a prerequisite for BUY
+        # eligibility, that let a symbol's first letter decide whether it could
+        # be rated at all. A partial build must cover the most investable names
+        # first, not the ones nearest the front of the alphabet.
+        wanted = list(
+            dict.fromkeys(
+                str(s).strip().upper() for s in symbols if str(s).strip()
+            )
+        )
         if not wanted or not getattr(
             self.config, "STATEMENT_COLLECTION_ENABLED", True
         ):
@@ -443,13 +453,12 @@ class FinancialStatementCollector:
             if (index + 1) % 100 == 0:
                 logger.info("Statements fetched %d/%d", index + 1, len(to_fetch))
 
+        fetched_symbols = {record["Symbol"] for record in fetched_records}
         frames = []
         if not cached.empty:
             # Keep every cached row, not just this run's universe: dropping rows
             # for symbols absent today would force a refetch tomorrow.
-            frames.append(cached[~cached["Symbol"].isin(
-                {r["Symbol"] for r in fetched_records}
-            )])
+            frames.append(cached[~cached["Symbol"].isin(fetched_symbols)])
         if fetched_records:
             frames.append(pd.DataFrame(fetched_records))
         if not frames:
@@ -467,24 +476,83 @@ class FinancialStatementCollector:
         except Exception as exc:
             logger.warning("Statement cache save failed: %s", exc)
 
-        result = combined[combined["Symbol"].isin(wanted)].copy()
+        # Persistence and scoring have different contracts. Expired rows stay
+        # in the cache so a later run can retry them, but only fresh cached rows
+        # and successful refreshes may contribute evidence to today's model.
+        # In particular, a stale row outside this run's budget (or one whose
+        # refresh failed) must not silently pass the statement-coverage gates.
+        usable_symbols = fresh_symbols | fetched_symbols
+        result = combined[
+            combined["Symbol"].isin(wanted)
+            & combined["Symbol"].isin(usable_symbols)
+        ].copy()
         keep = ["Symbol", "Statement_Cached_Date", "Statement_Source"] + [
             column for column in DERIVED_COLUMNS if column in result.columns
         ]
         return result[[column for column in keep if column in result.columns]]
 
+    @staticmethod
+    def _priority_order(frame):
+        """Most-traded symbols first, so a partial build covers what matters.
+
+        Falls back to market cap, then to the frame's own order. Never sorts
+        alphabetically: see the note in ``collect``.
+        """
+        for column in ("Median_Turnover_20D_INR", "Avg_Turnover_INR", "Market_Cap"):
+            if column in frame:
+                ranked = pd.to_numeric(frame[column], errors="coerce")
+                if ranked.notna().any():
+                    order = ranked.sort_values(
+                        ascending=False, na_position="last", kind="mergesort"
+                    ).index
+                    return frame.loc[order, "Symbol"].astype(str).tolist()
+        return frame["Symbol"].astype(str).tolist()
+
+    @staticmethod
+    def _record_coverage(enriched):
+        """Attach and report run-level statement coverage."""
+        available = int(enriched["Statement_Record_Available"].sum())
+        share = available / len(enriched) if len(enriched) else 0.0
+        logger.info(
+            "Statement evidence attached for %d/%d symbol(s) (%.0f%%)",
+            available,
+            len(enriched),
+            share * 100,
+        )
+        # A partial build is not a neutral degradation. The factor model's
+        # coverage gate makes statement data a prerequisite for BUY
+        # eligibility, so a half-built cache does not merely weaken the quality
+        # block -- it decides which symbols can be rated at all, and the
+        # cross-sectional percentiles are computed over the covered subset.
+        # Say so loudly rather than publishing a confident-looking ranking of
+        # whichever names happened to be fetched first.
+        if share < 0.90:
+            logger.warning(
+                "Statement coverage is %.0f%% (%d/%d). The factor model's "
+                "quality and growth blocks are unobserved for the remainder, "
+                "and only covered symbols can clear the BUY coverage gate. "
+                "This ranking is NOT representative of the full universe; "
+                "raise STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN or re-run until the "
+                "cache is built before comparing models.",
+                share * 100,
+                available,
+                len(enriched),
+            )
+        enriched["Statement_Universe_Coverage"] = round(share, 4)
+        return enriched
+
     def enrich(self, frame):
         """Left-join derived statement factors onto a scored/merged frame."""
         if frame is None or frame.empty or "Symbol" not in frame:
             return frame
-        statements = self.collect(frame["Symbol"].astype(str).tolist())
+        statements = self.collect(self._priority_order(frame))
         if statements.empty:
             enriched = frame.copy()
             enriched["Statement_Record_Available"] = False
             for column in DERIVED_COLUMNS:
                 if column not in enriched:
                     enriched[column] = np.nan
-            return enriched
+            return self._record_coverage(enriched)
         enriched = frame.merge(
             statements, on="Symbol", how="left", validate="one_to_one"
         )
@@ -493,10 +561,4 @@ class FinancialStatementCollector:
             .fillna(0)
             .gt(0)
         )
-        available = int(enriched["Statement_Record_Available"].sum())
-        logger.info(
-            "Statement evidence attached for %d/%d symbol(s)",
-            available,
-            len(enriched),
-        )
-        return enriched
+        return self._record_coverage(enriched)

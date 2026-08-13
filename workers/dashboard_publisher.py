@@ -416,6 +416,94 @@ def map_row(
     return mapped
 
 
+def _existing_run(repository: DashboardRepository, run_date: str) -> dict[str, Any] | None:
+    """Return existing metadata for ``run_date``, if any.
+
+    Replacing an existing date cannot be made atomic through the current
+    PostgREST adapter: snapshot rows are written in chunks, so a later failure
+    could leave a previously successful run only partly overwritten. Refusing
+    that operation before the first write is the fail-closed choice. A row with
+    ``row_count=0`` is different: it is an incomplete publisher reservation and
+    can be reclaimed before retrying the serialized scheduled workflow.
+    """
+    rows = repository._request(  # noqa: SLF001 - repository has no dated lookup
+        "GET",
+        "screener_runs",
+        params={
+            "select": "run_date,row_count",
+            "run_date": f"eq.{run_date}",
+            "limit": "1",
+        },
+    )
+    return rows[0] if rows else None
+
+
+def _reserve_run(
+    repository: DashboardRepository,
+    run_date: str,
+    generated_at_utc: str,
+) -> None:
+    """Create the minimum parent row required by the snapshot foreign key.
+
+    This is deliberately a plain INSERT rather than an upsert. The prior
+    existence check gives a useful error, while the primary-key constraint
+    closes the race if another publisher reserves the date concurrently.
+    Complete run metadata is not written until snapshot and history writes have
+    both succeeded.
+    """
+    repository._request(  # noqa: SLF001 - reservation is a publisher protocol
+        "POST",
+        "screener_runs",
+        json={
+            "run_date": run_date,
+            "generated_at_utc": generated_at_utc,
+            "row_count": 0,
+        },
+        headers={"Prefer": "return=minimal"},
+    )
+
+
+def _remove_failed_reservation(
+    repository: DashboardRepository,
+    run_date: str,
+) -> list[str]:
+    """Best-effort compensation for a failed multi-request publication.
+
+    Deleting the reserved run cascades to partial snapshot rows. History has no
+    foreign key to ``screener_runs``, so it must be removed explicitly. A true
+    all-or-nothing guarantee would require a database transaction/RPC; until
+    that exists, returning cleanup errors lets the caller fail loudly rather
+    than claim that the old dashboard state was preserved.
+    """
+    errors: list[str] = []
+    history_cleaned = False
+    try:
+        repository._request(  # noqa: SLF001 - compensating publisher protocol
+            "DELETE",
+            "screener_history",
+            params={"observed_on": f"eq.{run_date}"},
+            headers={"Prefer": "return=minimal"},
+        )
+        history_cleaned = True
+    except Exception as exc:  # noqa: BLE001 - retain the original publish error
+        errors.append(f"history cleanup failed: {exc}")
+
+    # Retain the zero-row reservation when history cleanup fails. Otherwise a
+    # later retry would see no reservation, skip recovery, and merge its history
+    # over orphan rows left by this attempt.
+    if history_cleaned:
+        try:
+            repository._request(  # noqa: SLF001 - compensating publisher protocol
+                "DELETE",
+                "screener_runs",
+                params={"run_date": f"eq.{run_date}"},
+                headers={"Prefer": "return=minimal"},
+            )
+        except Exception as exc:  # noqa: BLE001 - retain the original publish error
+            errors.append(f"run reservation cleanup failed: {exc}")
+    return errors
+
+
 def resolve_run_date(df: pd.DataFrame, csv_path: Path, override: str | None) -> str:
     """Determine the run date, preferring evidence inside the file.
 
@@ -564,17 +652,64 @@ def publish(
         return summary
 
     repository = DashboardRepository.from_environment()
-    repository.upsert_run(run_row)
-    written = repository.replace_snapshot_rows(run_date, snapshot_rows, chunk_size)
-    repository.delete_stale_snapshot_rows(run_date, seen_symbols)
-    history_written = repository.upsert_history_rows(history_rows)
-    pruned = repository.prune_snapshots(keep_runs)
+    existing_run = _existing_run(repository, run_date)
+    if existing_run is not None:
+        existing_row_count = coerce_int(existing_run.get("row_count"))
+        if existing_row_count != 0:
+            raise RuntimeError(
+                f"Run {run_date} is already published; refusing a non-atomic "
+                "same-date replacement that could damage its snapshot"
+            )
+
+        # Scheduled publishers are serialized by the workflow concurrency
+        # group. A zero-row parent can therefore only be an abandoned prior
+        # reservation, not a live peer. Remove orphan history first, then the
+        # parent (which cascades to partial snapshot rows), before reserving the
+        # date again.
+        cleanup_errors = _remove_failed_reservation(repository, run_date)
+        if cleanup_errors:
+            raise RuntimeError(
+                f"Incomplete reservation for {run_date} could not be reclaimed: "
+                + "; ".join(cleanup_errors)
+            )
+        logger.warning("Reclaimed incomplete dashboard reservation for %s", run_date)
+
+    # screener_snapshot has a foreign key to screener_runs, so a minimal parent
+    # must exist before the chunked dependent writes. It is only a reservation:
+    # the complete row (including row_count and model identity) is published
+    # after every snapshot/history write succeeds. On failure, compensation
+    # removes the reservation and cascades away partial snapshot chunks.
+    _reserve_run(repository, run_date, run_row["generated_at_utc"])
+    try:
+        written = repository.replace_snapshot_rows(run_date, snapshot_rows, chunk_size)
+        repository.delete_stale_snapshot_rows(run_date, seen_symbols)
+        history_written = repository.upsert_history_rows(history_rows)
+        repository.upsert_run(run_row)
+    except Exception as exc:
+        cleanup_errors = _remove_failed_reservation(repository, run_date)
+        if cleanup_errors:
+            raise RuntimeError(
+                f"Publish failed for {run_date}: {exc}; " + "; ".join(cleanup_errors)
+            ) from exc
+        raise
+
+    prune_error = None
+    try:
+        pruned = repository.prune_snapshots(keep_runs)
+    except Exception as exc:  # noqa: BLE001 - retention must not invalidate a publish
+        # The new run is already complete and visible. Retention is housekeeping,
+        # so failing it must not turn the workflow red and trigger a same-date
+        # retry that is correctly refused as a non-atomic replacement.
+        pruned = 0
+        prune_error = str(exc)
+        logger.warning("Dashboard snapshot pruning failed after publish: %s", exc)
 
     summary.update(
         {
             "snapshot_rows_written": written,
             "history_rows_written": history_written,
             "runs_pruned": pruned,
+            "prune_error": prune_error,
         }
     )
     return summary

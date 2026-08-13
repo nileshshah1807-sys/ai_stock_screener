@@ -37,18 +37,32 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
         )
 
     @staticmethod
-    def _config(output_dir):
+    def _config(output_dir, *, factor_model_enabled=False):
         return SimpleNamespace(
             OUTPUT_DIR=Path(output_dir),
             PRICE_CACHE_MAX_AGE_HOURS=18,
             FUND_CACHE_MAX_AGE_DAYS=7,
+            FACTOR_MODEL_ENABLED=factor_model_enabled,
+            PRICE_HISTORY_PERIOD="2y",
+            LEGACY_HISTORY_WINDOW_SESSIONS=126,
+            MIN_PRICE_SESSIONS_REQUIRED=60,
         )
 
-    def _collect(self, now, frame, *, completion_cutoff=None):
+    def _collect(
+        self,
+        now,
+        frame,
+        *,
+        completion_cutoff=None,
+        factor_model_enabled=False,
+    ):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         collector = StockDataCollector(
-            self._config(directory.name),
+            self._config(
+                directory.name,
+                factor_model_enabled=factor_model_enabled,
+            ),
             clock=lambda: now,
             completion_cutoff=completion_cutoff,
         )
@@ -135,6 +149,82 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
         self.assertEqual(result.iloc[0]["Current_Price"], 179.0)
         self.assertEqual(result.iloc[0]["Price_Bar_As_Of"], "2026-08-07")
 
+    def test_history_and_indicator_cache_contract_follow_master_factor_flag(self):
+        now = datetime(2026, 8, 10, 16, 15, tzinfo=IST)
+        legacy_frame = self._price_frame(periods=126)
+        factor_frame = self._price_frame(periods=300)
+
+        with tempfile.TemporaryDirectory() as legacy_dir:
+            legacy_collector = StockDataCollector(
+                self._config(legacy_dir, factor_model_enabled=False),
+                clock=lambda: now,
+            )
+            with patch(
+                "screener.data_collection.yf.download",
+                return_value=legacy_frame,
+            ) as legacy_download:
+                legacy = legacy_collector.download_stock_data(["EXAMPLE"])
+
+        with tempfile.TemporaryDirectory() as factor_dir:
+            factor_collector = StockDataCollector(
+                self._config(factor_dir, factor_model_enabled=True),
+                clock=lambda: now,
+            )
+            with patch(
+                "screener.data_collection.yf.download",
+                return_value=factor_frame,
+            ) as factor_download:
+                factor = factor_collector.download_stock_data(["EXAMPLE"])
+
+        self.assertEqual(legacy_download.call_args.kwargs["period"], "6mo")
+        self.assertEqual(factor_download.call_args.kwargs["period"], "2y")
+        self.assertEqual(
+            legacy.iloc[0]["Technical_Indicator_Version"],
+            TechnicalEnhancer.INDICATOR_VERSION,
+        )
+        self.assertEqual(
+            factor.iloc[0]["Technical_Indicator_Version"],
+            TechnicalEnhancer.FACTOR_INDICATOR_VERSION,
+        )
+        self.assertNotIn("MA200", legacy.columns)
+        self.assertFalse(pd.isna(factor.iloc[0]["MA200"]))
+
+    def test_legacy_uses_whole_six_month_payload_and_factor_pins_126_rows(self):
+        now = datetime(2026, 8, 10, 16, 15, tzinfo=IST)
+        frame = self._price_frame(periods=130, final_price=200.0)
+        # Yahoo's calendar-period response can contain a few more/fewer than
+        # 126 sessions. Make the excluded head visibly affect every legacy
+        # whole-payload metric so a future unconditional tail() regresses.
+        frame.iloc[0, frame.columns.get_loc("Close")] = 500.0
+        frame.iloc[0, frame.columns.get_loc("Adj Close")] = 500.0
+        frame.iloc[0, frame.columns.get_loc("Volume")] = 9_000_000
+        frame.iloc[1, frame.columns.get_loc("Close")] = 5.0
+        frame.iloc[1, frame.columns.get_loc("Adj Close")] = 5.0
+
+        legacy = self._collect(now, frame, factor_model_enabled=False).iloc[0]
+        factor = self._collect(now, frame, factor_model_enabled=True).iloc[0]
+        closes = pd.to_numeric(frame["Adj Close"], errors="coerce")
+        volumes = pd.to_numeric(frame["Volume"], errors="coerce")
+        turnover = pd.to_numeric(frame["Close"], errors="coerce") * volumes
+
+        expected_legacy_return = (closes.iloc[-1] / closes.iloc[0] - 1.0) * 100
+        expected_factor_return = (closes.iloc[-1] / closes.iloc[-127] - 1.0) * 100
+        self.assertEqual(legacy["Pct_Change_6M"], round(expected_legacy_return, 2))
+        self.assertEqual(factor["Pct_Change_6M"], round(expected_factor_return, 2))
+        self.assertEqual(legacy["High_6M"], round(float(closes.max()), 2))
+        self.assertEqual(factor["High_6M"], round(float(closes.tail(126).max()), 2))
+        self.assertEqual(legacy["Low_6M"], round(float(closes.min()), 2))
+        self.assertEqual(factor["Low_6M"], round(float(closes.tail(126).min()), 2))
+        self.assertEqual(legacy["Avg_Volume"], int(volumes.mean()))
+        self.assertEqual(factor["Avg_Volume"], int(volumes.tail(126).mean()))
+        self.assertEqual(
+            legacy["Avg_Turnover_INR"], round(float(turnover.mean()), 2)
+        )
+        self.assertEqual(
+            factor["Avg_Turnover_INR"],
+            round(float(turnover.tail(126).mean()), 2),
+        )
+
     def test_symbol_lagging_expected_session_is_rejected_before_cutoff(self):
         frame = self._price_frame(end="2026-08-06", final_price=179.0)
 
@@ -178,6 +268,49 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
 
         self.assertFalse(before.empty)
         self.assertTrue(after.empty)
+
+    def test_price_cache_contracts_do_not_mix_v4_and_factor_rows(self):
+        legacy = self._cache_record()
+        factor = self._cache_record(
+            Technical_Indicator_Version=TechnicalEnhancer.FACTOR_INDICATOR_VERSION,
+            **{column: 1 for column in PriceCache.FACTOR_REQUIRED_COLUMNS},
+        )
+        as_of = datetime(2026, 8, 10, 15, 30, tzinfo=IST)
+        with tempfile.TemporaryDirectory() as directory:
+            legacy_path = Path(directory) / "legacy.csv"
+            factor_path = Path(directory) / "factor.csv"
+            PriceCache.save(legacy_path, [legacy])
+            PriceCache.save(factor_path, [factor])
+
+            legacy_for_v4 = PriceCache.load(
+                legacy_path,
+                max_age_hours=1_000_000,
+                as_of=as_of,
+                factor_model_enabled=False,
+            )
+            legacy_for_factor = PriceCache.load(
+                legacy_path,
+                max_age_hours=1_000_000,
+                as_of=as_of,
+                factor_model_enabled=True,
+            )
+            factor_for_factor = PriceCache.load(
+                factor_path,
+                max_age_hours=1_000_000,
+                as_of=as_of,
+                factor_model_enabled=True,
+            )
+            factor_for_v4 = PriceCache.load(
+                factor_path,
+                max_age_hours=1_000_000,
+                as_of=as_of,
+                factor_model_enabled=False,
+            )
+
+        self.assertFalse(legacy_for_v4.empty)
+        self.assertTrue(legacy_for_factor.empty)
+        self.assertFalse(factor_for_factor.empty)
+        self.assertTrue(factor_for_v4.empty)
 
     def test_after_cutoff_fetch_can_reuse_prior_bar_on_holiday(self):
         # 2026-08-11 is declared a holiday, so the latest expected completed
