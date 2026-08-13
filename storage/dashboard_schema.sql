@@ -317,6 +317,66 @@ create table if not exists screener_snapshot (
     primary key (run_date, symbol)
 );
 
+-- =====================================================================
+-- Model 5.0 migration for already-deployed databases
+-- =====================================================================
+-- `create table if not exists` above is a no-op on an existing deployment, so
+-- the Model 5.0 columns would never appear there. Re-running this whole file
+-- is the documented upgrade path, so the additions are repeated here as
+-- idempotent ALTERs. `add column if not exists` makes each line safe to run
+-- any number of times, and adding a nullable column takes no table rewrite.
+--
+-- Every column is nullable on purpose: rows written by the 4.x model have no
+-- factor evidence, and null is the honest representation of that. Consumers
+-- must branch on factor_model_applied rather than assume a missing score is a
+-- zero.
+alter table screener_snapshot
+    add column if not exists factor_model_applied boolean,
+    add column if not exists research_score numeric(6,2),
+    add column if not exists research_score_raw numeric(6,2),
+    add column if not exists research_score_basis text,
+    add column if not exists quality_score numeric(6,2),
+    add column if not exists growth_score numeric(6,2),
+    add column if not exists value_score numeric(6,2),
+    add column if not exists momentum_score numeric(6,2),
+    add column if not exists risk_score numeric(6,2),
+    add column if not exists quality_percentile numeric(6,2),
+    add column if not exists growth_percentile numeric(6,2),
+    add column if not exists value_percentile numeric(6,2),
+    add column if not exists momentum_percentile numeric(6,2),
+    add column if not exists risk_percentile numeric(6,2),
+    add column if not exists quality_coverage numeric(6,4),
+    add column if not exists growth_coverage numeric(6,4),
+    add column if not exists value_coverage numeric(6,4),
+    add column if not exists momentum_coverage numeric(6,4),
+    add column if not exists risk_coverage numeric(6,4),
+    add column if not exists factor_coverage numeric(6,4),
+    add column if not exists value_score_uncapped numeric(6,2),
+    add column if not exists value_quality_cap_applied boolean,
+    add column if not exists research_rating text,
+    add column if not exists policy_eligible_rating text,
+    add column if not exists execution_status text,
+    add column if not exists eligibility_class smallint,
+    add column if not exists primary_gate text,
+    add column if not exists gate_severity integer,
+    add column if not exists market_regime text,
+    add column if not exists ma200 numeric(14,2),
+    add column if not exists ma200_slope_pct numeric(10,4),
+    add column if not exists price_to_ma200_pct numeric(10,3),
+    add column if not exists ma50_to_ma200_pct numeric(10,3),
+    add column if not exists below_ma200_streak integer,
+    add column if not exists momentum_12_1_pct numeric(10,2),
+    add column if not exists momentum_6_1_pct numeric(10,2),
+    add column if not exists pct_change_12m numeric(10,2),
+    add column if not exists rs_market_6m_pct numeric(10,3),
+    add column if not exists rs_market_12m_pct numeric(10,3),
+    add column if not exists rs_sector_6m_pct numeric(10,3),
+    add column if not exists trend_quality_r2 numeric(8,4),
+    add column if not exists volatility_ann_pct numeric(10,3),
+    add column if not exists max_drawdown_1y_pct numeric(10,3),
+    add column if not exists downside_deviation_pct numeric(10,3),
+    add column if not exists roic numeric(12,4);
+
 -- Grid default ordering.
 create index if not exists screener_snapshot_rank_idx
     on screener_snapshot (run_date, investment_rank);
@@ -382,6 +442,12 @@ create table if not exists screener_history (
     rating_capped boolean,
     primary key (observed_on, symbol)
 );
+
+-- Model 5.0 migration for already-deployed databases; see the note above.
+alter table screener_history
+    add column if not exists research_score numeric(6,2),
+    add column if not exists eligibility_class smallint,
+    add column if not exists primary_gate text;
 
 create index if not exists screener_history_symbol_date_idx
     on screener_history (symbol, observed_on desc);
@@ -508,68 +574,3 @@ revoke all on function dashboard_has_access() from public;
 revoke all on function dashboard_is_admin() from public;
 grant execute on function dashboard_has_access() to authenticated, service_role;
 grant execute on function dashboard_is_admin() to authenticated, service_role;
-
--- =====================================================================
--- Model 5.0 migration for already-deployed databases
--- =====================================================================
--- `create table if not exists` above is a no-op on an existing deployment, so
--- the Model 5.0 columns would never appear there. Re-running this whole file
--- is the documented upgrade path, so the additions are repeated here as
--- idempotent ALTERs. `add column if not exists` makes each line safe to run
--- any number of times, and adding a nullable column takes no table rewrite.
---
--- Every column is nullable on purpose: rows written by the 4.x model have no
--- factor evidence, and null is the honest representation of that. Consumers
--- must branch on factor_model_applied rather than assume a missing score is a
--- zero.
-alter table screener_snapshot
-    add column if not exists factor_model_applied boolean,
-    add column if not exists research_score numeric(6,2),
-    add column if not exists research_score_raw numeric(6,2),
-    add column if not exists research_score_basis text,
-    add column if not exists quality_score numeric(6,2),
-    add column if not exists growth_score numeric(6,2),
-    add column if not exists value_score numeric(6,2),
-    add column if not exists momentum_score numeric(6,2),
-    add column if not exists risk_score numeric(6,2),
-    add column if not exists quality_percentile numeric(6,2),
-    add column if not exists growth_percentile numeric(6,2),
-    add column if not exists value_percentile numeric(6,2),
-    add column if not exists momentum_percentile numeric(6,2),
-    add column if not exists risk_percentile numeric(6,2),
-    add column if not exists quality_coverage numeric(6,4),
-    add column if not exists growth_coverage numeric(6,4),
-    add column if not exists value_coverage numeric(6,4),
-    add column if not exists momentum_coverage numeric(6,4),
-    add column if not exists risk_coverage numeric(6,4),
-    add column if not exists factor_coverage numeric(6,4),
-    add column if not exists value_score_uncapped numeric(6,2),
-    add column if not exists value_quality_cap_applied boolean,
-    add column if not exists research_rating text,
-    add column if not exists policy_eligible_rating text,
-    add column if not exists execution_status text,
-    add column if not exists eligibility_class smallint,
-    add column if not exists primary_gate text,
-    add column if not exists gate_severity integer,
-    add column if not exists market_regime text,
-    add column if not exists ma200 numeric(14,2),
-    add column if not exists ma200_slope_pct numeric(10,4),
-    add column if not exists price_to_ma200_pct numeric(10,3),
-    add column if not exists ma50_to_ma200_pct numeric(10,3),
-    add column if not exists below_ma200_streak integer,
-    add column if not exists momentum_12_1_pct numeric(10,2),
-    add column if not exists momentum_6_1_pct numeric(10,2),
-    add column if not exists pct_change_12m numeric(10,2),
-    add column if not exists rs_market_6m_pct numeric(10,3),
-    add column if not exists rs_market_12m_pct numeric(10,3),
-    add column if not exists rs_sector_6m_pct numeric(10,3),
-    add column if not exists trend_quality_r2 numeric(8,4),
-    add column if not exists volatility_ann_pct numeric(10,3),
-    add column if not exists max_drawdown_1y_pct numeric(10,3),
-    add column if not exists downside_deviation_pct numeric(10,3),
-    add column if not exists roic numeric(12,4);
-
-alter table screener_history
-    add column if not exists research_score numeric(6,2),
-    add column if not exists eligibility_class smallint,
-    add column if not exists primary_gate text;
