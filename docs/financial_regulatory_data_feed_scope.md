@@ -98,23 +98,78 @@ Spot-checked against reported Q3 FY25 figures — all three match:
 
 | Source | Probe result |
 |---|---|
-| `NBFC_INDAS_` XBRL (116 symbols) | No NPA, CAR or asset-quality tags of any kind. NBFCs disclose GNPA in results PDFs and investor presentations, not in the tagged filing. |
+| `NBFC_INDAS_` XBRL (116 symbols) | No NPA, Stage 3, CAR or asset-quality tags of any kind — confirmed on 6 NBFCs, and on annual filings with 226 populated tags. Only `ImpairmentOnFinancialInstruments` (a P&L credit-cost flow) is tagged. |
 | Capital adequacy / CRAR, any NSE taxonomy | Absent. Only `AdditionalTier1Ratio` exists, and it reads `0.00` for HDFCBANK. CRAR is disclosed in the notes to the results, i.e. in the PDF. |
 | Insurance solvency | No `bank` flag for insurers and no rows returned for `HDFCLIFE` on this endpoint. Not in this feed. |
+| yfinance statements for NBFCs | No loan book and no credit provisions. `Receivables` for BAJFINANCE is ₹58bn against ₹5,599bn of total assets, i.e. not the loan book. Cannot support a credit-cost ratio. |
 | BSE `Corpfinancialresult` API | Returned an HTML error page, not JSON. `AnnGetData` returned `"No Record Found!"` for the same scrip. Not usable without further work. |
 | RBI DBIE (`data.rbi.org.in`) | An Angular single-page app; no plain REST endpoint. `cimsdbie.rbi.org.in` fails TLS verification (certificate hostname mismatch). Bank-wise data exists but is annual and would need a portal-specific client. |
 | IRDAI public disclosures | Liferay portal serving HTML; per-insurer quarterly disclosures are published as **PDF** (Form L-32 carries solvency). No structured feed. |
 | Existing VIGIL feed (`api.tigzig.com`) | Live tables are `credit_ratings`, `insider_trading`, `pledge_data`, `sast_disclosures`, `encumbrance_events`, `surveillance_flags`, `rpt_transactions`. No asset-quality table. |
 
+### 3.4 NBFC and CRAR evidence **does** exist — in the results PDF
+
+The structured feeds do not carry NBFC asset quality, but the underlying disclosure is mandatory
+and is published in the results attachment, which NSE exposes programmatically:
+
+```text
+GET https://www.nseindia.com/api/corporate-announcements?index=equities&symbol=BAJFINANCE
+    -> rows with attchmntFile -> https://nsearchives.nseindia.com/corporate/<file>.pdf
+```
+
+Verified content (PyMuPDF, already a dependency at `PyMuPDF>=1.27.1`):
+
+| Symbol | Extracted disclosure |
+|---|---|
+| BAJFINANCE | "Gross NPA (stage 3 assets gross) ratio 1.41%", "Net NPA (stage 3 net) ratio 0.5%", "Capital to risk-weighted assets ratio (calculated as per RBI guidelines)" |
+| SHRIRAMFIN | "Capital adequacy ratio (%)", "Gross NPA ratio (%)", "Net NPA ratio (%)", "NPA provision coverage ratio (%)" |
+| MUTHOOTFIN | "Stage III loan assets to Gross loan assets 3.51%", "Capital Adequacy Ratio 25.11%", "Provision Coverage Ratio" |
+
+**This also closes the CRAR gap for banks**, which no XBRL taxonomy carries. One PDF pipeline
+could serve all four fields for both banks and NBFCs.
+
+Measured reliability over 12 NBFCs, scanning up to 6 recent results attachments each and
+ignoring attachments of 3 pages or fewer:
+
+| Measure | Result |
+|---|---:|
+| Results PDF reachable | 86% |
+| Digitally extractable (>=500 chars/page, i.e. not a scan) | 86% |
+| CRAR phrase detected | 83% |
+| Gross NPA phrase detected | 50% |
+| Net NPA phrase detected | 50% |
+| All three detected | 42% |
+
+**The 50% is a detection limit, not an availability limit**, and the difference matters for
+estimating the work. Known causes, each fixable:
+
+1. **Label vocabulary varies by filer.** MUTHOOTFIN writes "Stage III" in Roman numerals, which a
+   `stage\s*3` pattern misses entirely. Others use "GNPA", "Gross Non-Performing Assets", or
+   "Gross Stage 3 assets to gross loan assets". A production extractor needs a curated synonym
+   set, not one regex.
+2. **Attachment selection is the real bottleneck.** Each company files ~57 results-related
+   announcements; many are one-page board-meeting intimations rather than the results with the
+   RBI annexure. Naively taking the most recent one yielded 29%; scanning six and skipping short
+   documents raised it to 42%.
+3. **Some filings are scanned images.** BAJFINANCE's 40-page, 8.9 MB PDF extracts as OCR-garbled
+   text ("Grou NPA (stage 3 as\"\"~ gro<1) ratio 1.41:."), where the phrase is still detectable
+   but the *number* is not safely parseable.
+4. **Labels and values are separated in the text stream.** SHRIRAMFIN's extraction emits every
+   value, then every label. Regex adjacency ("label followed by number") will silently mis-pair
+   figures. This needs coordinate-based table extraction via `page.find_tables()` or word
+   bounding boxes — the single most important design constraint here, because a mis-paired CRAR
+   is worse than a missing one: it passes the gate with a fabricated number.
+
 ## 4. Coverage this would actually buy
 
 | Population | Symbols | NPA | CRAR | Solvency |
 |---|---:|---|---|---|
-| Banks (`B`) | 41 | **NSE XBRL** | not sourced | n/a |
-| NBFC / finance (`F`) | 116 | not sourced | not sourced | n/a |
-| Insurers | few | n/a | n/a | not sourced |
+| Banks (`B`) | 41 | **NSE XBRL** (clean) | NSE results PDF | n/a |
+| NBFC / finance (`F`) | 116 | NSE results PDF | NSE results PDF | n/a |
+| Insurers | few | n/a | n/a | IRDAI PDF (not probed in depth) |
 
-So the free, official, structured route fully unblocks **NPA for 41 banks** and nothing else.
+The free structured route fully and cleanly unblocks **NPA for 41 banks**. Everything else is
+obtainable but only through PDF extraction, at the reliability measured in 3.4.
 
 Even for those 41, BUY additionally requires clearing the `Fundamental_Coverage` floor. Supplying
 2 of the 3 missing bank fields lifts coverage from 0.625 to 0.875, which clears both the 0.70
@@ -146,19 +201,39 @@ than left permanently missing.
 
 *Estimate: ~1 day including tests, entirely within existing patterns.*
 
-**Phase 2 — NBFC and insurer evidence (materially harder, decide separately).**
+**Phase 2 — NBFC NPA and CRAR from the results PDF (viable, but a real project).**
 
-Every remaining field lives in PDFs. Options, in descending order of robustness:
+Verified as available in 3.4. Design constraints that follow directly from the measurements:
 
-1. **A licensed data vendor** with company-level Indian financial-sector fundamentals. Solves
-   NPA, CRAR and solvency in one integration, with point-in-time history — which is also the
-   blocking dependency for the Model 5.0 walk-forward validation (section 20.9). This is the only
-   option that solves both problems at once and is worth pricing before building anything bespoke.
-2. **PDF extraction** from NSE/BSE results attachments and IRDAI Form L-32. The repo already has
-   PDF handling in `transcripts/extractor.py` to build on. Fragile against layout changes and
-   needs per-company review; treat any extracted value as shadow evidence until reconciled.
-3. **RBI DBIE** for annual bank-wise CRAR. Official but annual, bank-only, and needs a
-   portal-specific client. Useful as a cross-check, not as the primary feed.
+- **Coordinate-based table extraction, never regex adjacency.** Labels and values are separated
+  in the text stream. A mis-paired CRAR is worse than a missing one, because it passes the
+  regulatory gate with a fabricated number. Use `page.find_tables()` or word bounding boxes and
+  require the value to sit in the same visual row as its label.
+- **Curated synonym set** covering at minimum: Stage 3 / Stage III / GNPA / Gross NPA / Gross
+  Non-Performing Assets / Gross Stage 3 assets to gross loan assets; and Capital Adequacy /
+  Capital to Risk-Weighted Assets / CRAR.
+- **Attachment selection needs its own logic** — filter to multi-page documents and prefer those
+  containing the annexure heading, rather than taking the most recent results announcement.
+- **Sanity bounds and shadow mode.** Reject GNPA outside 0-30%, CRAR outside 5-60%, and route
+  everything through the existing `Shadow_*` pattern (`red_flags/shadow.py`) until a sample has
+  been reconciled against the filings by hand. Extracted regulatory numbers should not gate a
+  live rating on their first run.
+- **Scanned filings must fail closed.** Where characters-per-page indicates an image PDF, emit
+  missing rather than a parsed number; BAJFINANCE demonstrates a case where the phrase is
+  detectable but the digits are corrupted.
+
+*Estimate: 1-2 weeks including per-company reconciliation, plus ongoing maintenance as filers
+change layout. This is the honest cost — it is a parsing project, not a collector.*
+
+**Phase 3 — insurers.** IRDAI publishes Form L-32 solvency as PDF only; individual insurer
+investor-relations pages carry the same. Few listed names, so manual quarterly entry into a small
+curated CSV is a defensible alternative to building a third extractor.
+
+**Alternative to Phases 2-3 — a licensed data vendor.** Company-level Indian financial-sector
+fundamentals with point-in-time history solves NPA, CRAR and solvency in one integration *and*
+resolves the point-in-time dependency that currently blocks Model 5.0's walk-forward validation
+(section 20.9). Given Phase 2 is 1-2 weeks plus indefinite maintenance, this should be priced
+against both needs together before any bespoke parser is written.
 
 **Do not** scrape aggregator sites (Screener.in, Trendlyne and similar). Their terms generally
 prohibit it, and the existing architecture's provenance discipline — source URL, as-of date,
@@ -166,11 +241,14 @@ verifiable primary filing — cannot be honoured by a derived, unattributable nu
 
 ## 6. Recommendation
 
-Do Phase 1. It is small, uses an official free source, is fully verified above, and unblocks the
-41 listed banks — the largest and most liquid part of the financial sector. Pair it with removing
-`Capital_Adequacy` from the bank/NBFC expected-field list, since keeping a permanently
-uncollectable field in a coverage denominator is a measurement bug, not conservatism.
-
-Price a licensed vendor before committing to Phase 2 by PDF extraction. The same purchase would
-resolve the point-in-time fundamentals gap that currently blocks Model 5.0's validation protocol,
-so it should be evaluated against both needs together rather than as a financials-only cost.
+1. **Do Phase 1 now.** Small, official, free, fully verified, and it unblocks the 41 listed banks
+   — the largest and most liquid part of the sector — for about a day of work.
+2. **Drop `Capital_Adequacy` from the bank/NBFC expected-field list** at the same time. Keeping a
+   permanently uncollectable field in a coverage denominator is a measurement bug, not
+   conservatism, and NPA alone lifts bank coverage from 0.625 to 0.875, clearing both the BUY and
+   STRONG BUY floors.
+3. **Price a licensed vendor before starting Phase 2.** The PDF route works and is fully scoped
+   above, but 1-2 weeks plus permanent layout maintenance, for 116 NBFCs, is a poor trade if a
+   vendor also closes the validation blocker.
+4. If no vendor is acquired, build Phase 2 in shadow mode and reconcile by hand before letting any
+   extracted number gate a published rating.

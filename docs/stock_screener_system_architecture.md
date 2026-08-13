@@ -1146,13 +1146,21 @@ Fully closing the gap therefore needs one of:
 
 **A feed has been scoped and verified — see `docs/financial_regulatory_data_feed_scope.md`.**
 Summary: NSE's `corporates-financial-results` API tags bank filings and serves them under a
-`BANKING_` XBRL taxonomy that carries `PercentageOfGrossNpa` and `PercentageOfNpa`, verified
-against reported figures for HDFCBANK, SBIN and AXISBANK. This unblocks the 41 listed banks and
-needs roughly a day of work. It does **not** solve NBFC NPA, capital adequacy or insurer
-solvency, none of which exist in any structured free source; those live in PDFs and are a
-separate decision. Note that the consolidated filing returns `0.00` for every NPA tag, so a naive
-reader would publish pristine asset quality for every bank — the scope document treats that as a
-required test, not a caveat.
+`BANKING_` XBRL taxonomy carrying `PercentageOfGrossNpa` and `PercentageOfNpa`, verified against
+reported figures for HDFCBANK, SBIN and AXISBANK. That unblocks the 41 listed banks for about a
+day of work. The consolidated filing returns `0.00` for every NPA tag, so a naive reader would
+publish pristine asset quality for every bank — the scope document treats that as a required
+test, not a caveat.
+
+NBFC asset quality and capital adequacy are **not** in any XBRL taxonomy, but they are in the
+results PDF, which NSE exposes through `corporate-announcements` and which PyMuPDF (already a
+dependency) can read. Measured over 12 NBFCs: CRAR detected in 83%, gross/net NPA in 50%, where
+the 50% is a detection limit — filers write "Stage III", "GNPA" and "Gross Stage 3 assets"
+interchangeably — rather than an availability limit. That route also closes the CRAR gap for
+banks, which no XBRL carries. It is viable but is a 1-2 week parsing project with permanent
+layout maintenance, and it must use coordinate-based table extraction: labels and values are
+separated in the text stream, and a mis-paired CRAR would pass the regulatory gate with a
+fabricated number.
 
 ### 20.9 Validation status and protocol
 
