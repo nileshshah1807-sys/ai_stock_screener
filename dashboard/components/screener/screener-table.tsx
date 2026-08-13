@@ -14,7 +14,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { dcfStatus } from "@/lib/labels";
+import { dcfStatus, primaryGate } from "@/lib/labels";
 import {
   formatINR,
   formatINRCompact,
@@ -97,6 +97,52 @@ function ScoreCell({ row }: { row: SnapshotRow }) {
   );
 }
 
+/**
+ * A factor percentile, shown as a rank within the cross-section.
+ *
+ * Rendered as "P72" rather than a bare 72 because these are percentiles, not
+ * scores on the same 0-100 scale as Decision. Conflating the two would invite
+ * reading a quality percentile as if it were a rating band.
+ */
+function PercentileCell({ value }: { value: number | null }) {
+  if (value === null || value === undefined) {
+    return <span className="text-muted-foreground">{MISSING}</span>;
+  }
+  return (
+    <span
+      className={cn(
+        "tabular font-mono text-xs",
+        value >= 70 ? "text-positive" : value < 30 ? "text-negative" : "",
+      )}
+    >
+      P{Math.round(value)}
+    </span>
+  );
+}
+
+/** The binding reason a row is not rated higher. */
+function GateChip({ gate }: { gate: string | null }) {
+  if (!gate || gate === "NONE") {
+    return <span className="text-muted-foreground">{MISSING}</span>;
+  }
+  const { label, meaning } = primaryGate(gate);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="cursor-help rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium" />
+        }
+      >
+        {label}
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72">
+        <p className="font-medium">{label}</p>
+        <p className="text-xs opacity-90">{meaning}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function ScreenerTable({
   rows,
   params,
@@ -109,6 +155,10 @@ export function ScreenerTable({
   dir: "asc" | "desc";
 }) {
   const headerProps = { currentSort: sort, currentDir: dir, params };
+  // A run is either 4.x or Model 5.0 for its whole cross-section, so one row
+  // settles it. Showing both column sets would double the grid width and leave
+  // whichever model did not run as a full column of dashes.
+  const factorModel = rows.some((row) => row.factor_model_applied === true);
 
   if (!rows.length) {
     return (
@@ -152,18 +202,46 @@ export function ScreenerTable({
                 numeric
                 title="Decision Score: evidence score after all coverage, quality, anomaly, and trend ceilings."
               />
-              <SortHeader
-                {...headerProps}
-                label="Fund"
-                column="fundamental_score"
-                numeric
-              />
-              <SortHeader
-                {...headerProps}
-                label="Tech"
-                column="technical_score"
-                numeric
-              />
+              {factorModel ? (
+                <>
+                  <SortHeader
+                    {...headerProps}
+                    label="Qual"
+                    column="quality_percentile"
+                    numeric
+                    title="Quality percentile: ROIC, cash generation, accruals, leverage and stability, ranked within sector. BUY needs 40, STRONG BUY 70."
+                  />
+                  <SortHeader
+                    {...headerProps}
+                    label="Mom"
+                    column="momentum_percentile"
+                    numeric
+                    title="Momentum percentile: risk-adjusted 12-1 and 6-1 returns plus relative strength. STRONG BUY needs 70."
+                  />
+                  <SortHeader
+                    {...headerProps}
+                    label="Grow"
+                    column="growth_percentile"
+                    numeric
+                    title="Growth percentile: multi-year CAGR, acceleration, margin direction and cash confirmation. STRONG BUY needs 60."
+                  />
+                </>
+              ) : (
+                <>
+                  <SortHeader
+                    {...headerProps}
+                    label="Fund"
+                    column="fundamental_score"
+                    numeric
+                  />
+                  <SortHeader
+                    {...headerProps}
+                    label="Tech"
+                    column="technical_score"
+                    numeric
+                  />
+                </>
+              )}
               <PlainHeader
                 label="Cov F/T"
                 numeric
@@ -176,6 +254,15 @@ export function ScreenerTable({
                 numeric
                 title="Reverse-DCF base-case upside. Evidence only; not a target price."
               />
+              {factorModel && (
+                <SortHeader
+                  {...headerProps}
+                  label="Gate"
+                  column="gate_severity"
+                  defaultDir="asc"
+                  title="The most severe reason this row is not rated higher. A BUY-eligible row can still show a STRONG BUY gate here."
+                />
+              )}
               <PlainHeader label="Evidence" title="Transcript, red-flag, and rating-cap indicators" />
               <SortHeader
                 {...headerProps}
@@ -235,12 +322,28 @@ export function ScreenerTable({
                   <ScoreCell row={row} />
                 </td>
 
-                <td className="tabular px-2 py-1.5 text-right font-mono text-xs">
-                  {formatScore(row.fundamental_score)}
-                </td>
-                <td className="tabular px-2 py-1.5 text-right font-mono text-xs">
-                  {formatScore(row.technical_score)}
-                </td>
+                {factorModel ? (
+                  <>
+                    <td className="px-2 py-1.5 text-right">
+                      <PercentileCell value={row.quality_percentile} />
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      <PercentileCell value={row.momentum_percentile} />
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      <PercentileCell value={row.growth_percentile} />
+                    </td>
+                  </>
+                ) : (
+                  <>
+                    <td className="tabular px-2 py-1.5 text-right font-mono text-xs">
+                      {formatScore(row.fundamental_score)}
+                    </td>
+                    <td className="tabular px-2 py-1.5 text-right font-mono text-xs">
+                      {formatScore(row.technical_score)}
+                    </td>
+                  </>
+                )}
 
                 <td className="px-2 py-1.5 text-right">
                   <CoverageCell
@@ -273,6 +376,12 @@ export function ScreenerTable({
                     </Tooltip>
                   )}
                 </td>
+
+                {factorModel && (
+                  <td className="px-2 py-1.5">
+                    <GateChip gate={row.primary_gate} />
+                  </td>
+                )}
 
                 <td className="px-2 py-1.5">
                   <span className="flex items-center gap-1.5">

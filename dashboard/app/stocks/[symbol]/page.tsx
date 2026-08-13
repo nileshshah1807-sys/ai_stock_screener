@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
 import { RatingBadge } from "@/components/rating-badge";
+import { FactorBlocks } from "@/components/stock/factor-blocks";
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
 import { HistoryChart } from "@/components/stock/history-chart";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
@@ -268,12 +269,23 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-          <Panel
-            title="How this score was produced"
-            description="The finalizer runs this sequence once, after all evidence is present. A stage that is not eligible contributes exactly zero."
-          >
-            <ScoreWaterfall row={row} />
-          </Panel>
+          <div className="space-y-4">
+            {row.factor_model_applied ? (
+              <Panel
+                title="Factor blocks"
+                description="Model 5.0 ranks each economic concept separately, then blends them. Coverage says how much of a block was actually observed."
+              >
+                <FactorBlocks row={row} />
+              </Panel>
+            ) : null}
+
+            <Panel
+              title="How this score was produced"
+              description="The finalizer runs this sequence once, after all evidence is present. A stage that is not eligible contributes exactly zero."
+            >
+              <ScoreWaterfall row={row} />
+            </Panel>
+          </div>
 
           <div className="space-y-4">
             <Panel title="Price and size">

@@ -298,6 +298,32 @@ export async function getSearchIndex(runDate: string): Promise<SearchEntry[]> {
   return entries;
 }
 
+/**
+ * Did this run score with the Model 5.0 factor architecture?
+ *
+ * Asked of the run rather than of the current page, because the page is
+ * already filtered: a filter that returns no rows would otherwise hide the
+ * factor columns and controls exactly when the user is trying to adjust them.
+ * A run is entirely one model or the other, so one row settles it.
+ */
+export async function runUsesFactorModel(runDate: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("screener_snapshot")
+    .select("symbol")
+    .eq("run_date", runDate)
+    .eq("factor_model_applied", true)
+    .limit(1);
+
+  if (error) {
+    // A pre-migration database has no such column. Falling back to "4.x" keeps
+    // the dashboard working instead of failing the whole page render.
+    console.error("runUsesFactorModel failed", error.message);
+    return false;
+  }
+  return (data?.length ?? 0) > 0;
+}
+
 export async function getStock(
   runDate: string,
   symbol: string,

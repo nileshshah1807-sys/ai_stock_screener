@@ -1,4 +1,5 @@
 import json
+import re
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -6,6 +7,8 @@ from tempfile import TemporaryDirectory
 import pandas as pd
 
 from workers.dashboard_publisher import (
+    HISTORY_COLUMNS,
+    SNAPSHOT_COLUMNS,
     CoercionReport,
     build_payload,
     build_run_row,
@@ -105,6 +108,102 @@ class MappingTests(unittest.TestCase):
         mapped = map_row({"Symbol": "INFY"}, columns, CoercionReport())
         self.assertIn("decision_score", mapped)
         self.assertIsNone(mapped["decision_score"])
+
+
+class FactorModelMappingTests(unittest.TestCase):
+    """Model 5.0 evidence has to survive the trip into the read model."""
+
+    @staticmethod
+    def mapped(row):
+        return map_row(row, SNAPSHOT_COLUMNS, CoercionReport())
+
+    def test_factor_columns_are_mapped(self):
+        mapped = self.mapped(
+            {
+                "Symbol": "INFY",
+                "Factor_Model_Applied": True,
+                "Research_Score": 87.5,
+                "Research_Score_Raw": 61.2,
+                "Quality_Percentile": 92.31,
+                "Momentum_Percentile": 74.0,
+                "Eligibility_Class": 1,
+                "Primary_Gate": "LOW_QUALITY",
+                "Gate_Severity": 3,
+                "Market_Regime": "RISK_ON",
+                "Price_To_MA200_Pct": 12.345,
+                "ROIC": 0.2841,
+            }
+        )
+        self.assertIs(mapped["factor_model_applied"], True)
+        self.assertEqual(mapped["research_score"], 87.5)
+        self.assertEqual(mapped["research_score_raw"], 61.2)
+        self.assertEqual(mapped["quality_percentile"], 92.31)
+        self.assertEqual(mapped["eligibility_class"], 1)
+        self.assertEqual(mapped["primary_gate"], "LOW_QUALITY")
+        self.assertEqual(mapped["gate_severity"], 3)
+        self.assertEqual(mapped["market_regime"], "RISK_ON")
+        self.assertEqual(mapped["roic"], 0.2841)
+
+    def test_four_x_row_clears_factor_columns_rather_than_omitting_them(self):
+        # The upsert merges, so omitting these keys would leave a previous
+        # factor run's values attached to a 4.x row for the same date.
+        mapped = self.mapped({"Symbol": "INFY", "Decision_Score": 64.0})
+        for column in (
+            "factor_model_applied",
+            "research_score",
+            "quality_percentile",
+            "eligibility_class",
+            "primary_gate",
+            "market_regime",
+        ):
+            self.assertIn(column, mapped)
+            self.assertIsNone(mapped[column])
+
+    def test_eligibility_class_zero_survives(self):
+        # Class 0 is the BEST class, and a falsy-value bug here would silently
+        # demote every fully-eligible row.
+        mapped = self.mapped({"Symbol": "INFY", "Eligibility_Class": 0})
+        self.assertEqual(mapped["eligibility_class"], 0)
+        self.assertIsNotNone(mapped["eligibility_class"])
+
+    def test_negative_drawdown_is_preserved(self):
+        mapped = self.mapped({"Symbol": "INFY", "Max_Drawdown_1Y_Pct": -42.5})
+        self.assertEqual(mapped["max_drawdown_1y_pct"], -42.5)
+
+    def test_signed_trend_quality_is_preserved(self):
+        # Trend quality is signed on [-1, 1]; a clean downtrend is -1, and
+        # dropping the sign would make it the best possible reading.
+        mapped = self.mapped({"Symbol": "INFY", "Trend_Quality_R2": -0.9812})
+        self.assertEqual(mapped["trend_quality_r2"], -0.9812)
+
+    def test_history_carries_the_model_five_movement_fields(self):
+        mapped = map_row(
+            {
+                "Symbol": "INFY",
+                "Research_Score": 88.0,
+                "Eligibility_Class": 2,
+                "Primary_Gate": "ILLIQUID",
+            },
+            HISTORY_COLUMNS,
+            CoercionReport(),
+        )
+        self.assertEqual(mapped["research_score"], 88.0)
+        self.assertEqual(mapped["eligibility_class"], 2)
+        self.assertEqual(mapped["primary_gate"], "ILLIQUID")
+
+    def test_snapshot_and_schema_column_names_agree(self):
+        # A typo here writes a column PostgREST does not have and fails the
+        # whole batch, so the mapping is checked against the DDL itself.
+        schema = Path("storage/dashboard_schema.sql").read_text(encoding="utf-8")
+        body = schema.split("create table if not exists screener_snapshot", 1)[1]
+        body = body.split("primary key", 1)[0]
+        declared = set(re.findall(r"^\s{4}([a-z0-9_]+)\s", body, re.MULTILINE))
+        for db_column, _, _ in SNAPSHOT_COLUMNS:
+            self.assertIn(
+                db_column,
+                declared,
+                f"{db_column} is published but not declared in screener_snapshot",
+            )
 
 
 class RunDateTests(unittest.TestCase):
