@@ -24,11 +24,42 @@ screener/
    valuation.py        Evidence-only reverse DCF analysis
    recommendation.py   Single score, gate, rating, and investment-rank policy
    reporting.py        Dashboard, email, PDF, and WhatsApp reporting
+   statements.py       Annual-statement collection and factor derivation (Model 5.0)
+   benchmark.py        Benchmark index, relative strength, market regime (Model 5.0)
+   factors.py          Quality/growth/value/momentum/risk blocks (Model 5.0)
 ```
 
 Transcript ingestion and local NLP remain in `workers/`, `transcripts/`,
 `sentiment/`, and `storage/`. Run the daily screener with `python app.py` or
 schedule the same entry point with `python scheduler.py`.
+
+### Model 5.0 (candidate, disabled by default)
+
+The default scoring path is the 4.x model. A candidate **Model 5.0 factor
+architecture** is implemented alongside it and selected with
+`FACTOR_MODEL_ENABLED=true`. It replaces the 70/30 core score with five
+separable factor blocks (quality 35%, growth 20%, value 15%, momentum 25%,
+risk 5%), swaps the MA50/ADX trend gates for an MA200 trend gate with
+hysteresis and 6/12-month relative strength, adds a market-regime overlay, and
+ranks by eligibility class rather than collapsing every capped row onto an
+identical 59.99.
+
+It needs data the 4.x path never collected, so enabling it also turns on annual
+financial-statement collection (`statement_cache.csv`, 90-day TTL, bounded
+per-run backfill) and a benchmark index download. Price history is now `2y`
+rather than `6mo` for both models, because a 200-day average and a 12-1
+momentum window cannot be expressed in six months; features defined on a
+six-month window stay pinned to 126 sessions so their meaning is unchanged.
+
+**Do not enable it in production without validation.** Model 5.0 ratings are
+cross-sectional rather than absolute, and it materially re-ranks the universe
+(Spearman 0.62 against the 4.x baseline on a 40-name smoke test). Use the
+**Candidate model validation (isolated)** workflow with `factor_model: true` to
+diff it against a production baseline run, and read section 20 of
+`docs/stock_screener_system_architecture.md` first — in particular 20.3 (why the
+score is a percentile), 20.8 (financials are barred from BUY by a gate whose
+data nobody collects) and 20.9 (the validation protocol and its blocking
+point-in-time fundamentals dependency).
 
 ## GitHub Actions
 

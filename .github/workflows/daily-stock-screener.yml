@@ -108,6 +108,7 @@ jobs:
           path: |
             reports_advanced/price_cache.csv
             reports_advanced/fundamental_cache.csv
+            reports_advanced/statement_cache.csv
             reports_advanced/nse_liquidity_categories.csv
             reports_advanced/backtest_history.csv
             reports_advanced/yfinance_cache
@@ -150,6 +151,7 @@ jobs:
           path: |
             reports_advanced/price_cache.csv
             reports_advanced/fundamental_cache.csv
+            reports_advanced/statement_cache.csv
             reports_advanced/nse_liquidity_categories.csv
             reports_advanced/backtest_history.csv
             reports_advanced/yfinance_cache

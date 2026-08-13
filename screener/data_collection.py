@@ -15,6 +15,7 @@ import yfinance as yf
 from .market_data import (
     PriceCache,
     TechnicalEnhancer,
+    calculate_trend_risk_features,
     expected_sessions_behind,
     is_expected_nse_session,
     latest_expected_completed_nse_session,
@@ -24,13 +25,18 @@ from .market_data import (
 logger = logging.getLogger(__name__)
 
 
-def calculate_liquidity_metrics(price_data):
+def calculate_liquidity_metrics(price_data, window_sessions=126):
     """Return execution and price-volume proxies from the existing OHLCV frame.
 
     Zero-volume sessions are deliberately retained. Dropping them makes an
     intermittently traded security appear more liquid than it is. ``CMF_21``
     with the 20-session return is a scored technical price-volume confirmation;
     it is not proof of institutional buying or selling.
+
+    ``Avg_Turnover_INR`` is pinned to ``window_sessions`` (six months by
+    default). It used to average the whole downloaded history, so lengthening
+    the download window would silently redefine it into a two-year average and
+    make the liquidity floor incomparable with previously published runs.
     """
     columns = {}
     for name in ("High", "Low", "Close", "Volume"):
@@ -43,6 +49,7 @@ def calculate_liquidity_metrics(price_data):
     if paired.empty:
         return {}
     turnover = paired["Close"] * paired["Volume"]
+    legacy_window = turnover.tail(int(window_sessions)) if window_sessions else turnover
     last_20 = turnover.tail(20)
     last_60 = turnover.tail(60)
     top_count = min(5, len(last_60))
@@ -93,7 +100,7 @@ def calculate_liquidity_metrics(price_data):
         demand_proxy = "Mixed"
 
     return {
-        "Avg_Turnover_INR": float(turnover.mean()),
+        "Avg_Turnover_INR": float(legacy_window.mean()),
         "Median_Turnover_20D_INR": float(last_20.median()),
         "Turnover_P10_20D_INR": float(last_20.quantile(0.10)),
         "Median_Turnover_60D_INR": float(last_60.median()),
@@ -496,6 +503,19 @@ class StockDataCollector:
                 f"Price cache hit: {len(cached_records)} reused, {len(to_download)} to download"
             )
 
+        # A longer download window is what makes MA200, 12-1 momentum and
+        # one-year drawdown expressible at all. Features that are *defined* on a
+        # six-month window stay pinned to legacy_window below so lengthening
+        # this does not quietly change their meaning.
+        history_period = str(
+            getattr(self.config, "PRICE_HISTORY_PERIOD", "2y") or "2y"
+        )
+        legacy_window = int(
+            getattr(self.config, "LEGACY_HISTORY_WINDOW_SESSIONS", 126) or 126
+        )
+        min_sessions = int(
+            getattr(self.config, "MIN_PRICE_SESSIONS_REQUIRED", 60) or 60
+        )
         nse_symbols = [s + ".NS" for s in to_download]
         batch_size = 30
         for i in range(0, len(nse_symbols), batch_size):
@@ -510,7 +530,7 @@ class StockDataCollector:
                 time.sleep(2)
             try:
                 data = yf.download(
-                    " ".join(batch), period="6mo", group_by="ticker",
+                    " ".join(batch), period=history_period, group_by="ticker",
                     progress=False, threads=True, auto_adjust=False,
                 )
                 fetched_at_text = self._now_market().to_pydatetime().isoformat(timespec="seconds")
@@ -572,14 +592,23 @@ class StockDataCollector:
                                     )
                                 )
                             )
-                        if len(closes) < 60 or len(raw_closes) < 60 or len(volumes) == 0:
+                        if (
+                            len(closes) < min_sessions
+                            or len(raw_closes) < min_sessions
+                            or len(volumes) == 0
+                        ):
                             failed.append(clean_sym)
                             continue
                         current_price = float(raw_closes.iloc[-1])
                         signal_current_price = float(closes.iloc[-1])
-                        avg_volume = float(volumes.mean())
+                        # Pinned to the legacy six-month window: this average is
+                        # a liquidity floor input, and a two-year average is not
+                        # comparable with previously published runs.
+                        avg_volume = float(volumes.tail(legacy_window).mean())
                         last_volume = float(volumes.iloc[-1])
-                        liquidity = calculate_liquidity_metrics(price_data)
+                        liquidity = calculate_liquidity_metrics(
+                            price_data, window_sessions=legacy_window
+                        )
                         if (
                             avg_volume == 0
                             or pd.isna(avg_volume)
@@ -620,8 +649,12 @@ class StockDataCollector:
                         )
                         pct_1m = TechnicalEnhancer.calculate_pct_return(closes, 21)
                         pct_3m = TechnicalEnhancer.calculate_pct_return(closes, 65)
+                        # An explicit six-month lookback. This used to span the
+                        # whole downloaded history, which labelled a 70-session
+                        # return on a young listing as a "6M" return and would
+                        # have become a two-year return once the window grew.
                         pct_6m = TechnicalEnhancer.calculate_pct_return(
-                            closes, len(closes) - 1
+                            closes, legacy_window
                         )
                         vol_avg_20 = float(volumes.rolling(20).mean().iloc[-1])
                         vol_ratio = last_volume / vol_avg_20 if vol_avg_20 and vol_avg_20 > 0 else 1.0
@@ -631,6 +664,15 @@ class StockDataCollector:
                         ) / raw_close_aligned.where(raw_close_aligned.ne(0))
                         high = pd.to_numeric(price_data["High"], errors="coerce") * adjustment_factor
                         low = pd.to_numeric(price_data["Low"], errors="coerce") * adjustment_factor
+                        adjusted_open = (
+                            pd.to_numeric(price_data.get("Open"), errors="coerce")
+                            * adjustment_factor
+                            if price_data.get("Open") is not None
+                            else None
+                        )
+                        trend_risk = calculate_trend_risk_features(
+                            closes, opens=adjusted_open
+                        )
                         directional_prices = pd.DataFrame({
                             "High": high,
                             "Low": low,
@@ -700,11 +742,13 @@ class StockDataCollector:
                             "ADX_Minus_DI": round(adx_minus_di, 2),
                             "StochRSI_14": round(stoch_rsi_val, 2),
                             "ATR_14": round(atr_val, 2),
-                            "High_6M": round(float(closes.max()), 2),
-                            "Low_6M": round(float(closes.min()), 2),
+                            # Six-month extremes stay on the six-month window.
+                            "High_6M": round(float(closes.tail(legacy_window).max()), 2),
+                            "Low_6M": round(float(closes.tail(legacy_window).min()), 2),
                             "Pct_Change_1M": round(pct_1m, 2),
                             "Pct_Change_3M": round(pct_3m, 2),
                             "Pct_Change_6M": round(pct_6m, 2),
+                            **trend_risk,
                             "Avg_Volume": int(avg_volume),
                             "Avg_Turnover_INR": round(liquidity["Avg_Turnover_INR"], 2),
                             "Median_Turnover_20D_INR": round(

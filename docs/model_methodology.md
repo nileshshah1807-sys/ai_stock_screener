@@ -1,7 +1,15 @@
 # Model methodology and evidence audit
 
-Last reviewed: 2026-08-10
+Last reviewed: 2026-08-13
 Active model version: 4.0.0-candidate
+Candidate model: Model 5.0 factor architecture (`FACTOR_MODEL_ENABLED`, default off)
+
+> This document describes the **active** 4.x model. Model 5.0 replaces the 70/30
+> core score with five separable factor blocks, MA200 trend gates with
+> hysteresis, a market-regime overlay and eligibility-class ranking. It is
+> implemented and unit-tested but **not enabled**; see section 20 of
+> `docs/stock_screener_system_architecture.md` for its full contract, its known
+> data gaps, and the validation protocol required before promotion.
 
 ## What the output means
 
@@ -235,3 +243,24 @@ hand-tuned in production.
 
 Until those conditions are met, the application is an auditable research
 screener, not a proven return-generation model.
+
+### Additional conditions specific to Model 5.0
+
+6. **Point-in-time fundamentals are the blocking dependency.**
+   `screener/statements.py` derives quality and growth evidence from the annual
+   statements Yahoo publishes *today*. It makes no attempt to reconstruct what
+   was knowable on a past date, so it satisfies condition 2 for a forward screen
+   only. A look-ahead-free historical backtest of the factor blocks requires a
+   point-in-time fundamentals source that this repository does not have. Scope
+   that before scheduling the walk-forward study.
+7. **Model 5.0 ratings are cross-sectional, not absolute.** The published score
+   is the percentile of the weighted block blend, so roughly 40% of any universe
+   is labelled REDUCE or SELL by construction. Bucket monotonicity in condition 4
+   must therefore be measured against the same universe definition used in
+   production, and the model is intended for full-universe runs rather than
+   short watchlists.
+8. **Test the grid, not the winner.** Run the pre-declared A-E model grid
+   (4.x baseline; factorised 70/30; 60/40 with MA200 gate; proposed without the
+   MA200 gate; proposed with the regime overlay) and report all five. Selecting
+   the best of many variants on one sample and calling that sample a holdout is
+   the specific failure mode this protocol exists to prevent.

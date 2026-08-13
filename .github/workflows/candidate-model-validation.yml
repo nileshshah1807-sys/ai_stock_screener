@@ -19,6 +19,23 @@ on:
         required: false
         default: ""
         type: string
+      factor_model:
+        description: >-
+          Score the candidate with the Model 5.0 factor architecture
+          (quality/growth/value/momentum/risk, MA200 gates, regime overlay).
+          Leave false to validate an unrelated change against the 4.x model.
+        required: true
+        default: true
+        type: boolean
+      financial_statement_quality_sufficient:
+        description: >-
+          Accept the statement-based financial quality template as sufficient
+          for BUY. Leave false to keep the current behaviour, where every bank,
+          NBFC and insurer is barred from BUY because NPA/CAR/solvency are
+          required but never collected.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -55,6 +72,14 @@ jobs:
       SCAN_ALL_NSE: ${{ inputs.scan_all_nse }}
       CUSTOM_WATCHLIST: ${{ inputs.custom_watchlist }}
       GH_TOKEN: ${{ github.token }}
+      # Model 5.0 candidate switches. The baseline artifact this run is
+      # compared against was produced by the 4.x model, so the top-20 diff is
+      # exactly the model change measured on the same vendor inputs.
+      FACTOR_MODEL_ENABLED: ${{ inputs.factor_model }}
+      FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT: ${{ inputs.financial_statement_quality_sufficient }}
+      # A cold statement build is bounded per run, so a full-NSE validation
+      # fills the cache over several runs rather than timing out on one.
+      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: "600"
 
     steps:
       - uses: actions/checkout@v6
@@ -97,6 +122,7 @@ jobs:
           path: |
             reports_advanced/price_cache.csv
             reports_advanced/fundamental_cache.csv
+            reports_advanced/statement_cache.csv
             reports_advanced/nse_liquidity_categories.csv
             reports_advanced/backtest_history.csv
             reports_advanced/yfinance_cache
@@ -121,7 +147,7 @@ jobs:
           # decision state, not vendor data. It is restored only so the path
           # list matches the save step's cache version.
           for name in price_cache.csv fundamental_cache.csv \
-                      nse_liquidity_categories.csv; do
+                      statement_cache.csv nse_liquidity_categories.csv; do
             if [[ -f "reports_advanced/$name" ]]; then
               cp "reports_advanced/$name" "$CANDIDATE_OUTPUT_DIR/$name"
               echo "seeded $name ($(wc -c < "reports_advanced/$name") bytes)"

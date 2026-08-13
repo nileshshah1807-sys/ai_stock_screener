@@ -16,10 +16,13 @@ from scoring.transcript_enricher import (
 )
 from red_flags.enricher import RedFlagEnricher
 from red_flags.shadow import RedFlagShadowSimulator
+from screener.benchmark import BenchmarkProvider
 from screener.data_collection import (
     StockDataCollector,
     align_valuation_to_completed_price_bar,
 )
+from screener.factors import FactorModel
+from screener.statements import FinancialStatementCollector
 from screener.liquidity import (
     LiquidityQualityEnricher,
     NSELiquidityProvider,
@@ -176,6 +179,14 @@ def run_daily_analysis():
     if merged_df.empty:
         raise RuntimeError("No symbols remain after merging technical and fundamental data")
 
+    # Annual statements supply every input Yahoo's quote metadata cannot: total
+    # assets, EBIT, gross profit, cash-flow history and multi-year series. They
+    # restate quarterly at most, so a long cache TTL keeps the daily marginal
+    # cost near zero. Only the factor model consumes them.
+    factor_model_enabled = bool(getattr(config, "FACTOR_MODEL_ENABLED", False))
+    if factor_model_enabled and getattr(config, "STATEMENT_COLLECTION_ENABLED", True):
+        merged_df = FinancialStatementCollector(config).enrich(merged_df)
+
     scorer = StockScorer(config)
     scored_df = scorer.score_all_stocks(merged_df)
     if scored_df is None or len(scored_df) == 0:
@@ -199,6 +210,36 @@ def run_daily_analysis():
                 raise RuntimeError("Transcript sentiment enrichment failed") from e
             logger.warning(f"Transcript sentiment enrichment skipped: {e}")
 
+    # Model 5.0: replace the 70/30 core score with five separable factor blocks.
+    # The 4.x scorer above still runs, because the policy needs its coverage,
+    # anomaly and specialist-model routing as evidence -- it just no longer
+    # produces the number the ranking is built on.
+    market_context = {}
+    if factor_model_enabled:
+        market_context = BenchmarkProvider(config).market_context()
+        logger.info(
+            "Market regime: %s (%s); benchmark %s",
+            market_context.get("Market_Regime"),
+            market_context.get("Market_Regime_Reason"),
+            market_context.get("Benchmark_Symbol"),
+        )
+        scored_df = FactorModel(config).score(scored_df, market_context)
+        for key, value in market_context.items():
+            scored_df[key] = value
+
+    # Execution capacity is evidence the policy needs, not a post-decision
+    # decoration: Model 5.0 can require liquidity for a published BUY. It
+    # depends only on turnover/NSE columns, so computing it here is safe for
+    # both models and leaves Actionable_Rank downstream of the final ordering.
+    scored_df = LiquidityQualityEnricher(config).enrich(scored_df)
+    actionable_count = int(scored_df["Portfolio_Actionable"].sum())
+    logger.info(
+        "Portfolio actionability: %s/%s stock(s) fit the configured Rs%0.f target",
+        actionable_count,
+        len(scored_df),
+        config.PORTFOLIO_TARGET_POSITION_INR,
+    )
+
     # Evidence stages never publish ratings. One versioned policy blends all
     # eligible evidence, applies every coverage/trend gate, and creates the
     # score-first research ranks. This prevents a later enrichment (such as
@@ -218,18 +259,6 @@ def run_daily_analysis():
             )
         except Exception as e:
             logger.warning(f"Red-flag enrichment skipped: {e}")
-
-    # Investment conviction and execution are deliberately separate. The
-    # configured target position, NSE impact cost and a turnover participation
-    # proxy describe actionability without rewriting Final_Score or Rating.
-    scored_df = LiquidityQualityEnricher(config).enrich(scored_df)
-    actionable_count = int(scored_df["Portfolio_Actionable"].sum())
-    logger.info(
-        "Portfolio actionability: %s/%s stock(s) fit the configured Rs%0.f target",
-        actionable_count,
-        len(scored_df),
-        config.PORTFOLIO_TARGET_POSITION_INR,
-    )
 
     # One final deterministic ordering after every rating gate. Transcript
     # confirmation is only a tie-break because its effect is already in score.

@@ -122,11 +122,221 @@ def _rating_ceiling(score):
     return 39.99
 
 
+# Short, stable slugs for the single most decision-relevant gate on a row.
+# Ordered most severe first: the first match becomes ``Primary_Gate``.
+PRIMARY_GATE_PATTERNS = (
+    ("core score unavailable", "NO_SCORE"),
+    ("price bar behind expected session", "STALE_PRICE_BAR"),
+    ("stale fundamental fallback", "STALE_FUNDAMENTALS"),
+    ("insufficient fundamental data", "LOW_DATA_QUALITY"),
+    ("factor coverage insufficient", "LOW_FACTOR_COVERAGE"),
+    ("coverage insufficient", "LOW_COVERAGE"),
+    ("specialized", "SPECIALIST_MODEL_REQUIRED"),
+    ("multiple fundamental data anomalies", "DATA_ANOMALY"),
+    ("confirmed trend breakdown", "TREND_BREAKDOWN"),
+    ("below MA200", "BELOW_MA200"),
+    ("MA200", "MA200_TREND"),
+    ("relative strength", "WEAK_RELATIVE_STRENGTH"),
+    ("quality percentile", "LOW_QUALITY"),
+    ("liquidity", "ILLIQUID"),
+    ("regime", "MARKET_REGIME"),
+)
+
+
+def primary_gate(failures):
+    """Reduce a failure list to one stable, sortable reason code.
+
+    Patterns are scanned in severity order, not in the order the failures
+    happen to appear: a row that is both low-quality and unscorable should
+    report the unscorable reason regardless of which gate ran first.
+    """
+    lowered = [str(reason).lower() for reason in failures]
+    for needle, slug in PRIMARY_GATE_PATTERNS:
+        needle = needle.lower()
+        if any(needle in reason for reason in lowered):
+            return slug
+    return "NONE" if not failures else "OTHER"
+
+
 class RecommendationPolicy:
     """Finalize evidence into internally consistent decisions and ranks."""
 
     def __init__(self, config):
         self.config = config
+
+    # ------------------------------------------------------------------
+    # Model 5.0 gates
+    # ------------------------------------------------------------------
+    def _factor_gate_failures(self, row):
+        """Trend, factor-percentile, liquidity and regime gates for Model 5.0.
+
+        Returns ``(buy_failures, strong_failures)`` covering only the gates that
+        differ from the 4.x policy; the shared data-integrity gates are applied
+        by the caller so both models fail closed on the same evidence problems.
+        """
+        buy_failures = []
+        strong_failures = []
+        config = self.config
+
+        price = _safe_float(row.get("Technical_Price"))
+        ma200 = _safe_float(row.get("MA200"))
+        ma200_slope = _safe_float(row.get("MA200_Slope_Pct"))
+        ma50 = _safe_float(row.get("MA50"))
+
+        # --- long-term trend, with a tolerance band ---------------------
+        # An exact boundary makes a stock oscillating around its average flip
+        # its rating daily. The band costs a little precision and buys rating
+        # stability, which is what makes the label usable.
+        if _as_bool(getattr(config, "REQUIRE_MA200_TREND_FOR_BUY", True), True):
+            tolerance = float(getattr(config, "BUY_MA200_TOLERANCE", 0.98))
+            if price is None or price <= 0 or ma200 is None or ma200 <= 0:
+                buy_failures.append("price/MA200 unavailable")
+            elif price < tolerance * ma200:
+                buy_failures.append(
+                    f"price below MA200 tolerance band ({tolerance:.0%})"
+                )
+            slope_floor = float(getattr(config, "BUY_MIN_MA200_SLOPE_PCT", 0.0))
+            if ma200_slope is None:
+                buy_failures.append("MA200 slope unavailable")
+            elif ma200_slope < slope_floor:
+                buy_failures.append("MA200 slope falling")
+
+            # Confirmed breakdown is the stricter exit condition. Requiring
+            # persistence, a falling average AND weak relative strength keeps a
+            # single dip through the line from revoking a rating that a rebound
+            # would restore the next session.
+            streak = _safe_float(row.get("Below_MA200_Streak"))
+            rs_6m = _safe_float(row.get("RS_Market_6M_Pct"))
+            confirm = float(getattr(config, "BREAKDOWN_CONFIRM_SESSIONS", 10))
+            if (
+                streak is not None
+                and streak >= confirm
+                and ma200_slope is not None
+                and ma200_slope < 0
+                and rs_6m is not None
+                and rs_6m < 0
+            ):
+                buy_failures.append("confirmed trend breakdown below MA200")
+
+        # --- relative strength ------------------------------------------
+        rs_floor_6m = float(getattr(config, "BUY_MIN_RS_6M", 0.0))
+        rs_market_6m = _safe_float(row.get("RS_Market_6M_Pct"))
+        rs_sector_6m = _safe_float(row.get("RS_Sector_6M_Pct"))
+        if rs_market_6m is None:
+            buy_failures.append("market relative strength unavailable")
+        elif rs_market_6m <= rs_floor_6m:
+            buy_failures.append("6M market relative strength not positive")
+        # Sector relative strength is unavailable for thin sectors by design.
+        # Only fail on an observed negative reading, never on absence.
+        if rs_sector_6m is not None and rs_sector_6m <= rs_floor_6m:
+            buy_failures.append("6M sector relative strength not positive")
+
+        # --- factor percentile floors ------------------------------------
+        quality_pct = _safe_float(row.get("Quality_Percentile"))
+        buy_quality_floor = float(getattr(config, "BUY_MIN_QUALITY_PCT", 40.0))
+        if quality_pct is None:
+            buy_failures.append("quality percentile unavailable")
+        elif quality_pct < buy_quality_floor:
+            buy_failures.append("quality percentile below BUY floor")
+
+        for block in ("Quality", "Growth", "Value", "Momentum", "Risk"):
+            column = f"{block}_Coverage_Sufficient"
+            if column in row.index and not _as_bool(row.get(column), True):
+                buy_failures.append(f"{block.lower()} factor coverage insufficient")
+
+        # Model 5.0 raises the BUY evidence floors. These are checked
+        # numerically rather than through the 4.x eligibility booleans, which
+        # were computed against the looser thresholds.
+        fund_coverage = _safe_float(row.get("Fundamental_Coverage"))
+        fund_floor = float(
+            getattr(config, "FACTOR_FUNDAMENTAL_MIN_COVERAGE_FOR_BUY", 0.70)
+        )
+        if fund_coverage is None:
+            buy_failures.append("fundamental coverage unavailable")
+        elif fund_coverage < fund_floor:
+            buy_failures.append("fundamental coverage insufficient for BUY")
+        tech_coverage = _safe_float(row.get("Technical_Coverage"))
+        tech_floor = float(
+            getattr(config, "FACTOR_TECHNICAL_MIN_COVERAGE_FOR_BUY", 0.90)
+        )
+        if tech_coverage is None:
+            buy_failures.append("technical coverage unavailable")
+        elif tech_coverage < tech_floor:
+            buy_failures.append("technical coverage insufficient for BUY")
+
+        # --- execution liquidity as a BUY requirement ---------------------
+        # An illiquid name can be excellent research and still be unsuitable as
+        # a published BUY. Research_Rating stays uncapped so the research view
+        # is not lost.
+        if _as_bool(getattr(config, "REQUIRE_LIQUIDITY_FOR_BUY", True), True):
+            if "Portfolio_Actionable" in row.index and not _as_bool(
+                row.get("Portfolio_Actionable"), False
+            ):
+                buy_failures.append("insufficient execution liquidity for target size")
+
+        # --- STRONG BUY ---------------------------------------------------
+        strong_quality_floor = float(
+            getattr(config, "STRONG_BUY_MIN_QUALITY_PCT", 70.0)
+        )
+        if quality_pct is not None and quality_pct < strong_quality_floor:
+            strong_failures.append("quality percentile below STRONG BUY floor")
+        growth_pct = _safe_float(row.get("Growth_Percentile"))
+        if growth_pct is None:
+            strong_failures.append("growth percentile unavailable")
+        elif growth_pct < float(getattr(config, "STRONG_BUY_MIN_GROWTH_PCT", 60.0)):
+            strong_failures.append("growth percentile below STRONG BUY floor")
+        momentum_pct = _safe_float(row.get("Momentum_Percentile"))
+        if momentum_pct is None:
+            strong_failures.append("momentum percentile unavailable")
+        elif momentum_pct < float(
+            getattr(config, "STRONG_BUY_MIN_MOMENTUM_PCT", 70.0)
+        ):
+            strong_failures.append("momentum percentile below STRONG BUY floor")
+
+        if _as_bool(
+            getattr(config, "STRONG_BUY_REQUIRE_MA50_ABOVE_MA200", True), True
+        ):
+            if ma50 is None or ma200 is None or price is None:
+                strong_failures.append("MA50/MA200 stack unavailable")
+            elif not (price > ma50 > ma200):
+                strong_failures.append("price/MA50/MA200 not stacked bullishly")
+        if ma200_slope is not None and ma200_slope <= 0:
+            strong_failures.append("MA200 not rising")
+
+        rs_market_12m = _safe_float(row.get("RS_Market_12M_Pct"))
+        if rs_market_12m is None:
+            strong_failures.append("12M relative strength unavailable")
+        elif rs_market_12m <= float(getattr(config, "STRONG_BUY_MIN_RS_12M", 0.0)):
+            strong_failures.append("12M relative strength not positive")
+
+        # --- market regime overlay ----------------------------------------
+        # Deployment conviction only. The factor scores and the research rank
+        # are untouched, so the underlying ranking stays fully visible.
+        regime = _safe_text(row.get("Market_Regime")).upper()
+        if regime == "RISK_OFF":
+            if _as_bool(
+                getattr(config, "REGIME_RISK_OFF_DISABLES_STRONG_BUY", True), True
+            ):
+                strong_failures.append("market regime risk-off: STRONG BUY disabled")
+            floor = float(getattr(config, "REGIME_RISK_OFF_MIN_MOMENTUM_PCT", 90.0))
+            if momentum_pct is None or momentum_pct < floor:
+                buy_failures.append(
+                    "market regime risk-off: BUY requires top-decile momentum"
+                )
+        elif regime == "NEUTRAL":
+            floor = float(
+                getattr(
+                    config,
+                    "REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY",
+                    85.0,
+                )
+            )
+            if momentum_pct is None or momentum_pct < floor:
+                strong_failures.append(
+                    "market regime neutral: STRONG BUY requires exceptional momentum"
+                )
+
+        return buy_failures, strong_failures
 
     def _blend_evidence(self, frame):
         base = _numeric_series(frame, "Combined_Score")
@@ -246,6 +456,11 @@ class RecommendationPolicy:
     def _gate_failures(self, row):
         buy_failures = []
         strong_failures = []
+        # Model 5.0 replaces the MA50/ADX trend gates with an MA200 trend gate,
+        # relative strength and factor percentiles. The data-integrity gates
+        # below are shared: both models must fail closed on the same evidence
+        # problems.
+        factor_model = _as_bool(row.get("Factor_Model_Applied"), False)
 
         if _safe_float(row.get("Combined_Score")) is None:
             buy_failures.append("core score unavailable")
@@ -313,7 +528,28 @@ class RecommendationPolicy:
             "Financial Services Data-Limited Model",
         }
         if specialized_quality_present and dedicated_model and not specialized_quality_eligible:
-            buy_failures.append("specialized regulatory coverage insufficient")
+            # NPA/CAR/solvency are required here but never collected, so this
+            # gate currently bars every financial from BUY. Model 5.0 can
+            # instead accept its statement-based financial quality template --
+            # which is fully covered -- and keep the regulatory requirement for
+            # STRONG BUY only. Opt-in, so the default stays fail-closed.
+            statement_quality_ok = (
+                factor_model
+                and _as_bool(
+                    getattr(
+                        self.config,
+                        "FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT",
+                        False,
+                    )
+                )
+                and _as_bool(row.get("Quality_Coverage_Sufficient"), False)
+            )
+            if statement_quality_ok:
+                strong_failures.append(
+                    "specialized regulatory coverage insufficient"
+                )
+            else:
+                buy_failures.append("specialized regulatory coverage insufficient")
 
         # MA50 is calculated from adjusted closes, so its gate must compare
         # against the adjusted technical close rather than raw quote scale.
@@ -323,7 +559,7 @@ class RecommendationPolicy:
         return_3m = _safe_float(row.get("Pct_Change_3M"))
         require_uptrend = _as_bool(
             getattr(self.config, "REQUIRE_UPTREND_FOR_BUY", True), True
-        )
+        ) and not factor_model
         if require_uptrend:
             if price is None or price <= 0 or ma50 is None:
                 buy_failures.append("price/MA50 unavailable")
@@ -340,43 +576,55 @@ class RecommendationPolicy:
             elif return_3m <= return_floor:
                 buy_failures.append("3M return not positive")
 
+        if factor_model:
+            factor_buy, factor_strong = self._factor_gate_failures(row)
+            buy_failures.extend(factor_buy)
+            strong_failures.extend(factor_strong)
+
         buy_failures = _dedupe(buy_failures)
         strong_failures.extend(buy_failures)
 
-        revenue_growth = _safe_float(row.get("Revenue_Growth"))
-        earnings_growth = _safe_float(row.get("Earnings_Growth"))
-        growth_floor = float(
-            getattr(self.config, "STRONG_BUY_MIN_GROWTH", 0.05)
-        )
-        if revenue_growth is None and earnings_growth is None:
-            strong_failures.append("growth unavailable")
-        elif not (
-            (revenue_growth is not None and revenue_growth >= growth_floor)
-            or (earnings_growth is not None and earnings_growth >= growth_floor)
-        ):
-            strong_failures.append("growth below threshold")
+        if not factor_model:
+            # 4.x high-conviction evidence. Model 5.0 expresses the same intent
+            # through growth/momentum percentiles and the MA200 stack, so
+            # applying both would double-count the trend requirement.
+            revenue_growth = _safe_float(row.get("Revenue_Growth"))
+            earnings_growth = _safe_float(row.get("Earnings_Growth"))
+            growth_floor = float(
+                getattr(self.config, "STRONG_BUY_MIN_GROWTH", 0.05)
+            )
+            if revenue_growth is None and earnings_growth is None:
+                strong_failures.append("growth unavailable")
+            elif not (
+                (revenue_growth is not None and revenue_growth >= growth_floor)
+                or (
+                    earnings_growth is not None
+                    and earnings_growth >= growth_floor
+                )
+            ):
+                strong_failures.append("growth below threshold")
 
-        adx = _safe_float(row.get("ADX_14"))
-        plus_di = _safe_float(row.get("ADX_Plus_DI"))
-        minus_di = _safe_float(row.get("ADX_Minus_DI"))
-        adx_floor = float(getattr(self.config, "STRONG_BUY_MIN_ADX", 20.0))
-        if adx is None:
-            strong_failures.append("ADX unavailable")
-        elif adx < adx_floor:
-            strong_failures.append("ADX below threshold")
-        if plus_di is None or minus_di is None:
-            strong_failures.append("directional indicators unavailable")
-        elif plus_di <= minus_di:
-            strong_failures.append("positive DI not above negative DI")
+            adx = _safe_float(row.get("ADX_14"))
+            plus_di = _safe_float(row.get("ADX_Plus_DI"))
+            minus_di = _safe_float(row.get("ADX_Minus_DI"))
+            adx_floor = float(getattr(self.config, "STRONG_BUY_MIN_ADX", 20.0))
+            if adx is None:
+                strong_failures.append("ADX unavailable")
+            elif adx < adx_floor:
+                strong_failures.append("ADX below threshold")
+            if plus_di is None or minus_di is None:
+                strong_failures.append("directional indicators unavailable")
+            elif plus_di <= minus_di:
+                strong_failures.append("positive DI not above negative DI")
 
-        technical_score = _safe_float(row.get("Technical_Score"))
-        technical_floor = float(
-            getattr(self.config, "STRONG_BUY_MIN_TECH_SCORE", 55.0)
-        )
-        if technical_score is None:
-            strong_failures.append("technical score unavailable")
-        elif technical_score < technical_floor:
-            strong_failures.append("technical score below threshold")
+            technical_score = _safe_float(row.get("Technical_Score"))
+            technical_floor = float(
+                getattr(self.config, "STRONG_BUY_MIN_TECH_SCORE", 55.0)
+            )
+            if technical_score is None:
+                strong_failures.append("technical score unavailable")
+            elif technical_score < technical_floor:
+                strong_failures.append("technical score below threshold")
 
         fundamental_coverage = _safe_float(row.get("Fundamental_Coverage"))
         strong_fund_coverage = float(
@@ -524,6 +772,44 @@ class RecommendationPolicy:
                     and evidence_score >= 70.0
                 )
             )
+
+        # --- separated views of one decision ------------------------------
+        # Collapsing every gate failure onto an identical 59.99 creates a large
+        # artificial cluster and destroys the ordering *within* it. Publishing
+        # the research view, the policy-eligible view and the execution view as
+        # separate fields keeps the decision auditable and lets capped rows keep
+        # a meaningful relative order.
+        frame["Research_Rating"] = evidence_ratings
+        frame["Policy_Eligible_Rating"] = ratings
+        frame["Primary_Gate"] = [
+            primary_gate(json.loads(value)) for value in all_reason_json
+        ]
+        frame["Gate_Severity"] = [
+            len(json.loads(value)) for value in all_reason_json
+        ]
+        # 0 = clears every gate, 1 = BUY-eligible only, 2 = policy-capped,
+        # 3 = unscorable. Sorting on this keeps eligible names ahead of capped
+        # ones without pretending their scores are comparable.
+        frame["Eligibility_Class"] = [
+            3
+            if decision is None or (isinstance(decision, float) and np.isnan(decision))
+            else 0
+            if strong_ok
+            else 1
+            if buy_ok
+            else 2
+            for decision, buy_ok, strong_ok in zip(
+                decision_scores, buy_eligible_values, strong_eligible_values
+            )
+        ]
+        if "Portfolio_Actionable" in frame:
+            frame["Execution_Status"] = np.where(
+                _bool_series(frame, "Portfolio_Actionable"),
+                "ACTIONABLE",
+                "NOT_ACTIONABLE",
+            )
+        else:
+            frame["Execution_Status"] = "UNKNOWN"
 
         frame["Evidence_Rating"] = evidence_ratings
         frame["Decision_Score_Ceiling"] = ceilings
@@ -811,8 +1097,7 @@ class RecommendationPolicy:
         ]
         return frame
 
-    @staticmethod
-    def _assign_ranks(frame):
+    def _assign_ranks(self, frame):
         ranked = frame.copy().reset_index(drop=True)
         if "Symbol" not in ranked:
             ranked["Symbol"] = ranked.index.astype(str)
@@ -849,11 +1134,34 @@ class RecommendationPolicy:
         )
         # Primary investment rank is decision-score first.  Recommendation_Rank
         # remains available for consumers that explicitly want rating classes.
-        assign(
-            "Investment_Rank",
-            ["Decision_Score", "Evidence_Score", "_Symbol_Sort"],
-            [False, False, True],
-        )
+        if _as_bool(
+            getattr(self.config, "RANK_BY_ELIGIBILITY_CLASS", False)
+        ) and "Eligibility_Class" in ranked:
+            # Eligibility first, then the uncapped research score. Every capped
+            # candidate shares one ceiling, so ordering them by Decision_Score
+            # sorts a column that is constant by construction and falls through
+            # to the symbol tie-break -- i.e. alphabetical order presented as
+            # investment merit. Research_Score restores a real ordering inside
+            # each class while eligibility still dominates across classes.
+            research = (
+                "Research_Score" if "Research_Score" in ranked else "Evidence_Score"
+            )
+            assign(
+                "Investment_Rank",
+                [
+                    "Eligibility_Class",
+                    research,
+                    "Gate_Severity",
+                    "_Symbol_Sort",
+                ],
+                [True, False, True, True],
+            )
+        else:
+            assign(
+                "Investment_Rank",
+                ["Decision_Score", "Evidence_Score", "_Symbol_Sort"],
+                [False, False, True],
+            )
         ranked["Rank"] = ranked["Investment_Rank"]
         ranked = ranked.sort_values("Investment_Rank", kind="mergesort").reset_index(
             drop=True

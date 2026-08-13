@@ -302,6 +302,151 @@ class Config:
     SUPABASE_READ_ONLY = _env_bool("SUPABASE_READ_ONLY", False)
     SUPABASE_TIMEOUT_SECONDS = _env_int("SUPABASE_TIMEOUT_SECONDS", 30)
 
+    # =================================================================
+    # Model 5.0 factor architecture (candidate; disabled by default)
+    # =================================================================
+    # The 4.x core score blends one undifferentiated fundamental block with ten
+    # partly-redundant technical components. Model 5.0 separates the economic
+    # concepts (quality, growth, value, momentum, risk) and demotes the
+    # short-horizon indicators to entry-timing diagnostics. It is gated because
+    # it re-ranks the universe: promote it only after the candidate-validation
+    # workflow has compared it against the 4.x baseline on identical inputs.
+    FACTOR_MODEL_ENABLED = _env_bool("FACTOR_MODEL_ENABLED", False)
+    FACTOR_WEIGHT_QUALITY = _env_float("FACTOR_WEIGHT_QUALITY", 0.35)
+    FACTOR_WEIGHT_GROWTH = _env_float("FACTOR_WEIGHT_GROWTH", 0.20)
+    FACTOR_WEIGHT_VALUE = _env_float("FACTOR_WEIGHT_VALUE", 0.15)
+    FACTOR_WEIGHT_MOMENTUM = _env_float("FACTOR_WEIGHT_MOMENTUM", 0.25)
+    FACTOR_WEIGHT_RISK = _env_float("FACTOR_WEIGHT_RISK", 0.05)
+    # Rank each factor inside its own sector where the sector has enough usable
+    # peers. A utility and a software company do not share a normal ROIC, growth
+    # rate, or earnings yield, so a single market-wide percentile would encode a
+    # sector bet as if it were stock selection.
+    FACTOR_SECTOR_NEUTRAL = _env_bool("FACTOR_SECTOR_NEUTRAL", True)
+    FACTOR_MIN_SECTOR_PEERS = _env_int("FACTOR_MIN_SECTOR_PEERS", 8)
+    # Cross-sectional winsorization before ranking. Ranks are already robust to
+    # outliers; this bounds the derived ratios that feed continuous sub-scores.
+    FACTOR_WINSOR_LOWER_PCT = _env_float("FACTOR_WINSOR_LOWER_PCT", 0.05)
+    FACTOR_WINSOR_UPPER_PCT = _env_float("FACTOR_WINSOR_UPPER_PCT", 0.95)
+    # A cheap multiple on a low-quality business is the classic value trap. Cap
+    # the value contribution rather than deleting it, so the evidence stays
+    # visible in the export.
+    FACTOR_VALUE_QUALITY_FLOOR_PCT = _env_float(
+        "FACTOR_VALUE_QUALITY_FLOOR_PCT", 30.0
+    )
+    FACTOR_VALUE_CEILING_WHEN_LOW_QUALITY = _env_float(
+        "FACTOR_VALUE_CEILING_WHEN_LOW_QUALITY", 50.0
+    )
+    # A factor block computed from almost no observed inputs is not evidence.
+    # Below this the block is published but shrunk toward neutral 50.
+    FACTOR_MIN_BLOCK_COVERAGE = _env_float("FACTOR_MIN_BLOCK_COVERAGE", 0.50)
+    # Publish the blended score as its cross-sectional percentile. Averaging
+    # five already-uniform percentile blocks concentrates the result around 50,
+    # which leaves the 70/60/50/40 rating bands -- calibrated for the 4.x
+    # absolute score -- effectively unreachable. Ranking the blend restores
+    # them: >=70 is the top 30% of the cross-section. Model 5.0 ratings are
+    # therefore relative; the absolute protection is the regime overlay plus the
+    # hard trend, quality and liquidity gates.
+    FACTOR_SCORE_AS_PERCENTILE = _env_bool("FACTOR_SCORE_AS_PERCENTILE", True)
+
+    # --- Price history depth -------------------------------------------------
+    # 12-1 momentum needs ~273 sessions, a rising-MA200 test needs ~220. The
+    # legacy 6-month window cannot express either. Features that are defined on
+    # a six-month window (6M return/high/low, average turnover) stay pinned to
+    # LEGACY_HISTORY_WINDOW_SESSIONS so lengthening this does not silently
+    # redefine them.
+    PRICE_HISTORY_PERIOD = os.getenv("PRICE_HISTORY_PERIOD", "2y")
+    LEGACY_HISTORY_WINDOW_SESSIONS = _env_int(
+        "LEGACY_HISTORY_WINDOW_SESSIONS", 126
+    )
+    MIN_PRICE_SESSIONS_REQUIRED = _env_int("MIN_PRICE_SESSIONS_REQUIRED", 60)
+
+    # --- Benchmark, relative strength and market regime ----------------------
+    # Nifty 500 (^CRSLDX) is the broadest liquid total-market proxy Yahoo serves
+    # for India; ^NSEI is the fallback when it is unavailable.
+    BENCHMARK_INDEX_SYMBOL = os.getenv("BENCHMARK_INDEX_SYMBOL", "^CRSLDX")
+    BENCHMARK_INDEX_FALLBACK = os.getenv("BENCHMARK_INDEX_FALLBACK", "^NSEI")
+    MARKET_REGIME_ENABLED = _env_bool("MARKET_REGIME_ENABLED", True)
+    # The regime overlay changes deployment conviction only. It never edits a
+    # factor score, so the underlying research rank stays visible in RISK_OFF.
+    MARKET_REGIME_MA_SESSIONS = _env_int("MARKET_REGIME_MA_SESSIONS", 200)
+    MARKET_REGIME_SLOPE_SESSIONS = _env_int("MARKET_REGIME_SLOPE_SESSIONS", 20)
+    MARKET_REGIME_NEUTRAL_BAND_PCT = _env_float(
+        "MARKET_REGIME_NEUTRAL_BAND_PCT", 2.0
+    )
+    REGIME_RISK_OFF_DISABLES_STRONG_BUY = _env_bool(
+        "REGIME_RISK_OFF_DISABLES_STRONG_BUY", True
+    )
+    REGIME_RISK_OFF_MIN_MOMENTUM_PCT = _env_float(
+        "REGIME_RISK_OFF_MIN_MOMENTUM_PCT", 90.0
+    )
+    REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY = _env_float(
+        "REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY", 85.0
+    )
+
+    # --- MA200 trend gate with hysteresis ------------------------------------
+    # An exact one-rupee boundary makes a stock oscillating around its average
+    # flip rating daily. The BUY test therefore uses a tolerance band and the
+    # SELL side requires a confirmed, persistent breakdown instead.
+    REQUIRE_MA200_TREND_FOR_BUY = _env_bool("REQUIRE_MA200_TREND_FOR_BUY", True)
+    BUY_MA200_TOLERANCE = _env_float("BUY_MA200_TOLERANCE", 0.98)
+    BUY_MIN_MA200_SLOPE_PCT = _env_float("BUY_MIN_MA200_SLOPE_PCT", 0.0)
+    STRONG_BUY_REQUIRE_MA50_ABOVE_MA200 = _env_bool(
+        "STRONG_BUY_REQUIRE_MA50_ABOVE_MA200", True
+    )
+    STRONG_BUY_MIN_RS_6M = _env_float("STRONG_BUY_MIN_RS_6M", 0.0)
+    STRONG_BUY_MIN_RS_12M = _env_float("STRONG_BUY_MIN_RS_12M", 0.0)
+    BUY_MIN_RS_6M = _env_float("BUY_MIN_RS_6M", 0.0)
+    # Confirmed-breakdown hysteresis for the downgrade side.
+    BREAKDOWN_CONFIRM_SESSIONS = _env_int("BREAKDOWN_CONFIRM_SESSIONS", 10)
+    # Percentile gates on the factor blocks themselves.
+    BUY_MIN_QUALITY_PCT = _env_float("BUY_MIN_QUALITY_PCT", 40.0)
+    STRONG_BUY_MIN_QUALITY_PCT = _env_float("STRONG_BUY_MIN_QUALITY_PCT", 70.0)
+    STRONG_BUY_MIN_GROWTH_PCT = _env_float("STRONG_BUY_MIN_GROWTH_PCT", 60.0)
+    STRONG_BUY_MIN_MOMENTUM_PCT = _env_float("STRONG_BUY_MIN_MOMENTUM_PCT", 70.0)
+    # Model 5.0 tightens the BUY coverage floors the proposal calls out.
+    FACTOR_FUNDAMENTAL_MIN_COVERAGE_FOR_BUY = _env_float(
+        "FACTOR_FUNDAMENTAL_MIN_COVERAGE_FOR_BUY", 0.70
+    )
+    FACTOR_TECHNICAL_MIN_COVERAGE_FOR_BUY = _env_float(
+        "FACTOR_TECHNICAL_MIN_COVERAGE_FOR_BUY", 0.90
+    )
+    # Execution liquidity as a BUY requirement, not only an Actionable_Rank
+    # overlay. Research_Rating stays uncapped so the research view is preserved.
+    REQUIRE_LIQUIDITY_FOR_BUY = _env_bool("REQUIRE_LIQUIDITY_FOR_BUY", True)
+    # Gross NPA, net NPA, capital adequacy and solvency are declared as
+    # required specialist evidence but NO collector in this repository ever
+    # populates them -- Yahoo does not publish them. The practical effect is
+    # that every bank, NBFC and insurer is permanently barred from BUY, which
+    # silently removes the single largest sector of the Indian market from the
+    # actionable universe.
+    #
+    # Model 5.0 scores financials on the statement evidence that IS reported
+    # (return on equity/assets, equity-to-assets, margin, earnings stability),
+    # at full coverage. Setting this True accepts that template as sufficient
+    # for BUY and keeps the regulatory-evidence requirement for STRONG BUY
+    # only. It defaults False so the existing fail-closed behaviour is
+    # preserved until this is a deliberate, reviewed decision.
+    FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT = _env_bool(
+        "FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT", False
+    )
+    # Rank capped candidates by eligibility class then research score, instead
+    # of letting every gate failure collapse onto an identical 59.99.
+    RANK_BY_ELIGIBILITY_CLASS = _env_bool("RANK_BY_ELIGIBILITY_CLASS", True)
+
+    # --- Financial-statement collection (Model 5.0 inputs) -------------------
+    # Yahoo's quote metadata has no total assets, EBIT, gross profit, cash flow
+    # history, or multi-year series, and it omits ROE/ROA outright for part of
+    # the universe. Quality, growth and accrual evidence therefore require the
+    # annual statements. They restate quarterly at most, so the cache TTL is
+    # long and the steady-state fetch cost is near zero.
+    STATEMENT_COLLECTION_ENABLED = _env_bool("STATEMENT_COLLECTION_ENABLED", True)
+    STATEMENT_CACHE_MAX_AGE_DAYS = _env_int("STATEMENT_CACHE_MAX_AGE_DAYS", 90)
+    STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN = _env_int(
+        "STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN", 400
+    )
+    STATEMENT_REQUESTS_PER_MINUTE = _env_int("STATEMENT_REQUESTS_PER_MINUTE", 40)
+    STATEMENT_MIN_YEARS_FOR_CAGR = _env_int("STATEMENT_MIN_YEARS_FOR_CAGR", 4)
+
     # A snapshot score is not a backtest. Measure the realized return after a
     # fixed holding period before making any claim about rating performance.
     BACKTEST_HORIZON_DAYS = _env_int("BACKTEST_HORIZON_DAYS", 30)
