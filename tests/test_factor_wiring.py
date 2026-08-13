@@ -1,9 +1,11 @@
 """Wiring guarantees for the Model 5.0 stages inside the composition root."""
 
 import inspect
+import re
 import unittest
 
 import app
+import screener.runtime
 from screener.runtime import Config
 
 
@@ -11,7 +13,22 @@ class DefaultsTests(unittest.TestCase):
     def test_factor_model_is_off_by_default(self):
         # Model 5.0 re-ranks the universe. It must stay opt-in until the
         # candidate-validation workflow has compared it against the baseline.
-        self.assertFalse(Config.FACTOR_MODEL_ENABLED)
+        #
+        # Asserted against the checked-in declaration rather than
+        # Config.FACTOR_MODEL_ENABLED, because that workflow deliberately sets
+        # FACTOR_MODEL_ENABLED=true for the whole job -- including the test step
+        # -- so a runtime assertion fails there for entirely the wrong reason.
+        # What must not drift is the default a normal deployment gets.
+        source = inspect.getsource(screener.runtime.Config)
+        match = re.search(
+            r"FACTOR_MODEL_ENABLED\s*=\s*_env_bool\(\s*"
+            r"[\"']FACTOR_MODEL_ENABLED[\"']\s*,\s*(True|False)\s*\)",
+            source,
+        )
+        self.assertIsNotNone(
+            match, "FACTOR_MODEL_ENABLED must be declared via _env_bool"
+        )
+        self.assertEqual(match.group(1), "False")
 
     def test_price_history_is_long_enough_for_the_new_features(self):
         # 12-1 momentum needs ~273 sessions and a rising-MA200 test ~220.

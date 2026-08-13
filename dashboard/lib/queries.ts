@@ -62,6 +62,26 @@ const GRID_COLUMNS = [
   "median_turnover_20d_inr",
   "price_bar_aligned",
   "fund_data_stale",
+  // Model 5.0. Null on 4.x rows, so the grid renders these columns only when
+  // factor_model_applied is set rather than showing a wall of dashes.
+  "factor_model_applied",
+  "research_score",
+  "quality_percentile",
+  "growth_percentile",
+  "momentum_percentile",
+  "risk_percentile",
+  "eligibility_class",
+  "primary_gate",
+  "gate_severity",
+  "research_rating",
+  "policy_eligible_rating",
+  "execution_status",
+  "market_regime",
+  "price_to_ma200_pct",
+  "ma200_slope_pct",
+  "momentum_12_1_pct",
+  "rs_market_6m_pct",
+  "roic",
 ].join(",");
 
 const SORTABLE = new Set([
@@ -83,6 +103,25 @@ const SORTABLE = new Set([
   "company",
   "sector",
   "rating",
+  // Model 5.0. eligibility_class ascends by default like the rank columns,
+  // because class 0 (clears every gate) is the best, not the worst.
+  "research_score",
+  "quality_percentile",
+  "growth_percentile",
+  "momentum_percentile",
+  "risk_percentile",
+  "eligibility_class",
+  "gate_severity",
+  "price_to_ma200_pct",
+  "momentum_12_1_pct",
+  "rs_market_6m_pct",
+  "roic",
+]);
+
+/** Sort keys where a LOWER value is better, so they default to ascending. */
+const ASCENDING_BY_DEFAULT = new Set([
+  "eligibility_class",
+  "gate_severity",
 ]);
 
 export async function getLatestRun(): Promise<ScreenerRun | null> {
@@ -167,12 +206,36 @@ export async function getSnapshotPage(
   if (filters.redFlagsOnly) {
     query = query.gt("red_flag_severity", 0);
   }
+  // Model 5.0 filters. On a 4.x run these columns are null, and PostgREST
+  // comparison operators exclude nulls, so applying one would empty the grid
+  // rather than be ignored. That is the correct behaviour -- the filter asks
+  // for evidence the run does not have -- and the filter bar hides these
+  // controls entirely unless the run used the factor model.
+  if (typeof filters.minQuality === "number") {
+    query = query.gte("quality_percentile", filters.minQuality);
+  }
+  if (typeof filters.minMomentum === "number") {
+    query = query.gte("momentum_percentile", filters.minMomentum);
+  }
+  if (filters.eligibility?.length) {
+    const classes = filters.eligibility
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value));
+    if (classes.length) {
+      query = query.in("eligibility_class", classes);
+    }
+  }
+  if (filters.aboveMa200) {
+    query = query.gte("price_to_ma200_pct", 0);
+  }
 
   const sortColumn =
     filters.sort && SORTABLE.has(filters.sort)
       ? filters.sort
       : "investment_rank";
-  const ascending = filters.dir ? filters.dir === "asc" : sortColumn.endsWith("rank");
+  const ascending = filters.dir
+    ? filters.dir === "asc"
+    : sortColumn.endsWith("rank") || ASCENDING_BY_DEFAULT.has(sortColumn);
 
   const page = Math.max(1, filters.page ?? 1);
   const from = (page - 1) * PAGE_SIZE;

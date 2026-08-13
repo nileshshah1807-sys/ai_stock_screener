@@ -141,6 +141,60 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("price_bar_aligned", "Price_Bar_Aligned", "bool"),
     ("fund_data_stale", "Fund_Data_Stale", "bool"),
     ("news_sentiment", "News_Sentiment", "text"),
+
+    # Model 5.0 factor architecture. A 4.x CSV has none of these columns, and
+    # map_row writes null for an absent column rather than omitting the key, so
+    # publishing a 4.x run against this schema clears them correctly instead of
+    # leaving yesterday's factor values behind on a re-ingest.
+    ("factor_model_applied", "Factor_Model_Applied", "bool"),
+    ("research_score", "Research_Score", "num:6,2"),
+    ("research_score_raw", "Research_Score_Raw", "num:6,2"),
+    ("research_score_basis", "Research_Score_Basis", "text"),
+
+    ("quality_score", "Quality_Score", "num:6,2"),
+    ("growth_score", "Growth_Score", "num:6,2"),
+    ("value_score", "Value_Score", "num:6,2"),
+    ("momentum_score", "Momentum_Score", "num:6,2"),
+    ("risk_score", "Risk_Score", "num:6,2"),
+    ("quality_percentile", "Quality_Percentile", "num:6,2"),
+    ("growth_percentile", "Growth_Percentile", "num:6,2"),
+    ("value_percentile", "Value_Percentile", "num:6,2"),
+    ("momentum_percentile", "Momentum_Percentile", "num:6,2"),
+    ("risk_percentile", "Risk_Percentile", "num:6,2"),
+    ("quality_coverage", "Quality_Coverage", "num:6,4"),
+    ("growth_coverage", "Growth_Coverage", "num:6,4"),
+    ("value_coverage", "Value_Coverage", "num:6,4"),
+    ("momentum_coverage", "Momentum_Coverage", "num:6,4"),
+    ("risk_coverage", "Risk_Coverage", "num:6,4"),
+    ("factor_coverage", "Factor_Coverage", "num:6,4"),
+    ("value_score_uncapped", "Value_Score_Uncapped", "num:6,2"),
+    ("value_quality_cap_applied", "Value_Quality_Cap_Applied", "bool"),
+
+    ("research_rating", "Research_Rating", "text"),
+    ("policy_eligible_rating", "Policy_Eligible_Rating", "text"),
+    ("execution_status", "Execution_Status", "text"),
+    ("eligibility_class", "Eligibility_Class", "int"),
+    ("primary_gate", "Primary_Gate", "text"),
+    ("gate_severity", "Gate_Severity", "int"),
+    ("market_regime", "Market_Regime", "text"),
+
+    ("ma200", "MA200", "num:14,2"),
+    ("ma200_slope_pct", "MA200_Slope_Pct", "num:10,4"),
+    ("price_to_ma200_pct", "Price_To_MA200_Pct", "num:10,3"),
+    ("ma50_to_ma200_pct", "MA50_To_MA200_Pct", "num:10,3"),
+    ("below_ma200_streak", "Below_MA200_Streak", "int"),
+    ("momentum_12_1_pct", "Momentum_12_1_Pct", "num:10,2"),
+    ("momentum_6_1_pct", "Momentum_6_1_Pct", "num:10,2"),
+    ("pct_change_12m", "Pct_Change_12M", "num:10,2"),
+    ("rs_market_6m_pct", "RS_Market_6M_Pct", "num:10,3"),
+    ("rs_market_12m_pct", "RS_Market_12M_Pct", "num:10,3"),
+    ("rs_sector_6m_pct", "RS_Sector_6M_Pct", "num:10,3"),
+    ("trend_quality_r2", "Trend_Quality_R2", "num:8,4"),
+
+    ("volatility_ann_pct", "Volatility_Ann_Pct", "num:10,3"),
+    ("max_drawdown_1y_pct", "Max_Drawdown_1Y_Pct", "num:10,3"),
+    ("downside_deviation_pct", "Downside_Deviation_Pct", "num:10,3"),
+    ("roic", "ROIC", "num:12,4"),
 ]
 
 HISTORY_COLUMNS: list[tuple[str, str, str]] = [
@@ -159,6 +213,12 @@ HISTORY_COLUMNS: list[tuple[str, str, str]] = [
     ("buy_eligible", "Buy_Eligible", "bool"),
     ("strong_buy_eligible", "Strong_Buy_Eligible", "bool"),
     ("rating_capped", "Rating_Capped", "bool"),
+    # Model 5.0: the slim history exists to answer "what moved and what changed
+    # rating". Under the factor model the published rating is capped, so
+    # research score and eligibility class are what actually move first.
+    ("research_score", "Research_Score", "num:6,2"),
+    ("eligibility_class", "Eligibility_Class", "int"),
+    ("primary_gate", "Primary_Gate", "text"),
 ]
 
 
