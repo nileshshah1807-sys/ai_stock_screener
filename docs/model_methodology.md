@@ -1,15 +1,18 @@
 # Model methodology and evidence audit
 
 Last reviewed: 2026-08-13
-Active model version: 4.0.0-candidate
-Candidate model: Model 5.0 factor architecture (`FACTOR_MODEL_ENABLED`, default off)
+Scheduled production model: 5.0.0
+Scheduled recommendation policy: 5.0.0
+Output schema: 4.1.0
+Local/manual-daily model: 4.0.0-candidate (`FACTOR_MODEL_ENABLED=false`)
 
-> This document describes the **active** 4.x model. Model 5.0 replaces the 70/30
+> Scheduled production uses Model 5.0. It replaces the 70/30
 > core score with five separable factor blocks, MA200 trend gates with
-> hysteresis, a market-regime overlay and eligibility-class ranking. It is
-> implemented and unit-tested but **not enabled**; see section 20 of
-> `docs/stock_screener_system_architecture.md` for its full contract, its known
-> data gaps, and the validation protocol required before promotion.
+> hysteresis, a market-regime overlay and eligibility-class ranking. The legacy
+> 4.x contract remains available for local and isolated manual-daily runs. See
+> section 20 of `docs/stock_screener_system_architecture.md` for its full contract, its known
+> data gaps, and the predictive-validation protocol that remains pending after
+> operational promotion.
 
 ## What the output means
 
@@ -48,7 +51,7 @@ transaction costs, and no look-ahead data.
   are excluded. The exchange holiday list is a versioned, config-hashed
   snapshot and must be updated for ad-hoc circulars and special sessions.
 - Price-history depth and technical-cache schema follow the selected model.
-  With `FACTOR_MODEL_ENABLED=false`, the active 4.x path remains `6mo` with
+  With `FACTOR_MODEL_ENABLED=false`, the local/manual 4.x path remains `6mo` with
   cache contract v6. Model 5.0 selects `2y` and v7 for MA200, 12-1 momentum,
   one-year drawdown, and relative-strength inputs; legacy six-month features
   remain pinned to 126 sessions inside the longer frame. Distinct versions
@@ -64,7 +67,7 @@ transaction costs, and no look-ahead data.
   not silently approximated. News keywords and the FII/DII placeholder do not
   enter the score.
 
-## Model v4 score and decision contract
+## Legacy Model v4 score and decision contract
 
 The scoring, reverse-DCF, and transcript modules are evidence producers. They
 may export provisional diagnostics, but only the pure finalizer in
@@ -278,6 +281,22 @@ screener, not a proven return-generation model.
    This prevents a partial, order-dependent cross-section from being treated as
    validation evidence; it does not solve the point-in-time limitation in
    condition 6.
+
+Scheduled production applies the same 95% floor before scoring, reporting,
+notifications, backtest writes, or dashboard publication. A one-shot promotion
+workflow verifies candidate run `31685056109` and its expected commit before
+seeding only the validated `statement_cache.csv` into the separate production
+statement-cache namespace. Scheduled recovery can still fetch the full universe,
+and an `always()` checkpoint preserves a valid partial cache if the coverage
+guard fails so the next run can continue instead of starting over.
+
+The green candidate run is operational evidence only. Its cache contained
+2,284 unique statement records, of which 2,283 matched the 2,301-row candidate
+universe and were usable (99.22% coverage). It shows that Model 5.0 executes on
+the full NSE universe;
+it does not show that its ranks forecast returns or outperform 4.x. The exported
+validation status therefore continues to say that point-in-time,
+out-of-sample validation is pending.
 
 The candidate job may use `SUPABASE_URL` and the service-role secret to bulk-read
 the same cached transcript evidence as production. `SUPABASE_READ_ONLY=True`

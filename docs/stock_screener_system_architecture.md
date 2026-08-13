@@ -2,17 +2,18 @@
 
 - **Status:** implementation-derived design document
 - **Scope:** current `app.run_daily_analysis()` production path and its supporting modules
-- **Model defaults documented:** `4.0.0-candidate` / recommendation policy `4.0.0-candidate`
+- **Scheduled production contract:** model `5.0.0` / recommendation policy `5.0.0` / output schema `4.1.0`
+- **Local and manual-daily default:** `4.0.0-candidate`, with the factor switch off
 - **Last reviewed against code:** 2026-08-13
 
-> **Two models live in this codebase.** Sections 1-19 describe the **4.x model**, which is
-> what runs by default (`FACTOR_MODEL_ENABLED=False`). Section 20 describes the **Model 5.0
-> factor architecture**, a candidate that replaces the 70/30 core score with five separable
+> **Two models live in this codebase.** Sections 1-19 describe the shared pipeline and the
+> legacy **4.x model**, which remains the local/runtime default (`FACTOR_MODEL_ENABLED=False`)
+> and the isolated manual-daily path. Section 20 describes the **Model 5.0 factor
+> architecture**, which replaces the 70/30 core score with five separable
 > factor blocks, MA200 trend gates, a market-regime overlay and eligibility-class ranking.
-> Model 5.0 is implemented, unit-tested and wired into the candidate-validation workflow, but
-> it is **not** enabled in production and must not be until point-in-time walk-forward
-> validation has been run. Where Model 5.0 changes a rule in sections 1-19, section 20 says so
-> explicitly.
+> Scheduled production selects Model 5.0 explicitly in GitHub Actions. Its operational
+> promotion does not resolve the still-pending point-in-time, out-of-sample predictive
+> validation. Where Model 5.0 changes a rule in sections 1-19, section 20 says so explicitly.
 
 > **Research-model boundary.** This application produces deterministic research ranks and heuristic rating labels. `Rating`, `Decision_Score`, and `Final_Score` are not forecasts of return, fair value, or probability of profit. The configured `Model_Validation_Status` explicitly says point-in-time, out-of-sample validation is pending. The system's purpose is to make the screening logic auditable, reproducible, and reviewable—not to make an unvalidated investment-performance claim.
 
@@ -817,6 +818,16 @@ an internal cache version, so adding `statement_cache.csv` there would make othe
 production entries unreachable. The daily workflow therefore restores and saves statements
 under a separate production-only statement-cache key.
 
+The one-shot `seed-production-statement-cache.yml` workflow initializes that namespace from
+the artifact of an already successful candidate validation. It accepts a candidate run ID and
+expected Git SHA, verifies both before extracting `candidate/statement_cache.csv`, validates
+the cache, and saves only that file under the production statement-cache prefix. Promotion uses
+green run `31685056109` at `fa9d3094129b9540717a67fda040449340d7dec1`; the seed is cache
+bootstrap, not a second model validation or evidence of predictive performance. Scheduled
+production independently enforces at least 95% statement coverage before scoring. If that
+guard fails, its `always()` cache checkpoint preserves successfully fetched records for the
+next attempt without publishing a partial cross-section.
+
 The candidate workflow can read production vendor inputs but cannot update either production
 cache namespace. When `baseline_run_id` is supplied, it validates the baseline report artifact
 before dependency installation and expensive screening, restores the exact five-path production
@@ -907,10 +918,13 @@ For a reviewer examining an exported top-ranked row:
 
 ---
 
-## 20. Model 5.0 factor architecture (candidate; disabled by default)
+## 20. Model 5.0 factor architecture (scheduled production)
 
-**Status:** implemented, unit-tested, and selectable in the candidate-validation workflow.
-**Not enabled in production.** `FACTOR_MODEL_ENABLED` defaults to `False`.
+**Status:** scheduled production uses model `5.0.0`, recommendation policy `5.0.0`, and
+additive output schema `4.1.0`. The daily workflow enables the factor switch only for scheduled
+runs; local execution and a manual dispatch of that workflow retain the 4.x default. Candidate
+run `31685056109` supplied operational full-universe evidence, while point-in-time,
+out-of-sample predictive validation remains pending.
 
 ### 20.1 Why the 4.x core score was replaced
 
@@ -1003,7 +1017,7 @@ bands — which were calibrated for the 4.x *absolute* score — exactly **one**
 30% of the cross-section, `>= 60` the top 40%.
 
 **This makes Model 5.0 ratings explicitly relative,** which is a genuine semantic change from
-4.x and has two consequences that must be understood before promotion:
+4.x and has two consequences that remain part of the production contract:
 
 - In any universe, roughly 40% of rows score below 50 and are labelled REDUCE or SELL. On a
   40-name blue-chip watchlist that reads as absurdly bearish; on a full-NSE run it is closer to
@@ -1038,8 +1052,9 @@ minutes fetching fundamentals for 2,310 symbols and about 15.5 minutes on the fi
 statement tranche (600 attempted, 594 usable); the complete screener step took about 80 minutes.
 The dominant cost was therefore the cold fundamental fetch, not the statement fetch. Statements
 restate quarterly at most, so `STATEMENT_CACHE_MAX_AGE_DAYS` defaults to 90 and
-`STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` bounds each run's backfill (400 locally and 600 by default
-in candidate validation). Candidate validation also accepts 2,500 for a deliberate one-time
+`STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` bounds each run's backfill (2,500 by runtime default,
+400 for an isolated manual-daily run, and 600 by default in candidate validation). Candidate
+validation also accepts 2,500 for a deliberate one-time
 full-universe completion. Symbols not yet backfilled report no statement evidence and fail
 closed, while the comparison step refuses factor-model evidence below 95% universe coverage.
 
@@ -1206,8 +1221,9 @@ Measured on a 40-name large-cap watchlist, 4.x baseline vs Model 5.0 on identica
 Spearman rank correlation **0.62**, top-20 Jaccard **0.60**, 5 entrants and 5 exits. The model
 re-ranks materially, which is the point — and exactly why it must not be promoted on a smoke test.
 
-**Nothing here is evidence that Model 5.0 predicts returns better than 4.x.** Before promotion,
-run the pre-declared grid from the proposal (A: 4.x baseline, B: factorised 70/30, C: 60/40 with
+**Nothing here is evidence that Model 5.0 predicts returns better than 4.x.** Before making
+predictive-performance claims, run the pre-declared grid from the proposal (A: 4.x baseline,
+B: factorised 70/30, C: 60/40 with
 MA200 gate, D: proposed without MA200 gate, E: proposed with regime overlay) under expanding
 walk-forward validation with a final untouched test period, and evaluate forward 1/3/6/12-month
 returns, decile portfolios, excess return vs Nifty 500 TRI, rank information coefficient, hit
@@ -1218,7 +1234,7 @@ Note that `screener/statements.py` derives from the statements Yahoo publishes *
 no attempt to reconstruct what was knowable on a past date, so it is suitable for a forward
 screen but **not** for a look-ahead-free historical backtest without a point-in-time
 fundamentals source. This is the single largest obstacle to executing the validation protocol
-above and should be scoped before any promotion decision.
+above and should be scoped before interpreting Model 5.0 as predictively validated.
 
 The isolated candidate workflow adds an operational guard, not a predictive claim: comparison
 fails below 95% statement coverage so an alphabetical or otherwise partial backfill cannot be
@@ -1227,11 +1243,21 @@ statement tranche before that guard or a later baseline comparison can fail. For
 parity the workflow may bulk-read Supabase using the service-role secret, but read-only mode
 rejects every write and the secret is never placed in a manifest, cache, or artifact.
 
+Full-NSE candidate run `31685056109` completed successfully at the approved candidate commit. Its
+cache contained 2,284 unique statement rows; 2,283 matched the 2,301-row candidate universe and
+were usable (99.22% coverage). This is operational acceptance evidence
+only: it shows that the pipeline runs, the cross-section is substantially complete, and the
+comparison tooling works.
+It neither estimates future returns nor demonstrates superiority over 4.x. Scheduled production
+therefore exports a validation status that continues to state that point-in-time,
+out-of-sample validation is pending.
+
 ### 20.10 Model 5.0 configuration reference
 
-| Parameter | Default | Effect |
+| Parameter | Runtime default / scheduled override | Effect |
 |---|---:|---|
-| `FACTOR_MODEL_ENABLED` | false | Master switch for the whole architecture |
+| `FACTOR_MODEL_ENABLED` | false / true | Master switch; GitHub's scheduled production run explicitly enables it while manual daily dispatch remains false |
+| `MODEL_VERSION` / `RECOMMENDATION_POLICY_VERSION` / `OUTPUT_SCHEMA_VERSION` | local model/policy `4.0.0-candidate`; scheduled model/policy `5.0.0`; schema `4.1.0` | Scheduled model, policy, and additive export contracts are versioned independently |
 | `FACTOR_WEIGHT_{QUALITY,GROWTH,VALUE,MOMENTUM,RISK}` | .35/.20/.15/.25/.05 | Block blend |
 | `FACTOR_SCORE_AS_PERCENTILE` | true | Publish the blend as a cross-sectional percentile |
 | `FACTOR_SECTOR_NEUTRAL` / `FACTOR_MIN_SECTOR_PEERS` | true / 8 | Rank inside sector when it is large enough |
@@ -1247,4 +1273,5 @@ rejects every write and the secret is never placed in a manifest, cache, or arti
 | `REQUIRE_LIQUIDITY_FOR_BUY` | true | Execution liquidity as a BUY gate |
 | `RANK_BY_ELIGIBILITY_CLASS` | true | Eligibility-first primary ranking |
 | `FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT` | false | See 20.8 — risk-policy decision |
-| `STATEMENT_CACHE_MAX_AGE_DAYS` / `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` | 90 / 400 | Statement cache TTL and local per-run backfill budget; candidate workflow defaults to 600 and allows 2,500 for one-time completion |
+| `FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE` | 0.95 | Scheduled production fails before scoring and side effects if usable statement evidence covers less than 95% of the research universe |
+| `STATEMENT_CACHE_MAX_AGE_DAYS` / `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` | 90 / 2,500 scheduled (400 manual daily) | Statement cache TTL and recovery budget; candidate workflow defaults to 600 and allows 2,500 for one-time completion |

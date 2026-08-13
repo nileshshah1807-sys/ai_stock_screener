@@ -71,6 +71,90 @@ def merge_research_universe(tech_df, fund_df):
     return merged.drop(columns="_Fundamental_Merge")
 
 
+def enforce_factor_statement_coverage(frame, config):
+    """Fail before scoring when Model 5 statement coverage is incomplete.
+
+    Factor percentiles are cross-sectional, so a partial cache changes every
+    covered symbol's rank as well as making uncovered symbols ineligible. The
+    guard is deliberately a no-op for Model 4.x.
+    """
+
+    if not bool(getattr(config, "FACTOR_MODEL_ENABLED", False)):
+        return
+
+    floor_value = getattr(config, "FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE", 0.95)
+    try:
+        floor = float(floor_value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE must be a finite number "
+            "between 0 and 1"
+        ) from exc
+    if not np.isfinite(floor) or not 0.0 <= floor <= 1.0:
+        raise RuntimeError(
+            "FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE must be a finite number "
+            "between 0 and 1"
+        )
+
+    if frame is None or frame.empty:
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: research universe is empty"
+        )
+    required = {"Statement_Record_Available", "Statement_Universe_Coverage"}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: missing column(s) "
+            + ", ".join(missing)
+        )
+
+    availability = frame["Statement_Record_Available"]
+    malformed = ~availability.map(lambda value: isinstance(value, (bool, np.bool_)))
+    if malformed.any():
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: "
+            "Statement_Record_Available must contain only booleans"
+        )
+
+    available = int(availability.astype(bool).sum())
+    total = len(frame)
+    actual = available / total
+
+    reported = pd.to_numeric(frame["Statement_Universe_Coverage"], errors="coerce")
+    if reported.isna().any() or (~np.isfinite(reported)).any():
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: "
+            "Statement_Universe_Coverage is missing or malformed"
+        )
+    if ((reported < 0.0) | (reported > 1.0)).any() or reported.nunique() != 1:
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: "
+            "Statement_Universe_Coverage must be one repeated value between 0 and 1"
+        )
+    reported_value = float(reported.iloc[0])
+    if not np.isclose(reported_value, actual, atol=0.00005, rtol=0.0):
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: reported coverage "
+            f"{reported_value:.4f} does not match {available}/{total} "
+            f"({actual:.4f})"
+        )
+    if actual < floor:
+        raise RuntimeError(
+            "Model 5 statement coverage is below the production floor: "
+            f"{available}/{total} ({actual:.2%}) < {floor:.2%}. "
+            "No scores, reports, notifications, backtest records, or dashboard "
+            "rows were produced; seed or complete statement_cache.csv and rerun."
+        )
+
+    logger.info(
+        "Model 5 statement coverage guard passed: %d/%d (%.2f%%; minimum %.2f%%)",
+        available,
+        total,
+        actual * 100,
+        floor * 100,
+    )
+
+
 def run_daily_analysis():
     config = Config()
     analysis_now = datetime.now(
@@ -186,6 +270,7 @@ def run_daily_analysis():
     factor_model_enabled = bool(getattr(config, "FACTOR_MODEL_ENABLED", False))
     if factor_model_enabled and getattr(config, "STATEMENT_COLLECTION_ENABLED", True):
         merged_df = FinancialStatementCollector(config).enrich(merged_df)
+    enforce_factor_statement_coverage(merged_df, config)
 
     scorer = StockScorer(config)
     scored_df = scorer.score_all_stocks(merged_df)

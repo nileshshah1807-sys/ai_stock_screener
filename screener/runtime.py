@@ -442,7 +442,15 @@ class Config:
     STATEMENT_COLLECTION_ENABLED = _env_bool("STATEMENT_COLLECTION_ENABLED", True)
     STATEMENT_CACHE_MAX_AGE_DAYS = _env_int("STATEMENT_CACHE_MAX_AGE_DAYS", 90)
     STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN = _env_int(
-        "STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN", 400
+        "STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN", 2500
+    )
+    # Model 5 computes cross-sectional percentiles. Publishing a universe with
+    # statement evidence for only the first cache tranche would therefore make
+    # data availability, rather than the model, decide who can rank. Fail the
+    # run before scoring or any side effects unless nearly the whole research
+    # universe has usable statement records.
+    FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE = _env_float(
+        "FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE", 0.95
     )
     STATEMENT_REQUESTS_PER_MINUTE = _env_int("STATEMENT_REQUESTS_PER_MINUTE", 40)
     STATEMENT_MIN_YEARS_FOR_CAGR = _env_int("STATEMENT_MIN_YEARS_FOR_CAGR", 4)

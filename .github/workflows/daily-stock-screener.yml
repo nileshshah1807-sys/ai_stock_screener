@@ -36,6 +36,19 @@ jobs:
       YFINANCE_CACHE_DIR: ${{ github.event_name == 'workflow_dispatch' && format('.validation-output/{0}/yfinance_cache', github.run_id) || 'reports_advanced/yfinance_cache' }}
       BACKTEST_WRITES_ENABLED: ${{ github.event_name == 'schedule' }}
       RUN_MANIFEST_ENABLED: "True"
+      # Model 5.0 is the scheduled production contract. Manual dispatches of
+      # this workflow remain isolated 4.x smoke runs; use the dedicated
+      # candidate workflow for manual Model 5.0 validation.
+      FACTOR_MODEL_ENABLED: ${{ github.event_name == 'schedule' && 'True' || 'False' }}
+      MODEL_VERSION: ${{ github.event_name == 'schedule' && '5.0.0' || '4.0.0-candidate' }}
+      RECOMMENDATION_POLICY_VERSION: ${{ github.event_name == 'schedule' && '5.0.0' || '4.0.0-candidate' }}
+      OUTPUT_SCHEMA_VERSION: "4.1.0"
+      MODEL_VALIDATION_STATUS: ${{ github.event_name == 'schedule' && 'Production active; point-in-time out-of-sample validation pending' || 'Research model; point-in-time out-of-sample validation pending' }}
+      # A factor cross-section is not representative while statement coverage
+      # is partial. The first production run can build the whole NSE cache;
+      # subsequent runs normally reuse its 90-day statement records.
+      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ github.event_name == 'schedule' && '2500' || '400' }}
+      FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0.95"
       # Manual dispatches are validation-only and never notify recipients.
       EMAIL_ENABLED: ${{ github.event_name == 'schedule' }}
       EMAIL_DELIVERY_METHOD: GMAIL_API
@@ -169,7 +182,10 @@ jobs:
           key: ${{ steps.market-data-cache.outputs.cache-primary-key }}
 
       - name: Save refreshed production statement cache
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule' && hashFiles('reports_advanced/statement_cache.csv') != ''
+        # Checkpoint a valid partial/full statement build even when the screener
+        # later fails the coverage guard. This avoids refetching successful
+        # records on the next run. hashFiles prevents saving a missing cache.
+        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule' && hashFiles('reports_advanced/statement_cache.csv') != ''
         uses: actions/cache/save@v6
         with:
           path: reports_advanced/statement_cache.csv

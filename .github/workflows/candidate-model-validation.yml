@@ -104,6 +104,11 @@ jobs:
       # A cold statement build is bounded per run. The candidate-only cache
       # below checkpoints each successful tranche without writing production.
       STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ inputs.statement_fetch_max_symbols }}
+      # Partial candidate tranches must be allowed to finish so their cache can
+      # accumulate. The comparison step below is the candidate fail-closed
+      # boundary and independently requires at least 95% statement coverage.
+      # Scheduled production overrides this to 0.95 before any side effects.
+      FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0"
 
     steps:
       - name: Prepare isolated validation workspace

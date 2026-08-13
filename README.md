@@ -1,8 +1,9 @@
 # AI Stock Screener
 
 Daily NSE research screener with auditable fundamental, technical, reverse-DCF,
-and management-transcript evidence. Model v4 uses one recommendation finalizer
-and separates investment conviction from execution suitability.
+and management-transcript evidence. Scheduled production runs use the Model 5.0
+factor architecture; local runs and manual dispatches of the daily workflow
+retain the isolated 4.x path unless a factor run is selected explicitly.
 
 The score is a transparent research heuristic, not a validated return forecast.
 The evidence, assumptions, known limitations, and validation requirements for
@@ -33,15 +34,17 @@ Transcript ingestion and local NLP remain in `workers/`, `transcripts/`,
 `sentiment/`, and `storage/`. Run the daily screener with `python app.py` or
 schedule the same entry point with `python scheduler.py`.
 
-### Model 5.0 (candidate, disabled by default)
+### Model 5.0 (scheduled production; predictive validation pending)
 
-The default scoring path is the 4.x model. A candidate **Model 5.0 factor
-architecture** is implemented alongside it and selected with
-`FACTOR_MODEL_ENABLED=true`. It replaces the 70/30 core score with five
-separable factor blocks (quality 35%, growth 20%, value 15%, momentum 25%,
-risk 5%), swaps the MA50/ADX trend gates for an MA200 trend gate with
-hysteresis and 6/12-month relative strength, adds a market-regime overlay, and
-ranks by eligibility class rather than collapsing every capped row onto an
+The scheduled production workflow selects **Model 5.0** with
+`FACTOR_MODEL_ENABLED=true`, `MODEL_VERSION=5.0.0`, and
+`RECOMMENDATION_POLICY_VERSION=5.0.0`; its additive output contract remains
+`OUTPUT_SCHEMA_VERSION=4.1.0`. The runtime default and a manual dispatch of the
+daily workflow stay on the isolated 4.x path. Model 5.0 replaces the 70/30 core
+score with five separable factor blocks (quality 35%, growth 20%, value 15%,
+momentum 25%, risk 5%), swaps the MA50/ADX trend gates for an MA200 trend gate
+with hysteresis and 6/12-month relative strength, adds a market-regime overlay,
+and ranks by eligibility class rather than collapsing every capped row onto an
 identical 59.99.
 
 It needs data the 4.x path never collected, so enabling it also turns on annual
@@ -51,17 +54,18 @@ keeps its existing `6mo` download and technical-indicator cache contract v6.
 Enabling Model 5.0 selects `2y` and cache contract v7 because a 200-day average
 and a 12-1 momentum window cannot be expressed in six months. Features defined
 on a six-month window stay pinned to 126 sessions, and v6/v7 caches are kept
-distinct so switching the candidate on cannot mix incompatible technical rows.
+distinct so switching models cannot mix incompatible technical rows.
 
-**Do not enable it in production without validation.** Model 5.0 ratings are
-cross-sectional rather than absolute, and it materially re-ranks the universe
-(Spearman 0.62 against the 4.x baseline on a 40-name smoke test). Use the
-**Candidate model validation (isolated)** workflow with `factor_model: true` to
-diff it against a production baseline run, and read section 20 of
-`docs/stock_screener_system_architecture.md` first — in particular 20.3 (why the
-score is a percentile), 20.8 (financials are barred from BUY by a gate whose
-data nobody collects) and 20.9 (the validation protocol and its blocking
-point-in-time fundamentals dependency).
+Candidate run `31685056109` completed the full-NSE operational validation with
+the statement-coverage guard satisfied. That green run proves that the model
+executes coherently at production scale; it does **not** prove that Model 5.0
+predicts returns better than 4.x. Point-in-time fundamentals and genuine
+out-of-sample evidence remain pending. Use the **Candidate model validation
+(isolated)** workflow with `factor_model: true` for further comparisons, and
+read section 20 of `docs/stock_screener_system_architecture.md` first — in
+particular 20.3 (why the score is a percentile), 20.8 (financials are barred
+from BUY by a gate whose data nobody collects), and 20.9 (the predictive-
+validation protocol and its blocking point-in-time fundamentals dependency).
 
 ## GitHub Actions
 
@@ -86,6 +90,14 @@ within the configured cache lifetimes (18 hours for prices and 7 days for
 fundamentals). The report is delivered by email as usual. The run also records
 model, recommendation-policy, and output-schema versions plus a secret-free
 configuration hash and manifest metadata so two runs can be compared exactly.
+
+Promotion includes a one-shot **Seed production statement cache** workflow. It
+accepts the validated candidate run ID and expected commit SHA, verifies the
+candidate artifact, and copies only `candidate/statement_cache.csv` into the
+separate production statement-cache namespace. The scheduled screener still
+allows a full-universe statement backfill as a recovery path, refuses to score
+or publish Model 5.0 below 95% statement coverage, and checkpoints any valid
+partial cache even when that coverage guard deliberately fails the run.
 
 The separate **Candidate model validation (isolated)** workflow is the safe
 path for a branch or model candidate. It runs tests and the screener in a
