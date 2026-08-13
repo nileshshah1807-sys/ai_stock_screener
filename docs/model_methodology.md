@@ -1,7 +1,18 @@
 # Model methodology and evidence audit
 
-Last reviewed: 2026-08-10
-Active model version: 4.0.0-candidate
+Last reviewed: 2026-08-13
+Scheduled production model: 5.0.0
+Scheduled recommendation policy: 5.0.0
+Output schema: 4.1.0
+Local/manual-daily model: 4.0.0-candidate (`FACTOR_MODEL_ENABLED=false`)
+
+> Scheduled production uses Model 5.0. It replaces the 70/30
+> core score with five separable factor blocks, MA200 trend gates with
+> hysteresis, a market-regime overlay and eligibility-class ranking. The legacy
+> 4.x contract remains available for local and isolated manual-daily runs. See
+> section 20 of `docs/stock_screener_system_architecture.md` for its full contract, its known
+> data gaps, and the predictive-validation protocol that remains pending after
+> operational promotion.
 
 ## What the output means
 
@@ -39,6 +50,12 @@ transaction costs, and no look-ahead data.
   session must match the latest expected completed NSE date; lagging symbols
   are excluded. The exchange holiday list is a versioned, config-hashed
   snapshot and must be updated for ad-hoc circulars and special sessions.
+- Price-history depth and technical-cache schema follow the selected model.
+  With `FACTOR_MODEL_ENABLED=false`, the local/manual 4.x path remains `6mo` with
+  cache contract v6. Model 5.0 selects `2y` and v7 for MA200, 12-1 momentum,
+  one-year drawdown, and relative-strength inputs; legacy six-month features
+  remain pinned to 126 sessions inside the longer frame. Distinct versions
+  prevent cached technical rows from being mixed across the two contracts.
 - Transcript discovery starts from NSE corporate filings. Parsed text and
   derived NLP output are cached in Supabase by a separate worker so the daily
   scan performs a bulk lookup rather than per-company document analysis.
@@ -50,7 +67,7 @@ transaction costs, and no look-ahead data.
   not silently approximated. News keywords and the FII/DII placeholder do not
   enter the score.
 
-## Model v4 score and decision contract
+## Legacy Model v4 score and decision contract
 
 The scoring, reverse-DCF, and transcript modules are evidence producers. They
 may export provisional diagnostics, but only the pure finalizer in
@@ -235,3 +252,53 @@ hand-tuned in production.
 
 Until those conditions are met, the application is an auditable research
 screener, not a proven return-generation model.
+
+### Additional conditions specific to Model 5.0
+
+6. **Point-in-time fundamentals are the blocking dependency.**
+   `screener/statements.py` derives quality and growth evidence from the annual
+   statements Yahoo publishes *today*. It makes no attempt to reconstruct what
+   was knowable on a past date, so it satisfies condition 2 for a forward screen
+   only. A look-ahead-free historical backtest of the factor blocks requires a
+   point-in-time fundamentals source that this repository does not have. Scope
+   that before scheduling the walk-forward study.
+7. **Model 5.0 ratings are cross-sectional, not absolute.** The published score
+   is the percentile of the weighted block blend, so roughly 40% of any universe
+   is labelled REDUCE or SELL by construction. Bucket monotonicity in condition 4
+   must therefore be measured against the same universe definition used in
+   production, and the model is intended for full-universe runs rather than
+   short watchlists.
+8. **Test the grid, not the winner.** Run the pre-declared A-E model grid
+   (4.x baseline; factorised 70/30; 60/40 with MA200 gate; proposed without the
+   MA200 gate; proposed with the regime overlay) and report all five. Selecting
+   the best of many variants on one sample and calling that sample a holdout is
+   the specific failure mode this protocol exists to prevent.
+9. **Require a substantially complete statement cross-section.** The isolated
+   candidate workflow refuses a Model 5.0 comparison below 95% statement
+   coverage of the full candidate universe. It accumulates bounded backfill
+   tranches in a branch-scoped candidate cache, optionally seeds from a prior
+   candidate artifact, and checkpoints a successful tranche before comparison.
+   This prevents a partial, order-dependent cross-section from being treated as
+   validation evidence; it does not solve the point-in-time limitation in
+   condition 6.
+
+Scheduled production applies the same 95% floor before scoring, reporting,
+notifications, backtest writes, or dashboard publication. A one-shot promotion
+workflow verifies candidate run `31685056109` and its expected commit before
+seeding only the validated `statement_cache.csv` into the separate production
+statement-cache namespace. Scheduled recovery can still fetch the full universe,
+and an `always()` checkpoint preserves a valid partial cache if the coverage
+guard fails so the next run can continue instead of starting over.
+
+The green candidate run is operational evidence only. Its cache contained
+2,284 unique statement records, of which 2,283 matched the 2,301-row candidate
+universe and were usable (99.22% coverage). It shows that Model 5.0 executes on
+the full NSE universe;
+it does not show that its ranks forecast returns or outperform 4.x. The exported
+validation status therefore continues to say that point-in-time,
+out-of-sample validation is pending.
+
+The candidate job may use `SUPABASE_URL` and the service-role secret to bulk-read
+the same cached transcript evidence as production. `SUPABASE_READ_ONLY=True`
+rejects non-GET requests: validation does not publish to Supabase, and neither
+the secret nor any other credential is included in its cache or artifacts.

@@ -14,6 +14,7 @@ import pandas as pd
 from pandas.testing import assert_frame_equal
 
 from screener.runtime import Config
+from tools.compare_screener_outputs import main as compare_screener_outputs
 from tools.replay_screener_export import replay_csv
 from tools.run_isolated_validation import (
     _configure_isolated_logging,
@@ -24,7 +25,10 @@ from tools.run_isolated_validation import (
     main as run_isolated_validation,
 )
 
-from validation.comparator import compare_frames
+from validation.comparator import (
+    compare_frames,
+    validate_factor_statement_coverage,
+)
 from validation.replay import (
     REPLAY_LIMITATIONS,
     apply_replay_technical_price_proxy,
@@ -32,6 +36,7 @@ from validation.replay import (
     technical_price_source_counts,
 )
 from validation.reproducibility import (
+    DEFAULT_REPRODUCIBILITY_CONFIG_KEYS,
     build_run_manifest,
     canonical_config_hash,
     effective_non_secret_config,
@@ -47,6 +52,7 @@ class ReproducibilityManifestTests(unittest.TestCase):
             SCAN_ALL_NSE=False,
             CUSTOM_WATCHLIST=["TCS", "MCLOUD"],
             STRONG_BUY_MIN_ADX=20.0,
+            FACTOR_MODEL_ENABLED=False,
             TRANSCRIPT_SENTIMENT_ENABLED=True,
             SUPABASE_URL="https://private-project.example",
             SUPABASE_SERVICE_ROLE_KEY="never-export-this",
@@ -72,6 +78,47 @@ class ReproducibilityManifestTests(unittest.TestCase):
         candidate = self._config()
         candidate.STRONG_BUY_MIN_ADX = 25.0
         self.assertNotEqual(canonical_config_hash(baseline), canonical_config_hash(candidate))
+
+    def test_hash_changes_when_factor_model_is_enabled(self):
+        baseline = self._config()
+        candidate = self._config()
+        candidate.FACTOR_MODEL_ENABLED = True
+        self.assertNotEqual(canonical_config_hash(baseline), canonical_config_hash(candidate))
+
+    def test_every_model_five_setting_is_in_the_manifest_allow_list(self):
+        prefixes = ("FACTOR_", "MARKET_REGIME_", "REGIME_", "STATEMENT_")
+        exact_names = {
+            "PRICE_HISTORY_PERIOD",
+            "LEGACY_HISTORY_WINDOW_SESSIONS",
+            "MIN_PRICE_SESSIONS_REQUIRED",
+            "BENCHMARK_INDEX_SYMBOL",
+            "BENCHMARK_INDEX_FALLBACK",
+            "REQUIRE_MA200_TREND_FOR_BUY",
+            "BUY_MA200_TOLERANCE",
+            "BUY_MIN_MA200_SLOPE_PCT",
+            "STRONG_BUY_REQUIRE_MA50_ABOVE_MA200",
+            "STRONG_BUY_MIN_RS_6M",
+            "STRONG_BUY_MIN_RS_12M",
+            "BUY_MIN_RS_6M",
+            "BREAKDOWN_CONFIRM_SESSIONS",
+            "BUY_MIN_QUALITY_PCT",
+            "STRONG_BUY_MIN_QUALITY_PCT",
+            "STRONG_BUY_MIN_GROWTH_PCT",
+            "STRONG_BUY_MIN_MOMENTUM_PCT",
+            "REQUIRE_LIQUIDITY_FOR_BUY",
+            "RANK_BY_ELIGIBILITY_CLASS",
+        }
+        model_five_keys = {
+            name
+            for name in vars(Config)
+            if name.startswith(prefixes) or name in exact_names
+        }
+
+        self.assertTrue(model_five_keys)
+        self.assertEqual(
+            model_five_keys - set(DEFAULT_REPRODUCIBILITY_CONFIG_KEYS),
+            set(),
+        )
 
     def test_manifest_records_input_hash_and_writes_stable_json(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -353,6 +400,102 @@ class ScreenerComparatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate symbols"):
             compare_frames(duplicate, candidate, top_n=3)
 
+    def test_factor_statement_coverage_guard_parses_full_run_metadata(self):
+        baseline, candidate = self._frames()
+        candidate["Factor_Model_Applied"] = ["true", " YES ", 1, True]
+        candidate["Statement_Universe_Coverage"] = ["0.75", 0.75, "0.7500", 0.75]
+        candidate["Statement_Record_Available"] = ["true", 1, True, "false"]
+
+        summary, _ = compare_frames(
+            baseline,
+            candidate,
+            top_n=3,
+            min_statement_coverage=0.70,
+        )
+
+        self.assertEqual(summary["candidate_statement_coverage"], 0.75)
+        self.assertEqual(summary["minimum_statement_coverage"], 0.70)
+
+    def test_factor_statement_coverage_guard_rejects_partial_candidate(self):
+        _, candidate = self._frames()
+        candidate["Factor_Model_Applied"] = True
+        candidate["Statement_Universe_Coverage"] = 0.25
+        candidate["Statement_Record_Available"] = [True, False, False, False]
+
+        with self.assertRaisesRegex(ValueError, "below the required minimum"):
+            validate_factor_statement_coverage(candidate, 0.90)
+
+    def test_factor_statement_coverage_must_be_consistent_on_every_row(self):
+        _, candidate = self._frames()
+        candidate["Factor_Model_Applied"] = True
+        candidate["Statement_Universe_Coverage"] = [0.25, 0.25, 0.50, 0.25]
+        candidate["Statement_Record_Available"] = [True, False, False, False]
+
+        with self.assertRaisesRegex(ValueError, "inconsistent across rows"):
+            validate_factor_statement_coverage(candidate, 0.20)
+
+    def test_factor_flag_must_be_consistent_on_every_row(self):
+        _, candidate = self._frames()
+        candidate["Factor_Model_Applied"] = [True, "true", False, 1]
+
+        with self.assertRaisesRegex(
+            ValueError, "Factor_Model_Applied is inconsistent across rows"
+        ):
+            validate_factor_statement_coverage(candidate, 0.90)
+
+    def test_reported_statement_coverage_must_match_available_rows(self):
+        _, candidate = self._frames()
+        candidate["Factor_Model_Applied"] = True
+        candidate["Statement_Universe_Coverage"] = 1.0
+        candidate["Statement_Record_Available"] = [True, False, False, False]
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            validate_factor_statement_coverage(candidate, 0.20)
+
+    def test_statement_guard_does_not_apply_to_non_factor_candidate(self):
+        baseline, candidate = self._frames()
+        candidate["Factor_Model_Applied"] = ["false", "NO", 0, False]
+
+        summary, _ = compare_frames(
+            baseline,
+            candidate,
+            top_n=3,
+            min_statement_coverage=0.90,
+        )
+
+        self.assertNotIn("candidate_statement_coverage", summary)
+
+    def test_cli_guard_fails_before_creating_comparison_output(self):
+        baseline, candidate = self._frames()
+        candidate["Factor_Model_Applied"] = True
+        candidate["Statement_Universe_Coverage"] = 0.25
+        candidate["Statement_Record_Available"] = [True, False, False, False]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline_path = root / "baseline.csv"
+            candidate_path = root / "candidate.csv"
+            output_dir = root / "comparison"
+            baseline.to_csv(baseline_path, index=False)
+            candidate.to_csv(candidate_path, index=False)
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "compare_screener_outputs.py",
+                    str(baseline_path),
+                    str(candidate_path),
+                    "--output-dir",
+                    str(output_dir),
+                    "--min-statement-coverage",
+                    "0.90",
+                ],
+            ):
+                with self.assertRaisesRegex(ValueError, "below the required minimum"):
+                    compare_screener_outputs()
+
+            self.assertFalse(output_dir.exists())
+
 
 class IsolatedRunnerSafetyTests(unittest.TestCase):
     @staticmethod
@@ -632,9 +775,18 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
         self.assertEqual(used_secrets - permitted_secrets, set())
         # Production vendor data may be restored so the candidate scores the
         # same inputs as the baseline, but never written back, and the restored
-        # copy must not outlive the seeding step.
+        # copy must not outlive the seeding step. The sole cache/save step is
+        # scoped to a stable runner-temp path and a candidate-only namespace.
         self.assertIn("uses: actions/cache/restore", directives)
-        self.assertNotIn("uses: actions/cache/save", directives)
+        self.assertEqual(directives.count("uses: actions/cache/save"), 1)
+        statement_save = self._step_block(
+            directives, "Save accumulated candidate statement cache"
+        )
+        self.assertIn("candidate-statements-v1-", statement_save)
+        self.assertIn("runner.temp", statement_save)
+        self.assertNotIn("stock-screener-data-", statement_save)
+        self.assertNotIn("stock-screener-statements-", statement_save)
+        self.assertNotIn("reports_advanced", statement_save)
         self.assertIn("rm -rf reports_advanced", directives)
         # Backtest history is production decision state, not vendor data. It is
         # restored only so the path list matches the save step's cache version,
@@ -669,6 +821,37 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
             return paths
         return []
 
+    @staticmethod
+    def _step_block(workflow_text, step_name):
+        match = re.search(
+            rf"(?ms)^      - name: {re.escape(step_name)}\n"
+            rf".*?(?=^      - (?:name:|uses:)|\Z)",
+            workflow_text,
+        )
+        if match is None:
+            raise AssertionError(f"workflow step {step_name!r} not found")
+        return match.group(0)
+
+    @staticmethod
+    def _declared_cache_paths(step_block):
+        lines = step_block.splitlines()
+        paths = []
+        inside = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("path:"):
+                inside = True
+                inline = stripped.removeprefix("path:").strip()
+                if inline and inline not in {"|", ">"}:
+                    paths.append(inline)
+                continue
+            if inside:
+                if stripped.startswith("reports_advanced/"):
+                    paths.append(stripped)
+                elif stripped and not stripped.startswith("#"):
+                    break
+        return paths
+
     def test_restore_path_list_matches_the_production_save_path_list(self):
         """GitHub derives the cache version from the path list.
 
@@ -683,14 +866,179 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
         )
         daily = (workflows / "daily-stock-screener.yml").read_text(encoding="utf-8")
 
-        restored = self._cache_paths(candidate, "restore")
-        saved = self._cache_paths(daily, "save")
+        expected = [
+            "reports_advanced/price_cache.csv",
+            "reports_advanced/fundamental_cache.csv",
+            "reports_advanced/nse_liquidity_categories.csv",
+            "reports_advanced/backtest_history.csv",
+            "reports_advanced/yfinance_cache",
+        ]
+        blocks = [
+            self._step_block(candidate, "Restore production market data (read-only)"),
+            self._step_block(daily, "Restore market-data cache"),
+            self._step_block(daily, "Save refreshed market-data cache"),
+        ]
+        for block in blocks:
+            self.assertEqual(
+                self._declared_cache_paths(block),
+                expected,
+                "the original production cache path contract must remain pinned; "
+                "changing it silently changes GitHub's cache version",
+            )
 
-        self.assertTrue(saved, "daily workflow must declare cached paths")
-        self.assertEqual(
-            restored, saved,
-            "candidate restore paths must match the production save paths "
-            "exactly or the cache version differs and every restore misses",
+    def test_baseline_is_validated_early_and_pins_its_exact_vendor_cache(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "candidate-model-validation.yml"
+        ).read_text(encoding="utf-8")
+
+        validation = workflow.index(
+            "- name: Validate and download production baseline artifact"
+        )
+        self.assertLess(validation, workflow.index("- uses: actions/checkout@v6"))
+        self.assertLess(validation, workflow.index("uses: actions/setup-python@v6"))
+        self.assertLess(
+            validation,
+            workflow.index(
+                "- name: Run candidate screener without notifications or persistent backtest"
+            ),
+        )
+        self.assertIn('"stock-screener-report-${BASELINE_RUN_ID}"', workflow)
+        self.assertIn("Expected exactly one non-empty baseline CSV", workflow)
+        self.assertIn(
+            'BASELINE_CSV="${baseline_csvs[0]}" python3 - <<\'PY\'', workflow
+        )
+        self.assertIn("Expected_Price_Bar_As_Of session", workflow)
+        self.assertIn("Baseline expected price session is not the currently expected", workflow)
+        self.assertIn("BASELINE_PRICE_SESSION={baseline_session.isoformat()}", workflow)
+        self.assertIn("source rows lag that session", workflow)
+        recheck = self._step_block(
+            workflow, "Recheck pinned baseline price session"
+        )
+        self.assertIn("BASELINE_PRICE_SESSION", recheck)
+        self.assertIn("The expected NSE session advanced", recheck)
+        self.assertLess(
+            workflow.index("- name: Recheck pinned baseline price session"),
+            workflow.index(
+                "- name: Run candidate screener without notifications or persistent backtest"
+            ),
+        )
+        for setting, normal_ttl in (
+            ("PRICE_CACHE_MAX_AGE_HOURS", "18"),
+            ("FUND_CACHE_MAX_AGE_DAYS", "7"),
+            ("NSE_LIQUIDITY_CACHE_MAX_AGE_DAYS", "35"),
+        ):
+            self.assertIn(
+                f"{setting}: ${{{{ inputs.baseline_run_id != '' && "
+                f"'10000' || '{normal_ttl}' }}}}",
+                workflow,
+            )
+
+        production_restore = self._step_block(
+            workflow, "Restore production market data (read-only)"
+        )
+        self.assertIn("inputs.baseline_run_id", production_restore)
+        self.assertIn(
+            "stock-screener-data-v2-{0}-{1}", production_restore
+        )
+        self.assertIn(
+            "restore-keys: ${{ inputs.baseline_run_id == ''", production_restore
+        )
+        self.assertIn(
+            "fail-on-cache-miss: ${{ inputs.baseline_run_id != '' }}",
+            production_restore,
+        )
+
+    def test_candidate_statements_accumulate_outside_production(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "candidate-model-validation.yml"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("statement_seed_run_id:", workflow)
+        self.assertIn("candidate-model-validation-${STATEMENT_SEED_RUN_ID}-", workflow)
+        self.assertIn("candidate/statement_cache.csv", workflow)
+        self.assertRegex(
+            workflow,
+            r"(?ms)^      statement_fetch_max_symbols:\n"
+            r".*?^        default: 600\n"
+            r".*?^        type: number$",
+        )
+        self.assertIn(
+            "STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: "
+            "${{ inputs.statement_fetch_max_symbols }}",
+            workflow,
+        )
+
+        artifact_seed = self._step_block(
+            workflow, "Validate and download optional candidate statement seed"
+        )
+        self.assertIn("${RUNNER_TEMP}/candidate-statement-seed", artifact_seed)
+        self.assertNotIn("$VALIDATION_ROOT/prior-candidate", artifact_seed)
+
+        restore = self._step_block(
+            workflow, "Restore accumulated candidate statement cache"
+        )
+        save = self._step_block(
+            workflow, "Save accumulated candidate statement cache"
+        )
+        stable_path = (
+            "${{ runner.temp }}/candidate-statement-cache/statement_cache.csv"
+        )
+        self.assertIn(stable_path, restore)
+        self.assertIn(stable_path, save)
+        branch_scoped_key = (
+            "candidate-statements-v1-${{ runner.os }}-${{ github.ref_name }}-"
+        )
+        self.assertIn(branch_scoped_key, restore)
+        self.assertIn(branch_scoped_key, save)
+        self.assertNotIn("stock-screener-data-", restore + save)
+        self.assertNotIn("stock-screener-statements-", restore + save)
+
+        stage_position = workflow.index(
+            "- name: Stage refreshed candidate statement cache"
+        )
+        save_position = workflow.index(
+            "- name: Save accumulated candidate statement cache"
+        )
+        compare_position = workflow.index(
+            "- name: Compare candidate with optional baseline"
+        )
+        self.assertLess(stage_position, save_position)
+        self.assertLess(save_position, compare_position)
+        self.assertIn(
+            "if: always() && steps.stage-candidate-statements.outcome == 'success'",
+            save,
+        )
+
+        compare = self._step_block(
+            workflow, "Compare candidate with optional baseline"
+        )
+        self.assertIn("--min-statement-coverage 0.95", compare)
+
+    def test_daily_statements_use_a_separate_production_namespace(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "daily-stock-screener.yml"
+        ).read_text(encoding="utf-8")
+
+        restore = self._step_block(workflow, "Restore production statement cache")
+        save = self._step_block(
+            workflow, "Save refreshed production statement cache"
+        )
+        for block in (restore, save):
+            self.assertIn("reports_advanced/statement_cache.csv", block)
+            self.assertNotIn("stock-screener-data-v2-", block)
+        self.assertIn("stock-screener-statements-v1-", restore)
+        self.assertIn("${{ github.run_attempt }}", restore)
+        self.assertIn(
+            "steps.production-statement-cache.outputs.cache-primary-key", save
         )
 
     def test_manual_daily_dispatch_is_isolated_from_production_state(self):

@@ -1,11 +1,15 @@
 import json
+import re
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import pandas as pd
 
 from workers.dashboard_publisher import (
+    HISTORY_COLUMNS,
+    SNAPSHOT_COLUMNS,
     CoercionReport,
     build_payload,
     build_run_row,
@@ -34,6 +38,63 @@ def minimal_frame(**overrides):
     }
     row.update(overrides)
     return pd.DataFrame([row])
+
+
+class RecordingDashboardRepository:
+    """Small fake that exposes publication order without contacting Supabase."""
+
+    def __init__(self, *, existing_run=False, fail_at=None):
+        self.existing_run = existing_run
+        self.fail_at = fail_at
+        self.calls = []
+
+    def _request(self, method, path, **kwargs):
+        if method == "GET" and path == "screener_runs":
+            self.calls.append(("check_run", kwargs))
+            if self.existing_run == "incomplete":
+                return [{"run_date": "2026-08-11", "row_count": 0}]
+            return (
+                [{"run_date": "2026-08-11", "row_count": 1}]
+                if self.existing_run
+                else []
+            )
+        if method == "POST" and path == "screener_runs":
+            self.calls.append(("reserve_run", kwargs))
+            return None
+        if method == "DELETE" and path == "screener_history":
+            self.calls.append(("cleanup_history", kwargs))
+            return None
+        if method == "DELETE" and path == "screener_runs":
+            self.calls.append(("cleanup_run", kwargs))
+            return None
+        raise AssertionError(f"Unexpected repository request: {method} {path}")
+
+    def replace_snapshot_rows(self, run_date, rows, chunk_size):
+        self.calls.append(("snapshot", {"run_date": run_date, "rows": rows}))
+        if self.fail_at == "snapshot":
+            raise RuntimeError("snapshot write failed")
+        return len(rows)
+
+    def delete_stale_snapshot_rows(self, run_date, symbols):
+        self.calls.append(("delete_stale", {"run_date": run_date}))
+
+    def upsert_history_rows(self, rows):
+        self.calls.append(("history", {"rows": rows}))
+        if self.fail_at == "history":
+            raise RuntimeError("history write failed")
+        return len(rows)
+
+    def upsert_run(self, row):
+        self.calls.append(("publish_run", {"row": row}))
+        if self.fail_at == "publish_run":
+            raise RuntimeError("run metadata write failed")
+        return row
+
+    def prune_snapshots(self, keep_runs):
+        self.calls.append(("prune", {"keep_runs": keep_runs}))
+        if self.fail_at == "prune":
+            raise RuntimeError("snapshot prune failed")
+        return 0
 
 
 class CoercionTests(unittest.TestCase):
@@ -107,6 +168,102 @@ class MappingTests(unittest.TestCase):
         self.assertIsNone(mapped["decision_score"])
 
 
+class FactorModelMappingTests(unittest.TestCase):
+    """Model 5.0 evidence has to survive the trip into the read model."""
+
+    @staticmethod
+    def mapped(row):
+        return map_row(row, SNAPSHOT_COLUMNS, CoercionReport())
+
+    def test_factor_columns_are_mapped(self):
+        mapped = self.mapped(
+            {
+                "Symbol": "INFY",
+                "Factor_Model_Applied": True,
+                "Research_Score": 87.5,
+                "Research_Score_Raw": 61.2,
+                "Quality_Percentile": 92.31,
+                "Momentum_Percentile": 74.0,
+                "Eligibility_Class": 1,
+                "Primary_Gate": "LOW_QUALITY",
+                "Gate_Severity": 3,
+                "Market_Regime": "RISK_ON",
+                "Price_To_MA200_Pct": 12.345,
+                "ROIC": 0.2841,
+            }
+        )
+        self.assertIs(mapped["factor_model_applied"], True)
+        self.assertEqual(mapped["research_score"], 87.5)
+        self.assertEqual(mapped["research_score_raw"], 61.2)
+        self.assertEqual(mapped["quality_percentile"], 92.31)
+        self.assertEqual(mapped["eligibility_class"], 1)
+        self.assertEqual(mapped["primary_gate"], "LOW_QUALITY")
+        self.assertEqual(mapped["gate_severity"], 3)
+        self.assertEqual(mapped["market_regime"], "RISK_ON")
+        self.assertEqual(mapped["roic"], 0.2841)
+
+    def test_four_x_row_clears_factor_columns_rather_than_omitting_them(self):
+        # The upsert merges, so omitting these keys would leave a previous
+        # factor run's values attached to a 4.x row for the same date.
+        mapped = self.mapped({"Symbol": "INFY", "Decision_Score": 64.0})
+        for column in (
+            "factor_model_applied",
+            "research_score",
+            "quality_percentile",
+            "eligibility_class",
+            "primary_gate",
+            "market_regime",
+        ):
+            self.assertIn(column, mapped)
+            self.assertIsNone(mapped[column])
+
+    def test_eligibility_class_zero_survives(self):
+        # Class 0 is the BEST class, and a falsy-value bug here would silently
+        # demote every fully-eligible row.
+        mapped = self.mapped({"Symbol": "INFY", "Eligibility_Class": 0})
+        self.assertEqual(mapped["eligibility_class"], 0)
+        self.assertIsNotNone(mapped["eligibility_class"])
+
+    def test_negative_drawdown_is_preserved(self):
+        mapped = self.mapped({"Symbol": "INFY", "Max_Drawdown_1Y_Pct": -42.5})
+        self.assertEqual(mapped["max_drawdown_1y_pct"], -42.5)
+
+    def test_signed_trend_quality_is_preserved(self):
+        # Trend quality is signed on [-1, 1]; a clean downtrend is -1, and
+        # dropping the sign would make it the best possible reading.
+        mapped = self.mapped({"Symbol": "INFY", "Trend_Quality_R2": -0.9812})
+        self.assertEqual(mapped["trend_quality_r2"], -0.9812)
+
+    def test_history_carries_the_model_five_movement_fields(self):
+        mapped = map_row(
+            {
+                "Symbol": "INFY",
+                "Research_Score": 88.0,
+                "Eligibility_Class": 2,
+                "Primary_Gate": "ILLIQUID",
+            },
+            HISTORY_COLUMNS,
+            CoercionReport(),
+        )
+        self.assertEqual(mapped["research_score"], 88.0)
+        self.assertEqual(mapped["eligibility_class"], 2)
+        self.assertEqual(mapped["primary_gate"], "ILLIQUID")
+
+    def test_snapshot_and_schema_column_names_agree(self):
+        # A typo here writes a column PostgREST does not have and fails the
+        # whole batch, so the mapping is checked against the DDL itself.
+        schema = Path("storage/dashboard_schema.sql").read_text(encoding="utf-8")
+        body = schema.split("create table if not exists screener_snapshot", 1)[1]
+        body = body.split("primary key", 1)[0]
+        declared = set(re.findall(r"^\s{4}([a-z0-9_]+)\s", body, re.MULTILINE))
+        for db_column, _, _ in SNAPSHOT_COLUMNS:
+            self.assertIn(
+                db_column,
+                declared,
+                f"{db_column} is published but not declared in screener_snapshot",
+            )
+
+
 class RunDateTests(unittest.TestCase):
     def test_price_bar_as_of_wins_over_filename(self):
         frame = minimal_frame()
@@ -155,6 +312,95 @@ class RunRowTests(unittest.TestCase):
 
 
 class PublishTests(unittest.TestCase):
+    @staticmethod
+    def publish_with(repository):
+        with TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "advanced_analysis_20260811.csv"
+            minimal_frame().to_csv(csv_path, index=False)
+            with patch(
+                "workers.dashboard_publisher.DashboardRepository.from_environment",
+                return_value=repository,
+            ):
+                return publish(csv_path=csv_path)
+
+    def test_complete_run_metadata_is_written_after_snapshot_and_history(self):
+        repository = RecordingDashboardRepository()
+
+        summary = self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertLess(labels.index("snapshot"), labels.index("publish_run"))
+        self.assertLess(labels.index("history"), labels.index("publish_run"))
+        reservation = next(
+            details["json"]
+            for name, details in repository.calls
+            if name == "reserve_run"
+        )
+        self.assertEqual(
+            set(reservation), {"run_date", "generated_at_utc", "row_count"}
+        )
+        self.assertEqual(reservation["row_count"], 0)
+        published = next(
+            details["row"]
+            for name, details in repository.calls
+            if name == "publish_run"
+        )
+        self.assertEqual(published["row_count"], 1)
+        self.assertEqual(summary["snapshot_rows_written"], 1)
+
+    def test_snapshot_failure_never_publishes_run_metadata_and_cleans_reservation(self):
+        repository = RecordingDashboardRepository(fail_at="snapshot")
+
+        with self.assertRaisesRegex(RuntimeError, "snapshot write failed"):
+            self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertNotIn("publish_run", labels)
+        self.assertIn("cleanup_history", labels)
+        self.assertIn("cleanup_run", labels)
+
+    def test_history_failure_never_publishes_run_metadata_and_cleans_partial_rows(self):
+        repository = RecordingDashboardRepository(fail_at="history")
+
+        with self.assertRaisesRegex(RuntimeError, "history write failed"):
+            self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertNotIn("publish_run", labels)
+        self.assertLess(labels.index("history"), labels.index("cleanup_history"))
+        self.assertIn("cleanup_run", labels)
+
+    def test_existing_same_date_run_is_preserved_by_refusing_replacement(self):
+        repository = RecordingDashboardRepository(existing_run=True)
+
+        with self.assertRaisesRegex(RuntimeError, "already published"):
+            self.publish_with(repository)
+
+        self.assertEqual([name for name, _ in repository.calls], ["check_run"])
+
+    def test_abandoned_same_date_reservation_is_reclaimed_before_retry(self):
+        repository = RecordingDashboardRepository(existing_run="incomplete")
+
+        summary = self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertEqual(
+            labels[:4],
+            ["check_run", "cleanup_history", "cleanup_run", "reserve_run"],
+        )
+        self.assertLess(labels.index("cleanup_run"), labels.index("snapshot"))
+        self.assertEqual(summary["snapshot_rows_written"], 1)
+
+    def test_prune_failure_is_non_fatal_after_completed_publish(self):
+        repository = RecordingDashboardRepository(fail_at="prune")
+
+        summary = self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertLess(labels.index("publish_run"), labels.index("prune"))
+        self.assertEqual(summary["runs_pruned"], 0)
+        self.assertEqual(summary["prune_error"], "snapshot prune failed")
+
     def test_dry_run_reports_drift_without_failing(self):
         with TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "advanced_analysis_20260811.csv"

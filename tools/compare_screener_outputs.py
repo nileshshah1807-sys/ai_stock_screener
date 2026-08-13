@@ -27,6 +27,16 @@ def parse_args() -> argparse.Namespace:
         default="auto",
         help="Rank, Investment_Rank, Actionable_Rank, or auto (default)",
     )
+    parser.add_argument(
+        "--min-statement-coverage",
+        type=float,
+        default=None,
+        metavar="RATIO",
+        help=(
+            "Reject a factor-model candidate whose full-universe annual-statement "
+            "coverage is below this 0-to-1 ratio (disabled by default)"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -37,6 +47,7 @@ def main() -> int:
         args.candidate_csv,
         top_n=args.top_n,
         rank_column=args.rank_column,
+        min_statement_coverage=args.min_statement_coverage,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = args.output_dir / "comparison.json"

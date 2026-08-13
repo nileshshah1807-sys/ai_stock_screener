@@ -16,10 +16,13 @@ from scoring.transcript_enricher import (
 )
 from red_flags.enricher import RedFlagEnricher
 from red_flags.shadow import RedFlagShadowSimulator
+from screener.benchmark import BenchmarkProvider
 from screener.data_collection import (
     StockDataCollector,
     align_valuation_to_completed_price_bar,
 )
+from screener.factors import FactorModel
+from screener.statements import FinancialStatementCollector
 from screener.liquidity import (
     LiquidityQualityEnricher,
     NSELiquidityProvider,
@@ -66,6 +69,90 @@ def merge_research_universe(tech_df, fund_df):
         "_Fundamental_Merge"
     ].eq("both")
     return merged.drop(columns="_Fundamental_Merge")
+
+
+def enforce_factor_statement_coverage(frame, config):
+    """Fail before scoring when Model 5 statement coverage is incomplete.
+
+    Factor percentiles are cross-sectional, so a partial cache changes every
+    covered symbol's rank as well as making uncovered symbols ineligible. The
+    guard is deliberately a no-op for Model 4.x.
+    """
+
+    if not bool(getattr(config, "FACTOR_MODEL_ENABLED", False)):
+        return
+
+    floor_value = getattr(config, "FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE", 0.95)
+    try:
+        floor = float(floor_value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE must be a finite number "
+            "between 0 and 1"
+        ) from exc
+    if not np.isfinite(floor) or not 0.0 <= floor <= 1.0:
+        raise RuntimeError(
+            "FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE must be a finite number "
+            "between 0 and 1"
+        )
+
+    if frame is None or frame.empty:
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: research universe is empty"
+        )
+    required = {"Statement_Record_Available", "Statement_Universe_Coverage"}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: missing column(s) "
+            + ", ".join(missing)
+        )
+
+    availability = frame["Statement_Record_Available"]
+    malformed = ~availability.map(lambda value: isinstance(value, (bool, np.bool_)))
+    if malformed.any():
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: "
+            "Statement_Record_Available must contain only booleans"
+        )
+
+    available = int(availability.astype(bool).sum())
+    total = len(frame)
+    actual = available / total
+
+    reported = pd.to_numeric(frame["Statement_Universe_Coverage"], errors="coerce")
+    if reported.isna().any() or (~np.isfinite(reported)).any():
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: "
+            "Statement_Universe_Coverage is missing or malformed"
+        )
+    if ((reported < 0.0) | (reported > 1.0)).any() or reported.nunique() != 1:
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: "
+            "Statement_Universe_Coverage must be one repeated value between 0 and 1"
+        )
+    reported_value = float(reported.iloc[0])
+    if not np.isclose(reported_value, actual, atol=0.00005, rtol=0.0):
+        raise RuntimeError(
+            "Model 5 statement coverage check failed: reported coverage "
+            f"{reported_value:.4f} does not match {available}/{total} "
+            f"({actual:.4f})"
+        )
+    if actual < floor:
+        raise RuntimeError(
+            "Model 5 statement coverage is below the production floor: "
+            f"{available}/{total} ({actual:.2%}) < {floor:.2%}. "
+            "No scores, reports, notifications, backtest records, or dashboard "
+            "rows were produced; seed or complete statement_cache.csv and rerun."
+        )
+
+    logger.info(
+        "Model 5 statement coverage guard passed: %d/%d (%.2f%%; minimum %.2f%%)",
+        available,
+        total,
+        actual * 100,
+        floor * 100,
+    )
 
 
 def run_daily_analysis():
@@ -176,6 +263,15 @@ def run_daily_analysis():
     if merged_df.empty:
         raise RuntimeError("No symbols remain after merging technical and fundamental data")
 
+    # Annual statements supply every input Yahoo's quote metadata cannot: total
+    # assets, EBIT, gross profit, cash-flow history and multi-year series. They
+    # restate quarterly at most, so a long cache TTL keeps the daily marginal
+    # cost near zero. Only the factor model consumes them.
+    factor_model_enabled = bool(getattr(config, "FACTOR_MODEL_ENABLED", False))
+    if factor_model_enabled and getattr(config, "STATEMENT_COLLECTION_ENABLED", True):
+        merged_df = FinancialStatementCollector(config).enrich(merged_df)
+    enforce_factor_statement_coverage(merged_df, config)
+
     scorer = StockScorer(config)
     scored_df = scorer.score_all_stocks(merged_df)
     if scored_df is None or len(scored_df) == 0:
@@ -199,6 +295,36 @@ def run_daily_analysis():
                 raise RuntimeError("Transcript sentiment enrichment failed") from e
             logger.warning(f"Transcript sentiment enrichment skipped: {e}")
 
+    # Model 5.0: replace the 70/30 core score with five separable factor blocks.
+    # The 4.x scorer above still runs, because the policy needs its coverage,
+    # anomaly and specialist-model routing as evidence -- it just no longer
+    # produces the number the ranking is built on.
+    market_context = {}
+    if factor_model_enabled:
+        market_context = BenchmarkProvider(config).market_context()
+        logger.info(
+            "Market regime: %s (%s); benchmark %s",
+            market_context.get("Market_Regime"),
+            market_context.get("Market_Regime_Reason"),
+            market_context.get("Benchmark_Symbol"),
+        )
+        scored_df = FactorModel(config).score(scored_df, market_context)
+        for key, value in market_context.items():
+            scored_df[key] = value
+
+    # Execution capacity is evidence the policy needs, not a post-decision
+    # decoration: Model 5.0 can require liquidity for a published BUY. It
+    # depends only on turnover/NSE columns, so computing it here is safe for
+    # both models and leaves Actionable_Rank downstream of the final ordering.
+    scored_df = LiquidityQualityEnricher(config).enrich(scored_df)
+    actionable_count = int(scored_df["Portfolio_Actionable"].sum())
+    logger.info(
+        "Portfolio actionability: %s/%s stock(s) fit the configured Rs%0.f target",
+        actionable_count,
+        len(scored_df),
+        config.PORTFOLIO_TARGET_POSITION_INR,
+    )
+
     # Evidence stages never publish ratings. One versioned policy blends all
     # eligible evidence, applies every coverage/trend gate, and creates the
     # score-first research ranks. This prevents a later enrichment (such as
@@ -218,18 +344,6 @@ def run_daily_analysis():
             )
         except Exception as e:
             logger.warning(f"Red-flag enrichment skipped: {e}")
-
-    # Investment conviction and execution are deliberately separate. The
-    # configured target position, NSE impact cost and a turnover participation
-    # proxy describe actionability without rewriting Final_Score or Rating.
-    scored_df = LiquidityQualityEnricher(config).enrich(scored_df)
-    actionable_count = int(scored_df["Portfolio_Actionable"].sum())
-    logger.info(
-        "Portfolio actionability: %s/%s stock(s) fit the configured Rs%0.f target",
-        actionable_count,
-        len(scored_df),
-        config.PORTFOLIO_TARGET_POSITION_INR,
-    )
 
     # One final deterministic ordering after every rating gate. Transcript
     # confirmation is only a tie-break because its effect is already in score.
@@ -329,6 +443,7 @@ def run_daily_analysis():
         for path in (
             config.OUTPUT_DIR / "price_cache.csv",
             config.OUTPUT_DIR / "fundamental_cache.csv",
+            config.OUTPUT_DIR / "statement_cache.csv",
             config.OUTPUT_DIR / "nse_liquidity_categories.csv",
         )
         if path.exists()

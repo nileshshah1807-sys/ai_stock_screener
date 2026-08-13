@@ -15,6 +15,7 @@ import yfinance as yf
 from .market_data import (
     PriceCache,
     TechnicalEnhancer,
+    calculate_trend_risk_features,
     expected_sessions_behind,
     is_expected_nse_session,
     latest_expected_completed_nse_session,
@@ -24,13 +25,26 @@ from .market_data import (
 logger = logging.getLogger(__name__)
 
 
-def calculate_liquidity_metrics(price_data):
+def _setting_enabled(value):
+    """Interpret config booleans without treating the string ``"false"`` as true."""
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
+
+
+def calculate_liquidity_metrics(price_data, window_sessions=None):
     """Return execution and price-volume proxies from the existing OHLCV frame.
 
     Zero-volume sessions are deliberately retained. Dropping them makes an
     intermittently traded security appear more liquid than it is. ``CMF_21``
     with the 20-session return is a scored technical price-volume confirmation;
     it is not proof of institutional buying or selling.
+
+    When ``window_sessions`` is provided, ``Avg_Turnover_INR`` is pinned to
+    that trailing window. The default intentionally remains the whole supplied
+    frame: that is the 4.x contract when Yahoo is asked for ``period="6mo"``.
+    Model 5.0 passes 126 explicitly so its two-year download cannot redefine a
+    six-month liquidity input.
     """
     columns = {}
     for name in ("High", "Low", "Close", "Volume"):
@@ -43,6 +57,7 @@ def calculate_liquidity_metrics(price_data):
     if paired.empty:
         return {}
     turnover = paired["Close"] * paired["Volume"]
+    legacy_window = turnover.tail(int(window_sessions)) if window_sessions else turnover
     last_20 = turnover.tail(20)
     last_60 = turnover.tail(60)
     top_count = min(5, len(last_60))
@@ -93,7 +108,7 @@ def calculate_liquidity_metrics(price_data):
         demand_proxy = "Mixed"
 
     return {
-        "Avg_Turnover_INR": float(turnover.mean()),
+        "Avg_Turnover_INR": float(legacy_window.mean()),
         "Median_Turnover_20D_INR": float(last_20.median()),
         "Turnover_P10_20D_INR": float(last_20.quantile(0.10)),
         "Median_Turnover_60D_INR": float(last_60.median()),
@@ -455,6 +470,9 @@ class StockDataCollector:
         self.collection_diagnostics["technical_requested_symbols"] = requested_symbols
         results = []
         failed = []
+        factor_model_enabled = _setting_enabled(
+            getattr(self.config, "FACTOR_MODEL_ENABLED", False)
+        )
         analysis_as_of = self._now_market()
         analysis_as_of_text = analysis_as_of.to_pydatetime().isoformat(timespec="seconds")
         expected_price_session = latest_expected_completed_nse_session(
@@ -469,6 +487,7 @@ class StockDataCollector:
         cached = PriceCache.load(
             cache_path,
             self.config.PRICE_CACHE_MAX_AGE_HOURS,
+            factor_model_enabled=factor_model_enabled,
             as_of=analysis_as_of,
             completion_cutoff=self.price_bar_completion_cutoff,
             market_timezone=self.market_timezone,
@@ -496,6 +515,27 @@ class StockDataCollector:
                 f"Price cache hit: {len(cached_records)} reused, {len(to_download)} to download"
             )
 
+        # Preserve the production 4.x data contract exactly while Model 5.0 is
+        # disabled. In particular, Yahoo's ``6mo`` is a calendar period and is
+        # not guaranteed to contain exactly 126 rows, so downloading two years
+        # and truncating to 126 would still change legacy scores. The factor
+        # path opts into the longer history and pins explicitly six-month
+        # features to ``legacy_window`` below.
+        history_period = (
+            str(getattr(self.config, "PRICE_HISTORY_PERIOD", "2y") or "2y")
+            if factor_model_enabled
+            else "6mo"
+        )
+        legacy_window = (
+            int(getattr(self.config, "LEGACY_HISTORY_WINDOW_SESSIONS", 126) or 126)
+            if factor_model_enabled
+            else None
+        )
+        min_sessions = (
+            int(getattr(self.config, "MIN_PRICE_SESSIONS_REQUIRED", 60) or 60)
+            if factor_model_enabled
+            else 60
+        )
         nse_symbols = [s + ".NS" for s in to_download]
         batch_size = 30
         for i in range(0, len(nse_symbols), batch_size):
@@ -510,7 +550,7 @@ class StockDataCollector:
                 time.sleep(2)
             try:
                 data = yf.download(
-                    " ".join(batch), period="6mo", group_by="ticker",
+                    " ".join(batch), period=history_period, group_by="ticker",
                     progress=False, threads=True, auto_adjust=False,
                 )
                 fetched_at_text = self._now_market().to_pydatetime().isoformat(timespec="seconds")
@@ -572,14 +612,28 @@ class StockDataCollector:
                                     )
                                 )
                             )
-                        if len(closes) < 60 or len(raw_closes) < 60 or len(volumes) == 0:
+                        if (
+                            len(closes) < min_sessions
+                            or len(raw_closes) < min_sessions
+                            or len(volumes) == 0
+                        ):
                             failed.append(clean_sym)
                             continue
                         current_price = float(raw_closes.iloc[-1])
                         signal_current_price = float(closes.iloc[-1])
-                        avg_volume = float(volumes.mean())
+                        # Model 5 pins this input inside its longer download.
+                        # With the flag off, ``legacy_window`` is None and the
+                        # whole Yahoo ``6mo`` response is used exactly as in 4.x.
+                        volume_window = (
+                            volumes.tail(legacy_window)
+                            if legacy_window is not None
+                            else volumes
+                        )
+                        avg_volume = float(volume_window.mean())
                         last_volume = float(volumes.iloc[-1])
-                        liquidity = calculate_liquidity_metrics(price_data)
+                        liquidity = calculate_liquidity_metrics(
+                            price_data, window_sessions=legacy_window
+                        )
                         if (
                             avg_volume == 0
                             or pd.isna(avg_volume)
@@ -620,8 +674,13 @@ class StockDataCollector:
                         )
                         pct_1m = TechnicalEnhancer.calculate_pct_return(closes, 21)
                         pct_3m = TechnicalEnhancer.calculate_pct_return(closes, 65)
+                        pct_6m_lookback = (
+                            legacy_window
+                            if legacy_window is not None
+                            else len(closes) - 1
+                        )
                         pct_6m = TechnicalEnhancer.calculate_pct_return(
-                            closes, len(closes) - 1
+                            closes, pct_6m_lookback
                         )
                         vol_avg_20 = float(volumes.rolling(20).mean().iloc[-1])
                         vol_ratio = last_volume / vol_avg_20 if vol_avg_20 and vol_avg_20 > 0 else 1.0
@@ -631,6 +690,18 @@ class StockDataCollector:
                         ) / raw_close_aligned.where(raw_close_aligned.ne(0))
                         high = pd.to_numeric(price_data["High"], errors="coerce") * adjustment_factor
                         low = pd.to_numeric(price_data["Low"], errors="coerce") * adjustment_factor
+                        if factor_model_enabled:
+                            adjusted_open = (
+                                pd.to_numeric(price_data.get("Open"), errors="coerce")
+                                * adjustment_factor
+                                if price_data.get("Open") is not None
+                                else None
+                            )
+                            trend_risk = calculate_trend_risk_features(
+                                closes, opens=adjusted_open
+                            )
+                        else:
+                            trend_risk = {}
                         directional_prices = pd.DataFrame({
                             "High": high,
                             "Low": low,
@@ -692,7 +763,11 @@ class StockDataCollector:
                             "MA50": round(ma50, 2),
                             "MA50_Slope_Pct": round(ma50_slope_pct, 2),
                             "RSI_14": round(current_rsi, 2),
-                            "Technical_Indicator_Version": TechnicalEnhancer.INDICATOR_VERSION,
+                            "Technical_Indicator_Version": (
+                                TechnicalEnhancer.FACTOR_INDICATOR_VERSION
+                                if factor_model_enabled
+                                else TechnicalEnhancer.INDICATOR_VERSION
+                            ),
                             "MACD": round(float(macd.iloc[-1]), 4),
                             "MACD_Signal": round(float(signal.iloc[-1]), 4),
                             "ADX_14": round(adx_val, 2),
@@ -700,11 +775,26 @@ class StockDataCollector:
                             "ADX_Minus_DI": round(adx_minus_di, 2),
                             "StochRSI_14": round(stoch_rsi_val, 2),
                             "ATR_14": round(atr_val, 2),
-                            "High_6M": round(float(closes.max()), 2),
-                            "Low_6M": round(float(closes.min()), 2),
+                            "High_6M": round(
+                                float(
+                                    closes.tail(legacy_window).max()
+                                    if legacy_window is not None
+                                    else closes.max()
+                                ),
+                                2,
+                            ),
+                            "Low_6M": round(
+                                float(
+                                    closes.tail(legacy_window).min()
+                                    if legacy_window is not None
+                                    else closes.min()
+                                ),
+                                2,
+                            ),
                             "Pct_Change_1M": round(pct_1m, 2),
                             "Pct_Change_3M": round(pct_3m, 2),
                             "Pct_Change_6M": round(pct_6m, 2),
+                            **trend_risk,
                             "Avg_Volume": int(avg_volume),
                             "Avg_Turnover_INR": round(liquidity["Avg_Turnover_INR"], 2),
                             "Median_Turnover_20D_INR": round(

@@ -2,8 +2,18 @@
 
 - **Status:** implementation-derived design document
 - **Scope:** current `app.run_daily_analysis()` production path and its supporting modules
-- **Model defaults documented:** `4.0.0-candidate` / recommendation policy `4.0.0-candidate`
-- **Last reviewed against code:** 2026-08-11
+- **Scheduled production contract:** model `5.0.0` / recommendation policy `5.0.0` / output schema `4.1.0`
+- **Local and manual-daily default:** `4.0.0-candidate`, with the factor switch off
+- **Last reviewed against code:** 2026-08-13
+
+> **Two models live in this codebase.** Sections 1-19 describe the shared pipeline and the
+> legacy **4.x model**, which remains the local/runtime default (`FACTOR_MODEL_ENABLED=False`)
+> and the isolated manual-daily path. Section 20 describes the **Model 5.0 factor
+> architecture**, which replaces the 70/30 core score with five separable
+> factor blocks, MA200 trend gates, a market-regime overlay and eligibility-class ranking.
+> Scheduled production selects Model 5.0 explicitly in GitHub Actions. Its operational
+> promotion does not resolve the still-pending point-in-time, out-of-sample predictive
+> validation. Where Model 5.0 changes a rule in sections 1-19, section 20 says so explicitly.
 
 > **Research-model boundary.** This application produces deterministic research ranks and heuristic rating labels. `Rating`, `Decision_Score`, and `Final_Score` are not forecasts of return, fair value, or probability of profit. The configured `Model_Validation_Status` explicitly says point-in-time, out-of-sample validation is pending. The system's purpose is to make the screening logic auditable, reproducible, and reviewable—not to make an unvalidated investment-performance claim.
 
@@ -25,7 +35,7 @@ The main design principles implemented in the code are:
                                   External sources
           ┌──────────────────────────────────────────────────────────────┐
           │ NSE equity master / monthly liquidity category & impact cost │
-          │ Yahoo Finance via yfinance: 6-month OHLCV + fundamentals     │
+          │ Yahoo Finance: 4.x 6mo/v6; Model 5.0 2y/v7 + fundamentals   │
           │ Supabase: precomputed transcript / red-flag records          │
           │ Google News RSS: display-only headline sentiment             │
           └──────────────────────────────────────────────────────────────┘
@@ -81,7 +91,7 @@ The main design principles implemented in the code are:
 |---|---|---|---|
 | Composition root | `app.py::run_daily_analysis` | Orders the daily job, handles output/reporting, assigns run provenance. | Indirectly, by calling finalizer once. |
 | Runtime configuration | `screener/runtime.py::Config` | Environment-backed defaults; optionally overridden by `config_local.py`. | Policy parameters only. |
-| Collection | `screener/data_collection.py::StockDataCollector` | NSE universe, Yahoo 6-month OHLCV, cache reuse, Yahoo fundamentals, collection diagnostics. | No. |
+| Collection | `screener/data_collection.py::StockDataCollector` | NSE universe, model-specific Yahoo OHLCV (4.x `6mo`/v6; Model 5.0 `2y`/v7), cache reuse, Yahoo fundamentals, collection diagnostics. | No. |
 | Technical calculation | `screener/market_data.py::TechnicalEnhancer` | RSI, ADX/+DI/-DI, StochRSI, ATR, returns. | No. |
 | Liquidity source | `screener/liquidity.py::NSELiquidityProvider` | Joins NSE monthly Group I/II/III and Rs1 lakh mean impact cost. | No. |
 | Core model | `screener/scoring.py::StockScorer` | Fundamental/technical component scores, sector-relative comparison, coverage, specialist quality checks. | Exports only provisional `Core_*` diagnostics. |
@@ -98,19 +108,21 @@ The main design principles implemented in the code are:
 
 1. Instantiate `Config`, determine `analysis_now` in `Asia/Kolkata` by default, and initialize cache folders.
 2. Build the universe through `StockDataCollector.get_comprehensive_stock_list()`.
-3. Download/reuse six months of OHLCV data; retain only symbols with a valid completed and aligned daily bar and enough usable history.
+3. Download/reuse the model-specific OHLCV window (`6mo` for the default 4.x path, `2y` for Model 5.0); retain only symbols with a valid completed and aligned daily bar and enough usable history.
 4. Join NSE liquidity categories and impact-cost evidence once for the collected symbols.
 5. Apply the liquidity prefilter only when all of these are true: `LIQUIDITY_FILTER_ENABLED`, `SCAN_ALL_NSE`, and `PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY`. The default is **not** to prefilter.
 6. Fetch or reuse fundamentals and left-join them to the technical universe. A fundamental miss does not delete a technically collected symbol; it becomes missing/limited evidence and is later prevented from receiving BUY conviction.
 7. Recalculate price-dependent valuation ratios using the same completed close used for price technicals.
-8. Run `StockScorer.score_all_stocks()` to create `Fundamental_Score`, `Technical_Score`, `Combined_Score`, `Core_Score`, coverage, component, model, anomaly, and provisional core fields.
-9. If enabled, run `ReverseDCFModel.enrich()`.
-10. If enabled, load precomputed transcript evidence. A transcript failure is fatal by default (`TRANSCRIPT_FAIL_ON_ERROR=True`), but can be configured to log and skip.
-11. Run `finalize_recommendations()`: the sole writer of canonical decision fields and primary research ranks.
-12. Optionally attach red-flag records and generate a shadow-only counterfactual.
-13. Add liquidity actionability, then generate `Actionable_Rank` without changing the primary investment ordering.
-14. Add model/config/run provenance, fetch display-only news sentiment for the already-ranked top N rows, write CSV/manifest/diagnostics/dashboard, and optionally send reports.
-15. Optionally append the result to a model-version-separated backtest history.
+8. When Model 5.0 is enabled, fetch/reuse annual statements and benchmark history for the factor inputs.
+9. Run `StockScorer.score_all_stocks()` to create the 4.x core diagnostics.
+10. If enabled, run `ReverseDCFModel.enrich()`.
+11. If enabled, load precomputed transcript evidence. A transcript failure is fatal by default (`TRANSCRIPT_FAIL_ON_ERROR=True`), but can be configured to log and skip.
+12. When Model 5.0 is selected, load benchmark context and run the factor model to create its block scores and research score.
+13. Attach liquidity/actionability evidence before policy finalization so Model 5.0 can enforce its BUY liquidity gate without letting execution capacity prefilter the research universe.
+14. Run `finalize_recommendations()`: the sole writer of canonical decision fields and primary research ranks.
+15. Optionally attach red-flag records and generate a shadow-only counterfactual, then generate `Actionable_Rank` without changing the primary investment ordering.
+16. Add model/config/run provenance, fetch display-only news sentiment for the already-ranked top N rows, write CSV/manifest/diagnostics/dashboard, and optionally send reports.
+17. Optionally append the result to a model-version-separated backtest history.
 
 ## 5. Research universe, data contracts, and collection controls
 
@@ -122,6 +134,20 @@ The main design principles implemented in the code are:
 - Collection diagnostics persist the selected, requested, collected, failed, and missing symbols. This prevents a different network-collected cross-section from appearing reproducible merely because code/config were unchanged.
 
 ### 5.2 Completed market-bar policy
+
+The history contract is selected with the model. With `FACTOR_MODEL_ENABLED=false`, the
+default 4.x path retains its established `6mo` download and technical-cache contract v6.
+Enabling Model 5.0 selects `2y` and technical-cache contract v7 because its 200-day average,
+12-1 momentum formation window and one-year drawdown cannot be expressed in six months.
+The distinct cache versions prevent either model from accepting incompatible technical rows.
+
+The longer Model 5.0 window does **not** redefine features that are *defined* on a six-month
+basis. `Avg_Turnover_INR`, `Pct_Change_6M`, `High_6M` and `Low_6M` are pinned to
+`LEGACY_HISTORY_WINDOW_SESSIONS` (126) so a liquidity floor or a "6M" return stays comparable
+with previously published runs. One related defect was fixed in the same change:
+`Pct_Change_6M` previously spanned *the whole downloaded history*, so a stock with only 70
+sessions of history had its 70-session return published as a six-month return. It is now an
+explicit 126-session lookback and is missing when that history does not exist.
 
 Daily data is collected from Yahoo Finance with `auto_adjust=False`; the collector uses both raw and adjusted series deliberately:
 
@@ -762,8 +788,9 @@ The standard run produces:
 | `collection_diagnostics_YYYYMMDD.json` | Selected/collected/missing symbol sets, source state, calendar, and collection metadata. |
 | Dashboard output | Interactive report generated by `InteractiveDashboard`. |
 | Optional HTML/PDF/email/WhatsApp | Delivery layers; disabled by default for email/WhatsApp. |
-| `price_cache.csv`, `fundamental_cache.csv`, `nse_liquidity_categories.csv` | Reusable cached inputs. |
-| Backtest history | Model-version-separated snapshot/outcome monitor when writes are enabled. |
+| Production market-data cache | The original five paths: `price_cache.csv`, `fundamental_cache.csv`, `nse_liquidity_categories.csv`, `backtest_history.csv`, and `yfinance_cache/`. |
+| `statement_cache.csv` | Annual-statement input, stored in a separate production or candidate cache namespace rather than the market-data composite. |
+| Backtest history | Model-version-separated snapshot/outcome monitor when writes are enabled; it remains one of the five production composite-cache paths. |
 
 ### 15.2 Run manifest
 
@@ -781,6 +808,41 @@ The CSV also carries run-level fields such as model/config hash, Git SHA, univer
 ### 15.3 Backtest boundary
 
 `BacktestEngine` logs snapshots and later calculates realized returns only within the same `MODEL_VERSION`; it does not mix different model versions. This is necessary monitoring infrastructure but is not a complete point-in-time out-of-sample backtest: it does not itself solve survivorship bias, benchmark comparison, transaction costs, delistings, or look-ahead-control requirements.
+
+### 15.4 GitHub Actions cache and candidate-isolation contract
+
+The production composite cache keeps its original five-path declaration exactly:
+`price_cache.csv`, `fundamental_cache.csv`, `nse_liquidity_categories.csv`,
+`backtest_history.csv`, and `yfinance_cache/`. GitHub incorporates the declared path list into
+an internal cache version, so adding `statement_cache.csv` there would make otherwise valid
+production entries unreachable. The daily workflow therefore restores and saves statements
+under a separate production-only statement-cache key.
+
+The one-shot `seed-production-statement-cache.yml` workflow initializes that namespace from
+the artifact of an already successful candidate validation. It accepts a candidate run ID and
+expected Git SHA, verifies both before extracting `candidate/statement_cache.csv`, validates
+the cache, and saves only that file under the production statement-cache prefix. Promotion uses
+green run `31685056109` at `fa9d3094129b9540717a67fda040449340d7dec1`; the seed is cache
+bootstrap, not a second model validation or evidence of predictive performance. Scheduled
+production independently enforces at least 95% statement coverage before scoring. If that
+guard fails, its `always()` cache checkpoint preserves successfully fetched records for the
+next attempt without publishing a partial cross-section.
+
+The candidate workflow can read production vendor inputs but cannot update either production
+cache namespace. When `baseline_run_id` is supplied, it validates the baseline report artifact
+before dependency installation and expensive screening, restores the exact five-path production
+cache saved by that run, and verifies that the baseline and candidate use the same completed
+price session. Without a baseline ID it may use the latest production cache only as a read-only
+seed.
+
+Candidate statements have their own branch-scoped cache. A run may restore its accumulated
+tranches or explicitly seed from the statement artifact of an earlier candidate run, and it
+saves a successful statement backfill immediately after screening even if comparison later
+fails. Candidate transcript parity does require the Supabase URL and service-role secret, but
+`SUPABASE_READ_ONLY=True` rejects non-GET requests. The job does not publish to Supabase,
+append production backtests, send notifications, or include secrets in caches or artifacts.
+A factor-model comparison is refused until statement coverage reaches at least 95% of the
+full candidate universe.
 
 ## 16. Configuration defaults that materially change decisions
 
@@ -826,6 +888,8 @@ This document describes current implementation behavior. The authoritative files
 
 1. `app.py` — composition root and execution order.
 2. `screener/runtime.py` — environment-backed defaults and feature flags.
+2b. `screener/statements.py`, `screener/benchmark.py`, `screener/factors.py` — Model 5.0
+   statement collection, benchmark/regime, and factor blocks (see section 20).
 3. `screener/data_collection.py` — collection, completed-bar policy, valuation alignment, liquidity metrics, and fundamentals cache.
 4. `screener/market_data.py` — technical indicator algorithms and cache validation.
 5. `screener/scoring.py` — fundamental/technical point functions, coverage, specialist models, and peer-relative scoring.
@@ -836,6 +900,9 @@ This document describes current implementation behavior. The authoritative files
 10. `red_flags/*.py` — non-live risk shadow behavior.
 11. `validation/reproducibility.py` — run manifest and canonical configuration hashing.
 12. `tests/test_technical_scoring.py`, `tests/test_recommendation.py`, `tests/test_liquidity.py`, and `tests/test_valuation.py` — executable behavioral specifications.
+13. `tests/test_statements.py`, `tests/test_benchmark.py`, `tests/test_factors.py`,
+    `tests/test_factor_policy.py`, `tests/test_trend_risk_features.py`,
+    `tests/test_factor_wiring.py` — executable specifications for Model 5.0.
 
 ## 19. Recommended interpretation workflow
 
@@ -848,3 +915,363 @@ For a reviewer examining an exported top-ranked row:
 5. Inspect `Portfolio_Actionable`, liquidity group/impact cost, build days, and `Actionable_Rank` before treating a high research rank as executable for a target size.
 6. Inspect `Decision_Stability_Status`, margins, stale/cache/price-bar provenance, and red-flag shadow fields before interpreting a boundary result as robust.
 7. Use the adjacent manifest and diagnostics file to reproduce the exact configuration, code state, source universe, and cached inputs.
+
+---
+
+## 20. Model 5.0 factor architecture (scheduled production)
+
+**Status:** scheduled production uses model `5.0.0`, recommendation policy `5.0.0`, and
+additive output schema `4.1.0`. The daily workflow enables the factor switch only for scheduled
+runs; local execution and a manual dispatch of that workflow retain the 4.x default. Candidate
+run `31685056109` supplied operational full-universe evidence, while point-in-time,
+out-of-sample predictive validation remains pending.
+
+### 20.1 Why the 4.x core score was replaced
+
+Three defects motivated the redesign, all visible in sections 7 and 8 above:
+
+1. **The 70% fundamental block merges incompatible concepts.** Value, profitability,
+   balance-sheet strength, growth and accounting stability are summed into one number, so a
+   cheap multiple can offset poor returns on capital with no trace in the output.
+2. **The 30% technical block double-counts one price path.** MA20, MA50, MACD, RSI, StochRSI,
+   Bollinger position, one-month momentum, ADX and CMF are largely different descriptions of
+   the same recent move. Section 8.2's own comment notes that four components already spend 40
+   of 132 points penalising an extended chart.
+3. **Medium-term cross-sectional momentum is absent.** The technical block measures 20-to-65
+   sessions. Momentum research is centred on 3-to-12-month formation windows, which the
+   previous six-month download could not even express.
+
+Model 5.0 keeps the 70/30 *philosophy* — 70% accounting evidence, 30% market evidence — but
+makes each block economically separable.
+
+### 20.2 Blocks and weights
+
+```text
+Research_Score_Raw = 0.35 * Quality
+                   + 0.20 * Growth
+                   + 0.15 * Value
+                   + 0.25 * Momentum
+                   + 0.05 * Risk
+```
+
+Every block is a **coverage-shrunk weighted percentile composite** of its own inputs:
+
+```text
+block_percentile = sum(w_i * percentile_i) / sum(w_i over observed i)
+coverage         = sum(w_i over observed i) / sum(w_i)
+Block_Score      = clamp(50 + coverage * (block_percentile - 50), 0, 100)
+```
+
+This mirrors the shrinkage the 4.x scorer already applies: an unobserved input leaves both the
+numerator and the denominator, so absent evidence lowers confidence rather than asserting the
+worst value.
+
+Percentiles use the symmetric `(rank - 1) / (n - 1)` transform, not the pandas `rank(pct=True)`
+convention, which maps onto `[1/n, 1]` and would deny the best observation full credit while
+biasing every inverted (lower-is-better) metric.
+
+| Block | Weight | Inputs (weight, direction) |
+|---|---:|---|
+| Quality (generic) | 0.35 | ROIC .20 up, gross profit/assets .15 up, OCF/assets .13 up, FCF/assets .09 up, accruals/assets .10 down, interest coverage .05 up, net debt/EBITDA .05 down, operating-margin stability .08 down, earnings stability .08 down, asset growth .04 down, 3Y dilution .03 down |
+| Quality (financial) | 0.35 | ROE .28 up, ROA .22 up, equity/assets .20 up, earnings stability .15 down, profit margin .15 up |
+| Growth | 0.20 | Revenue CAGR 3Y .25 up, EPS CAGR 3Y .20 up, revenue acceleration .15 up, EPS acceleration .15 up, margin direction .15 up, cash conversion .10 up |
+| Value | 0.15 | Earnings yield .25 up, FCF yield .25 up, EBIT/EV .20 up, book yield .15 up, reverse-DCF score .15 up |
+| Momentum | 0.25 | Risk-adjusted 12-1 .30 up, risk-adjusted 6-1 .25 up, 6M sector-relative .20 up, 6M market-relative .15 up, signed trend quality .10 up |
+| Risk | 0.05 | Annualised volatility .25 down, max 1Y drawdown .20 up, trading frequency .20 up, downside deviation .15 down, gap risk .10 down, return concentration .10 down |
+
+Notes on specific inputs:
+
+- **Two quality templates.** Banks, NBFCs, insurers and capital-markets firms report no EBIT,
+  gross profit or current assets, and Yahoo omits operating cash flow for most of them. Scoring
+  them on the industrial-company template would mark them down for *absent* data rather than
+  *different* data, so financial rows are ranked against each other on what their statements
+  actually report. Measured coverage on the financial template is 1.00.
+- **Book yield is sector-gated.** Offered only for Financial Services, Real Estate and
+  Utilities. Elsewhere it rewards accounting history rather than economics, so it is simply not
+  an input and drops out of the coverage denominator.
+- **Signed trend quality.** `Trend_Quality_R2` is the R-squared of log price against time
+  carrying the sign of the slope, on `[-1, 1]`. An unsigned R-squared scores a smooth,
+  relentless decline a perfect 1.0 — the best possible reading in a block where higher is better.
+- **No guidance input.** The proposal asked for forward/management-guidance evidence. No
+  point-in-time consensus feed is wired in and approximating one would be a look-ahead hazard,
+  so the substitute is cash conversion, which the same proposal requires as confirmation for
+  high reported earnings growth.
+- **DCF is not double-counted.** Reverse-DCF evidence is a Value input, so `DCF_Blend_Weight` is
+  set to `0.0` and the finalizer's separate centered DCF stage becomes a no-op. The DCF audit
+  columns are untouched.
+
+### 20.3 The published score is a percentile — and why
+
+`Research_Score_Raw` is re-ranked cross-sectionally before publication:
+
+```text
+Research_Score = percentile(Research_Score_Raw)   # FACTOR_SCORE_AS_PERCENTILE, default True
+Combined_Score = Core_Score = Research_Score
+```
+
+Each block is already roughly uniform on `[0, 100]`, so averaging five of them is a diversifying
+operation and the composite collapses toward 50. Measured on a 39-name large-cap run: block
+standard deviations were 14-23, the raw blend's was **9.95**. Against the 70/60/50/40 rating
+bands — which were calibrated for the 4.x *absolute* score — exactly **one** name of 39 cleared
+70 and **none** was rated BUY. Ranking the blend restores the bands' meaning: `>= 70` is the top
+30% of the cross-section, `>= 60` the top 40%.
+
+**This makes Model 5.0 ratings explicitly relative,** which is a genuine semantic change from
+4.x and has two consequences that remain part of the production contract:
+
+- In any universe, roughly 40% of rows score below 50 and are labelled REDUCE or SELL. On a
+  40-name blue-chip watchlist that reads as absurdly bearish; on a full-NSE run it is closer to
+  the intended meaning. **Model 5.0 is designed for full-universe runs.**
+- "Top 30% of a collapsing market" would otherwise be published as STRONG BUY. What prevents
+  that is not the score but the *absolute* protections: the market-regime overlay (20.6) and the
+  hard trend, quality, coverage and liquidity gates (20.5), all of which fail closed.
+
+Set `FACTOR_SCORE_AS_PERCENTILE=False` to publish the raw blend instead; the rating bands then
+need recalibrating.
+
+### 20.4 New data inputs
+
+| Input | Source | Availability on a 30-name NSE sample |
+|---|---|---|
+| Total assets, invested capital, equity, total debt, shares | `Ticker.balance_sheet` | 100% |
+| Total revenue, net income, interest expense, tax rate, diluted EPS | `Ticker.income_stmt` | 100% |
+| Free cash flow, capital expenditure | `Ticker.cashflow` | 100% |
+| Operating cash flow | `Ticker.cashflow` | 93% |
+| EBIT | `Ticker.income_stmt` | 80% (absent for financials) |
+| Gross profit, current assets/liabilities | `Ticker.income_stmt` / `balance_sheet` | 73% (absent for financials) |
+| 4-5 years of annual history (3Y CAGR needs 4) | all three statements | 100% |
+| Benchmark index (`^CRSLDX`, fallback `^NSEI`) | `yf.download` | available, ~493 sessions |
+
+Yahoo's quote metadata supplies **none** of these: it has no total assets, no EBIT, no gross
+profit, no cash-flow history and no multi-year series, and it omits `returnOnEquity` and
+`returnOnAssets` outright for part of the universe (RELIANCE and HDFCBANK both returned `None`
+in the audit).
+
+**Collection cost.** In candidate run `31674195181`, a cold full-NSE screen spent about 59
+minutes fetching fundamentals for 2,310 symbols and about 15.5 minutes on the first bounded
+statement tranche (600 attempted, 594 usable); the complete screener step took about 80 minutes.
+The dominant cost was therefore the cold fundamental fetch, not the statement fetch. Statements
+restate quarterly at most, so `STATEMENT_CACHE_MAX_AGE_DAYS` defaults to 90 and
+`STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` bounds each run's backfill (2,500 by runtime default,
+400 for an isolated manual-daily run, and 600 by default in candidate validation). Candidate
+validation also accepts 2,500 for a deliberate one-time
+full-universe completion. Symbols not yet backfilled report no statement evidence and fail
+closed, while the comparison step refuses factor-model evidence below 95% universe coverage.
+
+Statements are deliberately **not** a sixth path in the production market-data composite.
+The failed validation run changed that path list, which changed GitHub's hidden cache version
+and forced the 59-minute cold fundamental refill. Production now keeps the original five-path
+composite and uses a separate production statement-cache namespace. Candidate runs use a
+different, branch-scoped statement namespace, may seed it from a prior candidate artifact, and
+checkpoint each successful tranche before any later comparison can fail. This preserves the
+bounded backfill without allowing a candidate to mutate production cache state.
+
+### 20.5 Gates
+
+Model 5.0 keeps every shared data-integrity gate from section 11.3 (core score present, price
+bar aligned, stale fundamentals, `Data_Quality != LOW`, specialist model required, two or more
+anomalies) and replaces the trend and high-conviction gates.
+
+**BUY** (any failure sets the ceiling to `59.99`):
+
+| Gate | Threshold |
+|---|---|
+| Price vs MA200 | `Technical_Price >= 0.98 * MA200` |
+| MA200 slope | `>= 0` |
+| Confirmed breakdown | fails if below MA200 for 10+ sessions **and** MA200 falling **and** 6M relative strength negative |
+| 6M market relative strength | `> 0` |
+| 6M sector relative strength | `> 0` **when observed**; absence is never a failure |
+| Quality percentile | `>= 40` |
+| Factor block coverage | every block at or above `FACTOR_MIN_BLOCK_COVERAGE` (0.50) |
+| Fundamental coverage | `>= 0.70` (up from 0.55) |
+| Technical coverage | `>= 0.90` (up from 0.75) |
+| Execution liquidity | `Portfolio_Actionable` (`REQUIRE_LIQUIDITY_FOR_BUY`) |
+
+**STRONG BUY** (inherits every BUY failure; further failures cap at `69.99`):
+
+| Gate | Threshold |
+|---|---|
+| Quality / Growth / Momentum percentile | `>= 70` / `>= 60` / `>= 70` |
+| Moving-average stack | `Price > MA50 > MA200` |
+| MA200 slope | strictly `> 0` |
+| 12M market relative strength | `> 0` |
+
+**Hysteresis.** The 2% tolerance band is deliberate: an exact boundary makes a stock oscillating
+around its average flip its published rating daily. Entry requires `price >= 0.98 * MA200`; the
+stricter *confirmed breakdown* condition requires persistence, a falling average and weak
+relative strength together, so a single dip through the line cannot revoke a rating that a
+rebound would restore.
+
+**Liquidity is now a BUY requirement, not only an execution overlay.** An illiquid name can be
+excellent research and still unsuitable as a published BUY. The research view is preserved
+separately (20.7), so nothing is lost.
+
+### 20.6 Market-regime overlay
+
+`BenchmarkProvider` classifies the broad market from the benchmark's 200-session average:
+
+```text
+RISK_ON  : index > MA200 by more than the neutral band AND MA200 slope > 0
+RISK_OFF : index < MA200 by more than the neutral band AND MA200 slope < 0
+NEUTRAL  : inside the band, or level and trend disagree
+UNKNOWN  : fewer than MA + slope sessions of index history
+```
+
+| Regime | Effect |
+|---|---|
+| RISK_ON | normal policy |
+| NEUTRAL | STRONG BUY additionally requires momentum percentile `>= 85` |
+| RISK_OFF | STRONG BUY disabled; BUY additionally requires momentum percentile `>= 90` |
+
+The overlay changes **deployment conviction only**. It never edits a factor score, so the
+research ranking stays fully visible and auditable in every regime. This is locked by
+`test_regime_never_edits_the_research_score`.
+
+### 20.7 Separated decision views and eligibility-class ranking
+
+Collapsing every gate failure onto an identical `59.99` creates a large artificial cluster and
+destroys the ordering *within* it — ranking that cluster by `Decision_Score` sorts a column that
+is constant by construction and falls through to the symbol tie-break, i.e. **alphabetical order
+presented as investment merit**. Model 5.0 publishes separate views instead:
+
+| Field | Meaning |
+|---|---|
+| `Research_Rating` | Uncapped research view (band of `Evidence_Score`) |
+| `Policy_Eligible_Rating` | The published, gate-capped label (equals `Rating`) |
+| `Execution_Status` | `ACTIONABLE` / `NOT_ACTIONABLE` |
+| `Primary_Gate` | Most severe binding reason, as a stable slug (`BELOW_MA200`, `LOW_QUALITY`, `ILLIQUID`, ...) |
+| `Gate_Severity` | Count of simultaneous failures |
+| `Eligibility_Class` | `0` clears every gate, `1` BUY-eligible, `2` policy-capped, `3` unscorable |
+
+`Primary_Gate` answers "what is stopping this row from being rated higher", so a BUY-eligible row
+can still report a STRONG BUY gate. Patterns are scanned in severity order, not in the order the
+failures happened to be appended.
+
+With `RANK_BY_ELIGIBILITY_CLASS=True`:
+
+```text
+Investment_Rank = sort(Eligibility_Class ASC, Research_Score DESC,
+                       Gate_Severity ASC, Symbol ASC)
+```
+
+`Decision_Score`, `Final_Score` and the ceiling logic are unchanged, so every existing consumer
+keeps working.
+
+### 20.8 Known gap: financial-sector regulatory evidence
+
+`Gross_NPA`, `Net_NPA`, `Capital_Adequacy` and `Solvency_Ratio` are declared as required
+specialist evidence (section 7.6) and are required by `specialized_quality_gate`, but **no
+collector in this repository has ever populated them** and Yahoo does not publish them. The
+practical effect, in 4.x as well as 5.0, is that **every bank, NBFC and insurer is permanently
+barred from BUY** — silently removing the largest sector of the Indian market from the actionable
+universe. This was confirmed on a live run: all 9 financial rows failed with
+`missing specialized quality data`.
+
+Model 5.0's financial quality template scores these companies correctly from statement evidence
+at full coverage (measured spread on the same run: HDFCLIFE 5.1 to BAJFINANCE 100.0), so the gate
+is now the only thing blocking them.
+
+`FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT` (default **False**) accepts the statement
+template as sufficient for BUY and keeps the regulatory requirement for STRONG BUY only. It
+defaults to the existing fail-closed behaviour because this is a risk-policy decision, not a
+technical one.
+
+**That flag is necessary but not sufficient for banks and NBFCs.** The same never-collected
+fields also sit in the *denominator* of `Fundamental_Coverage` (section 7.6), which permanently
+caps them:
+
+| Model | Expected fields | Always missing | Ceiling on `Fundamental_Coverage` |
+|---|---:|---|---:|
+| Bank / NBFC Equity Quality | 8 | Gross_NPA, Net_NPA, Capital_Adequacy | **0.625** |
+| Insurance Equity Quality | 6 | Solvency_Ratio | **0.833** |
+
+Model 5.0's BUY floor is 0.70, so **banks and NBFCs fail on coverage even with the flag set**;
+insurers clear BUY but can never reach the 0.75 STRONG BUY floor. Under 4.x the 0.55 BUY floor is
+cleared, so there the specialist gate alone is the binding constraint.
+
+Fully closing the gap therefore needs one of:
+
+1. an NPA/CAR/solvency feed from exchange filings — the correct fix, and the only one that makes
+   the evidence real rather than merely uncounted; or
+2. removing structurally uncollectable fields from the coverage denominator, so coverage measures
+   *how much of what is knowable is known*. This changes 4.x behaviour too and should be a
+   separate, reviewed change rather than a side effect of the Model 5.0 rollout.
+
+**A feed has been scoped and verified — see `docs/financial_regulatory_data_feed_scope.md`.**
+Summary: NSE's `corporates-financial-results` API tags bank filings and serves them under a
+`BANKING_` XBRL taxonomy carrying `PercentageOfGrossNpa` and `PercentageOfNpa`, verified against
+reported figures for HDFCBANK, SBIN and AXISBANK. That unblocks the 41 listed banks for about a
+day of work. The consolidated filing returns `0.00` for every NPA tag, so a naive reader would
+publish pristine asset quality for every bank — the scope document treats that as a required
+test, not a caveat.
+
+NBFC asset quality and capital adequacy are **not** in any XBRL taxonomy, but they are in the
+results PDF, which NSE exposes through `corporate-announcements` and which PyMuPDF (already a
+dependency) can read. Measured over 12 NBFCs: CRAR detected in 83%, gross/net NPA in 50%, where
+the 50% is a detection limit — filers write "Stage III", "GNPA" and "Gross Stage 3 assets"
+interchangeably — rather than an availability limit. That route also closes the CRAR gap for
+banks, which no XBRL carries. It is viable but is a 1-2 week parsing project with permanent
+layout maintenance, and it must use coordinate-based table extraction: labels and values are
+separated in the text stream, and a mis-paired CRAR would pass the regulatory gate with a
+fabricated number.
+
+### 20.9 Validation status and protocol
+
+Measured on a 40-name large-cap watchlist, 4.x baseline vs Model 5.0 on identical vendor inputs:
+Spearman rank correlation **0.62**, top-20 Jaccard **0.60**, 5 entrants and 5 exits. The model
+re-ranks materially, which is the point — and exactly why it must not be promoted on a smoke test.
+
+**Nothing here is evidence that Model 5.0 predicts returns better than 4.x.** Before making
+predictive-performance claims, run the pre-declared grid from the proposal (A: 4.x baseline,
+B: factorised 70/30, C: 60/40 with
+MA200 gate, D: proposed without MA200 gate, E: proposed with regime overlay) under expanding
+walk-forward validation with a final untouched test period, and evaluate forward 1/3/6/12-month
+returns, decile portfolios, excess return vs Nifty 500 TRI, rank information coefficient, hit
+rate, maximum drawdown, turnover, transaction costs, sector/size exposure, regime-split
+performance, and rating stability.
+
+Note that `screener/statements.py` derives from the statements Yahoo publishes *today* and makes
+no attempt to reconstruct what was knowable on a past date, so it is suitable for a forward
+screen but **not** for a look-ahead-free historical backtest without a point-in-time
+fundamentals source. This is the single largest obstacle to executing the validation protocol
+above and should be scoped before interpreting Model 5.0 as predictively validated.
+
+The isolated candidate workflow adds an operational guard, not a predictive claim: comparison
+fails below 95% statement coverage so an alphabetical or otherwise partial backfill cannot be
+mistaken for a full-universe result. A successful screen checkpoints its candidate-only
+statement tranche before that guard or a later baseline comparison can fail. For transcript
+parity the workflow may bulk-read Supabase using the service-role secret, but read-only mode
+rejects every write and the secret is never placed in a manifest, cache, or artifact.
+
+Full-NSE candidate run `31685056109` completed successfully at the approved candidate commit. Its
+cache contained 2,284 unique statement rows; 2,283 matched the 2,301-row candidate universe and
+were usable (99.22% coverage). This is operational acceptance evidence
+only: it shows that the pipeline runs, the cross-section is substantially complete, and the
+comparison tooling works.
+It neither estimates future returns nor demonstrates superiority over 4.x. Scheduled production
+therefore exports a validation status that continues to state that point-in-time,
+out-of-sample validation is pending.
+
+### 20.10 Model 5.0 configuration reference
+
+| Parameter | Runtime default / scheduled override | Effect |
+|---|---:|---|
+| `FACTOR_MODEL_ENABLED` | false / true | Master switch; GitHub's scheduled production run explicitly enables it while manual daily dispatch remains false |
+| `MODEL_VERSION` / `RECOMMENDATION_POLICY_VERSION` / `OUTPUT_SCHEMA_VERSION` | local model/policy `4.0.0-candidate`; scheduled model/policy `5.0.0`; schema `4.1.0` | Scheduled model, policy, and additive export contracts are versioned independently |
+| `FACTOR_WEIGHT_{QUALITY,GROWTH,VALUE,MOMENTUM,RISK}` | .35/.20/.15/.25/.05 | Block blend |
+| `FACTOR_SCORE_AS_PERCENTILE` | true | Publish the blend as a cross-sectional percentile |
+| `FACTOR_SECTOR_NEUTRAL` / `FACTOR_MIN_SECTOR_PEERS` | true / 8 | Rank inside sector when it is large enough |
+| `FACTOR_MIN_BLOCK_COVERAGE` | 0.50 | Block coverage floor for BUY |
+| `FACTOR_VALUE_QUALITY_FLOOR_PCT` / `FACTOR_VALUE_CEILING_WHEN_LOW_QUALITY` | 30 / 50 | Value-trap cap |
+| History/cache contract / `LEGACY_HISTORY_WINDOW_SESSIONS` | 4.x: 6mo/v6; Model 5.0: 2y/v7; 126 | Model-selected download depth and cache schema; six-month feature pinning applies to the longer Model 5.0 frame |
+| `BENCHMARK_INDEX_SYMBOL` / `BENCHMARK_INDEX_FALLBACK` | ^CRSLDX / ^NSEI | Relative strength and regime source |
+| `MARKET_REGIME_ENABLED` / `MARKET_REGIME_MA_SESSIONS` / `MARKET_REGIME_NEUTRAL_BAND_PCT` | true / 200 / 2.0 | Regime classification |
+| `REQUIRE_MA200_TREND_FOR_BUY` / `BUY_MA200_TOLERANCE` | true / 0.98 | Trend gate and hysteresis band |
+| `BREAKDOWN_CONFIRM_SESSIONS` | 10 | Confirmed-breakdown persistence |
+| `BUY_MIN_QUALITY_PCT` / `STRONG_BUY_MIN_{QUALITY,GROWTH,MOMENTUM}_PCT` | 40 / 70,60,70 | Factor percentile floors |
+| `FACTOR_FUNDAMENTAL_MIN_COVERAGE_FOR_BUY` / `FACTOR_TECHNICAL_MIN_COVERAGE_FOR_BUY` | 0.70 / 0.90 | Tightened BUY coverage |
+| `REQUIRE_LIQUIDITY_FOR_BUY` | true | Execution liquidity as a BUY gate |
+| `RANK_BY_ELIGIBILITY_CLASS` | true | Eligibility-first primary ranking |
+| `FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT` | false | See 20.8 — risk-policy decision |
+| `FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE` | 0.95 | Scheduled production fails before scoring and side effects if usable statement evidence covers less than 95% of the research universe |
+| `STATEMENT_CACHE_MAX_AGE_DAYS` / `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` | 90 / 2,500 scheduled (400 manual daily) | Statement cache TTL and recovery budget; candidate workflow defaults to 600 and allows 2,500 for one-time completion |

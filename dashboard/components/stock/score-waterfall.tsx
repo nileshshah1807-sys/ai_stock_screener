@@ -1,13 +1,16 @@
 import { formatScore } from "@/lib/format";
 import { dcfStatus } from "@/lib/labels";
+import { researchScoreMode } from "@/lib/model-display.mjs";
 import type { SnapshotRowWithPayload } from "@/lib/types";
 
 /**
- * The v4 score chain as a waterfall.
+ * The active run's score chain as a waterfall.
  *
- * The finalizer computes one sequence:
+ * The finalizer computes one sequence after choosing the model's starting
+ * score. In 4.x that start is the fundamental/technical core; in Model 5.0 it
+ * is the factor research score (with reverse DCF already inside Value).
  *
- *   Core          = 0.70 * Fundamental + 0.30 * Technical
+ *   Starting score = v4 core OR Model 5.0 research score
  *   After DCF     = Core + w_dcf * (DCF_Valuation_Score - 50)
  *   Evidence      = After DCF + w_tx * min(Transcript_Effective - 50, 0)
  *   Decision      = min(Evidence, applicable policy ceiling)
@@ -40,8 +43,12 @@ function num(value: unknown): number | null {
 
 export function buildStages(row: SnapshotRowWithPayload): Stage[] {
   const payload = row.payload ?? {};
+  const factorModel = row.factor_model_applied === true;
+  const scoreMode = researchScoreMode(row.research_score_basis);
 
   const core = row.combined_score ?? num(payload.Combined_Score) ?? 0;
+  const rawResearch =
+    row.research_score_raw ?? num(payload.Research_Score_Raw);
   const afterDcf = row.score_after_dcf ?? num(payload.Score_After_DCF) ?? core;
   const evidence = row.evidence_score ?? num(payload.Evidence_Score) ?? afterDcf;
   const decision =
@@ -50,15 +57,22 @@ export function buildStages(row: SnapshotRowWithPayload): Stage[] {
   const dcfEligible = row.dcf_blend_eligible ?? false;
   const transcriptEligible = row.transcript_scoring_eligible ?? false;
   const dcf = dcfStatus(row.dcf_status);
+  const coreNote = factorModel
+    ? scoreMode === "percentile"
+      ? `Cross-sectional percentile ${formatScore(core)} of the weighted factor blend ${formatScore(rawResearch)}.`
+      : scoreMode === "weighted"
+        ? `Weighted factor blend ${formatScore(rawResearch ?? core)} published directly as the research score.`
+        : `Factor research score ${formatScore(core)}; this row does not identify whether the weighted blend was percentile-ranked.`
+    : `0.70 × fundamental ${formatScore(row.fundamental_score)} + 0.30 × technical ${formatScore(row.technical_score)}`;
 
   const stages: Stage[] = [
     {
       key: "core",
-      label: "Core",
+      label: factorModel ? "Research" : "Core",
       from: 0,
       to: core,
       kind: "base",
-      note: `0.70 × fundamental ${formatScore(row.fundamental_score)} + 0.30 × technical ${formatScore(row.technical_score)}`,
+      note: coreNote,
     },
     {
       key: "dcf",
@@ -66,9 +80,13 @@ export function buildStages(row: SnapshotRowWithPayload): Stage[] {
       from: core,
       to: afterDcf,
       kind: "delta",
-      note: dcfEligible
-        ? `${dcf.label}: valuation score ${formatScore(row.dcf_valuation_score)} applied at the configured weight.`
-        : `${dcf.label}. ${dcf.meaning || "Contributes zero, neither reward nor penalty."}`,
+      note: factorModel
+        ? dcfEligible
+          ? `${dcf.label}: valuation evidence is included once inside the Value block; no second post-research adjustment is applied.`
+          : `${dcf.label}. No separate post-research adjustment is applied.`
+        : dcfEligible
+          ? `${dcf.label}: valuation score ${formatScore(row.dcf_valuation_score)} applied at the configured weight.`
+          : `${dcf.label}. ${dcf.meaning || "Contributes zero, neither reward nor penalty."}`,
     },
     {
       key: "transcript",
@@ -77,7 +95,7 @@ export function buildStages(row: SnapshotRowWithPayload): Stage[] {
       to: evidence,
       kind: "delta",
       note: transcriptEligible
-        ? `${row.transcript_status}: downside-only in v4, so this stage can subtract but never add.`
+        ? `${row.transcript_status}: downside-only, so this stage can subtract but never add.`
         : `${row.transcript_status ?? "No transcript"}. Contributes zero and does not cap the rating.`,
     },
     {
@@ -137,7 +155,7 @@ export function ScoreWaterfall({ row }: { row: SnapshotRowWithPayload }) {
         className="w-full"
         style={{ maxHeight: height * 1.4 }}
         role="img"
-        aria-label={`Score waterfall: core ${formatScore(stages[0].to)}, decision ${formatScore(stages[4].to)}.`}
+        aria-label={`Score waterfall: starting score ${formatScore(stages[0].to)}, decision ${formatScore(stages[4].to)}.`}
       >
         {thresholds.map((threshold) => (
           <g key={threshold.value}>

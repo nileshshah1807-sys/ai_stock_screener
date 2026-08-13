@@ -10,11 +10,13 @@ import { StockSearch } from "@/components/screener/stock-search";
 import { Skeleton } from "@/components/ui/skeleton";
 import { requireAccess } from "@/lib/auth";
 import { parseFilters, toSearchParams } from "@/lib/filters";
+import { investmentRankExplanation } from "@/lib/model-display.mjs";
 import {
   getLatestRun,
   getSearchIndex,
   getSectors,
   getSnapshotPage,
+  runUsesFactorModel,
   PAGE_SIZE,
 } from "@/lib/queries";
 
@@ -56,11 +58,13 @@ export default async function ScreenerPage({ searchParams }: PageProps<"/">) {
   const filters = parseFilters(params);
   const urlParams = toSearchParams(params);
 
-  const [{ rows, total }, sectors, searchIndex] = await Promise.all([
-    getSnapshotPage(run.run_date, filters),
-    getSectors(run.run_date),
-    getSearchIndex(run.run_date),
-  ]);
+  const [{ rows, total }, sectors, searchIndex, factorModel] =
+    await Promise.all([
+      getSnapshotPage(run.run_date, filters),
+      getSectors(run.run_date),
+      getSearchIndex(run.run_date),
+      runUsesFactorModel(run.run_date),
+    ]);
 
   const exportParams = new URLSearchParams(urlParams.toString());
   exportParams.delete("page");
@@ -72,7 +76,7 @@ export default async function ScreenerPage({ searchParams }: PageProps<"/">) {
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex-1">
-            <FilterBar sectors={sectors} />
+            <FilterBar sectors={sectors} factorModel={factorModel} />
           </div>
           <Suspense fallback={<Skeleton className="h-9 w-56" />}>
             <StockSearch entries={searchIndex} />
@@ -106,9 +110,9 @@ export default async function ScreenerPage({ searchParams }: PageProps<"/">) {
         />
 
         <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
-          <span className="font-medium">Reading the ranks.</span> Investment
-          Rank is decision-score-first and is the primary order. Score Rank uses
-          uncapped evidence, Recommendation Rank groups by published rating, and
+          <span className="font-medium">Reading the ranks.</span>{" "}
+          {investmentRankExplanation(factorModel)} Score Rank uses uncapped
+          evidence, Recommendation Rank groups by published rating, and
           Actionable Rank is an execution-only view that never changes a score
           or rating. Price, indicators, turnover, and aligned valuation ratios
           all use the same completed daily bar.

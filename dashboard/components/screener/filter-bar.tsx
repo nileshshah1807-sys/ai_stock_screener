@@ -13,7 +13,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { RATINGS } from "@/lib/types";
+import { ELIGIBILITY_CLASSES, RATINGS } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const TOGGLES = [
@@ -44,7 +44,26 @@ const TOGGLES = [
   },
 ] as const;
 
-export function FilterBar({ sectors }: { sectors: string[] }) {
+/**
+ * Model 5.0 only. Hidden entirely on a 4.x run, because these columns are null
+ * there and PostgREST comparisons exclude nulls -- offering the control would
+ * silently empty the grid rather than do nothing.
+ */
+const FACTOR_TOGGLES = [
+  {
+    key: "aboveMa200",
+    label: "Above 200-day average",
+    hint: "Price at or above its 200-day average. The BUY gate itself allows a 2% tolerance band below it.",
+  },
+] as const;
+
+export function FilterBar({
+  sectors,
+  factorModel = false,
+}: {
+  sectors: string[];
+  factorModel?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -112,7 +131,15 @@ export function FilterBar({ sectors }: { sectors: string[] }) {
     activeRatings.length +
     activeSectors.length +
     TOGGLES.filter((toggle) => searchParams.get(toggle.key) === "1").length +
-    (searchParams.get("minScore") ? 1 : 0);
+    (searchParams.get("minScore") ? 1 : 0) +
+    // Factor filters are only reachable when the run used the factor model,
+    // but count them unconditionally so a shared URL carrying one still shows
+    // an accurate badge.
+    FACTOR_TOGGLES.filter((toggle) => searchParams.get(toggle.key) === "1")
+      .length +
+    searchParams.getAll("eligibility").length +
+    (searchParams.get("minQuality") ? 1 : 0) +
+    (searchParams.get("minMomentum") ? 1 : 0);
 
   const clearAll = () => {
     setQuery("");
@@ -236,6 +263,106 @@ export function FilterBar({ sectors }: { sectors: string[] }) {
                 }}
               />
             </fieldset>
+
+            {factorModel ? (
+              <>
+                <fieldset className="space-y-1.5">
+                  <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Factor percentiles
+                  </legend>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={1}
+                      inputMode="numeric"
+                      defaultValue={searchParams.get("minQuality") ?? ""}
+                      placeholder="Quality ≥"
+                      aria-label="Minimum quality percentile"
+                      className="tabular h-9"
+                      onBlur={(event) => {
+                        const value = event.target.value.trim();
+                        push((params) => {
+                          if (value) params.set("minQuality", value);
+                          else params.delete("minQuality");
+                        });
+                      }}
+                    />
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={1}
+                      inputMode="numeric"
+                      defaultValue={searchParams.get("minMomentum") ?? ""}
+                      placeholder="Momentum ≥"
+                      aria-label="Minimum momentum percentile"
+                      className="tabular h-9"
+                      onBlur={(event) => {
+                        const value = event.target.value.trim();
+                        push((params) => {
+                          if (value) params.set("minMomentum", value);
+                          else params.delete("minMomentum");
+                        });
+                      }}
+                    />
+                  </div>
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Rank within the cross-section. BUY needs quality 40; STRONG
+                    BUY needs quality 70, growth 60 and momentum 70.
+                  </p>
+                </fieldset>
+
+                <fieldset className="space-y-1.5">
+                  <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Eligibility
+                  </legend>
+                  {ELIGIBILITY_CLASSES.map((item) => (
+                    <div key={item.value} className="flex items-start gap-2">
+                      <Checkbox
+                        id={`eligibility-${item.value}`}
+                        checked={searchParams
+                          .getAll("eligibility")
+                          .includes(String(item.value))}
+                        onCheckedChange={() =>
+                          toggleValue("eligibility", String(item.value))
+                        }
+                      />
+                      <Label
+                        htmlFor={`eligibility-${item.value}`}
+                        className="cursor-pointer text-xs font-normal leading-snug"
+                      >
+                        {item.label}
+                      </Label>
+                    </div>
+                  ))}
+                </fieldset>
+
+                <fieldset className="space-y-1.5">
+                  {FACTOR_TOGGLES.map((toggle) => (
+                    <div key={toggle.key} className="flex items-start gap-2">
+                      <Checkbox
+                        id={toggle.key}
+                        checked={searchParams.get(toggle.key) === "1"}
+                        onCheckedChange={() => toggleFlag(toggle.key)}
+                      />
+                      <div className="space-y-0.5">
+                        <Label
+                          htmlFor={toggle.key}
+                          className="cursor-pointer text-xs font-normal leading-snug"
+                        >
+                          {toggle.label}
+                        </Label>
+                        <p className="text-[11px] leading-snug text-muted-foreground">
+                          {toggle.hint}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </fieldset>
+              </>
+            ) : null}
 
             {sectors.length ? (
               <fieldset>

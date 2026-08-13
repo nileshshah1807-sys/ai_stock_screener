@@ -4,13 +4,13 @@ import { ArrowLeft } from "lucide-react";
 
 import { AppShell } from "@/components/app-shell";
 import { RatingBadge } from "@/components/rating-badge";
+import { FactorBlocks } from "@/components/stock/factor-blocks";
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
 import { HistoryChart } from "@/components/stock/history-chart";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { requireAccess } from "@/lib/auth";
 import {
-  formatCoverage,
   formatDate,
   formatINR,
   formatINRCompact,
@@ -68,6 +68,15 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   if (!row) notFound();
 
   const payload = row.payload ?? {};
+  const factorModel = row.factor_model_applied === true;
+  const buyFundamentalCoverageMargin = numeric(
+    payload,
+    "Buy_Fundamental_Coverage_Margin",
+  );
+  const buyTechnicalCoverageMargin = numeric(
+    payload,
+    "Buy_Technical_Coverage_Margin",
+  );
 
   const gateFields: Field[] = [
     {
@@ -124,8 +133,17 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
       label: "Coverage",
       value: formatRatioAsPercent(row.fundamental_coverage, 0),
       tone:
-        (row.fundamental_coverage ?? 1) < 0.55 ? "caution" : "default",
-      hint: `${row.fund_fields_present ?? MISSING} of ${row.fund_fields_expected ?? MISSING} fields the selected sector model expects. BUY needs 55%, STRONG BUY 75%.`,
+        factorModel
+          ? buyFundamentalCoverageMargin !== null &&
+            buyFundamentalCoverageMargin < 0
+            ? "caution"
+            : "default"
+          : (row.fundamental_coverage ?? 1) < 0.55
+            ? "caution"
+            : "default",
+      hint: factorModel
+        ? `${row.fund_fields_present ?? MISSING} of ${row.fund_fields_expected ?? MISSING} expected fields. Model 5.0 applies the coverage floors configured for this run.`
+        : `${row.fund_fields_present ?? MISSING} of ${row.fund_fields_expected ?? MISSING} fields the selected sector model expects. BUY needs 55%, STRONG BUY 75%.`,
     },
     { label: "Fundamental score", value: formatScore(row.fundamental_score) },
     { label: "Valuation pts", value: text(payload, "Fund_Valuation_Points") },
@@ -146,8 +164,16 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     {
       label: "Coverage",
       value: formatRatioAsPercent(row.technical_coverage, 0),
-      tone: (row.technical_coverage ?? 1) < 0.75 ? "caution" : "default",
-      hint: "The observed score is shrunk toward neutral by this factor when inputs are missing.",
+      tone: factorModel
+        ? buyTechnicalCoverageMargin !== null && buyTechnicalCoverageMargin < 0
+          ? "caution"
+          : "default"
+        : (row.technical_coverage ?? 1) < 0.75
+          ? "caution"
+          : "default",
+      hint: factorModel
+        ? "Model 5.0 applies the technical-coverage floor configured for this run; missing inputs also shrink the observed score toward neutral."
+        : "The observed score is shrunk toward neutral by this factor when inputs are missing.",
     },
     {
       label: "Observed score",
@@ -172,12 +198,16 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   const dcfFields: Field[] = [
     { label: "Status", value: dcf.label, hint: dcf.meaning || undefined },
     {
-      label: "Blend eligible",
+      label: factorModel ? "Value-block eligible" : "Blend eligible",
       value: row.dcf_blend_eligible ? "Yes" : "No",
       tone: row.dcf_blend_eligible ? "positive" : "muted",
-      hint: row.dcf_blend_eligible
-        ? undefined
-        : "Neutral audit evidence: contributes zero to the score.",
+      hint: factorModel
+        ? row.dcf_blend_eligible
+          ? "Included once inside the Value block; no separate post-research adjustment."
+          : "Visible as audit evidence but excluded from the Value block."
+        : row.dcf_blend_eligible
+          ? undefined
+          : "Neutral audit evidence: contributes zero to the score.",
     },
     { label: "Valuation score", value: formatScore(row.dcf_valuation_score) },
     { label: "Base-case upside", value: formatRatioAsPercent(row.dcf_base_case_upside, 1, true) },
@@ -268,12 +298,27 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-          <Panel
-            title="How this score was produced"
-            description="The finalizer runs this sequence once, after all evidence is present. A stage that is not eligible contributes exactly zero."
-          >
-            <ScoreWaterfall row={row} />
-          </Panel>
+          <div className="space-y-4">
+            {factorModel ? (
+              <Panel
+                title="Factor blocks"
+                description="Model 5.0 ranks each economic concept separately, then blends them. Coverage says how much of a block was actually observed."
+              >
+                <FactorBlocks row={row} />
+              </Panel>
+            ) : null}
+
+            <Panel
+              title="How this score was produced"
+              description={
+                factorModel
+                  ? "The sequence starts with the published factor research score. Reverse DCF is already counted inside Value; later evidence and policy ceilings are then applied once."
+                  : "The finalizer runs this sequence once, after all evidence is present. A stage that is not eligible contributes exactly zero."
+              }
+            >
+              <ScoreWaterfall row={row} />
+            </Panel>
+          </div>
 
           <div className="space-y-4">
             <Panel title="Price and size">
@@ -336,7 +381,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
 
           <Panel
             title="Management transcript"
-            description="Downside-only in v4: a call can reduce conviction but never promote it."
+            description="Downside-only evidence: a call can reduce conviction but never promote it."
           >
             <FieldList fields={transcriptFields} columns={2} />
           </Panel>
@@ -350,7 +395,11 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
 
           <Panel
             title="Liquidity and execution"
-            description="An execution overlay. It never changes the score, rating, or investment rank."
+            description={
+              factorModel
+                ? "Execution evidence. It never changes the research score, but it can cap BUY eligibility and therefore affect the rating and eligibility-class rank."
+                : "An execution overlay. It never changes the score, rating, or investment rank."
+            }
           >
             <FieldList fields={liquidityFields} columns={2} />
           </Panel>

@@ -19,6 +19,39 @@ on:
         required: false
         default: ""
         type: string
+      statement_seed_run_id:
+        description: >-
+          Optional earlier candidate-validation run ID whose uploaded
+          statement_cache.csv should seed this run. Leave blank to restore the
+          latest candidate-only statement cache visible to this branch.
+        required: false
+        default: ""
+        type: string
+      statement_fetch_max_symbols:
+        description: >-
+          Maximum missing annual-statement records to fetch in this run. Use
+          2500 for a one-time full-universe completion; later runs reuse the
+          candidate-only cache and normally need no large backfill.
+        required: true
+        default: 600
+        type: number
+      factor_model:
+        description: >-
+          Score the candidate with the Model 5.0 factor architecture
+          (quality/growth/value/momentum/risk, MA200 gates, regime overlay).
+          Leave false to validate an unrelated change against the 4.x model.
+        required: true
+        default: true
+        type: boolean
+      financial_statement_quality_sufficient:
+        description: >-
+          Accept the statement-based financial quality template as sufficient
+          for BUY. Leave false to keep the current behaviour, where every bank,
+          NBFC and insurer is barred from BUY because NPA/CAR/solvency are
+          required but never collected.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -45,6 +78,7 @@ jobs:
       RUN_MANIFEST_ENABLED: "True"
       NSE_MARKET_HOLIDAYS: "2026-01-15,2026-01-26,2026-03-03,2026-03-26,2026-03-31,2026-04-03,2026-04-14,2026-05-01,2026-05-28,2026-06-26,2026-09-14,2026-10-02,2026-10-20,2026-11-10,2026-11-24,2026-12-25"
       NSE_MARKET_CALENDAR_VERSION: "NSE-CMTR-71775+72260-asof-2026-08-10"
+      MARKET_BAR_COMPLETE_AFTER_IST: "16:15"
       RED_FLAG_ENRICHMENT_ENABLED: "False"
       # Transcript sentiment must load or the candidate is compared against a
       # baseline that has it, which silently removes transcript evidence from
@@ -55,16 +89,28 @@ jobs:
       SCAN_ALL_NSE: ${{ inputs.scan_all_nse }}
       CUSTOM_WATCHLIST: ${{ inputs.custom_watchlist }}
       GH_TOKEN: ${{ github.token }}
+      # Model 5.0 candidate switches. The baseline artifact this run is
+      # compared against was produced by the 4.x model, so the top-20 diff is
+      # exactly the model change measured on the same vendor inputs.
+      FACTOR_MODEL_ENABLED: ${{ inputs.factor_model }}
+      FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT: ${{ inputs.financial_statement_quality_sufficient }}
+      # When a baseline is supplied, the exact cache below is a frozen input,
+      # not a freshness hint. The session preflight rejects a baseline whose
+      # price bar is no longer the expected completed session; these extended
+      # TTLs prevent age-only refreshes of otherwise matching cached inputs.
+      PRICE_CACHE_MAX_AGE_HOURS: ${{ inputs.baseline_run_id != '' && '10000' || '18' }}
+      FUND_CACHE_MAX_AGE_DAYS: ${{ inputs.baseline_run_id != '' && '10000' || '7' }}
+      NSE_LIQUIDITY_CACHE_MAX_AGE_DAYS: ${{ inputs.baseline_run_id != '' && '10000' || '35' }}
+      # A cold statement build is bounded per run. The candidate-only cache
+      # below checkpoints each successful tranche without writing production.
+      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ inputs.statement_fetch_max_symbols }}
+      # Partial candidate tranches must be allowed to finish so their cache can
+      # accumulate. The comparison step below is the candidate fail-closed
+      # boundary and independently requires at least 95% statement coverage.
+      # Scheduled production overrides this to 0.95 before any side effects.
+      FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0"
 
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements.txt
-
       - name: Prepare isolated validation workspace
         shell: bash
         run: |
@@ -73,25 +119,159 @@ jobs:
           # always defined inside a step. Keeping the workspace outside the
           # checkout is what keeps this run from touching production state.
           root="${RUNNER_TEMP}/candidate-validation/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          mkdir -p "$root/candidate"
+          mkdir -p "$root/candidate" \
+                   "${RUNNER_TEMP}/candidate-statement-cache" \
+                   "${RUNNER_TEMP}/candidate-statement-seed"
           echo "VALIDATION_ROOT=$root" >> "$GITHUB_ENV"
           echo "CANDIDATE_OUTPUT_DIR=$root/candidate" >> "$GITHUB_ENV"
+          echo "CANDIDATE_STATEMENT_CACHE=${RUNNER_TEMP}/candidate-statement-cache/statement_cache.csv" >> "$GITHUB_ENV"
 
-      # Restore only -- there is deliberately no actions/cache/save step, so the
-      # production cache entry this reads can never be modified by a candidate
-      # run. Beyond saving the ~60 minute cold fundamentals fetch, this gives
+      # Validate operator-supplied artifact IDs before checkout, dependency
+      # installation, or the 60-90 minute full-universe collection. A scheduled
+      # fallback can be green while deliberately producing no artifact, so run
+      # conclusion alone is not sufficient validation.
+      - name: Validate and download production baseline artifact
+        if: inputs.baseline_run_id != ''
+        shell: bash
+        env:
+          BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "baseline_run_id must be a numeric GitHub Actions run ID" >&2
+            exit 2
+          fi
+          mkdir -p "$VALIDATION_ROOT/baseline"
+          gh run download "$BASELINE_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "stock-screener-report-${BASELINE_RUN_ID}" \
+            --dir "$VALIDATION_ROOT/baseline"
+          mapfile -t baseline_csvs < <(
+            find "$VALIDATION_ROOT/baseline" -type f \
+              -name 'advanced_analysis_*.csv' -print
+          )
+          if [[ "${#baseline_csvs[@]}" -ne 1 || ! -s "${baseline_csvs[0]}" ]]; then
+            echo "Expected exactly one non-empty baseline CSV in the report artifact" >&2
+            exit 1
+          fi
+          BASELINE_CSV="${baseline_csvs[0]}" python3 - <<'PY'
+          import csv
+          import os
+          from datetime import date, datetime, time, timedelta
+          from zoneinfo import ZoneInfo
+
+          holidays = {
+              date.fromisoformat(value.strip())
+              for value in os.environ["NSE_MARKET_HOLIDAYS"].split(",")
+              if value.strip()
+          }
+
+          def is_session(day):
+              return day.weekday() < 5 and day not in holidays
+
+          with open(
+              os.environ["BASELINE_CSV"],
+              newline="",
+              encoding="utf-8-sig",
+          ) as source:
+              rows = csv.DictReader(source)
+              records = list(rows)
+          expected_sessions = {
+              date.fromisoformat(
+                  str(row.get("Expected_Price_Bar_As_Of") or "")[:10]
+              )
+              for row in records
+          }
+          if len(expected_sessions) != 1:
+              raise SystemExit(
+                  "Baseline CSV must contain exactly one non-empty "
+                  "Expected_Price_Bar_As_Of session"
+              )
+
+          now = datetime.now(ZoneInfo("Asia/Kolkata"))
+          hour, minute = map(int, os.environ["MARKET_BAR_COMPLETE_AFTER_IST"].split(":"))
+          cutoff = time(hour, minute)
+          expected = now.date()
+          if not is_session(expected) or now.time().replace(tzinfo=None) < cutoff:
+              expected -= timedelta(days=1)
+              while not is_session(expected):
+                  expected -= timedelta(days=1)
+
+          baseline_session = expected_sessions.pop()
+          if baseline_session != expected:
+              raise SystemExit(
+                  "Baseline expected price session is not the currently expected "
+                  f"completed NSE session ({baseline_session} != {expected}); "
+                  "select a matching baseline "
+                  "instead of silently refetching newer prices"
+              )
+          lagged = sum(
+              str(row.get("Price_Bar_As_Of") or "")[:10]
+              != baseline_session.isoformat()
+              for row in records
+          )
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as target:
+              target.write(
+                  f"BASELINE_PRICE_SESSION={baseline_session.isoformat()}\n"
+              )
+          print(
+              f"baseline expected price session is replayable: {baseline_session}; "
+              f"{lagged}/{len(records)} source rows lag that session"
+          )
+          PY
+
+      - name: Validate and download optional candidate statement seed
+        if: inputs.statement_seed_run_id != ''
+        shell: bash
+        env:
+          STATEMENT_SEED_RUN_ID: ${{ inputs.statement_seed_run_id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$STATEMENT_SEED_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "statement_seed_run_id must be a numeric GitHub Actions run ID" >&2
+            exit 2
+          fi
+          artifact_name="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${STATEMENT_SEED_RUN_ID}/artifacts?per_page=100" \
+              --jq ".artifacts | map(select(.expired == false and (.name | startswith(\"candidate-model-validation-${STATEMENT_SEED_RUN_ID}-\")))) | sort_by(.created_at) | last | .name // empty"
+          )"
+          if [[ -z "$artifact_name" ]]; then
+            echo "No non-expired candidate validation artifact found for run ${STATEMENT_SEED_RUN_ID}" >&2
+            exit 1
+          fi
+          gh run download "$STATEMENT_SEED_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name "$artifact_name" \
+            --dir "${RUNNER_TEMP}/candidate-statement-seed"
+          mapfile -t statement_seeds < <(
+            find "${RUNNER_TEMP}/candidate-statement-seed" -type f \
+              -path '*/candidate/statement_cache.csv' -print
+          )
+          if [[ "${#statement_seeds[@]}" -ne 1 || ! -s "${statement_seeds[0]}" ]]; then
+            echo "Expected exactly one non-empty candidate/statement_cache.csv in ${artifact_name}" >&2
+            exit 1
+          fi
+          cp "${statement_seeds[0]}" "$CANDIDATE_STATEMENT_CACHE"
+
+      - uses: actions/checkout@v6
+
+      # Production data is restore-only: the candidate never saves into that
+      # namespace. Beyond saving the ~60 minute cold fundamentals fetch, this gives
       # the candidate the SAME vendor inputs the baseline used, so a top-20 diff
       # reflects the model change instead of fundamentals that happened to be
-      # refetched hours later. A missed restore is not fatal: the run refetches.
-      # This path list MUST stay byte-identical to the save step in
-      # daily-stock-screener.yml. GitHub derives a cache *version* from the
-      # paths, so dropping even one entry makes every key silently miss and the
-      # run falls back to a cold ~60 minute fetch. backtest_history.csv is
+      # refetched hours later. When a baseline ID is supplied, its exact cache
+      # is required; falling back to a newer entry would invalidate the A/B.
+      #
+      # This ORIGINAL five-path list MUST stay byte-identical to the production
+      # save step. GitHub derives a hidden cache version from the path list, so
+      # adding statement_cache.csv here makes every existing entry silently
+      # miss. backtest_history.csv is
       # therefore restored but deliberately never copied into the candidate
       # workspace; it is deleted with the rest of the production copy below.
       - name: Restore production market data (read-only)
         id: production-cache
-        continue-on-error: true
+        continue-on-error: ${{ inputs.baseline_run_id == '' }}
         uses: actions/cache/restore@v6
         with:
           path: |
@@ -100,9 +280,29 @@ jobs:
             reports_advanced/nse_liquidity_categories.csv
             reports_advanced/backtest_history.csv
             reports_advanced/yfinance_cache
-          key: stock-screener-data-v2-${{ runner.os }}-read-only-probe
+          key: ${{ inputs.baseline_run_id != '' && format('stock-screener-data-v2-{0}-{1}', runner.os, inputs.baseline_run_id) || format('stock-screener-data-v2-{0}-read-only-probe', runner.os) }}
+          restore-keys: ${{ inputs.baseline_run_id == '' && format('stock-screener-data-v2-{0}-', runner.os) || '' }}
+          fail-on-cache-miss: ${{ inputs.baseline_run_id != '' }}
+
+      # This namespace and stable path are candidate-only. The primary key is
+      # unique because GitHub caches are immutable; restore-keys selects the
+      # newest accumulated tranche, and cache/save below writes the next one.
+      - name: Restore accumulated candidate statement cache
+        id: candidate-statement-cache
+        if: inputs.statement_seed_run_id == ''
+        continue-on-error: true
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/candidate-statement-cache/statement_cache.csv
+          key: candidate-statements-v1-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            stock-screener-data-v2-${{ runner.os }}-
+            candidate-statements-v1-${{ runner.os }}-${{ github.ref_name }}-
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
 
       - name: Seed the isolated workspace from the restored cache
         shell: bash
@@ -139,6 +339,17 @@ jobs:
           # Nothing may read the production copy after this point.
           rm -rf reports_advanced
 
+          # An explicit prior-run artifact or the automatic candidate cache was
+          # staged outside the checkout. Copy only statements into this run's
+          # isolated output; neither source can mutate production state.
+          if [[ -s "$CANDIDATE_STATEMENT_CACHE" ]]; then
+            cp "$CANDIDATE_STATEMENT_CACHE" \
+               "$CANDIDATE_OUTPUT_DIR/statement_cache.csv"
+            echo "seeded candidate statement_cache.csv ($(wc -c < "$CANDIDATE_STATEMENT_CACHE") bytes)"
+          else
+            echo "no candidate statement cache; this tranche will start cold"
+          fi
+
       - name: Install dependencies
         shell: bash
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
@@ -149,7 +360,46 @@ jobs:
           set -o pipefail
           TRANSCRIPT_ENABLE_FINBERT=false python -m unittest discover -s tests -v 2>&1 | tee "$VALIDATION_ROOT/tests.log"
 
+      # The completed NSE session can advance while the runner is queued or
+      # installing dependencies (notably at 16:15 IST). Recheck immediately
+      # before collection so an early preflight cannot pass on yesterday and
+      # then silently download today's bar for the candidate.
+      - name: Recheck pinned baseline price session
+        if: inputs.baseline_run_id != ''
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from datetime import date, datetime, time, timedelta
+          from zoneinfo import ZoneInfo
+
+          holidays = {
+              date.fromisoformat(value.strip())
+              for value in os.environ["NSE_MARKET_HOLIDAYS"].split(",")
+              if value.strip()
+          }
+
+          def is_session(day):
+              return day.weekday() < 5 and day not in holidays
+
+          now = datetime.now(ZoneInfo("Asia/Kolkata"))
+          hour, minute = map(int, os.environ["MARKET_BAR_COMPLETE_AFTER_IST"].split(":"))
+          expected = now.date()
+          if not is_session(expected) or now.time().replace(tzinfo=None) < time(hour, minute):
+              expected -= timedelta(days=1)
+              while not is_session(expected):
+                  expected -= timedelta(days=1)
+          observed = date.fromisoformat(os.environ["BASELINE_PRICE_SESSION"])
+          if observed != expected:
+              raise SystemExit(
+                  "The expected NSE session advanced after the baseline preflight "
+                  f"({observed} != {expected}); choose a matching production baseline"
+              )
+          print(f"baseline price session is still current: {observed}")
+          PY
+
       - name: Run candidate screener without notifications or persistent backtest
+        id: candidate-screener
         shell: bash
         run: |
           set -o pipefail
@@ -164,17 +414,25 @@ jobs:
               --custom-watchlist "$CUSTOM_WATCHLIST" 2>&1 | tee "$VALIDATION_ROOT/candidate-run.log"
           fi
 
-      - name: Download optional production baseline artifact
-        if: inputs.baseline_run_id != ''
+      - name: Stage refreshed candidate statement cache
+        id: stage-candidate-statements
+        if: steps.candidate-screener.outcome == 'success' && inputs.factor_model
         shell: bash
-        env:
-          BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
         run: |
-          mkdir -p "$VALIDATION_ROOT/baseline"
-          gh run download "$BASELINE_RUN_ID" \
-            --repo "$GITHUB_REPOSITORY" \
-            --name "stock-screener-report-${BASELINE_RUN_ID}" \
-            --dir "$VALIDATION_ROOT/baseline"
+          set -euo pipefail
+          test -s "$CANDIDATE_OUTPUT_DIR/statement_cache.csv"
+          cp "$CANDIDATE_OUTPUT_DIR/statement_cache.csv" \
+             "$CANDIDATE_STATEMENT_CACHE"
+
+      # Save before comparison. A malformed/mismatched baseline can still turn
+      # the job red, but it cannot discard a successful statement backfill.
+      - name: Save accumulated candidate statement cache
+        if: always() && steps.stage-candidate-statements.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/candidate-statement-cache/statement_cache.csv
+          key: candidate-statements-v1-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Compare candidate with optional baseline
         if: inputs.baseline_run_id != ''
@@ -189,7 +447,9 @@ jobs:
             "$baseline_csv" \
             "$candidate_csv" \
             --output-dir "$VALIDATION_ROOT/comparison" \
-            --top-n 20 2>&1 | tee "$VALIDATION_ROOT/comparison.log"
+            --top-n 20 \
+            --min-statement-coverage 0.95 \
+            2>&1 | tee "$VALIDATION_ROOT/comparison.log"
 
       - name: Upload isolated validation evidence
         if: always()

@@ -141,6 +141,60 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("price_bar_aligned", "Price_Bar_Aligned", "bool"),
     ("fund_data_stale", "Fund_Data_Stale", "bool"),
     ("news_sentiment", "News_Sentiment", "text"),
+
+    # Model 5.0 factor architecture. A 4.x CSV has none of these columns, and
+    # map_row writes null for an absent column rather than omitting the key, so
+    # publishing a 4.x run against this schema clears them correctly instead of
+    # leaving yesterday's factor values behind on a re-ingest.
+    ("factor_model_applied", "Factor_Model_Applied", "bool"),
+    ("research_score", "Research_Score", "num:6,2"),
+    ("research_score_raw", "Research_Score_Raw", "num:6,2"),
+    ("research_score_basis", "Research_Score_Basis", "text"),
+
+    ("quality_score", "Quality_Score", "num:6,2"),
+    ("growth_score", "Growth_Score", "num:6,2"),
+    ("value_score", "Value_Score", "num:6,2"),
+    ("momentum_score", "Momentum_Score", "num:6,2"),
+    ("risk_score", "Risk_Score", "num:6,2"),
+    ("quality_percentile", "Quality_Percentile", "num:6,2"),
+    ("growth_percentile", "Growth_Percentile", "num:6,2"),
+    ("value_percentile", "Value_Percentile", "num:6,2"),
+    ("momentum_percentile", "Momentum_Percentile", "num:6,2"),
+    ("risk_percentile", "Risk_Percentile", "num:6,2"),
+    ("quality_coverage", "Quality_Coverage", "num:6,4"),
+    ("growth_coverage", "Growth_Coverage", "num:6,4"),
+    ("value_coverage", "Value_Coverage", "num:6,4"),
+    ("momentum_coverage", "Momentum_Coverage", "num:6,4"),
+    ("risk_coverage", "Risk_Coverage", "num:6,4"),
+    ("factor_coverage", "Factor_Coverage", "num:6,4"),
+    ("value_score_uncapped", "Value_Score_Uncapped", "num:6,2"),
+    ("value_quality_cap_applied", "Value_Quality_Cap_Applied", "bool"),
+
+    ("research_rating", "Research_Rating", "text"),
+    ("policy_eligible_rating", "Policy_Eligible_Rating", "text"),
+    ("execution_status", "Execution_Status", "text"),
+    ("eligibility_class", "Eligibility_Class", "int"),
+    ("primary_gate", "Primary_Gate", "text"),
+    ("gate_severity", "Gate_Severity", "int"),
+    ("market_regime", "Market_Regime", "text"),
+
+    ("ma200", "MA200", "num:14,2"),
+    ("ma200_slope_pct", "MA200_Slope_Pct", "num:10,4"),
+    ("price_to_ma200_pct", "Price_To_MA200_Pct", "num:10,3"),
+    ("ma50_to_ma200_pct", "MA50_To_MA200_Pct", "num:10,3"),
+    ("below_ma200_streak", "Below_MA200_Streak", "int"),
+    ("momentum_12_1_pct", "Momentum_12_1_Pct", "num:10,2"),
+    ("momentum_6_1_pct", "Momentum_6_1_Pct", "num:10,2"),
+    ("pct_change_12m", "Pct_Change_12M", "num:10,2"),
+    ("rs_market_6m_pct", "RS_Market_6M_Pct", "num:10,3"),
+    ("rs_market_12m_pct", "RS_Market_12M_Pct", "num:10,3"),
+    ("rs_sector_6m_pct", "RS_Sector_6M_Pct", "num:10,3"),
+    ("trend_quality_r2", "Trend_Quality_R2", "num:8,4"),
+
+    ("volatility_ann_pct", "Volatility_Ann_Pct", "num:10,3"),
+    ("max_drawdown_1y_pct", "Max_Drawdown_1Y_Pct", "num:10,3"),
+    ("downside_deviation_pct", "Downside_Deviation_Pct", "num:10,3"),
+    ("roic", "ROIC", "num:12,4"),
 ]
 
 HISTORY_COLUMNS: list[tuple[str, str, str]] = [
@@ -159,6 +213,12 @@ HISTORY_COLUMNS: list[tuple[str, str, str]] = [
     ("buy_eligible", "Buy_Eligible", "bool"),
     ("strong_buy_eligible", "Strong_Buy_Eligible", "bool"),
     ("rating_capped", "Rating_Capped", "bool"),
+    # Model 5.0: the slim history exists to answer "what moved and what changed
+    # rating". Under the factor model the published rating is capped, so
+    # research score and eligibility class are what actually move first.
+    ("research_score", "Research_Score", "num:6,2"),
+    ("eligibility_class", "Eligibility_Class", "int"),
+    ("primary_gate", "Primary_Gate", "text"),
 ]
 
 
@@ -356,6 +416,94 @@ def map_row(
     return mapped
 
 
+def _existing_run(repository: DashboardRepository, run_date: str) -> dict[str, Any] | None:
+    """Return existing metadata for ``run_date``, if any.
+
+    Replacing an existing date cannot be made atomic through the current
+    PostgREST adapter: snapshot rows are written in chunks, so a later failure
+    could leave a previously successful run only partly overwritten. Refusing
+    that operation before the first write is the fail-closed choice. A row with
+    ``row_count=0`` is different: it is an incomplete publisher reservation and
+    can be reclaimed before retrying the serialized scheduled workflow.
+    """
+    rows = repository._request(  # noqa: SLF001 - repository has no dated lookup
+        "GET",
+        "screener_runs",
+        params={
+            "select": "run_date,row_count",
+            "run_date": f"eq.{run_date}",
+            "limit": "1",
+        },
+    )
+    return rows[0] if rows else None
+
+
+def _reserve_run(
+    repository: DashboardRepository,
+    run_date: str,
+    generated_at_utc: str,
+) -> None:
+    """Create the minimum parent row required by the snapshot foreign key.
+
+    This is deliberately a plain INSERT rather than an upsert. The prior
+    existence check gives a useful error, while the primary-key constraint
+    closes the race if another publisher reserves the date concurrently.
+    Complete run metadata is not written until snapshot and history writes have
+    both succeeded.
+    """
+    repository._request(  # noqa: SLF001 - reservation is a publisher protocol
+        "POST",
+        "screener_runs",
+        json={
+            "run_date": run_date,
+            "generated_at_utc": generated_at_utc,
+            "row_count": 0,
+        },
+        headers={"Prefer": "return=minimal"},
+    )
+
+
+def _remove_failed_reservation(
+    repository: DashboardRepository,
+    run_date: str,
+) -> list[str]:
+    """Best-effort compensation for a failed multi-request publication.
+
+    Deleting the reserved run cascades to partial snapshot rows. History has no
+    foreign key to ``screener_runs``, so it must be removed explicitly. A true
+    all-or-nothing guarantee would require a database transaction/RPC; until
+    that exists, returning cleanup errors lets the caller fail loudly rather
+    than claim that the old dashboard state was preserved.
+    """
+    errors: list[str] = []
+    history_cleaned = False
+    try:
+        repository._request(  # noqa: SLF001 - compensating publisher protocol
+            "DELETE",
+            "screener_history",
+            params={"observed_on": f"eq.{run_date}"},
+            headers={"Prefer": "return=minimal"},
+        )
+        history_cleaned = True
+    except Exception as exc:  # noqa: BLE001 - retain the original publish error
+        errors.append(f"history cleanup failed: {exc}")
+
+    # Retain the zero-row reservation when history cleanup fails. Otherwise a
+    # later retry would see no reservation, skip recovery, and merge its history
+    # over orphan rows left by this attempt.
+    if history_cleaned:
+        try:
+            repository._request(  # noqa: SLF001 - compensating publisher protocol
+                "DELETE",
+                "screener_runs",
+                params={"run_date": f"eq.{run_date}"},
+                headers={"Prefer": "return=minimal"},
+            )
+        except Exception as exc:  # noqa: BLE001 - retain the original publish error
+            errors.append(f"run reservation cleanup failed: {exc}")
+    return errors
+
+
 def resolve_run_date(df: pd.DataFrame, csv_path: Path, override: str | None) -> str:
     """Determine the run date, preferring evidence inside the file.
 
@@ -504,17 +652,64 @@ def publish(
         return summary
 
     repository = DashboardRepository.from_environment()
-    repository.upsert_run(run_row)
-    written = repository.replace_snapshot_rows(run_date, snapshot_rows, chunk_size)
-    repository.delete_stale_snapshot_rows(run_date, seen_symbols)
-    history_written = repository.upsert_history_rows(history_rows)
-    pruned = repository.prune_snapshots(keep_runs)
+    existing_run = _existing_run(repository, run_date)
+    if existing_run is not None:
+        existing_row_count = coerce_int(existing_run.get("row_count"))
+        if existing_row_count != 0:
+            raise RuntimeError(
+                f"Run {run_date} is already published; refusing a non-atomic "
+                "same-date replacement that could damage its snapshot"
+            )
+
+        # Scheduled publishers are serialized by the workflow concurrency
+        # group. A zero-row parent can therefore only be an abandoned prior
+        # reservation, not a live peer. Remove orphan history first, then the
+        # parent (which cascades to partial snapshot rows), before reserving the
+        # date again.
+        cleanup_errors = _remove_failed_reservation(repository, run_date)
+        if cleanup_errors:
+            raise RuntimeError(
+                f"Incomplete reservation for {run_date} could not be reclaimed: "
+                + "; ".join(cleanup_errors)
+            )
+        logger.warning("Reclaimed incomplete dashboard reservation for %s", run_date)
+
+    # screener_snapshot has a foreign key to screener_runs, so a minimal parent
+    # must exist before the chunked dependent writes. It is only a reservation:
+    # the complete row (including row_count and model identity) is published
+    # after every snapshot/history write succeeds. On failure, compensation
+    # removes the reservation and cascades away partial snapshot chunks.
+    _reserve_run(repository, run_date, run_row["generated_at_utc"])
+    try:
+        written = repository.replace_snapshot_rows(run_date, snapshot_rows, chunk_size)
+        repository.delete_stale_snapshot_rows(run_date, seen_symbols)
+        history_written = repository.upsert_history_rows(history_rows)
+        repository.upsert_run(run_row)
+    except Exception as exc:
+        cleanup_errors = _remove_failed_reservation(repository, run_date)
+        if cleanup_errors:
+            raise RuntimeError(
+                f"Publish failed for {run_date}: {exc}; " + "; ".join(cleanup_errors)
+            ) from exc
+        raise
+
+    prune_error = None
+    try:
+        pruned = repository.prune_snapshots(keep_runs)
+    except Exception as exc:  # noqa: BLE001 - retention must not invalidate a publish
+        # The new run is already complete and visible. Retention is housekeeping,
+        # so failing it must not turn the workflow red and trigger a same-date
+        # retry that is correctly refused as a non-atomic replacement.
+        pruned = 0
+        prune_error = str(exc)
+        logger.warning("Dashboard snapshot pruning failed after publish: %s", exc)
 
     summary.update(
         {
             "snapshot_rows_written": written,
             "history_rows_written": history_written,
             "runs_pruned": pruned,
+            "prune_error": prune_error,
         }
     )
     return summary

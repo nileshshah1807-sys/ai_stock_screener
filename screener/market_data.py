@@ -171,7 +171,14 @@ class AlternativeData:
 class TechnicalEnhancer:
     # Increment whenever indicator semantics change so cached rows cannot mix
     # fabricated defaults from an older model with explicit missing evidence.
+    # ``INDICATOR_VERSION`` remains the public/default 4.x contract. Model 5.0
+    # deliberately uses a separate version because its two-year input history
+    # changes the initialization of EWM-based legacy indicators in addition to
+    # adding long-trend, momentum and downside-risk fields. Keeping the two
+    # contracts distinct lets a disabled factor model reuse the exact v6 cache
+    # that production already has, while an enabled candidate refreshes to v7.
     INDICATOR_VERSION = 6
+    FACTOR_INDICATOR_VERSION = 7
 
     @staticmethod
     def _rsi(close, window=14):
@@ -284,6 +291,161 @@ class TechnicalEnhancer:
         except (TypeError, ValueError, IndexError):
             return np.nan
 
+    @staticmethod
+    def skip_month_return(close, sessions, skip=21):
+        """Formation return ending ``skip`` sessions ago.
+
+        Momentum research measures the prior 3-12 month performance while
+        deliberately excluding the most recent month, because short-horizon
+        reversal and single-event noise dominate that last stretch and work
+        against the medium-term signal.
+        """
+        try:
+            values = pd.to_numeric(close, errors="coerce").dropna()
+            sessions, skip = int(sessions), int(skip)
+            if sessions <= skip or len(values) <= sessions:
+                return np.nan
+            latest = float(values.iloc[-(skip + 1)])
+            prior = float(values.iloc[-(sessions + 1)])
+            if not np.isfinite(latest) or not np.isfinite(prior) or prior <= 0:
+                return np.nan
+            return (latest / prior - 1.0) * 100.0
+        except (TypeError, ValueError, IndexError):
+            return np.nan
+
+
+def calculate_trend_risk_features(closes, opens=None, sessions_per_year=252):
+    """Long-trend, medium-momentum and downside-risk features.
+
+    All inputs are split/dividend-adjusted closes on the same scale as
+    ``Technical_Price``. Every output is explicitly NaN when its lookback is not
+    fully available: a partially observed 200-day average is not a 200-day
+    average, and silently substituting a shorter window would make an
+    under-seasoned listing look like an established uptrend.
+    """
+    out = {
+        "MA200": np.nan,
+        "MA200_Slope_Pct": np.nan,
+        "Price_To_MA200_Pct": np.nan,
+        "MA50_To_MA200_Pct": np.nan,
+        "Sessions_Above_MA200_Share": np.nan,
+        "Below_MA200_Streak": np.nan,
+        "Momentum_12_1_Pct": np.nan,
+        "Momentum_6_1_Pct": np.nan,
+        "Pct_Change_12M": np.nan,
+        "Volatility_Ann_Pct": np.nan,
+        "Downside_Deviation_Pct": np.nan,
+        "Max_Drawdown_1Y_Pct": np.nan,
+        "Gap_Risk_Pct": np.nan,
+        "Return_Concentration_1Y": np.nan,
+        "Trend_Quality_R2": np.nan,
+        "Price_History_Sessions": 0,
+    }
+    values = pd.to_numeric(pd.Series(closes), errors="coerce").dropna()
+    values = values[values > 0]
+    if values.empty:
+        return out
+    out["Price_History_Sessions"] = int(len(values))
+    price = float(values.iloc[-1])
+
+    # --- long-term trend structure -----------------------------------------
+    if len(values) >= 200:
+        ma200_series = values.rolling(200).mean()
+        ma200 = float(ma200_series.iloc[-1])
+        if np.isfinite(ma200) and ma200 > 0:
+            out["MA200"] = round(ma200, 2)
+            out["Price_To_MA200_Pct"] = round((price / ma200 - 1.0) * 100.0, 3)
+            if len(ma200_series) >= 221 and np.isfinite(ma200_series.iloc[-21]):
+                prior = float(ma200_series.iloc[-21])
+                if prior > 0:
+                    out["MA200_Slope_Pct"] = round((ma200 / prior - 1.0) * 100.0, 4)
+            if len(values) >= 250:
+                ma50_now = float(values.rolling(50).mean().iloc[-1])
+                if np.isfinite(ma50_now):
+                    out["MA50_To_MA200_Pct"] = round(
+                        (ma50_now / ma200 - 1.0) * 100.0, 3
+                    )
+            # Mask sessions with no 200-day average yet. A bare ``>`` against
+            # NaN yields False, which would report "closed below its average"
+            # for the first 199 sessions when the truth is that the average did
+            # not exist -- understating the share for every recently listed name.
+            above = (values > ma200_series).where(ma200_series.notna())
+            recent = above.iloc[-126:].dropna()
+            if len(recent) >= 60:
+                out["Sessions_Above_MA200_Share"] = round(float(recent.mean()), 4)
+            # Consecutive completed sessions closing below the average. The
+            # downgrade side uses this so one dip through the line cannot flip a
+            # rating that a rebound would flip straight back.
+            below = (above == False).fillna(False).to_numpy()  # noqa: E712
+            streak = 0
+            for flag in below[::-1]:
+                if not flag:
+                    break
+                streak += 1
+            out["Below_MA200_Streak"] = int(streak)
+
+    # --- medium-term momentum ----------------------------------------------
+    out["Momentum_12_1_Pct"] = TechnicalEnhancer.skip_month_return(values, 252)
+    out["Momentum_6_1_Pct"] = TechnicalEnhancer.skip_month_return(values, 126)
+    out["Pct_Change_12M"] = TechnicalEnhancer.calculate_pct_return(values, 252)
+
+    # --- risk ---------------------------------------------------------------
+    window = values.iloc[-(sessions_per_year + 1):]
+    returns = window.pct_change().dropna()
+    if len(returns) >= 60:
+        annualizer = float(np.sqrt(sessions_per_year))
+        volatility = float(returns.std(ddof=1))
+        if np.isfinite(volatility):
+            out["Volatility_Ann_Pct"] = round(volatility * annualizer * 100.0, 3)
+        downside = returns[returns < 0]
+        if len(downside) >= 20:
+            deviation = float(downside.std(ddof=1))
+            if np.isfinite(deviation):
+                out["Downside_Deviation_Pct"] = round(
+                    deviation * annualizer * 100.0, 3
+                )
+        running_peak = window.cummax()
+        drawdown = (window / running_peak - 1.0).min()
+        if np.isfinite(drawdown):
+            out["Max_Drawdown_1Y_Pct"] = round(float(drawdown) * 100.0, 3)
+        absolute = returns.abs()
+        total = float(absolute.sum())
+        if total > 0:
+            top = float(absolute.nlargest(min(5, len(absolute))).sum())
+            out["Return_Concentration_1Y"] = round(top / total, 4)
+
+    if opens is not None:
+        open_values = pd.to_numeric(pd.Series(opens), errors="coerce")
+        aligned = pd.DataFrame({"open": open_values, "close": values}).dropna()
+        if len(aligned) >= 60:
+            gaps = (
+                aligned["open"] / aligned["close"].shift(1) - 1.0
+            ).dropna().abs()
+            gaps = gaps.iloc[-sessions_per_year:]
+            if len(gaps) >= 60:
+                out["Gap_Risk_Pct"] = round(
+                    float(gaps.quantile(0.99)) * 100.0, 3
+                )
+
+    # --- trend smoothness ---------------------------------------------------
+    # Signed R-squared of log price against time, on [-1, 1]. A steady advance
+    # and a violent round-trip can share the same total return; the R-squared
+    # part separates them. The sign matters just as much: an unsigned R-squared
+    # scores a smooth, relentless DECLINE a perfect 1.0, and this feeds a
+    # momentum block where higher is better. Carrying the slope's sign makes a
+    # clean downtrend the worst reading rather than the best.
+    trend_window = values.iloc[-126:]
+    if len(trend_window) >= 100:
+        y = np.log(trend_window.to_numpy(dtype=float))
+        x = np.arange(len(y), dtype=float)
+        if np.isfinite(y).all() and y.std() > 0:
+            correlation = float(np.corrcoef(x, y)[0, 1])
+            if np.isfinite(correlation):
+                out["Trend_Quality_R2"] = round(
+                    correlation**2 * np.sign(correlation), 4
+                )
+    return out
+
 # =====================================================
 # PRICE CACHE
 # =====================================================
@@ -304,6 +466,17 @@ class PriceCache:
         "Price_Bar_Complete", "Price_Session_Status", "Analysis_As_Of",
         "Price_Fetched_At",
     )
+    # Required only for the Model 5.0/two-year cache contract. These columns
+    # cannot be required from a 4.x v6 row without invalidating the production
+    # cache even though the master factor switch is disabled.
+    FACTOR_REQUIRED_COLUMNS = (
+        "MA200", "MA200_Slope_Pct", "Price_To_MA200_Pct", "MA50_To_MA200_Pct",
+        "Sessions_Above_MA200_Share", "Below_MA200_Streak",
+        "Momentum_12_1_Pct", "Momentum_6_1_Pct", "Pct_Change_12M",
+        "Volatility_Ann_Pct", "Downside_Deviation_Pct", "Max_Drawdown_1Y_Pct",
+        "Gap_Risk_Pct", "Return_Concentration_1Y", "Trend_Quality_R2",
+        "Price_History_Sessions",
+    )
 
     @staticmethod
     def save(cache_path, records):
@@ -317,6 +490,7 @@ class PriceCache:
         cache_path,
         max_age_hours=18,
         *,
+        factor_model_enabled=False,
         as_of=None,
         completion_cutoff="16:15",
         market_timezone="Asia/Kolkata",
@@ -351,16 +525,28 @@ class PriceCache:
                 logger.info(f"Price cache is {age_hours:.1f}h old (> {max_age_hours}h) - ignoring")
                 return pd.DataFrame()
             df = pd.read_csv(p)
-            missing_columns = [c for c in PriceCache.REQUIRED_COLUMNS if c not in df.columns]
+            required_columns = PriceCache.REQUIRED_COLUMNS + (
+                PriceCache.FACTOR_REQUIRED_COLUMNS
+                if factor_model_enabled
+                else ()
+            )
+            missing_columns = [c for c in required_columns if c not in df.columns]
             if missing_columns and not df.empty:
                 logger.info(
                     f"Price cache is missing columns {missing_columns} - "
                     "ignoring and forcing a one-off full refresh."
                 )
                 return pd.DataFrame()
+            expected_version = (
+                TechnicalEnhancer.FACTOR_INDICATOR_VERSION
+                if factor_model_enabled
+                else TechnicalEnhancer.INDICATOR_VERSION
+            )
             versions = pd.to_numeric(df["Technical_Indicator_Version"], errors="coerce")
-            if versions.isna().any() or not versions.eq(TechnicalEnhancer.INDICATOR_VERSION).all():
-                logger.info("Price cache uses an older technical-indicator version - refreshing")
+            if versions.isna().any() or not versions.eq(expected_version).all():
+                logger.info(
+                    "Price cache uses a different technical-indicator contract - refreshing"
+                )
                 return pd.DataFrame()
 
             complete = df["Price_Bar_Complete"].map(

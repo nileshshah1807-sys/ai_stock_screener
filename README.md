@@ -1,8 +1,9 @@
 # AI Stock Screener
 
 Daily NSE research screener with auditable fundamental, technical, reverse-DCF,
-and management-transcript evidence. Model v4 uses one recommendation finalizer
-and separates investment conviction from execution suitability.
+and management-transcript evidence. Scheduled production runs use the Model 5.0
+factor architecture; local runs and manual dispatches of the daily workflow
+retain the isolated 4.x path unless a factor run is selected explicitly.
 
 The score is a transparent research heuristic, not a validated return forecast.
 The evidence, assumptions, known limitations, and validation requirements for
@@ -24,11 +25,47 @@ screener/
    valuation.py        Evidence-only reverse DCF analysis
    recommendation.py   Single score, gate, rating, and investment-rank policy
    reporting.py        Dashboard, email, PDF, and WhatsApp reporting
+   statements.py       Annual-statement collection and factor derivation (Model 5.0)
+   benchmark.py        Benchmark index, relative strength, market regime (Model 5.0)
+   factors.py          Quality/growth/value/momentum/risk blocks (Model 5.0)
 ```
 
 Transcript ingestion and local NLP remain in `workers/`, `transcripts/`,
 `sentiment/`, and `storage/`. Run the daily screener with `python app.py` or
 schedule the same entry point with `python scheduler.py`.
+
+### Model 5.0 (scheduled production; predictive validation pending)
+
+The scheduled production workflow selects **Model 5.0** with
+`FACTOR_MODEL_ENABLED=true`, `MODEL_VERSION=5.0.0`, and
+`RECOMMENDATION_POLICY_VERSION=5.0.0`; its additive output contract remains
+`OUTPUT_SCHEMA_VERSION=4.1.0`. The runtime default and a manual dispatch of the
+daily workflow stay on the isolated 4.x path. Model 5.0 replaces the 70/30 core
+score with five separable factor blocks (quality 35%, growth 20%, value 15%,
+momentum 25%, risk 5%), swaps the MA50/ADX trend gates for an MA200 trend gate
+with hysteresis and 6/12-month relative strength, adds a market-regime overlay,
+and ranks by eligibility class rather than collapsing every capped row onto an
+identical 59.99.
+
+It needs data the 4.x path never collected, so enabling it also turns on annual
+financial-statement collection (`statement_cache.csv`, 90-day TTL, bounded
+per-run backfill) and a benchmark index download. The disabled/default 4.x path
+keeps its existing `6mo` download and technical-indicator cache contract v6.
+Enabling Model 5.0 selects `2y` and cache contract v7 because a 200-day average
+and a 12-1 momentum window cannot be expressed in six months. Features defined
+on a six-month window stay pinned to 126 sessions, and v6/v7 caches are kept
+distinct so switching models cannot mix incompatible technical rows.
+
+Candidate run `31685056109` completed the full-NSE operational validation with
+the statement-coverage guard satisfied. That green run proves that the model
+executes coherently at production scale; it does **not** prove that Model 5.0
+predicts returns better than 4.x. Point-in-time fundamentals and genuine
+out-of-sample evidence remain pending. Use the **Candidate model validation
+(isolated)** workflow with `factor_model: true` for further comparisons, and
+read section 20 of `docs/stock_screener_system_architecture.md` first — in
+particular 20.3 (why the score is a percentile), 20.8 (financials are barred
+from BUY by a gate whose data nobody collects), and 20.9 (the predictive-
+validation protocol and its blocking point-in-time fundamentals dependency).
 
 ## GitHub Actions
 
@@ -42,29 +79,61 @@ is not silently reused as an official daily observation.
 
 For a public repository, standard GitHub-hosted runners are free. The runner's
 filesystem is temporary, but the workflow restores and saves the reusable
-market-data cache between runs. This retains price data, fundamentals, yfinance
-metadata, and backtest history while keeping generated reports out of Git. The
-first full-NSE run can take around an hour; later runs should reuse data within
-the configured cache lifetimes (18 hours for prices and 7 days for
+market-data cache between runs. Its original five-path contract is deliberately
+pinned to `price_cache.csv`, `fundamental_cache.csv`,
+`nse_liquidity_categories.csv`, `backtest_history.csv`, and `yfinance_cache/`.
+GitHub includes the declared path list in its hidden cache version, so annual
+statements use a separate production statement-cache namespace instead of
+invalidating every existing market-data entry. Generated reports remain out of
+Git. The first full-NSE run can take around an hour; later runs should reuse data
+within the configured cache lifetimes (18 hours for prices and 7 days for
 fundamentals). The report is delivered by email as usual. The run also records
 model, recommendation-policy, and output-schema versions plus a secret-free
 configuration hash and manifest metadata so two runs can be compared exactly.
 
+Promotion includes a one-shot **Seed production statement cache** workflow. It
+accepts the validated candidate run ID and expected commit SHA, verifies the
+candidate artifact, and copies only `candidate/statement_cache.csv` into the
+separate production statement-cache namespace. The scheduled screener still
+allows a full-universe statement backfill as a recovery path, refuses to score
+or publish Model 5.0 below 95% statement coverage, and checkpoints any valid
+partial cache even when that coverage guard deliberately fails the run.
+
 The separate **Candidate model validation (isolated)** workflow is the safe
 path for a branch or model candidate. It runs tests and the screener in a
 runner-temporary output/cache directory with email, persistent backtest writes,
-red-flag enrichment, and Supabase access disabled. It can download a chosen
-production artifact and emits top-20 churn, rank shifts, rating transitions,
-gate changes, and per-component score deltas. Its artifacts are evidence for
-review; they do not promote a candidate or mutate production state. Because
-that secret-free live job cannot read Supabase transcripts, its live comparison
-is explicitly non-parity for transcript evidence; the frozen-export replay
-exercises the stored transcript path and records that limitation in its manifest.
+and red-flag enrichment disabled. It does receive `SUPABASE_URL` and the service
+role secret so it can read the same cached transcript evidence as production,
+but `SUPABASE_READ_ONLY=True` rejects every non-GET request. It never sends
+notifications, writes backtests, publishes the dashboard, saves a production
+cache, or writes Supabase.
+
+When `baseline_run_id` is supplied, the workflow validates and downloads that
+report artifact before expensive setup, requires the exact five-path production
+cache saved by that run, and refuses a baseline from a different completed price
+session instead of silently refetching newer inputs. Annual statements never
+enter that production composite cache. They accumulate in a branch-scoped
+candidate-only cache, can be explicitly seeded from an earlier validation
+artifact with `statement_seed_run_id`, and are checkpointed immediately after a
+successful screen even if the later comparison fails. The per-run fetch budget
+defaults to 600; `statement_fetch_max_symbols: 2500` is available for a one-time
+full-universe completion. A factor-model comparison is rejected below 95%
+full-universe statement coverage. Successful comparisons emit top-20 churn,
+rank shifts, rating transitions, gate changes, and per-component score deltas;
+their artifacts support review but do not promote a candidate.
+
+Run `31674195181` illustrates why these contracts matter. Its cold screen spent
+about 59 minutes fetching 2,310 fundamentals and another 15.5 minutes fetching
+the first 600 annual-statement records (594 usable); the complete screener step
+took about 80 minutes. The later failure was only the baseline-artifact download.
+The restored five-path production cache avoids repeating the fundamentals fetch,
+while the separate statement cache preserves each bounded backfill tranche.
 
 GitHub Actions cache storage is limited to 10 GB per repository by default,
 and cache entries unused for seven days can be removed. Caches must not contain
-credentials; this workflow only caches `reports_advanced/`, while Gmail values
-remain GitHub Secrets.
+credentials. Production data caches contain only reusable data files, and the
+candidate statement cache lives under runner-temporary storage; Gmail and
+Supabase credentials remain GitHub Secrets and are never included in either.
 
 Fundamental scoring selects a model by sector and financial sub-industry.
 Banks, NBFCs, insurance companies, and capital-markets firms use separate

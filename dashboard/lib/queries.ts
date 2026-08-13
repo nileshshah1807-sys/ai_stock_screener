@@ -62,6 +62,26 @@ const GRID_COLUMNS = [
   "median_turnover_20d_inr",
   "price_bar_aligned",
   "fund_data_stale",
+  // Model 5.0. Null on 4.x rows, so the grid renders these columns only when
+  // factor_model_applied is set rather than showing a wall of dashes.
+  "factor_model_applied",
+  "research_score",
+  "quality_percentile",
+  "growth_percentile",
+  "momentum_percentile",
+  "risk_percentile",
+  "eligibility_class",
+  "primary_gate",
+  "gate_severity",
+  "research_rating",
+  "policy_eligible_rating",
+  "execution_status",
+  "market_regime",
+  "price_to_ma200_pct",
+  "ma200_slope_pct",
+  "momentum_12_1_pct",
+  "rs_market_6m_pct",
+  "roic",
 ].join(",");
 
 const SORTABLE = new Set([
@@ -83,6 +103,25 @@ const SORTABLE = new Set([
   "company",
   "sector",
   "rating",
+  // Model 5.0. eligibility_class ascends by default like the rank columns,
+  // because class 0 (clears every gate) is the best, not the worst.
+  "research_score",
+  "quality_percentile",
+  "growth_percentile",
+  "momentum_percentile",
+  "risk_percentile",
+  "eligibility_class",
+  "gate_severity",
+  "price_to_ma200_pct",
+  "momentum_12_1_pct",
+  "rs_market_6m_pct",
+  "roic",
+]);
+
+/** Sort keys where a LOWER value is better, so they default to ascending. */
+const ASCENDING_BY_DEFAULT = new Set([
+  "eligibility_class",
+  "gate_severity",
 ]);
 
 export async function getLatestRun(): Promise<ScreenerRun | null> {
@@ -90,6 +129,10 @@ export async function getLatestRun(): Promise<ScreenerRun | null> {
   const { data, error } = await supabase
     .from("screener_runs")
     .select("*")
+    // The publisher reserves a run_date with row_count=0 before writing its
+    // dependent rows, then replaces this with the completed manifest. Never
+    // let an in-flight or abandoned reservation displace the last good run.
+    .gt("row_count", 0)
     .order("run_date", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -106,6 +149,7 @@ export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
   const { data, error } = await supabase
     .from("screener_runs")
     .select("*")
+    .gt("row_count", 0)
     .order("run_date", { ascending: false })
     .limit(limit);
 
@@ -167,12 +211,36 @@ export async function getSnapshotPage(
   if (filters.redFlagsOnly) {
     query = query.gt("red_flag_severity", 0);
   }
+  // Model 5.0 filters. On a 4.x run these columns are null, and PostgREST
+  // comparison operators exclude nulls, so applying one would empty the grid
+  // rather than be ignored. That is the correct behaviour -- the filter asks
+  // for evidence the run does not have -- and the filter bar hides these
+  // controls entirely unless the run used the factor model.
+  if (typeof filters.minQuality === "number") {
+    query = query.gte("quality_percentile", filters.minQuality);
+  }
+  if (typeof filters.minMomentum === "number") {
+    query = query.gte("momentum_percentile", filters.minMomentum);
+  }
+  if (filters.eligibility?.length) {
+    const classes = filters.eligibility
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value));
+    if (classes.length) {
+      query = query.in("eligibility_class", classes);
+    }
+  }
+  if (filters.aboveMa200) {
+    query = query.gte("price_to_ma200_pct", 0);
+  }
 
   const sortColumn =
     filters.sort && SORTABLE.has(filters.sort)
       ? filters.sort
       : "investment_rank";
-  const ascending = filters.dir ? filters.dir === "asc" : sortColumn.endsWith("rank");
+  const ascending = filters.dir
+    ? filters.dir === "asc"
+    : sortColumn.endsWith("rank") || ASCENDING_BY_DEFAULT.has(sortColumn);
 
   const page = Math.max(1, filters.page ?? 1);
   const from = (page - 1) * PAGE_SIZE;
@@ -233,6 +301,32 @@ export async function getSearchIndex(runDate: string): Promise<SearchEntry[]> {
   }
 
   return entries;
+}
+
+/**
+ * Did this run score with the Model 5.0 factor architecture?
+ *
+ * Asked of the run rather than of the current page, because the page is
+ * already filtered: a filter that returns no rows would otherwise hide the
+ * factor columns and controls exactly when the user is trying to adjust them.
+ * A run is entirely one model or the other, so one row settles it.
+ */
+export async function runUsesFactorModel(runDate: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("screener_snapshot")
+    .select("symbol")
+    .eq("run_date", runDate)
+    .eq("factor_model_applied", true)
+    .limit(1);
+
+  if (error) {
+    // A pre-migration database has no such column. Falling back to "4.x" keeps
+    // the dashboard working instead of failing the whole page render.
+    console.error("runUsesFactorModel failed", error.message);
+    return false;
+  }
+  return (data?.length ?? 0) > 0;
 }
 
 export async function getStock(

@@ -1,0 +1,165 @@
+name: Seed production statement cache
+run-name: Seed production statements from candidate run ${{ inputs.candidate_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful candidate-validation run containing the statement cache
+        required: true
+        default: "31685056109"
+        type: string
+      expected_sha:
+        description: Exact candidate commit SHA approved for production seeding
+        required: true
+        default: fa9d3094129b9540717a67fda040449340d7dec1
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: seed-production-statement-cache
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate source and stage statement cache
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Production statement cache seeding must be dispatched from main" >&2
+            exit 2
+          fi
+          if [[ ! "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "candidate_run_id must be a numeric GitHub Actions run ID" >&2
+            exit 2
+          fi
+          if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "expected_sha must be a complete 40-character Git commit SHA" >&2
+            exit 2
+          fi
+
+          run_json="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}"
+          )"
+          if [[ "$(jq -r '.conclusion' <<<"$run_json")" != "success" ]]; then
+            echo "Candidate run ${CANDIDATE_RUN_ID} did not conclude successfully" >&2
+            exit 1
+          fi
+          if [[ "$(jq -r '.head_branch' <<<"$run_json")" != "feat/model-5-factor-architecture" ]]; then
+            echo "Candidate run ${CANDIDATE_RUN_ID} is not from the approved feature branch" >&2
+            exit 1
+          fi
+          observed_sha="$(jq -r '.head_sha' <<<"$run_json")"
+          if [[ "$observed_sha" != "$EXPECTED_SHA" ]]; then
+            echo "Candidate run SHA ${observed_sha} does not match ${EXPECTED_SHA}" >&2
+            exit 1
+          fi
+
+          artifact_prefix="candidate-model-validation-${CANDIDATE_RUN_ID}-"
+          matching_artifacts="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}/artifacts?per_page=100" \
+              | jq -c --arg prefix "$artifact_prefix" \
+                  '[.artifacts[] | select(.expired == false and (.name | startswith($prefix)))]'
+          )"
+          artifact_count="$(jq 'length' <<<"$matching_artifacts")"
+          if [[ "$artifact_count" -ne 1 ]]; then
+            echo "Expected exactly one non-expired ${artifact_prefix}* artifact; found ${artifact_count}" >&2
+            exit 1
+          fi
+          artifact_id="$(jq -r '.[0].id' <<<"$matching_artifacts")"
+          artifact_name="$(jq -r '.[0].name' <<<"$matching_artifacts")"
+
+          artifact_zip="${RUNNER_TEMP}/candidate-statement-cache.zip"
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+            > "$artifact_zip"
+
+          ARTIFACT_ZIP="$artifact_zip" python3 - <<'PY'
+          import csv
+          import io
+          import os
+          from pathlib import Path, PurePosixPath
+          import zipfile
+
+          archive_path = Path(os.environ["ARTIFACT_ZIP"])
+          destination = Path("reports_advanced/statement_cache.csv")
+          expected_member = PurePosixPath("candidate/statement_cache.csv")
+
+          with zipfile.ZipFile(archive_path) as archive:
+              matches = [
+                  info
+                  for info in archive.infolist()
+                  if not info.is_dir()
+                  and PurePosixPath(info.filename) == expected_member
+              ]
+              if len(matches) != 1:
+                  raise SystemExit(
+                      "Expected exactly one candidate/statement_cache.csv in artifact"
+                  )
+              payload = archive.read(matches[0])
+
+          if not payload:
+              raise SystemExit("candidate/statement_cache.csv is empty")
+          try:
+              text = payload.decode("utf-8-sig")
+          except UnicodeDecodeError as exc:
+              raise SystemExit("statement cache is not valid UTF-8") from exc
+
+          reader = csv.DictReader(io.StringIO(text))
+          required_columns = {"Symbol", "Statement_Schema_Version"}
+          missing = required_columns.difference(reader.fieldnames or [])
+          if missing:
+              raise SystemExit(
+                  "Statement cache is missing required columns: "
+                  + ", ".join(sorted(missing))
+              )
+          rows = list(reader)
+          if len(rows) < 2186:
+              raise SystemExit(
+                  f"Statement cache has {len(rows)} rows; at least 2186 are required"
+              )
+
+          symbols = [str(row.get("Symbol") or "").strip().upper() for row in rows]
+          if any(not symbol for symbol in symbols):
+              raise SystemExit("Statement cache contains a blank Symbol")
+          if len(set(symbols)) != len(symbols):
+              raise SystemExit("Statement cache contains duplicate Symbols")
+
+          versions = {
+              str(row.get("Statement_Schema_Version") or "").strip()
+              for row in rows
+          }
+          if versions != {"1"}:
+              raise SystemExit(
+                  "Statement cache must contain only Statement_Schema_Version 1"
+              )
+
+          destination.parent.mkdir(parents=True, exist_ok=True)
+          destination.write_bytes(payload)
+          print(
+              f"Validated {len(rows)} unique statement rows from "
+              f"{expected_member}"
+          )
+          PY
+
+          echo "Validated artifact ${artifact_name} from ${observed_sha}"
+
+      - name: Save production statement cache seed
+        uses: actions/cache/save@v6
+        with:
+          path: reports_advanced/statement_cache.csv
+          key: stock-screener-statements-v1-${{ runner.os }}-seed-${{ inputs.candidate_run_id }}-${{ github.run_id }}

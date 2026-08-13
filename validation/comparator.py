@@ -54,6 +54,9 @@ GATE_COLUMNS = (
     "Portfolio_Actionable",
 )
 
+_TRUE_VALUES = {"1", "1.0", "true", "t", "yes", "y", "on"}
+_FALSE_VALUES = {"0", "0.0", "false", "f", "no", "n", "off"}
+
 
 def _validate_frame(frame: pd.DataFrame, label: str) -> pd.DataFrame:
     if "Symbol" not in frame:
@@ -97,6 +100,106 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return numeric if math.isfinite(numeric) else None
+
+
+def _boolean(value: Any, *, column: str) -> bool:
+    """Parse a CSV boolean without Python's truthy-string footgun."""
+    if value is None or pd.isna(value):
+        raise ValueError(f"candidate {column} contains a missing value")
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, (float, np.floating)) and math.isfinite(float(value)):
+        if float(value) in (0.0, 1.0):
+            return bool(value)
+    text = str(value).strip().lower()
+    if text in _TRUE_VALUES:
+        return True
+    if text in _FALSE_VALUES:
+        return False
+    raise ValueError(f"candidate {column} contains invalid boolean value {value!r}")
+
+
+def validate_factor_statement_coverage(
+    candidate: pd.DataFrame,
+    min_coverage: float | None,
+) -> float | None:
+    """Fail closed when a factor candidate lacks representative statements.
+
+    ``Statement_Universe_Coverage`` is run-level metadata repeated on every
+    output row. Validating the complete column prevents a corrupt or
+    concatenated CSV from passing merely because its first row looks healthy.
+    The reported ratio is also reconciled with the per-row availability flags.
+
+    Returns the validated coverage for a factor run, otherwise ``None``.
+    A ``None`` threshold disables the guard for backward compatibility.
+    """
+    if min_coverage is None:
+        return None
+    threshold = _number(min_coverage)
+    if threshold is None or not 0.0 <= threshold <= 1.0:
+        raise ValueError("min_statement_coverage must be between 0 and 1")
+
+    # Legacy/non-factor exports do not necessarily carry this column. When it
+    # is present, every row must agree about which model produced the run.
+    if "Factor_Model_Applied" not in candidate:
+        return None
+    if candidate.empty:
+        raise ValueError("candidate CSV is empty; factor model status is unavailable")
+    factor_flags = [
+        _boolean(value, column="Factor_Model_Applied")
+        for value in candidate["Factor_Model_Applied"]
+    ]
+    if len(set(factor_flags)) != 1:
+        raise ValueError("candidate Factor_Model_Applied is inconsistent across rows")
+    if not factor_flags[0]:
+        return None
+
+    coverage_column = "Statement_Universe_Coverage"
+    if coverage_column not in candidate:
+        raise ValueError(
+            "factor candidate CSV has no Statement_Universe_Coverage column"
+        )
+    coverage = pd.to_numeric(candidate[coverage_column], errors="coerce")
+    if coverage.isna().any() or not np.isfinite(coverage.to_numpy(dtype=float)).all():
+        raise ValueError(
+            "candidate Statement_Universe_Coverage contains non-numeric or missing values"
+        )
+    if ((coverage < 0.0) | (coverage > 1.0)).any():
+        raise ValueError("candidate Statement_Universe_Coverage must be between 0 and 1")
+    reported = float(coverage.iloc[0])
+    if not np.isclose(
+        coverage.to_numpy(dtype=float), reported, rtol=0.0, atol=1e-12
+    ).all():
+        raise ValueError(
+            "candidate Statement_Universe_Coverage is inconsistent across rows"
+        )
+
+    availability_column = "Statement_Record_Available"
+    if availability_column not in candidate:
+        raise ValueError(f"factor candidate CSV has no {availability_column} column")
+    available = [
+        _boolean(value, column=availability_column)
+        for value in candidate[availability_column]
+    ]
+    actual = sum(available) / len(available)
+    # The collector publishes this ratio rounded to four decimal places.
+    if not math.isclose(reported, actual, rel_tol=0.0, abs_tol=0.000050001):
+        raise ValueError(
+            "candidate Statement_Universe_Coverage does not match "
+            f"Statement_Record_Available rows ({reported:.4f} reported, "
+            f"{actual:.4f} actual)"
+        )
+    # Enforce the floor against the exact row count, not the four-decimal
+    # published value, so rounding up cannot make a just-under-threshold run
+    # pass the guard.
+    if actual < threshold:
+        raise ValueError(
+            "factor candidate statement coverage is below the required minimum "
+            f"({actual:.2%} < {threshold:.2%})"
+        )
+    return actual
 
 
 def _delta(candidate: Any, baseline: Any) -> float | None:
@@ -161,11 +264,15 @@ def compare_frames(
     *,
     top_n: int = 20,
     rank_column: str | None = "auto",
+    min_statement_coverage: float | None = None,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
     if top_n <= 0:
         raise ValueError("top_n must be positive")
     baseline = _validate_frame(baseline_frame, "baseline")
     candidate = _validate_frame(candidate_frame, "candidate")
+    statement_coverage = validate_factor_statement_coverage(
+        candidate, min_statement_coverage
+    )
     selected_rank = _select_rank_column(baseline, candidate, rank_column)
     baseline = _ranked(baseline, selected_rank)
     candidate = _ranked(candidate, selected_rank)
@@ -333,6 +440,9 @@ def compare_frames(
         "largest_rank_shifts": largest_shifts,
         "rating_transitions": rating_transitions,
     }
+    if statement_coverage is not None:
+        summary["candidate_statement_coverage"] = statement_coverage
+        summary["minimum_statement_coverage"] = float(min_statement_coverage)
     return summary, attribution
 
 
@@ -342,13 +452,18 @@ def compare_csv_files(
     *,
     top_n: int = 20,
     rank_column: str | None = "auto",
+    min_statement_coverage: float | None = None,
 ) -> tuple[dict[str, Any], pd.DataFrame]:
     baseline_path = Path(baseline_path)
     candidate_path = Path(candidate_path)
     baseline = pd.read_csv(baseline_path)
     candidate = pd.read_csv(candidate_path)
     summary, attribution = compare_frames(
-        baseline, candidate, top_n=top_n, rank_column=rank_column
+        baseline,
+        candidate,
+        top_n=top_n,
+        rank_column=rank_column,
+        min_statement_coverage=min_statement_coverage,
     )
     summary["baseline_csv_sha256"] = _file_sha256(baseline_path)
     summary["candidate_csv_sha256"] = _file_sha256(candidate_path)
