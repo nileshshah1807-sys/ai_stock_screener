@@ -910,8 +910,10 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
         self.assertIn(
             'BASELINE_CSV="${baseline_csvs[0]}" python3 - <<\'PY\'', workflow
         )
-        self.assertIn("Baseline Price_Bar_As_Of is not the currently expected", workflow)
-        self.assertIn("BASELINE_PRICE_SESSION={observed.isoformat()}", workflow)
+        self.assertIn("Expected_Price_Bar_As_Of session", workflow)
+        self.assertIn("Baseline expected price session is not the currently expected", workflow)
+        self.assertIn("BASELINE_PRICE_SESSION={baseline_session.isoformat()}", workflow)
+        self.assertIn("source rows lag that session", workflow)
         recheck = self._step_block(
             workflow, "Recheck pinned baseline price session"
         )

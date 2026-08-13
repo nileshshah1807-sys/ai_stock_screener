@@ -170,13 +170,17 @@ jobs:
               encoding="utf-8-sig",
           ) as source:
               rows = csv.DictReader(source)
-              sessions = {
-                  date.fromisoformat(str(row.get("Price_Bar_As_Of") or "")[:10])
-                  for row in rows
-              }
-          if len(sessions) != 1:
+              records = list(rows)
+          expected_sessions = {
+              date.fromisoformat(
+                  str(row.get("Expected_Price_Bar_As_Of") or "")[:10]
+              )
+              for row in records
+          }
+          if len(expected_sessions) != 1:
               raise SystemExit(
-                  "Baseline CSV must contain exactly one non-empty Price_Bar_As_Of session"
+                  "Baseline CSV must contain exactly one non-empty "
+                  "Expected_Price_Bar_As_Of session"
               )
 
           now = datetime.now(ZoneInfo("Asia/Kolkata"))
@@ -188,16 +192,27 @@ jobs:
               while not is_session(expected):
                   expected -= timedelta(days=1)
 
-          observed = sessions.pop()
-          if observed != expected:
+          baseline_session = expected_sessions.pop()
+          if baseline_session != expected:
               raise SystemExit(
-                  "Baseline Price_Bar_As_Of is not the currently expected completed "
-                  f"NSE session ({observed} != {expected}); select a matching baseline "
+                  "Baseline expected price session is not the currently expected "
+                  f"completed NSE session ({baseline_session} != {expected}); "
+                  "select a matching baseline "
                   "instead of silently refetching newer prices"
               )
+          lagged = sum(
+              str(row.get("Price_Bar_As_Of") or "")[:10]
+              != baseline_session.isoformat()
+              for row in records
+          )
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as target:
-              target.write(f"BASELINE_PRICE_SESSION={observed.isoformat()}\n")
-          print(f"baseline price session is replayable: {observed}")
+              target.write(
+                  f"BASELINE_PRICE_SESSION={baseline_session.isoformat()}\n"
+              )
+          print(
+              f"baseline expected price session is replayable: {baseline_session}; "
+              f"{lagged}/{len(records)} source rows lag that session"
+          )
           PY
 
       - name: Validate and download optional candidate statement seed
