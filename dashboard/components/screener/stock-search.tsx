@@ -48,14 +48,55 @@ function rank(entries: SearchEntry[], term: string): SearchEntry[] {
   return scored.slice(0, MAX_RESULTS).map((item) => item.entry);
 }
 
-export function StockSearch({ entries }: { entries: SearchEntry[] }) {
+/**
+ * Module-scoped so the index survives remounts and is fetched at most once per
+ * page load, no matter how often the dialog is opened and closed.
+ */
+let indexPromise: Promise<SearchEntry[]> | null = null;
+
+function loadIndex(): Promise<SearchEntry[]> {
+  indexPromise ??= fetch("/api/search-index")
+    .then((response) => (response.ok ? response.json() : { entries: [] }))
+    .then((payload) => (payload.entries ?? []) as SearchEntry[])
+    .catch(() => {
+      // Let a failed load retry the next time the dialog opens rather than
+      // caching the failure for the life of the page.
+      indexPromise = null;
+      return [];
+    });
+  return indexPromise;
+}
+
+export function StockSearch() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState("");
   const [cursor, setCursor] = useState(0);
+  const [entries, setEntries] = useState<SearchEntry[]>([]);
+  const [status, setStatus] = useState<"idle" | "ready">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const results = useMemo(() => rank(entries, term), [entries, term]);
+
+  // Derived rather than its own state: setting a loading flag synchronously in
+  // the effect below would cascade an extra render on every open.
+  const loading = open && status === "idle";
+
+  // Fetched on first open rather than with the page: the index is ~180 KB and
+  // most visits never open the search dialog at all. loadIndex() dedupes at
+  // module scope, so a double-invoked effect still makes one request.
+  useEffect(() => {
+    if (!open || status === "ready") return;
+    let active = true;
+    loadIndex().then((loaded) => {
+      if (!active) return;
+      setEntries(loaded);
+      setStatus("ready");
+    });
+    return () => {
+      active = false;
+    };
+  }, [open, status]);
 
   useEffect(() => setCursor(0), [term]);
 
@@ -136,14 +177,25 @@ export function StockSearch({ entries }: { entries: SearchEntry[] }) {
                 className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
               <span className="tabular shrink-0 font-mono text-[11px] text-muted-foreground">
-                {entries.length.toLocaleString("en-IN")} stocks
+                {loading
+                  ? "loading…"
+                  : `${entries.length.toLocaleString("en-IN")} stocks`}
               </span>
             </div>
 
             <ul id="stock-search-results" role="listbox" className="max-h-80 overflow-y-auto p-1">
-              {term && !results.length ? (
+              {term && !results.length && !loading ? (
                 <li className="px-3 py-6 text-center text-sm text-muted-foreground">
                   No match for “{term}”.
+                </li>
+              ) : null}
+
+              {loading ? (
+                <li
+                  aria-live="polite"
+                  className="px-3 py-6 text-center text-sm text-muted-foreground"
+                >
+                  Loading stocks…
                 </li>
               ) : null}
 
@@ -179,7 +231,7 @@ export function StockSearch({ entries }: { entries: SearchEntry[] }) {
                 </li>
               ))}
 
-              {!term ? (
+              {!term && !loading ? (
                 <li className="px-3 py-6 text-center text-xs text-muted-foreground">
                   Type a ticker or company name. Enter opens the stock; ↑↓ to
                   move.

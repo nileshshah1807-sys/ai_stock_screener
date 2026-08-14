@@ -1,5 +1,7 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { createClient } from "@/lib/supabase/server";
 import type {
   HistoryRow,
@@ -16,9 +18,83 @@ export const PAGE_SIZE = 100;
 /** PostgREST caps a single response; anything universe-wide must be paged. */
 const FETCH_CHUNK = 1000;
 
-/** Columns the grid needs. Selecting * would drag `payload` into every list
- *  query and multiply the response size by roughly forty. */
+/**
+ * Chunk offsets for a universe-wide read, given a known row count.
+ *
+ * The run manifest already carries `row_count`, so the number of chunks is
+ * known before the first request. That lets a full-universe read issue its
+ * chunks concurrently instead of discovering the end by walking them one at a
+ * time -- three sequential round trips become one round trip's worth of wall
+ * clock. Callers without a count fall back to the sequential walk.
+ */
+function chunkOffsets(rowCount: number): number[] {
+  const chunks = Math.max(1, Math.ceil(rowCount / FETCH_CHUNK));
+  return Array.from({ length: chunks }, (_, index) => index * FETCH_CHUNK);
+}
+
+/**
+ * Columns the on-screen grid renders.
+ *
+ * Kept to exactly what ScreenerTable reads, because this read is payload-bound
+ * rather than latency-bound: measured against this database, 100 rows of 61
+ * columns is 155 KB and 301 ms, while the same 100 rows of the ~34 columns the
+ * grid actually displays is 66 KB and 171 ms -- within noise of the 167 ms
+ * network round trip. Every unused column is pure transfer cost on every sort,
+ * filter and page change.
+ *
+ * Sorting is unaffected by what is selected: `.order()` runs in Postgres, so a
+ * sortable column need not appear here. The CSV export needs a different and
+ * partly wider set, which is why EXPORT_COLUMNS exists separately.
+ */
 const GRID_COLUMNS = [
+  "run_date",
+  "symbol",
+  "company",
+  "investment_rank",
+  "rating",
+  "decision_score",
+  "final_score",
+  "evidence_score",
+  "fundamental_score",
+  "technical_score",
+  "fundamental_coverage",
+  "technical_coverage",
+  "rating_capped",
+  "rating_cap_reason",
+  "decision_cap_reason",
+  "current_price",
+  "pct_change_1m",
+  "market_cap",
+  "pe_ratio",
+  "dcf_status",
+  "dcf_base_case_upside",
+  "transcript_status",
+  "transcript_scoring_eligible",
+  "transcript_guidance",
+  "red_flag_status",
+  "red_flag_severity",
+  "shadow_red_flag_would_change",
+  "liquidity_grade",
+  "portfolio_actionable",
+  "median_turnover_20d_inr",
+  // Model 5.0. Null on 4.x rows, so the grid renders these columns only when
+  // factor_model_applied is set rather than showing a wall of dashes.
+  "factor_model_applied",
+  "quality_percentile",
+  "growth_percentile",
+  "momentum_percentile",
+  "primary_gate",
+].join(",");
+
+/**
+ * Columns the CSV export writes.
+ *
+ * A superset of the grid in places and a subset in others, so it is listed
+ * independently. `pb_ratio` and `roe` appear in the export's own column map but
+ * were missing from the single shared select, which meant those two columns
+ * were written empty for every row -- selecting them here is what fixes that.
+ */
+const EXPORT_COLUMNS = [
   "run_date",
   "symbol",
   "company",
@@ -48,6 +124,10 @@ const GRID_COLUMNS = [
   "pct_change_3m",
   "market_cap",
   "pe_ratio",
+  // Written by the export's column map but previously never selected, so these
+  // two were emitted empty for every row.
+  "pb_ratio",
+  "roe",
   "dcf_status",
   "dcf_base_case_upside",
   "dcf_valuation_score",
@@ -62,8 +142,8 @@ const GRID_COLUMNS = [
   "median_turnover_20d_inr",
   "price_bar_aligned",
   "fund_data_stale",
-  // Model 5.0. Null on 4.x rows, so the grid renders these columns only when
-  // factor_model_applied is set rather than showing a wall of dashes.
+  // Model 5.0. Null on 4.x rows; the export writes them regardless so a
+  // downstream consumer can tell which model scored the run.
   "factor_model_applied",
   "research_score",
   "quality_percentile",
@@ -124,7 +204,11 @@ const ASCENDING_BY_DEFAULT = new Set([
   "gate_severity",
 ]);
 
-export async function getLatestRun(): Promise<ScreenerRun | null> {
+/**
+ * Wrapped in React's cache() so the shell layout, the screener layout and the
+ * page itself share one round trip rather than asking three times per render.
+ */
+export const getLatestRun = cache(async (): Promise<ScreenerRun | null> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_runs")
@@ -142,7 +226,7 @@ export async function getLatestRun(): Promise<ScreenerRun | null> {
     return null;
   }
   return data as ScreenerRun | null;
-}
+});
 
 export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
   const supabase = await createClient();
@@ -170,12 +254,13 @@ export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
 export async function getSnapshotPage(
   runDate: string,
   filters: ScreenerFilters,
+  columns: string = GRID_COLUMNS,
 ): Promise<{ rows: SnapshotRow[]; total: number }> {
   const supabase = await createClient();
 
   let query = supabase
     .from("screener_snapshot")
-    .select(GRID_COLUMNS, { count: "exact" })
+    .select(columns, { count: "exact" })
     .eq("run_date", runDate);
 
   if (filters.q?.trim()) {
@@ -270,38 +355,53 @@ export async function getSnapshotPage(
  * which buys a keystroke-latency search with no network round trip. The full
  * grid still filters server-side; this only powers "jump to a stock".
  */
-export async function getSearchIndex(runDate: string): Promise<SearchEntry[]> {
-  const supabase = await createClient();
-  const entries: SearchEntry[] = [];
+export const getSearchIndex = cache(
+  async (runDate: string, rowCount?: number): Promise<SearchEntry[]> => {
+    const supabase = await createClient();
+    const select = "symbol, company, investment_rank, rating, decision_score";
+    const toEntry = (row: Record<string, unknown>): SearchEntry => ({
+      s: row.symbol as string,
+      c: (row.company as string) ?? "",
+      r: row.investment_rank as number | null,
+      g: row.rating as string | null,
+      d: row.decision_score as number | null,
+    });
 
-  for (let offset = 0; ; offset += FETCH_CHUNK) {
-    const { data, error } = await supabase
-      .from("screener_snapshot")
-      .select("symbol, company, investment_rank, rating, decision_score")
-      .eq("run_date", runDate)
-      .order("investment_rank", { ascending: true, nullsFirst: false })
-      .range(offset, offset + FETCH_CHUNK - 1);
+    const chunk = (offset: number) =>
+      supabase
+        .from("screener_snapshot")
+        .select(select)
+        .eq("run_date", runDate)
+        .order("investment_rank", { ascending: true, nullsFirst: false })
+        .range(offset, offset + FETCH_CHUNK - 1);
 
-    if (error) {
-      console.error("getSearchIndex failed", error.message);
-      break;
+    if (rowCount && rowCount > 0) {
+      const results = await Promise.all(chunkOffsets(rowCount).map(chunk));
+      const entries: SearchEntry[] = [];
+      for (const { data, error } of results) {
+        if (error) {
+          console.error("getSearchIndex failed", error.message);
+          continue;
+        }
+        for (const row of data ?? []) entries.push(toEntry(row));
+      }
+      return entries;
     }
-    if (!data?.length) break;
 
-    for (const row of data) {
-      entries.push({
-        s: row.symbol as string,
-        c: (row.company as string) ?? "",
-        r: row.investment_rank as number | null,
-        g: row.rating as string | null,
-        d: row.decision_score as number | null,
-      });
+    const entries: SearchEntry[] = [];
+    for (let offset = 0; ; offset += FETCH_CHUNK) {
+      const { data, error } = await chunk(offset);
+      if (error) {
+        console.error("getSearchIndex failed", error.message);
+        break;
+      }
+      if (!data?.length) break;
+      for (const row of data) entries.push(toEntry(row));
+      if (data.length < FETCH_CHUNK) break;
     }
-    if (data.length < FETCH_CHUNK) break;
-  }
-
-  return entries;
-}
+    return entries;
+  },
+);
 
 /**
  * Did this run score with the Model 5.0 factor architecture?
@@ -311,7 +411,7 @@ export async function getSearchIndex(runDate: string): Promise<SearchEntry[]> {
  * factor columns and controls exactly when the user is trying to adjust them.
  * A run is entirely one model or the other, so one row settles it.
  */
-export async function runUsesFactorModel(runDate: string): Promise<boolean> {
+export const runUsesFactorModel = cache(async (runDate: string): Promise<boolean> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_snapshot")
@@ -327,7 +427,7 @@ export async function runUsesFactorModel(runDate: string): Promise<boolean> {
     return false;
   }
   return (data?.length ?? 0) > 0;
-}
+});
 
 export async function getStock(
   runDate: string,
@@ -370,26 +470,52 @@ export async function getStockHistory(
   return ((data ?? []) as HistoryRow[]).reverse();
 }
 
-export async function getSectors(runDate: string): Promise<string[]> {
-  const supabase = await createClient();
-  const sectors = new Set<string>();
+/**
+ * Distinct sectors in a run.
+ *
+ * PostgREST has no DISTINCT, so this still reads one column across the whole
+ * universe to collapse ~2,400 rows into ~11 values. Passing the manifest's
+ * row count lets the chunks go out concurrently, and the result is invariant
+ * per run, so the screener layout fetches it once rather than once per sort.
+ */
+export const getSectors = cache(
+  async (runDate: string, rowCount?: number): Promise<string[]> => {
+    const supabase = await createClient();
+    const sectors = new Set<string>();
 
-  for (let offset = 0; ; offset += FETCH_CHUNK) {
-    const { data, error } = await supabase
-      .from("screener_snapshot")
-      .select("sector")
-      .eq("run_date", runDate)
-      .range(offset, offset + FETCH_CHUNK - 1);
+    const chunk = (offset: number) =>
+      supabase
+        .from("screener_snapshot")
+        .select("sector")
+        .eq("run_date", runDate)
+        .range(offset, offset + FETCH_CHUNK - 1);
 
-    if (error || !data?.length) break;
-    for (const row of data) {
-      if (row.sector) sectors.add(row.sector as string);
+    if (rowCount && rowCount > 0) {
+      const results = await Promise.all(chunkOffsets(rowCount).map(chunk));
+      for (const { data, error } of results) {
+        if (error) {
+          console.error("getSectors failed", error.message);
+          continue;
+        }
+        for (const row of data ?? []) {
+          if (row.sector) sectors.add(row.sector as string);
+        }
+      }
+      return [...sectors].sort();
     }
-    if (data.length < FETCH_CHUNK) break;
-  }
 
-  return [...sectors].sort();
-}
+    for (let offset = 0; ; offset += FETCH_CHUNK) {
+      const { data, error } = await chunk(offset);
+      if (error || !data?.length) break;
+      for (const row of data) {
+        if (row.sector) sectors.add(row.sector as string);
+      }
+      if (data.length < FETCH_CHUNK) break;
+    }
+
+    return [...sectors].sort();
+  },
+);
 
 export type MoverBuckets = {
   observedOn: string | null;
@@ -502,7 +628,12 @@ export async function getMovers(
   };
 }
 
-/** Full filtered result set for CSV export, paged past the PostgREST cap. */
+/**
+ * Full filtered result set for CSV export, paged past the PostgREST cap.
+ *
+ * Selects EXPORT_COLUMNS rather than the grid's leaner set: a download is not
+ * latency-sensitive and is expected to carry every field the CSV declares.
+ */
 export async function getExportRows(
   runDate: string,
   filters: ScreenerFilters,
@@ -510,10 +641,11 @@ export async function getExportRows(
 ): Promise<SnapshotRow[]> {
   const rows: SnapshotRow[] = [];
   for (let page = 1; rows.length < maxRows; page += 1) {
-    const { rows: chunk, total } = await getSnapshotPage(runDate, {
-      ...filters,
-      page,
-    });
+    const { rows: chunk, total } = await getSnapshotPage(
+      runDate,
+      { ...filters, page },
+      EXPORT_COLUMNS,
+    );
     rows.push(...chunk);
     if (!chunk.length || rows.length >= total) break;
   }
