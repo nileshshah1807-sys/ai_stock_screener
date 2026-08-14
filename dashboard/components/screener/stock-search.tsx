@@ -139,9 +139,8 @@ export function StockSearch() {
     <>
       <Button
         variant="outline"
-        size="sm"
         onClick={() => setOpen(true)}
-        className="h-9 justify-start gap-2 text-muted-foreground sm:min-w-56"
+        className="justify-start gap-2 text-muted-foreground sm:min-w-56"
       >
         <Search className="size-3.5" aria-hidden />
         <span className="hidden sm:inline">Search stocks…</span>

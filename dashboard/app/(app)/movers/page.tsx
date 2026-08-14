@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { ArrowDownRight, ArrowUpRight, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 
 import { RatingBadge } from "@/components/rating-badge";
+import { Reveal } from "@/components/motion";
 import { formatDate, formatScore, MISSING } from "@/lib/format";
 import { getLatestRun, getMovers } from "@/lib/queries";
 import type { MoverRow } from "@/lib/types";
@@ -48,9 +49,9 @@ function MoverList({
   mode: "rank" | "rating" | "new";
 }) {
   return (
-    <section className="rounded-lg border bg-card">
+    <section data-mover className="panel overflow-hidden">
       <div className="border-b px-4 py-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold">
+        <h2 className="flex items-center gap-2 text-base font-semibold tracking-[-0.011em]">
           <Icon className="size-4 text-muted-foreground" aria-hidden />
           {title}
           <span className="tabular ml-auto font-mono text-xs font-normal text-muted-foreground">
@@ -66,14 +67,14 @@ function MoverList({
             <li key={row.symbol}>
               <Link
                 href={`/stocks/${row.symbol}`}
-                className="flex items-center gap-3 px-4 py-2 hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group flex items-center gap-3 px-4 py-2 transition-colors duration-(--duration-fast) ease-(--ease-standard) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">
                   {row.investment_rank ?? MISSING}
                 </span>
 
                 <span className="min-w-0 flex-1">
-                  <span className="block font-mono text-xs font-semibold">
+                  <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
                     {row.symbol}
                   </span>
                   <span className="block truncate text-[11px] text-muted-foreground">
@@ -142,7 +143,10 @@ export default async function MoversPage() {
   return (
     <div className="space-y-4 px-4 py-5 sm:px-6">
         <div>
-          <h1 className="text-lg font-semibold">Movers</h1>
+          {/* The mock's page title sits at 36px with the tracking pulled in.
+              It is one element per page, so it can carry that weight without
+              competing with the panels below it. */}
+          <h1 className="text-title font-semibold">Movers</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {hasComparison ? (
               <>
@@ -162,7 +166,7 @@ export default async function MoversPage() {
             yesterday's calendar date, so a weekend or exchange holiday does not
             register as the whole universe entering for the first time. */}
         {hasComparison ? (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <Reveal selector="[data-mover]" bounce className="grid gap-4 lg:grid-cols-2">
             <MoverList
               title="Biggest rank gains"
               description="Largest improvements in Investment Rank since the previous run."
@@ -198,7 +202,7 @@ export default async function MoversPage() {
               rows={movers.entrants}
               mode="new"
             />
-          </div>
+          </Reveal>
         ) : null}
 
       <p className="pt-2 text-xs leading-relaxed text-muted-foreground">

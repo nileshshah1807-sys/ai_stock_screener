@@ -1,4 +1,4 @@
-import { formatScore } from "@/lib/format";
+import { formatScore, ratingToken } from "@/lib/format";
 import { dcfStatus } from "@/lib/labels";
 import { researchScoreMode } from "@/lib/model-display.mjs";
 import type { SnapshotRowWithPayload } from "@/lib/types";
@@ -187,11 +187,24 @@ export function ScoreWaterfall({ row }: { row: SnapshotRowWithPayload }) {
           const delta = stage.to - stage.from;
           const isFlat = Math.abs(delta) < 0.05;
 
+          /*
+           * The starting bar is the neutral primary; the published total is
+           * filled with this row's own rating colour, so the bar the eye lands
+           * on is the same colour as the badge at the top of the page and the
+           * ring beside it. A fixed accent was wrong here -- with the chart
+           * ramp now drawn from the rating scale, any constant choice paints
+           * some rows' final score in another band's colour.
+           *
+           * Intermediate deltas keep the directional positive/negative pair
+           * rather than a rating hue: they are signed adjustments, not
+           * ratings, and borrowing the rating ramp would imply a
+           * classification the stage does not carry.
+           */
           const fill =
             stage.kind === "base"
-              ? "var(--chart-3)"
+              ? "var(--primary)"
               : stage.kind === "total"
-                ? "var(--primary)"
+                ? `var(--rating-${ratingToken(row.rating)})`
                 : delta > 0
                   ? "var(--positive)"
                   : delta < 0
@@ -226,6 +239,9 @@ export function ScoreWaterfall({ row }: { row: SnapshotRowWithPayload }) {
                 />
               ) : null}
 
+              {/* Each bar draws in 60ms after the one above it, so the eye
+                  follows the sequence in the order the finalizer actually
+                  applies it rather than meeting five finished bars at once. */}
               <rect
                 x={barX}
                 y={y}
@@ -234,6 +250,8 @@ export function ScoreWaterfall({ row }: { row: SnapshotRowWithPayload }) {
                 rx={3}
                 fill={fill}
                 opacity={isFlat ? 0.45 : 1}
+                className="bar-grow"
+                style={{ "--i": index } as React.CSSProperties}
               />
 
               <text

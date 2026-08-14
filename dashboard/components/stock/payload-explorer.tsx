@@ -4,6 +4,7 @@ import { useDeferredValue, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { MISSING } from "@/lib/format";
 
 /**
@@ -21,13 +22,42 @@ function groupOf(key: string): string {
   return match ? match[1].replace(/_/g, " ") : "General";
 }
 
-function renderValue(value: unknown): string {
-  if (value === null || value === undefined || value === "") return MISSING;
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number") {
-    return Number.isInteger(value) ? String(value) : value.toFixed(4);
+const INTEGER_FORMAT = new Intl.NumberFormat("en-IN", {
+  maximumFractionDigits: 0,
+});
+
+/**
+ * Formats one source value for display.
+ *
+ * Numbers get real treatment rather than `String(value)`:
+ *
+ *   - integers carry thousands separators, so 32663 reads as 32,663 instead of
+ *     forcing the reader to count digits
+ *   - fractions are trimmed to four decimals *and* stripped of trailing zeros,
+ *     because the exporter emits fixed-scale decimals and a column of
+ *     "88.2500 / 0.2049 / 1.0000" is mostly noise
+ *
+ * The kind is returned alongside the text so the row can style a figure
+ * differently from a string without re-sniffing the type.
+ */
+function renderValue(value: unknown): {
+  text: string;
+  kind: "missing" | "boolean" | "number" | "text";
+} {
+  if (value === null || value === undefined || value === "") {
+    return { text: MISSING, kind: "missing" };
   }
-  return String(value);
+  if (typeof value === "boolean") {
+    return { text: value ? "true" : "false", kind: "boolean" };
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (Number.isInteger(value)) {
+      return { text: INTEGER_FORMAT.format(value), kind: "number" };
+    }
+    // parseFloat drops trailing zeros that toFixed always pads on.
+    return { text: String(parseFloat(value.toFixed(4))), kind: "number" };
+  }
+  return { text: String(value), kind: "text" };
 }
 
 export function PayloadExplorer({
@@ -48,7 +78,7 @@ export function PayloadExplorer({
       if (
         query &&
         !key.toLowerCase().includes(query) &&
-        !renderValue(value).toLowerCase().includes(query)
+        !renderValue(value).text.toLowerCase().includes(query)
       ) {
         continue;
       }
@@ -84,26 +114,52 @@ export function PayloadExplorer({
         {deferred.trim() ? ` matching “${deferred.trim()}”` : ""}
       </p>
 
-      <div className="max-h-[32rem] space-y-4 overflow-y-auto pr-1">
+      {/*
+        `overflow-x-hidden` plus a shrinkable value cell is what removes the
+        horizontal scrollbar this panel used to carry. The value was previously
+        `shrink-0`, so a single long field -- an ISO timestamp, a gate reason --
+        forced the whole 370-row list wider than the panel and put a scrollbar
+        under every one of them.
+      */}
+      <div className="max-h-[32rem] space-y-5 overflow-y-auto overflow-x-hidden pr-1">
         {groups.map(([group, rows]) => (
           <div key={group}>
-            <h3 className="sticky top-0 bg-card py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="sticky top-0 z-10 flex items-center gap-2 bg-card py-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {group}
+              <span className="h-px flex-1 bg-border" aria-hidden />
+              <span className="tabular font-normal">{rows.length}</span>
             </h3>
-            <dl className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
-              {rows.map(([key, value]) => (
-                <div
-                  key={key}
-                  className="flex items-baseline justify-between gap-3 border-b border-dashed py-1"
-                >
-                  <dt className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
-                    {key}
-                  </dt>
-                  <dd className="tabular shrink-0 text-right font-mono text-[11px]">
-                    {renderValue(value)}
-                  </dd>
-                </div>
-              ))}
+            <dl className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+              {rows.map(([key, value]) => {
+                const { text, kind } = renderValue(value);
+                return (
+                  <div
+                    key={key}
+                    className="flex items-baseline justify-between gap-4 border-b border-dashed py-1.5"
+                  >
+                    {/* The key is the label, so it yields space first: it
+                        truncates while the value stays whole wherever it can. */}
+                    <dt
+                      className="min-w-0 shrink truncate text-[11px] text-muted-foreground"
+                      title={key}
+                    >
+                      {key.replace(/_/g, " ")}
+                    </dt>
+                    <dd
+                      className={cn(
+                        "min-w-0 max-w-[60%] truncate text-right text-[11px]",
+                        kind === "number" && "tabular font-medium",
+                        kind === "missing" && "text-muted-foreground",
+                        kind === "boolean" &&
+                          (text === "true" ? "text-positive" : "text-muted-foreground"),
+                      )}
+                      title={text}
+                    >
+                      {text}
+                    </dd>
+                  </div>
+                );
+              })}
             </dl>
           </div>
         ))}

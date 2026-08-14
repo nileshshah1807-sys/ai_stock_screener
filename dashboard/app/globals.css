@@ -8,7 +8,14 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+  /*
+   * There is no separate monospace face. `font-mono` is retained as a token
+   * because ~30 components ask for it, but it now resolves to the same Satoshi
+   * as everything else -- what those call sites actually need is *aligned
+   * figures*, not a different typeface, and Satoshi's `tnum` provides that.
+   * The alignment is applied by the `.font-mono` rule in the base layer below.
+   */
+  --font-mono: var(--font-sans);
   --font-heading: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -40,12 +47,27 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* Rating scale, exposed as utilities (bg-rating-buy, text-rating-sell, ...). */
+  /* The mock's floating outer sheet. */
+  --color-workspace: var(--workspace);
+
+  /* Rating scale, exposed as utilities (bg-rating-buy, text-rating-sell, ...).
+     Each fill is paired with the label colour that clears 4.5:1 on it, so a
+     badge can be written as bg-rating-X text-rating-X-fg. */
   --color-rating-strong-buy: var(--rating-strong-buy);
+  --color-rating-strong-buy-fg: var(--rating-strong-buy-fg);
+  --color-rating-strong-buy-edge: var(--rating-strong-buy-edge);
   --color-rating-buy: var(--rating-buy);
+  --color-rating-buy-fg: var(--rating-buy-fg);
+  --color-rating-buy-edge: var(--rating-buy-edge);
   --color-rating-hold: var(--rating-hold);
+  --color-rating-hold-fg: var(--rating-hold-fg);
+  --color-rating-hold-edge: var(--rating-hold-edge);
   --color-rating-reduce: var(--rating-reduce);
+  --color-rating-reduce-fg: var(--rating-reduce-fg);
+  --color-rating-reduce-edge: var(--rating-reduce-edge);
   --color-rating-sell: var(--rating-sell);
+  --color-rating-sell-fg: var(--rating-sell-fg);
+  --color-rating-sell-edge: var(--rating-sell-edge);
 
   --color-positive: var(--positive);
   --color-negative: var(--negative);
@@ -61,135 +83,348 @@
 }
 
 /*
- * Palette: achromatic zinc surfaces with a near-black/near-white primary, so
- * the only saturated colour in the interface is data. Ported from the terminal
- * design; the neutrals are its exact values, the semantics below are ours.
+ * ---------------------------------------------------------------------------
+ * Type scale, ported from the Figma file (node 1:1048 / 1:844).
+ * ---------------------------------------------------------------------------
  *
- * The rating scale runs teal -> slate -> amber -> red instead of the
- * conventional green -> red. Red/green is the single most common confusion
- * pair (deuteranopia/protanopia), and this grid's whole purpose is separating
- * BUY from SELL. Ratings are additionally always rendered with their text
- * label, so hue is never the only carrier of meaning. The design mock used
- * green/red; that one substitution is deliberate and must not be "corrected".
+ * The Figma file reports its typeface as "Liberation Sans", which is not a
+ * design decision -- it is the metric-compatible Arial substitute Figma falls
+ * back to when a file carries no embedded font. What the file *does* specify,
+ * and what actually carries its character, is the scale: a very large display
+ * figure with tight negative tracking, then a sharp drop to a 14px working
+ * size. Those sizes and tracking values are reproduced exactly below; the
+ * typeface itself is chosen in app/layout.tsx.
+ *
+ * Line heights are the mock's literal pixel values rather than ratios, because
+ * the mock's vertical rhythm depends on them landing on the 4px grid.
  */
-:root {
-  --background: #fafafa; /* zinc-50 */
-  --foreground: #09090b; /* zinc-950 */
-  --card: #ffffff;
-  --card-foreground: #09090b;
-  --popover: #ffffff;
-  --popover-foreground: #09090b;
-  --primary: #18181b; /* zinc-900 */
-  --primary-foreground: #fafafa;
-  --secondary: #f4f4f5; /* zinc-100 */
-  --secondary-foreground: #18181b;
-  --muted: #f4f4f5;
-  --muted-foreground: #52525b; /* zinc-600, 7.4:1 on card */
-  --accent: #f4f4f5;
-  --accent-foreground: #18181b;
-  --destructive: #dc2626; /* red-600 */
-  --border: #e4e4e7; /* zinc-200 */
-  --input: #e4e4e7;
-  --ring: #18181b;
+@theme {
+  /*
+   * The two display sizes are fluid. The mock's 64px and 36px are correct at
+   * its own 1280px artboard and too large at 375px, where a 36px title wraps a
+   * three-word heading onto three lines. Each clamp lands on the mock's exact
+   * value at desktop and steps down to a size that still reads as display type
+   * on a phone. Line height goes unitless here because a fixed px leading
+   * cannot follow a changing font size.
+   */
+
+  /* 40 -> 64/1.125, -1.6px at full size -- the KPI figure */
+  --text-display: clamp(2.5rem, 5vw, 4rem);
+  --text-display--line-height: 1.125;
+  --text-display--letter-spacing: -0.025em;
+
+  /* 28 -> 36/1.22, -0.72px at full size -- page title */
+  --text-title: clamp(1.75rem, 3.2vw, 2.25rem);
+  --text-title--line-height: 1.22;
+  --text-title--letter-spacing: -0.02em;
+
+  /* 24/32 -- card heading and brand */
+  --text-heading: 1.5rem;
+  --text-heading--line-height: 2rem;
+  --text-heading--letter-spacing: -0.011em;
+
+  /* 18/28 -- lead paragraph */
+  --text-lead: 1.125rem;
+  --text-lead--line-height: 1.75rem;
+
+  /* 10/15 -- the mock's smallest chip label */
+  --text-micro: 0.625rem;
+  --text-micro--line-height: 0.9375rem;
 
   /*
-   * Rating ramp, light mode. Measured text-on-tint contrast (the colour is
-   * used as badge text over a 12% tint of itself), all >= 4.5:1:
-   *   STRONG BUY 6.29  BUY 4.64  HOLD 6.34  REDUCE 6.04  SELL 5.12
-   * REDUCE is orange-800 rather than amber-700 because amber measured 4.25:1
-   * and failed.
+   * Surface radii. The mock nests three levels of roundness -- a 40px outer
+   * workspace, 24px panels inside it, 16px rows inside those -- and reading
+   * that nesting is what makes the layout feel composed rather than flat.
+   * Dense controls keep the smaller `--radius` ramp above; these are for
+   * surfaces only.
    */
-  --rating-strong-buy: #115e59; /* teal-800 */
-  --rating-buy: #0f766e; /* teal-700 */
-  --rating-hold: #475569; /* slate-600, diverging midpoint */
-  --rating-reduce: #9a3412; /* orange-800 */
-  --rating-sell: #be123c; /* rose-700 */
+  --radius-panel: 1.5rem;
+  --radius-row: 1rem;
+  --radius-workspace: 2.5rem;
 
-  --positive: #0f766e;
-  --negative: #be123c;
-  --caution: #9a3412;
+  /*
+   * Motion. One duration ramp and one easing set for the whole interface, so
+   * every transition shares a rhythm instead of each component inventing its
+   * own. Durations sit in the 120-260ms band: fast enough that a number is
+   * never withheld from the reader, slow enough to be perceived as movement.
+   */
+  --ease-entrance: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
 
-  /* Sequential ramp for score/coverage visuals, ordered light -> dark.
-     Teal rather than blue so charts sit in the same family as the rating
-     ramp now that the surfaces carry no hue of their own. */
-  --chart-1: #0f766e;
-  --chart-2: #0d9488;
-  --chart-3: #14b8a6;
-  --chart-4: #2dd4bf;
-  --chart-5: #5eead4;
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 260ms;
 
-  /* Tight, terminal-like. lg lands on 0.25rem to match the mock's cards. */
-  --radius: 0.25rem;
+  --animate-rise: rise var(--duration-slow) var(--ease-entrance) both;
+  --animate-fade: fade var(--duration-base) var(--ease-standard) both;
+  --animate-grow: grow var(--duration-slow) var(--ease-entrance) both;
+  --animate-sweep: sweep 1.4s ease-in-out infinite;
 
-  --sidebar: #ffffff;
-  --sidebar-foreground: #09090b;
-  --sidebar-primary: #18181b;
-  --sidebar-primary-foreground: #fafafa;
-  --sidebar-accent: #f4f4f5;
-  --sidebar-accent-foreground: #18181b;
-  --sidebar-border: #e4e4e7;
-  --sidebar-ring: #18181b;
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 0.5rem, 0);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* scaleX from the leading edge: bars and meters grow out of their origin
+     rather than stretching from the middle. */
+  @keyframes grow {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+
+  @keyframes sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  /*
+   * Ring draw-on. Both ends are supplied per instance as custom properties
+   * (--arc-from is the full circumference, --arc-to the offset that leaves the
+   * scored fraction showing), because the target depends on the value being
+   * drawn and a keyframe cannot compute it.
+   */
+  @keyframes arc {
+    from {
+      stroke-dashoffset: var(--arc-from);
+    }
+    to {
+      stroke-dashoffset: var(--arc-to);
+    }
+  }
 }
 
 /*
- * Dark mode is a separate tonal design, not an inversion: hues are
- * desaturated and lightened so they stay legible on a dark surface, and each
- * pair is contrast-checked independently of its light counterpart.
+ * Palette, ported from the Figma file (nodes 1:1048 and 1:844).
+ *
+ * Surfaces are the mock's literal values: a warm off-white card (#fdf8f8) on a
+ * cool grey ground (#f2f2f2), a pure-white floating workspace above both, and
+ * a recessed #f7f8fa for nav tracks, list rows and inset panels. Borders are
+ * the mock's single hairline #eee. The primary is pure black, which is what
+ * fills the mock's active nav pill and avatar.
+ *
+ * RATING RAMP -- read this before changing it.
+ *
+ * The ramp below is the mock's: amber STRONG BUY, red BUY, purple HOLD. That
+ * assignment is deliberate and was chosen by the project owner over an
+ * explicit objection, which is recorded here so it is not silently "fixed"
+ * later: red conventionally signals *down* in every other financial interface,
+ * so a red BUY inverts the reader's prior. Two consequences follow, and both
+ * are load-bearing:
+ *
+ *   1. The rating word is ALWAYS rendered next to the colour. Hue is never the
+ *      only carrier of the BUY/SELL distinction (WCAG 1.4.1). With the
+ *      conventional mapping broken, the label is not a nicety -- it is the
+ *      only reliable signal, so it must never be reduced to a bare swatch.
+ *
+ *   2. These hues are used as SOLID FILLS, never as text colour. The mock uses
+ *      them that way (bubbles, legend swatches, progress bars) and it is also
+ *      the only way they pass contrast: #ffca28 as text on a light card is
+ *      about 1.8:1. Each fill therefore carries an explicit foreground token
+ *      below, chosen so the pair clears 4.5:1.
+ *
+ * REDUCE and SELL have no counterpart in the mock -- its legend defines only
+ * the three ratings above. They are extended into desaturated blue-greys
+ * rather than more reds, because the red slot is already spent on BUY and a
+ * second red would make the two ends of the scale indistinguishable.
  */
-.dark {
-  --background: #09090b; /* zinc-950 */
-  --foreground: #fafafa;
-  /* Cards sit one step above the page rather than below it, which is what
-     gives the mock its panelled, terminal feel on a near-black ground. */
-  --card: #0e0e0e;
-  --card-foreground: #fafafa;
-  /* Popovers/menus step up again so they read as floating above a card. */
-  --popover: #1c1b1b;
-  --popover-foreground: #fafafa;
-  --primary: #fafafa; /* inverted: white button, dark label */
-  --primary-foreground: #18181b;
-  --secondary: #27272a; /* zinc-800 */
-  --secondary-foreground: #fafafa;
-  --muted: #27272a;
-  --muted-foreground: #a1a1aa; /* zinc-400, 7.9:1 on card */
-  --accent: #27272a;
-  --accent-foreground: #fafafa;
-  --destructive: #ef4444; /* red-500 */
-  --border: #27272a;
-  --input: #27272a;
-  --ring: #d4d4d8;
+:root {
+  --background: #f2f2f2;
+  --foreground: #1c1b1b;
+  --card: #fdf8f8;
+  --card-foreground: #1c1b1b;
+  --popover: #ffffff;
+  --popover-foreground: #1c1b1b;
+  --primary: #000000;
+  --primary-foreground: #ffffff;
+  --secondary: #f7f8fa;
+  --secondary-foreground: #1c1b1b;
+  --muted: #f7f8fa;
+  --muted-foreground: #5e5e63; /* 6.0:1 on card */
+  --accent: #f7f8fa;
+  --accent-foreground: #1c1b1b;
+  --destructive: #c62828;
+  /* The reference design's hairline is #eee, which measures 1.10:1 against the
+     card -- effectively invisible, and this interface leans on rules to
+     separate a 100-row grid and six KPI cells. Stepped to 1.34:1, which reads
+     as a boundary without turning the layout into a wireframe. */
+  --border: #d9d9de;
+  --input: #d9d9de;
+  --ring: #1c1b1b;
+
+  /* The mock's outermost surface: a white sheet floating over the grey page. */
+  --workspace: #ffffff;
 
   /*
-   * Rating ramp, dark mode: separately chosen steps, not an inversion of the
-   * light values. Measured text-on-tint contrast over the dark card, all
-   * >= 4.5:1:
-   *   STRONG BUY 7.38  BUY 6.09  HOLD 4.62  REDUCE 6.78  SELL 4.55
+   * Rating ramp: a conventional diverging green -> neutral -> red, with the
+   * midpoint as the lightest step so the scale reads as two arms either side
+   * of HOLD rather than five unrelated chips.
+   *
+   * Each step carries three tokens. The fill is the swatch; -fg is the label
+   * colour measured to clear 4.5:1 on that fill; -edge is a darker step of the
+   * same hue used as the border, because four of these five fills sit between
+   * 1.4:1 and 1.8:1 against the card and would otherwise have no visible
+   * boundary at all.
+   *
+   * Green and red at similar lightness is the deuteranopia/protanopia
+   * confusion pair. Two mitigations are load-bearing and must not be removed:
+   * the rating word is always rendered, and RatingBadge draws a direction
+   * glyph so the scale is legible with no colour perception whatsoever.
    */
-  --rating-strong-buy: #5eead4; /* teal-300 */
-  --rating-buy: #2dd4bf; /* teal-400 */
-  --rating-hold: #94a3b8; /* slate-400, diverging midpoint */
-  --rating-reduce: #fbbf24; /* amber-400 */
-  --rating-sell: #fb7185; /* rose-400 */
+  --rating-strong-buy: #15803d;
+  --rating-strong-buy-fg: #ffffff;
+  --rating-strong-buy-edge: #14532d;
+  --rating-buy: #4ade80;
+  --rating-buy-fg: #14532d;
+  --rating-buy-edge: #16a34a;
+  --rating-hold: #e2e8f0;
+  --rating-hold-fg: #334155;
+  --rating-hold-edge: #64748b;
+  --rating-reduce: #fca5a5;
+  --rating-reduce-fg: #7f1d1d;
+  --rating-reduce-edge: #ef4444;
+  --rating-sell: #b91c1c;
+  --rating-sell-fg: #ffffff;
+  --rating-sell-edge: #7f1d1d;
 
-  --positive: #2dd4bf;
-  --negative: #fb7185;
-  --caution: #fbbf24;
+  /*
+   * Directional change (a price up/down, a rank delta) keeps a conventional
+   * reading and is intentionally NOT drawn from the rating ramp. Ratings are a
+   * five-band classification; a percentage change is a signed quantity, and
+   * the two would be actively confusing sharing a red.
+   */
+  --positive: #00796b; /* 5.1:1 on card; #00897b measured 4.1 and failed */
+  --negative: #c62828; /* 5.3:1 */
+  --caution: #b45309; /* 4.8:1; the mock's #ef6c00 measured 2.9 and failed */
 
-  --chart-1: #5eead4;
-  --chart-2: #2dd4bf;
-  --chart-3: #14b8a6;
-  --chart-4: #0d9488;
-  --chart-5: #0f766e;
+  /* Chart series. Drawn from the rating ramp so a distribution chart and the
+     badges beside it name the same band with the same colour, ordered
+     STRONG BUY -> SELL. */
+  --chart-1: #15803d;
+  --chart-2: #4ade80;
+  --chart-3: #94a3b8;
+  --chart-4: #fca5a5;
+  --chart-5: #b91c1c;
 
-  /* The rail is the darkest surface in the app, so the content column reads
-     as lifted off it -- the arrangement the mock uses. */
-  --sidebar: #0e0e0e;
-  --sidebar-foreground: #fafafa;
-  --sidebar-primary: #fafafa;
-  --sidebar-primary-foreground: #18181b;
-  --sidebar-accent: #27272a;
-  --sidebar-accent-foreground: #fafafa;
-  --sidebar-border: #27272a;
+  /* The mock is built on generous roundness: 40px workspace, 24px panels,
+     16px rows. This is the dense-control step; surfaces use --radius-panel. */
+  --radius: 0.625rem;
+
+  --elevation-panel: 0 1px 1px rgba(0, 0, 0, 0.05);
+  --elevation-workspace:
+    0 20px 40px -10px rgba(0, 0, 0, 0.05), 0 10px 20px -5px rgba(0, 0, 0, 0.02);
+
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1c1b1b;
+  --sidebar-primary: #000000;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f7f8fa;
+  --sidebar-accent-foreground: #1c1b1b;
+  --sidebar-border: #d9d9de;
+  --sidebar-ring: #1c1b1b;
+}
+
+/*
+ * Dark mode is a tonal counterpart, not an inversion. The mock is a light
+ * design and defines no dark variant, so the neutrals below are derived: the
+ * same three-step surface stack (ground / workspace / panel) rebuilt on a near
+ * black, keeping the mock's warm cast in the panel.
+ *
+ * The rating fills are re-picked rather than reused. A fill must clear 3:1
+ * against the surface it sits on to read as a component boundary, and the
+ * light ramp's #15803d STRONG BUY measures 1.6:1 on a dark panel -- it would
+ * disappear. Each dark fill keeps its light counterpart's hue and its position
+ * in the scale, moving only in lightness, so the ramp reads the same in both
+ * themes.
+ */
+.dark {
+  --background: #0a0a0c;
+  --foreground: #f5f5f5;
+  --card: #17161a;
+  --card-foreground: #f5f5f5;
+  --popover: #232228;
+  --popover-foreground: #f5f5f5;
+  --primary: #ffffff;
+  --primary-foreground: #000000;
+  --secondary: #232228;
+  --secondary-foreground: #f5f5f5;
+  --muted: #232228;
+  --muted-foreground: #a1a0a8; /* 7.2:1 on card */
+  --accent: #232228;
+  --accent-foreground: #f5f5f5;
+  --destructive: #ff8a80;
+  /* Same reasoning on the dark ground: 1.27:1 -> 1.59:1. */
+  --border: #3a3944;
+  --input: #3a3944;
+  --ring: #d4d4d8;
+
+  --workspace: #111013;
+
+  /* Same ramp, re-picked for a dark ground. Every fill must clear 3:1 against
+     the panel to read as a component; the light ramp's #15803d measures 1.6:1
+     there and would vanish, so each step moves in lightness while keeping its
+     hue and its position in the scale. */
+  --rating-strong-buy: #22c55e;
+  --rating-strong-buy-fg: #052e16;
+  --rating-strong-buy-edge: #16a34a;
+  --rating-buy: #86efac;
+  --rating-buy-fg: #052e16;
+  --rating-buy-edge: #4ade80;
+  --rating-hold: #94a3b8;
+  --rating-hold-fg: #0f172a;
+  --rating-hold-edge: #cbd5e1;
+  --rating-reduce: #fecaca;
+  --rating-reduce-fg: #7f1d1d;
+  --rating-reduce-edge: #fca5a5;
+  --rating-sell: #ef4444;
+  --rating-sell-fg: #000000;
+  --rating-sell-edge: #f87171;
+
+  --positive: #4db6ac;
+  --negative: #ff8a80;
+  --caution: #ffb74d;
+
+  --chart-1: #22c55e;
+  --chart-2: #86efac;
+  --chart-3: #94a3b8;
+  --chart-4: #fecaca;
+  --chart-5: #ef4444;
+
+  --elevation-panel:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.5);
+  --elevation-workspace:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 20px 40px -10px rgba(0, 0, 0, 0.7);
+
+  --sidebar: #111013;
+  --sidebar-foreground: #f5f5f5;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #232228;
+  --sidebar-accent-foreground: #f5f5f5;
+  --sidebar-border: #3a3944;
   --sidebar-ring: #d4d4d8;
 }
 
@@ -199,11 +434,32 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* Dense grid: kerning and ligatures off so tickers read literally. */
-    font-feature-settings: "liga" 0, "calt" 0;
   }
   html {
     @apply font-sans;
+  }
+
+  /*
+   * Everything that used to be "monospace" is really asking for two things:
+   * figures that line up in a column, and letterforms that read literally.
+   * Both are features of Satoshi rather than a second typeface.
+   *
+   *   tnum  -- fixed-width digits, so a column of prices aligns
+   *   liga/calt off -- so a ticker like "MPSLTD" is never fused into a
+   *                    ligature or contextually respaced
+   *
+   * Slight positive tracking compensates for the loss of a true monospace's
+   * airiness; without it, tickers set in a geometric sans read as too tight
+   * against the rest of the row.
+   */
+  .font-mono,
+  code,
+  kbd,
+  samp,
+  pre {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "liga" 0, "calt" 0;
+    letter-spacing: 0.01em;
   }
 
   /*
@@ -240,6 +496,91 @@
   .group:hover .sticky-col {
     background: color-mix(in oklab, var(--muted) 40%, var(--card));
   }
+
+  /* The mock's two elevation levels. Kept as utilities rather than baked into
+     a component so the same surface reads correctly in both themes. */
+  .elevate-panel {
+    box-shadow: var(--elevation-panel);
+  }
+
+  .elevate-workspace {
+    box-shadow: var(--elevation-workspace);
+  }
+
+  /*
+   * A panel: the mock's primary content surface. 24px radius, one tonal step
+   * off the page, hairline border, and the soft lift above.
+   */
+  .panel {
+    @apply rounded-panel border bg-card;
+    box-shadow: var(--elevation-panel);
+  }
+
+  /*
+   * Display figures. The mock sets its big numerals in the sans face, not the
+   * mono one -- at 64px the mono's wide, low-contrast digits read as a code
+   * listing rather than a headline. Tabular figures are still required so a
+   * changing number does not reflow its own row.
+   */
+  /*
+   * Standalone display figures -- a KPI total, the score in the ring.
+   *
+   * Deliberately NOT tabular: General Sans ships no `tnum` feature and its
+   * digits are proportional by design ("1" advances 384 units against "0" at
+   * 630). Asking for tabular figures here would silently do nothing, so the
+   * declaration is omitted rather than left in as a lie. These are single
+   * figures rather than a column, so proportional spacing is also the better
+   * look -- it is what the reference design uses for its own large numbers.
+   *
+   * Anything that must align down a column uses `.tabular` on the mono face.
+   */
+  .numeral {
+    @apply font-sans;
+    /* Proportional on purpose: this is a single large figure, not a column,
+       and Satoshi's default (non-tnum) digits are better spaced at display
+       size. Anything that must align uses `.tabular` instead. */
+    font-variant-numeric: proportional-nums;
+    letter-spacing: -0.03em;
+  }
+
+  /*
+   * Entrance stagger. Children read in sequence rather than all at once, which
+   * is what makes a grid of tiles feel composed instead of flickering into
+   * place. 40ms is the Material figure and lands 6 tiles inside 240ms, so the
+   * last one is still comfortably under the "instant" threshold.
+   */
+  .stagger > * {
+    animation: var(--animate-rise);
+    animation-delay: calc(var(--stagger-step, 40ms) * var(--i, 0));
+  }
+
+  /*
+   * Bars that draw themselves in from their leading edge.
+   *
+   * `transform-box: fill-box` is what makes this work inside an SVG: without
+   * it the transform origin resolves against the whole viewBox, so every bar
+   * would scale from the chart's left edge instead of its own, and the
+   * waterfall's offset bars would slide across the plot as they grew.
+   */
+  .bar-grow {
+    transform-box: fill-box;
+    transform-origin: left center;
+    animation: var(--animate-grow);
+    animation-delay: calc(60ms * var(--i, 0));
+  }
+
+  /* Press feedback for card-sized targets. Scale only -- no layout property
+     is touched, so a pressed tile cannot shift its neighbours. */
+  .press {
+    transition:
+      transform var(--duration-fast) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard),
+      border-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .press:active {
+    transform: scale(0.985);
+  }
 }
 
 /*
@@ -253,6 +594,9 @@
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    /* Without this, a staggered list still reveals itself over ~240ms of dead
+       time even though each item's own animation has been collapsed. */
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
