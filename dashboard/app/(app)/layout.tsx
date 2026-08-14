@@ -13,8 +13,17 @@ import { mark, trace } from "@/lib/trace";
  */
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   mark("(app)/layout RENDERED");
-  const viewer = await trace("  requireAccess", () => requireAccess());
-  const run = await trace("  getLatestRun", () => getLatestRun());
+  // Issued together rather than in sequence. Each is a round trip to Supabase,
+  // which measures ~250ms from any region because the origin sits far from the
+  // Cloudflare edge fronting it, so awaiting them one after the other costs a
+  // needless ~150ms on every full page load. getLatestRun reveals nothing to an
+  // unauthorized viewer -- RLS returns no row -- and requireAccess still
+  // redirects before anything renders, because its rejection propagates out of
+  // the Promise.all.
+  const [viewer, run] = await Promise.all([
+    trace("  requireAccess", () => requireAccess()),
+    trace("  getLatestRun", () => getLatestRun()),
+  ]);
 
   return (
     <AppShell run={run} viewer={viewer}>
