@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
@@ -82,6 +82,12 @@ export function StockSearch() {
   // the effect below would cascade an extra render on every open.
   const loading = open && status === "idle";
 
+  const close = useCallback(() => {
+    setOpen(false);
+    setTerm("");
+    setCursor(0);
+  }, []);
+
   // Fetched on first open rather than with the page: the index is ~180 KB and
   // most visits never open the search dialog at all. loadIndex() dedupes at
   // module scope, so a double-invoked effect still makes one request.
@@ -98,27 +104,28 @@ export function StockSearch() {
     };
   }, [open, status]);
 
-  useEffect(() => setCursor(0), [term]);
-
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setOpen((value) => !value);
+        if (open) {
+          close();
+        } else {
+          setOpen(true);
+        }
       }
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") close();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [close, open]);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
-    else setTerm("");
   }, [open]);
 
   const go = (symbol: string) => {
-    setOpen(false);
+    close();
     router.push(`/stocks/${symbol}`);
   };
 
@@ -152,7 +159,7 @@ export function StockSearch() {
       {open ? (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[12vh]"
-          onClick={() => setOpen(false)}
+          onClick={close}
           role="presentation"
         >
           <div
@@ -167,7 +174,10 @@ export function StockSearch() {
               <input
                 ref={inputRef}
                 value={term}
-                onChange={(event) => setTerm(event.target.value)}
+                onChange={(event) => {
+                  setTerm(event.target.value);
+                  setCursor(0);
+                }}
                 onKeyDown={onInputKeyDown}
                 placeholder="Symbol or company name…"
                 aria-label="Search stocks"
