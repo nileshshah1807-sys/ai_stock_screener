@@ -3,6 +3,8 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { RatingBadge } from "@/components/rating-badge";
+import { ZoomIn } from "@/components/motion";
+import { DecisionScore } from "@/components/stock/decision-score";
 import { FactorBlocks } from "@/components/stock/factor-blocks";
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
 import { HistoryChart } from "@/components/stock/history-chart";
@@ -267,33 +269,97 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   ];
 
   return (
-    <div className="space-y-4 px-4 py-5 sm:px-6">
-        <div>
+    /*
+      Arriving here is always a drill-down from a grid row, so the page scales
+      up into place rather than cross-fading. That reads as pushing *into* the
+      row that was clicked instead of as an unrelated page swapping in. Kept to
+      450ms with a small overshoot -- long enough to register the direction of
+      travel, short enough that the financials are readable immediately.
+    */
+    <ZoomIn className="space-y-4 px-4 py-5 sm:px-6">
+        {/*
+          Hero band. The headline figures -- price, 1M, 3M, market cap, rank --
+          are pulled up here rather than sitting in a "Price and size" card
+          further down. The previous header used a full-width row for a ticker
+          and a company name and nothing else, leaving most of the fold empty
+          while the numbers a reader opens this page for were below it.
+        */}
+        <div className="panel p-5 sm:p-6">
           <Link
             href="/"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-1 rounded-full text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ArrowLeft className="size-3" aria-hidden />
             Back to screener
           </Link>
 
-          <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h1 className="font-mono text-2xl font-semibold tracking-tight">
+          <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="font-mono text-[1.75rem] font-bold leading-tight tracking-tight">
               {row.symbol}
             </h1>
-            <p className="text-lg text-muted-foreground">{row.company}</p>
+            <p className="text-heading text-muted-foreground">{row.company}</p>
             <RatingBadge rating={row.rating} size="md" />
           </div>
 
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1.5 text-xs text-muted-foreground">
             {row.sector ?? MISSING}
             {row.industry ? ` · ${row.industry}` : ""} · Rank{" "}
             {row.investment_rank ?? MISSING} of {run.row_count} · Bar{" "}
             {formatDate(row.price_bar_as_of ?? run.price_bar_as_of)}
           </p>
+
+          <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border sm:grid-cols-4">
+            {[
+              { label: "Price", value: formatINR(row.current_price), tone: "" },
+              {
+                label: "1M",
+                value: formatPercent(row.pct_change_1m, 1, true),
+                tone:
+                  (row.pct_change_1m ?? 0) >= 0 ? "text-positive" : "text-negative",
+              },
+              {
+                label: "3M",
+                value: formatPercent(row.pct_change_3m, 1, true),
+                tone:
+                  (row.pct_change_3m ?? 0) >= 0 ? "text-positive" : "text-negative",
+              },
+              { label: "Market cap", value: formatINRCompact(row.market_cap), tone: "" },
+            ].map((stat) => (
+              <div key={stat.label} className="bg-muted/40 px-4 py-3">
+                <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  {stat.label}
+                </dt>
+                <dd className={`tabular mt-0.5 text-lead font-semibold ${stat.tone}`}>
+                  {stat.value}
+                </dd>
+              </div>
+            ))}
+          </dl>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+        {/*
+          The ring gets a fixed narrow column and the waterfall gets the rest.
+          Previously they shared a 1.15:1 split, which left the ring floating in
+          a tall panel of empty space while the waterfall -- the widest graphic
+          on the page -- was squeezed.
+        */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+          <Panel
+            title="Decision score"
+            description="Against the 0-100 range it is rated on. Ticks mark the REDUCE / HOLD / BUY / STRONG BUY boundaries."
+          >
+            <DecisionScore
+              score={row.decision_score ?? row.final_score}
+              rating={row.rating}
+              caption={
+                row.rating_capped
+                  ? (row.rating_cap_reason ??
+                    "A policy ceiling reduced this score.")
+                  : undefined
+              }
+            />
+          </Panel>
+
           <div className="space-y-4">
             {factorModel ? (
               <Panel
@@ -315,36 +381,14 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
               <ScoreWaterfall row={row} />
             </Panel>
           </div>
-
-          <div className="space-y-4">
-            <Panel title="Price and size">
-              <FieldList
-                columns={2}
-                fields={[
-                  { label: "Price", value: formatINR(row.current_price) },
-                  { label: "Market cap", value: formatINRCompact(row.market_cap) },
-                  {
-                    label: "1M",
-                    value: formatPercent(row.pct_change_1m, 1, true),
-                    tone: (row.pct_change_1m ?? 0) >= 0 ? "positive" : "negative",
-                  },
-                  {
-                    label: "3M",
-                    value: formatPercent(row.pct_change_3m, 1, true),
-                    tone: (row.pct_change_3m ?? 0) >= 0 ? "positive" : "negative",
-                  },
-                ]}
-              />
-            </Panel>
-
-            <Panel
-              title="Gates and ceilings"
-              description="Gates cap a rating rather than remove a stock from the ranking."
-            >
-              <FieldList fields={gateFields} columns={2} />
-            </Panel>
-          </div>
         </div>
+
+        <Panel
+          title="Gates and ceilings"
+          description="Gates cap a rating rather than remove a stock from the ranking."
+        >
+          <FieldList fields={gateFields} columns={4} />
+        </Panel>
 
         <Panel
           title="Decision score history"
@@ -407,6 +451,6 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
         >
         <PayloadExplorer payload={payload} />
       </Panel>
-    </div>
+    </ZoomIn>
   );
 }

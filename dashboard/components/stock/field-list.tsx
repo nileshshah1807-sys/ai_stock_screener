@@ -27,7 +27,8 @@ export function FieldList({
   columns = 2,
 }: {
   fields: Field[];
-  columns?: 1 | 2 | 3;
+  /** 4 is for a full-width panel; anything narrower will crowd at that count. */
+  columns?: 1 | 2 | 3 | 4;
 }) {
   return (
     <dl
@@ -36,6 +37,7 @@ export function FieldList({
         columns === 1 && "grid-cols-1",
         columns === 2 && "grid-cols-1 sm:grid-cols-2",
         columns === 3 && "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+        columns === 4 && "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4",
       )}
     >
       {fields.map((field) => (
@@ -62,6 +64,15 @@ export function FieldList({
   );
 }
 
+/**
+ * A titled content surface.
+ *
+ * Takes the Figma card treatment (node 1:949): 24px radius, hairline border,
+ * a soft lift, and noticeably more internal padding than the old 16px. The
+ * mock's own heading is 24px, which is right when a page holds three cards and
+ * wrong when it holds ten -- the detail page runs ten, so the heading lands at
+ * 18px, a real step up from the previous 14px without every panel shouting.
+ */
 export function Panel({
   title,
   description,
@@ -74,14 +85,14 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <section className={cn("rounded-lg border bg-card p-4", className)}>
-      <h2 className="text-sm font-semibold">{title}</h2>
+    <section className={cn("panel animate-rise p-5 sm:p-6", className)}>
+      <h2 className="text-lead font-semibold tracking-[-0.011em]">{title}</h2>
       {description ? (
-        <p className="mt-0.5 mb-3 text-xs leading-relaxed text-muted-foreground">
+        <p className="mt-1 mb-4 text-xs leading-relaxed text-muted-foreground">
           {description}
         </p>
       ) : (
-        <div className="mb-3" />
+        <div className="mb-4" />
       )}
       {children}
     </section>

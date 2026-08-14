@@ -20,8 +20,8 @@ import {
   formatINRCompact,
   formatNumber,
   formatPercent,
-  formatRatioAsPercent,
   formatScore,
+  ratingToken,
   MISSING,
 } from "@/lib/format";
 import type { SnapshotRow } from "@/lib/types";
@@ -47,6 +47,43 @@ function ChangeCell({ value }: { value: number | null }) {
 }
 
 /**
+ * A 2px rule under the decision score showing where it sits on 0-100.
+ *
+ * A column of bare four-character numbers gives the eye nothing to grab: to
+ * compare two rows you have to actually read and subtract them. The rule turns
+ * the same value into a length, which is pre-attentive -- an outlier is
+ * visible while scrolling rather than only on inspection. It carries no
+ * information the number does not already carry, so it is decoration in the
+ * strict sense, but it is decoration that makes the column scannable.
+ *
+ * Coloured by rating band so it agrees with the badge two columns to its left.
+ */
+function ScoreMeter({
+  score,
+  rating,
+}: {
+  score: number | null;
+  rating: string | null | undefined;
+}) {
+  if (score === null || score === undefined) return null;
+  const pct = Math.max(0, Math.min(100, score));
+  return (
+    <span
+      className="mt-1 block h-0.5 w-full overflow-hidden rounded-full bg-muted"
+      aria-hidden
+    >
+      <span
+        className="block h-full rounded-full transition-[width] duration-(--duration-slow) ease-(--ease-entrance)"
+        style={{
+          width: `${pct}%`,
+          background: `var(--rating-${ratingToken(rating)})`,
+        }}
+      />
+    </span>
+  );
+}
+
+/**
  * Decision score with its evidence score behind it.
  *
  * When a ceiling has been applied the two differ, and showing only the final
@@ -63,8 +100,11 @@ function ScoreCell({ row }: { row: SnapshotRow }) {
 
   if (!capped) {
     return (
-      <span className="tabular font-mono text-sm font-semibold">
-        {formatScore(decision)}
+      <span className="inline-block w-[3.25rem] align-middle">
+        <span className="tabular font-mono text-sm font-semibold">
+          {formatScore(decision)}
+        </span>
+        <ScoreMeter score={decision} rating={row.rating} />
       </span>
     );
   }
@@ -73,13 +113,16 @@ function ScoreCell({ row }: { row: SnapshotRow }) {
     <Tooltip>
       <TooltipTrigger
         render={
-          <span className="tabular cursor-help font-mono text-sm font-semibold" />
+          <span className="inline-block w-[4.75rem] cursor-help align-middle" />
         }
       >
-        {formatScore(decision)}
+        <span className="tabular font-mono text-sm font-semibold">
+          {formatScore(decision)}
+        </span>
         <span className="ml-1 text-[10px] font-normal text-caution">
           ▼{formatScore(evidence)}
         </span>
+        <ScoreMeter score={decision} rating={row.rating} />
       </TooltipTrigger>
       <TooltipContent className="max-w-72">
         <p className="font-medium">Decision score capped</p>
@@ -162,7 +205,7 @@ export function ScreenerTable({
 
   if (!rows.length) {
     return (
-      <div className="rounded-lg border bg-card py-16 text-center">
+      <div className="panel animate-rise py-16 text-center">
         <p className="text-sm font-medium">No stocks match these filters</p>
         <p className="mt-1 text-sm text-muted-foreground">
           Try widening the rating selection or clearing the evidence filters.
@@ -172,7 +215,13 @@ export function ScreenerTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border bg-card">
+    /*
+     * The grid fades in as one object, not row by row. A staggered reveal is
+     * right for six KPI tiles and wrong here: at a full page of rows even a
+     * 20ms step runs for seconds, and it delays the one thing the reader came
+     * for. One 180ms fade on the whole panel, then the numbers are readable.
+     */
+    <div className="panel animate-fade overflow-hidden">
       {/* The grid is wider than a phone and legitimately so: it is a
           cross-sectional comparison. It scrolls inside its own container so
           the page body never scrolls sideways. */}
@@ -294,7 +343,12 @@ export function ScreenerTable({
             {rows.map((row) => (
               <tr
                 key={row.symbol}
-                className="group border-t transition-colors hover:bg-muted/40"
+                className={cn(
+                  "group border-t transition-colors duration-(--duration-fast) ease-(--ease-standard)",
+                  // focus-within, not just hover: keyboard traversal down the
+                  // grid highlights the same band the mouse would.
+                  "hover:bg-muted/40 focus-within:bg-muted/40",
+                )}
               >
                 <td className="tabular px-2 py-1.5 text-right font-mono text-xs text-muted-foreground">
                   {row.investment_rank ?? MISSING}
@@ -305,7 +359,10 @@ export function ScreenerTable({
                     href={`/stocks/${row.symbol}`}
                     className="block rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <span className="block font-mono text-xs font-semibold">
+                    {/* Underline alone, no colour shift: --primary and
+                        --foreground are within a hair of each other in both
+                        themes, so a colour hover would be invisible. */}
+                    <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
                       {row.symbol}
                     </span>
                     <span className="block max-w-52 truncate text-[11px] text-muted-foreground">

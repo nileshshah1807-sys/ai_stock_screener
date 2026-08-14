@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { TableSkeleton } from "@/components/skeletons";
 
 /**
  * Shown while the grid query runs.
@@ -13,36 +14,11 @@ export default function ScreenerLoading() {
     <div className="space-y-4" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading results…</span>
 
-      <div className="overflow-hidden rounded-lg border">
-        <div className="flex items-center gap-4 border-b bg-muted/40 px-3 py-2.5">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <Skeleton
-              key={index}
-              className="h-3"
-              style={{ width: index === 1 ? "14%" : "9%" }}
-            />
-          ))}
-        </div>
-
-        {Array.from({ length: 12 }).map((_, row) => (
-          <div
-            key={row}
-            className="flex items-center gap-4 border-b px-3 py-3 last:border-b-0"
-          >
-            {Array.from({ length: 8 }).map((_, cell) => (
-              <Skeleton
-                key={cell}
-                className="h-3.5"
-                style={{ width: cell === 1 ? "14%" : "9%" }}
-              />
-            ))}
-          </div>
-        ))}
-      </div>
+      <TableSkeleton rows={12} />
 
       <div className="flex items-center justify-between">
         <Skeleton className="h-4 w-40" />
-        <Skeleton className="h-8 w-56" />
+        <Skeleton className="h-9 w-56 rounded-full" />
       </div>
     </div>
   );

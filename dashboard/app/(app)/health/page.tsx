@@ -13,6 +13,15 @@ import { getLatestRun, getRecentRuns } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Run health" };
+
+/** Rating mix columns, in scale order, each with its fill as a header swatch. */
+const RATING_COLUMNS = [
+  { label: "Str buy", field: "strong_buy_count", swatch: "bg-rating-strong-buy" },
+  { label: "Buy", field: "buy_count", swatch: "bg-rating-buy" },
+  { label: "Hold", field: "hold_count", swatch: "bg-rating-hold" },
+  { label: "Reduce", field: "reduce_count", swatch: "bg-rating-reduce" },
+  { label: "Sell", field: "sell_count", swatch: "bg-rating-sell" },
+] as const;
 export const dynamic = "force-dynamic";
 
 function short(value: string | null | undefined, length = 12): string {
@@ -104,8 +113,8 @@ export default async function HealthPage() {
 
   return (
     <div className="space-y-4 px-4 py-5 sm:px-6">
-        <div>
-          <h1 className="text-lg font-semibold">Run health</h1>
+        <div className="animate-rise">
+          <h1 className="text-title font-semibold">Run health</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Provenance and collection diagnostics for the run currently being
             served.
@@ -114,7 +123,7 @@ export default async function HealthPage() {
 
         <div
           className={cn(
-            "rounded-lg border p-4",
+            "rounded-panel border p-5 elevate-panel",
             freshness.level === "ok"
               ? "border-positive/30 bg-positive/5"
               : freshness.level === "warn"
@@ -157,41 +166,57 @@ export default async function HealthPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b text-[11px] uppercase tracking-wide text-muted-foreground">
+                {/*
+                  The rating hue lives in a header swatch, not in the figures.
+                  These are fill colours -- #4ade80 BUY measures 1.66:1 as text
+                  on the card -- so colouring five columns of counts with them
+                  made the numbers barely readable. One swatch per column
+                  carries the same mapping and leaves the figures legible.
+                */}
+                <tr className="border-b text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <th scope="col" className="py-2 pr-3 text-left">Run</th>
                   <th scope="col" className="py-2 pr-3 text-right">Rows</th>
-                  <th scope="col" className="py-2 pr-3 text-right">Str buy</th>
-                  <th scope="col" className="py-2 pr-3 text-right">Buy</th>
-                  <th scope="col" className="py-2 pr-3 text-right">Hold</th>
-                  <th scope="col" className="py-2 pr-3 text-right">Reduce</th>
-                  <th scope="col" className="py-2 pr-3 text-right">Sell</th>
+                  {RATING_COLUMNS.map((column) => (
+                    <th
+                      key={column.label}
+                      scope="col"
+                      className="py-2 pr-3 text-right whitespace-nowrap"
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "size-2 shrink-0 rounded-full ring-1 ring-inset ring-black/15",
+                            column.swatch,
+                          )}
+                          aria-hidden
+                        />
+                        {column.label}
+                      </span>
+                    </th>
+                  ))}
                   <th scope="col" className="py-2 text-left">Model</th>
                 </tr>
               </thead>
               <tbody>
                 {recent.map((item) => (
-                  <tr key={item.run_date} className="border-b last:border-0">
+                  <tr
+                    key={item.run_date}
+                    className="border-b transition-colors duration-(--duration-fast) last:border-0 hover:bg-muted/40"
+                  >
                     <td className="tabular py-1.5 pr-3 font-mono text-xs">
                       {formatDate(item.run_date)}
                     </td>
                     <td className="tabular py-1.5 pr-3 text-right font-mono text-xs">
                       {formatInteger(item.row_count)}
                     </td>
-                    <td className="tabular py-1.5 pr-3 text-right font-mono text-xs text-rating-strong-buy">
-                      {item.strong_buy_count}
-                    </td>
-                    <td className="tabular py-1.5 pr-3 text-right font-mono text-xs text-rating-buy">
-                      {item.buy_count}
-                    </td>
-                    <td className="tabular py-1.5 pr-3 text-right font-mono text-xs text-muted-foreground">
-                      {item.hold_count}
-                    </td>
-                    <td className="tabular py-1.5 pr-3 text-right font-mono text-xs text-rating-reduce">
-                      {item.reduce_count}
-                    </td>
-                    <td className="tabular py-1.5 pr-3 text-right font-mono text-xs text-rating-sell">
-                      {item.sell_count}
-                    </td>
+                    {RATING_COLUMNS.map((column) => (
+                      <td
+                        key={column.label}
+                        className="tabular py-1.5 pr-3 text-right font-mono text-xs"
+                      >
+                        {formatInteger(item[column.field] as number)}
+                      </td>
+                    ))}
                     <td className="py-1.5 font-mono text-[11px] text-muted-foreground">
                       {short(item.model_version, 18)}
                     </td>

@@ -65,15 +65,25 @@ export function SortHeader({
         href={`?${next.toString()}`}
         scroll={false}
         className={cn(
-          "inline-flex items-center gap-1 rounded transition-colors hover:text-foreground",
+          "group/sort inline-flex items-center gap-1 rounded hover:text-foreground",
+          "transition-colors duration-(--duration-fast) ease-(--ease-standard)",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           numeric && "flex-row-reverse",
           active ? "text-foreground" : "text-muted-foreground",
         )}
       >
         {label}
+        {/*
+          The icon swaps element between states, so the direction change itself
+          cannot be tweened. What is animated is the affordance: an unsorted
+          column's chevron lifts from 40% to full opacity on hover, which tells
+          the reader the header is sortable before they click it.
+        */}
         <Icon
-          className={cn("size-3", active ? "opacity-100" : "opacity-40")}
+          className={cn(
+            "size-3 transition-opacity duration-(--duration-fast)",
+            active ? "opacity-100" : "opacity-40 group-hover/sort:opacity-100",
+          )}
           aria-hidden
         />
       </Link>

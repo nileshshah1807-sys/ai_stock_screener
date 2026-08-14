@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
@@ -18,14 +18,13 @@ const OPTIONS = [
   { value: "system", label: "System", icon: Monitor },
 ] as const;
 
+const subscribeToHydration = () => () => {};
+
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  // The server cannot know the resolved theme, so rendering the real icon
-  // before mount would hydrate mismatched. A fixed placeholder avoids both the
-  // mismatch and a layout shift when the real icon arrives.
-  useEffect(() => setMounted(true), []);
+  // This is false during server rendering and the first hydration pass, which
+  // keeps the placeholder icon consistent without an effect-driven re-render.
+  const mounted = useSyncExternalStore(subscribeToHydration, () => true, () => false);
 
   const Icon = mounted
     ? (OPTIONS.find((option) => option.value === theme)?.icon ?? Monitor)

@@ -218,6 +218,13 @@ export type ScreenerRun = {
   hold_count: number;
   reduce_count: number;
   sell_count: number;
+  /**
+   * Run-wide facts the publisher records so the dashboard need not rederive
+   * them. Null on runs published before these columns existed, in which case
+   * the screener falls back to querying for them.
+   */
+  sectors: string[] | null;
+  factor_model_applied: boolean | null;
   manifest: Record<string, unknown> | null;
   ingested_at: string;
 };

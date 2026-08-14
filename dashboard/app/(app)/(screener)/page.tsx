@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 function EmptyState() {
   return (
-    <div className="rounded-lg border bg-card py-20 text-center">
+    <div className="panel animate-rise py-20 text-center">
       <p className="text-sm font-medium">No screener run has been published</p>
       <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
         Run{" "}

@@ -184,12 +184,18 @@ export function FilterBar({
               type="button"
               onClick={() => toggleValue("rating", rating)}
               aria-pressed={active}
+              // h-9 and rounded-full so these sit on the same baseline and
+              // share the same silhouette as every other control in the row.
+              // Previously they had no height at all and a rounded-md corner,
+              // which left them visibly shorter and squarer than the search
+              // field and buttons either side of them.
               className={cn(
-                "rounded-md border px-2 py-1 text-[11px] font-medium uppercase tracking-wide transition-colors",
+                "inline-flex h-9 items-center rounded-full border px-3.5 text-[11px] font-semibold uppercase tracking-wide",
+                "transition-colors duration-(--duration-fast) ease-(--ease-standard)",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 active
                   ? "border-primary bg-primary text-primary-foreground"
-                  : "bg-card text-muted-foreground hover:bg-muted hover:text-foreground",
+                  : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
             >
               {rating}
@@ -200,7 +206,7 @@ export function FilterBar({
 
       <Popover>
         <PopoverTrigger
-          render={<Button variant="outline" size="sm" className="h-9 gap-1.5" />}
+          render={<Button variant="outline" className="gap-1.5" />}
         >
           <SlidersHorizontal className="size-3.5" aria-hidden />
           Filters
@@ -393,7 +399,7 @@ export function FilterBar({
       </Popover>
 
       {activeFilterCount || query ? (
-        <Button variant="ghost" size="sm" className="h-9 gap-1" onClick={clearAll}>
+        <Button variant="ghost" className="gap-1" onClick={clearAll}>
           <X className="size-3.5" aria-hidden />
           Clear
         </Button>

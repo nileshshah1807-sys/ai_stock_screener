@@ -1,6 +1,8 @@
 import Link from "next/link";
-import { Activity, ArrowLeftRight, LayoutGrid, LogOut, Terminal } from "lucide-react";
+import { Activity, ArrowLeftRight, LayoutGrid, LogOut } from "lucide-react";
 
+import { cn } from "@/lib/utils";
+import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { FreshnessBanner } from "@/components/freshness-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -17,29 +19,55 @@ const NAV = [
   { href: "/health", label: "Run health", icon: Activity },
 ] as const;
 
-const RAIL_WIDTH = "15rem"; /* 240px */
-
-function Brand({ run, compact = false }: { run: ScreenerRun | null; compact?: boolean }) {
+function Brand({ run }: { run: ScreenerRun | null }) {
   return (
     <Link
       href="/"
-      className="flex items-center gap-2.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(
+        "group/brand flex shrink-0 items-center gap-2.5 rounded-full",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      )}
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded bg-primary text-primary-foreground">
-        <Terminal className="size-4" aria-hidden />
+      <span
+        className={cn(
+          "flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground",
+          "transition-transform duration-(--duration-slow) ease-(--ease-spring)",
+          // The mark is a gauge; rotating it would read as the needle moving,
+          // which is meaningless here. A straight lift keeps it legible.
+          "group-hover/brand:scale-110",
+        )}
+      >
+        <BrandMark className="size-5" />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold tracking-tight">
+        <span className="block truncate text-lead font-semibold tracking-[-0.011em]">
           NSE Screener
         </span>
-        {!compact ? (
-          <span className="tabular block truncate font-mono text-[11px] text-muted-foreground">
-            {run ? formatDate(run.price_bar_as_of ?? run.run_date) : "no run"}
-            {run?.model_version ? ` · v${run.model_version}` : ""}
-          </span>
-        ) : null}
+        <span className="tabular hidden truncate font-mono text-[11px] text-muted-foreground sm:block">
+          {run ? formatDate(run.price_bar_as_of ?? run.run_date) : "no run"}
+          {run?.model_version ? ` · v${run.model_version}` : ""}
+        </span>
       </span>
     </Link>
+  );
+}
+
+/**
+ * The mock's avatar: a filled black circle with the account's initials. Not a
+ * control -- it is labelled and titled with the address so the identity is
+ * available to a screen reader and on hover, but sign-out is the button beside
+ * it rather than a menu hidden behind this.
+ */
+function Avatar({ viewer }: { viewer: Viewer }) {
+  const initials = viewer.email.slice(0, 2).toUpperCase();
+  return (
+    <span
+      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground"
+      title={viewer.email}
+      aria-label={`Signed in as ${viewer.email}`}
+    >
+      {initials}
+    </span>
   );
 }
 
@@ -50,8 +78,9 @@ function SignOut({ viewer }: { viewer: Viewer }) {
         type="submit"
         variant="ghost"
         size="icon"
+        className="rounded-full"
         aria-label={`Sign out ${viewer.email}`}
-        title={viewer.email}
+        title="Sign out"
       >
         <LogOut className="size-4" aria-hidden />
       </Button>
@@ -60,13 +89,22 @@ function SignOut({ viewer }: { viewer: Viewer }) {
 }
 
 /**
- * Application chrome: a fixed rail on desktop, a stacked top bar on small
- * screens.
+ * Application chrome, ported from the Figma frames (nodes 1:1049 / 1:845).
  *
- * The rail is the darkest surface so the content column reads as lifted off
- * it. Nav items carry an icon *and* a label at every breakpoint -- an icon-only
- * rail saves 150px and costs discoverability, which is the wrong trade for a
- * tool people use occasionally.
+ * The mock's defining structure is a single white workspace sheet floating on
+ * a grey ground: 40px radius, a soft two-layer drop shadow, capped at 1440px
+ * and centred. Navigation is a horizontal pill group in the sheet's header
+ * rather than a side rail, with the active item filled solid black.
+ *
+ * This replaces the previous fixed 240px rail. The trade is deliberate and
+ * worth naming: the rail could hold an arbitrary number of destinations and a
+ * horizontal group cannot, so this layout is only correct while the app has a
+ * handful of top-level views. At three it is comfortable; past about six the
+ * group will need an overflow menu or the rail will need to come back.
+ *
+ * Nav items keep both icon and label at every breakpoint. The mock is
+ * label-only, but an icon-free pill group gives the eye nothing to lock onto
+ * when scanning back to a destination, and the icons cost 20px each.
  */
 export function AppShell({
   run,
@@ -78,48 +116,29 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-dvh">
-      <aside
-        style={{ width: RAIL_WIDTH }}
-        className="fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-sidebar-border bg-sidebar p-3 lg:flex"
+    <div className="min-h-dvh bg-background p-0 sm:p-6 lg:p-10">
+      <div
+        className={cn(
+          "mx-auto flex min-h-dvh w-full max-w-[1440px] flex-col bg-workspace",
+          "sm:min-h-0 sm:rounded-workspace sm:elevate-workspace sm:overflow-hidden",
+        )}
       >
-        <div className="px-1 py-2">
+        <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-4 sm:px-8 sm:py-6">
           <Brand run={run} />
-        </div>
 
-        <nav aria-label="Primary" className="mt-6 flex flex-col gap-1">
-          {NAV.map(({ href, label, icon: Icon }) => (
-            <NavLink key={href} href={href} rail>
-              <Icon className="size-4 shrink-0" aria-hidden />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-
-        <div className="mt-auto flex items-center justify-between border-t border-sidebar-border pt-3">
-          <span className="truncate px-1 text-[11px] text-muted-foreground" title={viewer.email}>
-            {viewer.email}
-          </span>
-          <div className="flex shrink-0 items-center">
-            <ThemeToggle />
-            <SignOut viewer={viewer} />
-          </div>
-        </div>
-      </aside>
-
-      <div className="flex min-h-dvh flex-col lg:pl-[15rem]">
-        <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:hidden">
-          <div className="flex h-14 items-center gap-3 px-4">
-            <Brand run={run} compact />
-            <div className="ml-auto flex items-center">
-              <ThemeToggle />
-              <SignOut viewer={viewer} />
-            </div>
-          </div>
-
+          {/*
+            The recessed track is what the filled active pill sits in. Without
+            it the pill reads as a stray button floating in the header.
+            `order-last` on small screens drops the group onto its own row so
+            it never competes with the brand for horizontal space.
+          */}
           <nav
             aria-label="Primary"
-            className="flex gap-1 overflow-x-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className={cn(
+              "order-last flex w-full gap-1 overflow-x-auto rounded-full border bg-muted p-1.5",
+              "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+              "lg:order-none lg:w-auto lg:overflow-visible",
+            )}
           >
             {NAV.map(({ href, label, icon: Icon }) => (
               <NavLink key={href} href={href}>
@@ -128,13 +147,27 @@ export function AppShell({
               </NavLink>
             ))}
           </nav>
+
+          <div className="flex shrink-0 items-center gap-1">
+            <ThemeToggle />
+            <SignOut viewer={viewer} />
+            <Avatar viewer={viewer} />
+          </div>
         </header>
 
         <FreshnessBanner run={run} />
 
-        <main className="flex-1">{children}</main>
+        {/*
+          A single fade on first paint, deliberately not re-keyed per
+          navigation. The screener layout exists specifically so that sorting
+          and filtering do not re-render the chrome; remounting <main> on every
+          navigation to replay an animation would throw that away and make the
+          cheapest interaction in the app look like a full page load. Per-view
+          motion belongs to the components that actually change.
+        */}
+        <main className="flex-1 animate-fade">{children}</main>
 
-        <footer className="border-t px-4 py-4 text-xs text-muted-foreground sm:px-6">
+        <footer className="border-t px-4 py-5 text-xs text-muted-foreground sm:px-8">
           <p>
             {run?.model_validation_status ??
               "Research model; point-in-time out-of-sample validation pending."}{" "}

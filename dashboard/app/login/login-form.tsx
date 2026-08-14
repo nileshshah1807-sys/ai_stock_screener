@@ -24,7 +24,7 @@ export function LoginForm({ initialError }: { initialError: string | null }) {
   if (state.status === "sent") {
     return (
       <div
-        className="rounded-lg border bg-card p-4"
+        className="panel animate-rise p-5"
         role="status"
         aria-live="polite"
       >

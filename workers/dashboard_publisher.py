@@ -553,6 +553,30 @@ def build_run_row(
     if not generated_at and manifest:
         generated_at = coerce_timestamp(manifest.get("generated_at_utc"))
 
+    # Both of these are properties of the run as a whole, and both were being
+    # rederived by the dashboard on every page load: the sector list by reading
+    # one column across the entire universe to collapse ~2,400 rows into ~11
+    # values, and the model flag by a separate probe. Writing them once here
+    # turns two round trips per page load into zero. A run is entirely one model
+    # or the other, so a single true row settles the flag.
+    sectors: list[str] = []
+    if "Sector" in df.columns:
+        sectors = sorted(
+            {
+                sector
+                for sector in (
+                    coerce_text(value) for value in df["Sector"].dropna().unique()
+                )
+                if sector
+            }
+        )
+
+    factor_model_applied = False
+    if "Factor_Model_Applied" in df.columns:
+        factor_model_applied = any(
+            coerce_bool(value) is True for value in df["Factor_Model_Applied"]
+        )
+
     run: dict[str, Any] = {
         "run_date": run_date,
         "generated_at_utc": generated_at or datetime.now(timezone.utc).isoformat(),
@@ -574,6 +598,8 @@ def build_run_row(
         "technical_collected_count": coerce_int(first("Run_Technical_Collected_Count")),
         "technical_failed_count": coerce_int(first("Run_Technical_Failed_Count")),
         "fundamental_missing_count": coerce_int(first("Run_Fundamental_Missing_Count")),
+        "sectors": sectors,
+        "factor_model_applied": factor_model_applied,
         "manifest": manifest,
     }
     for rating, field in RATING_COUNT_FIELDS.items():

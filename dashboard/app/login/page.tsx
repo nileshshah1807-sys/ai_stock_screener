@@ -27,8 +27,8 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
-        <div className="mb-8">
-          <h1 className="font-mono text-lg font-semibold tracking-tight">
+        <div className="mb-8 animate-rise">
+          <h1 className="font-mono text-heading font-semibold tracking-tight">
             NSE Screener
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">

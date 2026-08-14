@@ -10,17 +10,23 @@ import { cn } from "@/lib/utils";
  * background) and assistive technology (aria-current), rather than relying on
  * colour alone.
  *
- * `rail` is the sidebar presentation: full width, icon and label side by side.
- * The default is the compact horizontal form used in the mobile top bar.
+ *
+ * Presentation follows the Figma nav: a fully rounded pill, the active one
+ * filled solid against a recessed track. The mock's active pill is black on a
+ * near-white track, which is exactly what `bg-primary` resolves to in light
+ * mode -- and it inverts correctly in dark mode rather than leaving a black
+ * pill on a black rail.
+ *
+ * The icon carries a slide on hover. It is 2px of travel on a single element,
+ * which reads as responsiveness on a target the user is already pointing at
+ * without turning the sidebar into an animation.
  */
 export function NavLink({
   href,
-  rail = false,
   onNavigate,
   children,
 }: {
   href: string;
-  rail?: boolean;
   onNavigate?: () => void;
   children: React.ReactNode;
 }) {
@@ -33,14 +39,18 @@ export function NavLink({
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-3 rounded-md text-sm transition-colors",
+        "group/nav relative flex items-center gap-3 rounded-full text-sm",
+        "transition-[background-color,color,box-shadow] duration-(--duration-base) ease-(--ease-standard)",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-        // 44px min height in the rail keeps every target at the platform
-        // minimum without needing a separate hit area.
-        rail ? "min-h-11 px-3 py-2" : "min-h-9 px-2.5 py-1.5",
+        // The mock's pill is 36px tall. Rounded up to 40 so the target clears
+        // the platform minimum without a separate hit area, and so the row of
+        // pills still fits the header at the mock's own proportions.
+        "min-h-10 px-5 py-2",
         active
-          ? "bg-accent font-medium text-accent-foreground"
+          ? "bg-primary font-medium text-primary-foreground shadow-xs"
           : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        "[&>svg]:transition-transform [&>svg]:duration-(--duration-base) [&>svg]:ease-(--ease-spring)",
+        !active && "hover:[&>svg]:translate-x-0.5",
       )}
     >
       {children}

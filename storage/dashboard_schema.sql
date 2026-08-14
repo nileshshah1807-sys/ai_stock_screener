@@ -74,7 +74,9 @@ drop policy if exists dashboard_allowlist_self_read on dashboard_allowlist;
 create policy dashboard_allowlist_self_read
     on dashboard_allowlist for select
     to authenticated
-    using (lower(email) = lower(coalesce(auth.jwt() ->> 'email', '')));
+    using (
+        lower(email) = (select lower(coalesce(auth.jwt() ->> 'email', '')))
+    );
 
 drop policy if exists dashboard_allowlist_admin_read on dashboard_allowlist;
 create policy dashboard_allowlist_admin_read
@@ -118,6 +120,16 @@ create table if not exists screener_runs (
     hold_count integer not null default 0,
     reduce_count integer not null default 0,
     sell_count integer not null default 0,
+
+    -- Run-wide facts recorded once at publish time so the dashboard does not
+    -- rederive them per page load. The sector list otherwise costs a read of
+    -- one column across the entire universe -- ~2,400 rows collapsed to ~11
+    -- values -- and the model flag a second probe, together two round trips and
+    -- ~500ms on every load. A run is entirely one model or the other, so the
+    -- flag is a property of the run rather than of any row.
+    sectors text[],
+    factor_model_applied boolean,
+
     manifest jsonb,
     ingested_at timestamptz not null default now()
 );
@@ -330,6 +342,15 @@ create table if not exists screener_snapshot (
 -- factor evidence, and null is the honest representation of that. Consumers
 -- must branch on factor_model_applied rather than assume a missing score is a
 -- zero.
+
+-- Run-wide facts, added for the same reason: `create table if not exists`
+-- above does nothing on a deployed database. Null on runs published before
+-- these existed, and the dashboard falls back to querying for them, so an old
+-- run keeps working rather than losing its sector filter.
+alter table screener_runs
+    add column if not exists sectors text[],
+    add column if not exists factor_model_applied boolean;
+
 alter table screener_snapshot
     add column if not exists factor_model_applied boolean,
     add column if not exists research_score numeric(6,2),
@@ -502,23 +523,38 @@ alter table screener_runs enable row level security;
 alter table screener_snapshot enable row level security;
 alter table screener_history enable row level security;
 
+-- The predicate is wrapped in a scalar subquery, and the parentheses are load
+-- bearing. Called bare, `dashboard_has_access()` is part of the row filter and
+-- Postgres evaluates it once per row: on a 2,368-row screener page that is
+-- 2,368 JWT parses and 2,368 allowlist lookups, measured at 562ms against 3ms
+-- for the same query with the wrap. Marking the function STABLE is not enough
+-- -- STABLE permits the planner to cache a result, it does not oblige it -- and
+-- this is why Supabase documents the same wrap for their own already-STABLE
+-- auth.uid() and auth.jwt(). As `(select ...)` it becomes an InitPlan evaluated
+-- exactly once per statement:
+--
+--     InitPlan 1
+--       ->  Result (actual time=0.693..0.694 rows=1 loops=1)
+--     Filter: (InitPlan 1).col1
+--
+-- Access rules are identical either way; only the number of evaluations differs.
 drop policy if exists screener_runs_read on screener_runs;
 create policy screener_runs_read
     on screener_runs for select
     to authenticated
-    using (dashboard_has_access());
+    using ((select dashboard_has_access()));
 
 drop policy if exists screener_snapshot_read on screener_snapshot;
 create policy screener_snapshot_read
     on screener_snapshot for select
     to authenticated
-    using (dashboard_has_access());
+    using ((select dashboard_has_access()));
 
 drop policy if exists screener_history_read on screener_history;
 create policy screener_history_read
     on screener_history for select
     to authenticated
-    using (dashboard_has_access());
+    using ((select dashboard_has_access()));
 
 -- No policy is defined for `anon`, so an un-authenticated request reads nothing
 -- even though the anon key ships to the browser. This is the invite-only gate.
