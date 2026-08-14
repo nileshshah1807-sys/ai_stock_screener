@@ -2,14 +2,12 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
-import { AppShell } from "@/components/app-shell";
 import { RatingBadge } from "@/components/rating-badge";
 import { FactorBlocks } from "@/components/stock/factor-blocks";
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
 import { HistoryChart } from "@/components/stock/history-chart";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
-import { requireAccess } from "@/lib/auth";
 import {
   formatDate,
   formatINR,
@@ -53,7 +51,6 @@ export async function generateMetadata({
 }
 
 export default async function StockPage({ params }: PageProps<"/stocks/[symbol]">) {
-  const viewer = await requireAccess();
   // Next.js 16: params is a Promise.
   const { symbol } = await params;
 
@@ -270,8 +267,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   ];
 
   return (
-    <AppShell run={run} viewer={viewer}>
-      <div className="space-y-4 px-4 py-5 sm:px-6">
+    <div className="space-y-4 px-4 py-5 sm:px-6">
         <div>
           <Link
             href="/"
@@ -409,9 +405,8 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
           title="Complete source record"
           description="Every field the screener exported for this row, including audit columns not surfaced above."
         >
-          <PayloadExplorer payload={payload} />
-        </Panel>
-      </div>
-    </AppShell>
+        <PayloadExplorer payload={payload} />
+      </Panel>
+    </div>
   );
 }

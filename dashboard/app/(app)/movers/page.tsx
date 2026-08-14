@@ -2,9 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowDownRight, ArrowUpRight, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 
-import { AppShell } from "@/components/app-shell";
 import { RatingBadge } from "@/components/rating-badge";
-import { requireAccess } from "@/lib/auth";
 import { formatDate, formatScore, MISSING } from "@/lib/format";
 import { getLatestRun, getMovers } from "@/lib/queries";
 import type { MoverRow } from "@/lib/types";
@@ -125,18 +123,15 @@ function MoverList({
 }
 
 export default async function MoversPage() {
-  const viewer = await requireAccess();
   const run = await getLatestRun();
 
   if (!run) {
     return (
-      <AppShell run={null} viewer={viewer}>
-        <div className="px-4 py-6 sm:px-6">
-          <p className="text-sm text-muted-foreground">
-            No screener run has been published yet.
-          </p>
-        </div>
-      </AppShell>
+      <div className="px-4 py-6 sm:px-6">
+        <p className="text-sm text-muted-foreground">
+          No screener run has been published yet.
+        </p>
+      </div>
     );
   }
 
@@ -145,8 +140,7 @@ export default async function MoversPage() {
   const hasComparison = Boolean(movers.previousOn);
 
   return (
-    <AppShell run={run} viewer={viewer}>
-      <div className="space-y-4 px-4 py-5 sm:px-6">
+    <div className="space-y-4 px-4 py-5 sm:px-6">
         <div>
           <h1 className="text-lg font-semibold">Movers</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -207,12 +201,11 @@ export default async function MoversPage() {
           </div>
         ) : null}
 
-        <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
-          A rating change reflects a change in evidence or in which policy
-          ceiling applies. It is not a trade signal, and the underlying model
-          has not been validated out of sample.
-        </p>
-      </div>
-    </AppShell>
+      <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
+        A rating change reflects a change in evidence or in which policy ceiling
+        applies. It is not a trade signal, and the underlying model has not been
+        validated out of sample.
+      </p>
+    </div>
   );
 }

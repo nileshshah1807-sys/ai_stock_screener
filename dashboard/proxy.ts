@@ -40,25 +40,45 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  // getUser() revalidates the token against Supabase. getSession() only decodes
-  // the cookie, which a client could have forged, so it must not gate routing.
+  // getClaims() verifies the token's signature locally with WebCrypto against
+  // the project's ES256 public key, which auth-js caches after the first fetch.
+  // That is a real cryptographic check, not a bare decode of a
+  // client-controlled cookie -- an unsigned or tampered token is rejected here
+  // exactly as getUser() would reject it, without paying a network round trip
+  // to the auth service on every single navigation.
   //
-  // A network failure here must not 500 every route. Treating an unreachable
-  // auth service as "no session" fails closed: the request is sent to the login
-  // page rather than through to data, and RLS would refuse the read anyway.
-  let user = null;
+  // Token refresh still happens: getClaims() reads the session first, and that
+  // read refreshes when the access token is inside its expiry margin. The
+  // difference is that the refresh now costs a request only when one is
+  // actually due, rather than once per navigation.
+  //
+  // This remains an *optimistic* gate either way. requireAccess() re-verifies
+  // against the auth service and checks the invite list, and RLS refuses the
+  // read regardless, so a forged cookie that somehow passed here would still
+  // reach no data.
+  //
+  // A failure must not 500 every route. Treating an unusable token as "no
+  // session" fails closed: the request goes to the login page rather than
+  // through to data.
+  let signedIn = false;
+  const authStarted = performance.now();
   try {
-    const result = await supabase.auth.getUser();
-    user = result.data.user;
+    const { data, error } = await supabase.auth.getClaims();
+    signedIn = !error && Boolean(data?.claims?.sub);
   } catch (error) {
     console.error("Auth check failed in proxy", error);
+  }
+  if (process.env.SCREENER_TRACE === "1") {
+    console.log(
+      `      [trace] proxy auth.getClaims      ${(performance.now() - authStarted).toFixed(0).padStart(6)} ms  ${request.nextUrl.pathname}${request.nextUrl.search}`,
+    );
   }
 
   const { pathname, search } = request.nextUrl;
   const isPublicRoute =
     pathname.startsWith("/login") || pathname.startsWith("/auth");
 
-  if (!user && !isPublicRoute) {
+  if (!signedIn && !isPublicRoute) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     // Preserve the destination so a deep link survives the login round trip.
@@ -66,7 +86,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  if (user && pathname.startsWith("/login")) {
+  if (signedIn && pathname.startsWith("/login")) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/";
     redirectUrl.search = "";

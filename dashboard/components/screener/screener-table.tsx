@@ -294,7 +294,7 @@ export function ScreenerTable({
             {rows.map((row) => (
               <tr
                 key={row.symbol}
-                className="border-t transition-colors hover:bg-muted/40"
+                className="group border-t transition-colors hover:bg-muted/40"
               >
                 <td className="tabular px-2 py-1.5 text-right font-mono text-xs text-muted-foreground">
                   {row.investment_rank ?? MISSING}

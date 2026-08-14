@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 
-import { AppShell } from "@/components/app-shell";
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
 import { runFreshness } from "@/components/freshness-banner";
-import { requireAccess } from "@/lib/auth";
 import {
   formatDate,
   formatDateTimeIST,
@@ -23,18 +21,15 @@ function short(value: string | null | undefined, length = 12): string {
 }
 
 export default async function HealthPage() {
-  const viewer = await requireAccess();
   const [run, recent] = await Promise.all([getLatestRun(), getRecentRuns(20)]);
 
   if (!run) {
     return (
-      <AppShell run={null} viewer={viewer}>
-        <div className="px-4 py-6 sm:px-6">
-          <p className="text-sm text-muted-foreground">
-            No screener run has been published yet.
-          </p>
-        </div>
-      </AppShell>
+      <div className="px-4 py-6 sm:px-6">
+        <p className="text-sm text-muted-foreground">
+          No screener run has been published yet.
+        </p>
+      </div>
     );
   }
 
@@ -108,8 +103,7 @@ export default async function HealthPage() {
   ];
 
   return (
-    <AppShell run={run} viewer={viewer}>
-      <div className="space-y-4 px-4 py-5 sm:px-6">
+    <div className="space-y-4 px-4 py-5 sm:px-6">
         <div>
           <h1 className="text-lg font-semibold">Run health</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -208,11 +202,10 @@ export default async function HealthPage() {
           </div>
         </Panel>
 
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {run.model_validation_status ??
-            "Research model; point-in-time out-of-sample validation pending."}
-        </p>
-      </div>
-    </AppShell>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        {run.model_validation_status ??
+          "Research model; point-in-time out-of-sample validation pending."}
+      </p>
+    </div>
   );
 }

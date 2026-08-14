@@ -50,15 +50,17 @@ export function SummaryTiles({ run }: { run: ScreenerRun }) {
 
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-      <div className="rounded-lg border bg-card p-3">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <div className="flex min-h-24 flex-col justify-between rounded border bg-card p-3">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
           Universe
         </p>
-        <p className="tabular mt-1 font-mono text-2xl font-semibold">
-          {formatInteger(total)}
-        </p>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          stocks scored
+        <p>
+          <span className="tabular font-mono text-2xl font-semibold">
+            {formatInteger(total)}
+          </span>
+          <span className="ml-1.5 text-[11px] text-muted-foreground">
+            scored
+          </span>
         </p>
       </div>
 
@@ -71,7 +73,7 @@ export function SummaryTiles({ run }: { run: ScreenerRun }) {
             key={tile.rating}
             href={`/?rating=${encodeURIComponent(tile.rating)}`}
             className={cn(
-              "group relative overflow-hidden rounded-lg border bg-card p-3 transition-colors",
+              "group relative flex min-h-24 flex-col justify-between overflow-hidden rounded border bg-card p-3 transition-colors",
               "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
           >
@@ -81,19 +83,21 @@ export function SummaryTiles({ run }: { run: ScreenerRun }) {
               className={cn("absolute inset-x-0 top-0 h-0.5", tile.rule)}
               aria-hidden
             />
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               {tile.rating}
             </p>
-            <p
-              className={cn(
-                "tabular mt-1 font-mono text-2xl font-semibold",
-                tile.accent,
-              )}
-            >
-              {formatInteger(count)}
-            </p>
-            <p className="tabular mt-0.5 text-[11px] text-muted-foreground">
-              {share.toFixed(1)}% of universe
+            <p className="flex items-baseline gap-1.5">
+              <span
+                className={cn(
+                  "tabular font-mono text-2xl font-semibold",
+                  tile.accent,
+                )}
+              >
+                {formatInteger(count)}
+              </span>
+              <span className="tabular text-[11px] text-muted-foreground">
+                {share.toFixed(1)}%
+              </span>
             </p>
           </Link>
         );
