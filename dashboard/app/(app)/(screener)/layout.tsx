@@ -24,9 +24,24 @@ export default async function ScreenerLayout({ children }: LayoutProps<"/">) {
 
   if (!run) return <>{children}</>;
 
+  // The publisher records both of these on the run, so the common path costs
+  // nothing beyond the manifest read that already happened. The fallbacks are
+  // for runs published before those columns existed: getSectors reads one
+  // column across the whole universe and runUsesFactorModel is a second probe,
+  // together ~500ms and two round trips on every full page load.
+  //
+  // `??` rather than `||` for the flag, so a run that genuinely scored without
+  // the factor model reads as false instead of triggering the fallback query.
   const [sectors, factorModel] = await Promise.all([
-    trace("  getSectors", () => getSectors(run.run_date, run.row_count)),
-    trace("  runUsesFactorModel", () => runUsesFactorModel(run.run_date)),
+    run.sectors?.length
+      ? run.sectors
+      : trace("  getSectors (fallback)", () =>
+          getSectors(run.run_date, run.row_count),
+        ),
+    run.factor_model_applied ??
+      trace("  runUsesFactorModel (fallback)", () =>
+        runUsesFactorModel(run.run_date),
+      ),
   ]);
 
   return (
