@@ -12,6 +12,12 @@ import { HistoryChart } from "@/components/stock/history-chart";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   formatDate,
   formatINR,
   formatINRCompact,
@@ -21,7 +27,14 @@ import {
   formatScore,
   MISSING,
 } from "@/lib/format";
-import { dataQuality, dcfStatus, stabilityStatus } from "@/lib/labels";
+import {
+  dataQuality,
+  dcfStatus,
+  eligibilityClass,
+  marketRegime,
+  primaryGate,
+  stabilityStatus,
+} from "@/lib/labels";
 import { getLatestRun, getStock, getStockHistory } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +57,22 @@ function numeric(payload: Record<string, unknown>, key: string): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function reasons(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(String).map((item) => item.trim()).filter(Boolean);
+  }
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map(String).map((item) => item.trim()).filter(Boolean);
+    }
+  } catch {
+    // Older exports used a semicolon-delimited scalar. It remains authoritative.
+  }
+  return value.split(";").map((item) => item.trim()).filter(Boolean);
 }
 
 export async function generateMetadata({
@@ -77,6 +106,70 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     payload,
     "Buy_Technical_Coverage_Margin",
   );
+  const gate = primaryGate(row.primary_gate);
+  const regime = marketRegime(row.market_regime);
+  const eligibility = eligibilityClass(row.eligibility_class);
+  const capApplied =
+    row.decision_cap_applied === true || row.rating_capped === true;
+  const capReasons = reasons(
+    row.decision_cap_reason ??
+      row.rating_cap_reason ??
+      pick(payload, "Gate_Failures"),
+  );
+  const evidenceScore = row.evidence_score;
+  const decisionScore = row.decision_score ?? row.final_score;
+  const pointsRemoved =
+    evidenceScore !== null && decisionScore !== null
+      ? Math.max(0, evidenceScore - decisionScore)
+      : null;
+
+  const policyFields: Field[] = [
+    {
+      label: "Research rating",
+      value: row.research_rating ?? row.evidence_rating ?? MISSING,
+      hint: "The rating implied by research evidence before policy eligibility checks.",
+    },
+    {
+      label: "Policy-eligible rating",
+      value: row.policy_eligible_rating ?? row.decision_rating ?? MISSING,
+      tone: capApplied ? "caution" : "default",
+      hint: "The highest rating allowed after applying this row's observed gates.",
+    },
+    {
+      label: "Evidence score",
+      value: formatScore(evidenceScore),
+      hint: "Score entering the policy stage.",
+    },
+    {
+      label: "Decision ceiling",
+      value: formatScore(row.decision_score_ceiling),
+      tone: capApplied ? "caution" : "muted",
+      hint: "Maximum score permitted by the active gate combination.",
+    },
+    {
+      label: "Published decision",
+      value: formatScore(decisionScore),
+    },
+    {
+      label: "Points removed",
+      value:
+        pointsRemoved !== null && pointsRemoved > 0.005
+          ? `-${formatNumber(pointsRemoved, 2)}`
+          : "0.00",
+      tone: pointsRemoved !== null && pointsRemoved > 0.005 ? "negative" : "muted",
+    },
+    {
+      label: "Primary constraint",
+      value: gate.label,
+      tone: capApplied ? "caution" : "muted",
+      hint: gate.meaning || undefined,
+    },
+    {
+      label: "Eligibility class",
+      value: eligibility.label,
+      hint: eligibility.meaning || undefined,
+    },
+  ];
 
   const gateFields: Field[] = [
     {
@@ -124,6 +217,74 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
       label: "Stability",
       value: stabilityStatus(row.decision_stability_status).label,
       hint: stabilityStatus(row.decision_stability_status).meaning || undefined,
+    },
+  ];
+
+  const coverageFields: Field[] = [
+    {
+      label: "Factor coverage",
+      value: formatRatioAsPercent(row.factor_coverage, 0),
+    },
+    {
+      label: "Quality coverage",
+      value: formatRatioAsPercent(row.quality_coverage, 0),
+    },
+    {
+      label: "Growth coverage",
+      value: formatRatioAsPercent(row.growth_coverage, 0),
+    },
+    {
+      label: "Value coverage",
+      value: formatRatioAsPercent(row.value_coverage, 0),
+    },
+    {
+      label: "Momentum coverage",
+      value: formatRatioAsPercent(row.momentum_coverage, 0),
+    },
+    {
+      label: "Risk coverage",
+      value: formatRatioAsPercent(row.risk_coverage, 0),
+    },
+    {
+      label: "Fundamental coverage",
+      value: formatRatioAsPercent(row.fundamental_coverage, 0),
+      hint:
+        buyFundamentalCoverageMargin === null
+          ? undefined
+          : `BUY-floor margin ${formatRatioAsPercent(buyFundamentalCoverageMargin, 1, true)}.`,
+    },
+    {
+      label: "Technical coverage",
+      value: formatRatioAsPercent(row.technical_coverage, 0),
+      hint:
+        buyTechnicalCoverageMargin === null
+          ? undefined
+          : `BUY-floor margin ${formatRatioAsPercent(buyTechnicalCoverageMargin, 1, true)}.`,
+    },
+    {
+      label: "Price session aligned",
+      value:
+        row.price_bar_aligned === null
+          ? MISSING
+          : row.price_bar_aligned
+            ? "Yes"
+            : "No",
+      tone:
+        row.price_bar_aligned === null
+          ? "muted"
+          : row.price_bar_aligned
+            ? "positive"
+            : "caution",
+      hint: row.price_bar_aligned === true
+        ? "Technical evidence uses the run's expected completed session."
+        : row.price_bar_aligned === false
+          ? "An older vendor bar is retained for audit but cannot support BUY conviction."
+          : undefined,
+    },
+    {
+      label: "Market regime",
+      value: regime.label,
+      hint: regime.meaning || undefined,
     },
   ];
 
@@ -392,10 +553,55 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
         </div>
 
         <Panel
-          title="Gates and ceilings"
-          description="Gates cap a rating rather than remove a stock from the ranking."
+          title="Decision audit"
+          description="Every explanation below comes from this row's exported evidence and policy fields; no company-specific rules are used."
         >
-          <FieldList fields={gateFields} columns={4} />
+          <Tabs defaultValue="policy" className="gap-4">
+            <TabsList variant="line" aria-label="Decision audit views">
+              <TabsTrigger value="policy">Policy ceiling</TabsTrigger>
+              <TabsTrigger value="gates">Gate checks</TabsTrigger>
+              <TabsTrigger value="coverage">Evidence coverage</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="policy" className="space-y-4">
+              <div
+                className={`rounded-row border p-4 ${
+                  capApplied
+                    ? "border-caution/40 bg-caution/5"
+                    : "border-border bg-muted/20"
+                }`}
+              >
+                <p className="text-sm font-medium">
+                  {capApplied
+                    ? `${gate.label} limited the policy-eligible decision.`
+                    : "No policy ceiling reduced this decision."}
+                </p>
+                {capReasons.length ? (
+                  <ul className="mt-2 space-y-1 text-xs leading-relaxed text-muted-foreground">
+                    {capReasons.map((reason) => (
+                      <li key={reason} className="flex gap-2">
+                        <span aria-hidden>&bull;</span>
+                        <span>{reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    The exported row contains no active cap reason.
+                  </p>
+                )}
+              </div>
+              <FieldList fields={policyFields} columns={4} />
+            </TabsContent>
+
+            <TabsContent value="gates">
+              <FieldList fields={gateFields} columns={4} />
+            </TabsContent>
+
+            <TabsContent value="coverage">
+              <FieldList fields={coverageFields} columns={4} />
+            </TabsContent>
+          </Tabs>
         </Panel>
 
         <Panel

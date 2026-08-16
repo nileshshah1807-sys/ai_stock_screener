@@ -99,9 +99,13 @@ export default async function HealthPage() {
         collectionRate !== null && collectionRate < 90 ? "caution" : "positive",
     },
     {
-      label: "Technical failed",
+      label: "Provider failures",
       value: formatInteger(run.technical_failed_count ?? 0),
       tone: (run.technical_failed_count ?? 0) > 0 ? "caution" : "muted",
+      hint:
+        (run.technical_failed_count ?? 0) > 0
+          ? "A prior completed row may have been retained as stale evidence; its policy tab shows the session-alignment gate."
+          : undefined,
     },
     {
       label: "Fundamentals missing",

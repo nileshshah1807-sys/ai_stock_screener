@@ -1063,7 +1063,11 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn(
-            "if: success() && steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'",
+            "if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule'",
+            workflow,
+        )
+        self.assertIn(
+            "if: steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true'",
             workflow,
         )
         self.assertIn("default: false", workflow)
