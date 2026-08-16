@@ -207,4 +207,4 @@ jobs:
         run: |
           csv="$(ls -1 "${OUTPUT_DIR}"/advanced_analysis_*.csv | sort | tail -n 1)"
           echo "Publishing ${csv} to the dashboard read model"
-          python -m workers.dashboard_publisher --csv "${csv}"
+          python -m workers.dashboard_publisher --csv "${csv}" --if-exists skip

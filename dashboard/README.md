@@ -104,6 +104,9 @@ python -m workers.dashboard_publisher --csv reports_advanced\advanced_analysis_2
 
 `--dry-run` parses, maps, and reports coercion and column drift without
 contacting Supabase. Always worth running first against an unfamiliar export.
+Scheduled publishing also passes `--if-exists skip`, which treats an already
+published trading date as a successful no-op. The CLI default remains `error`
+so an operator cannot accidentally replace a completed snapshot.
 
 ### 4. Local development
 

@@ -313,7 +313,7 @@ class RunRowTests(unittest.TestCase):
 
 class PublishTests(unittest.TestCase):
     @staticmethod
-    def publish_with(repository):
+    def publish_with(repository, **publish_kwargs):
         with TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "advanced_analysis_20260811.csv"
             minimal_frame().to_csv(csv_path, index=False)
@@ -321,7 +321,7 @@ class PublishTests(unittest.TestCase):
                 "workers.dashboard_publisher.DashboardRepository.from_environment",
                 return_value=repository,
             ):
-                return publish(csv_path=csv_path)
+                return publish(csv_path=csv_path, **publish_kwargs)
 
     def test_complete_run_metadata_is_written_after_snapshot_and_history(self):
         repository = RecordingDashboardRepository()
@@ -378,10 +378,28 @@ class PublishTests(unittest.TestCase):
 
         self.assertEqual([name for name, _ in repository.calls], ["check_run"])
 
+    def test_existing_same_date_run_can_be_a_successful_no_op(self):
+        repository = RecordingDashboardRepository(existing_run=True)
+
+        summary = self.publish_with(repository, if_exists="skip")
+
+        self.assertEqual([name for name, _ in repository.calls], ["check_run"])
+        self.assertIs(summary["skipped"], True)
+        self.assertEqual(summary["skip_reason"], "already_published")
+        self.assertEqual(summary["existing_row_count"], 1)
+        self.assertNotIn("snapshot_rows_written", summary)
+
+    def test_invalid_if_exists_value_is_rejected_before_reading_the_csv(self):
+        with self.assertRaisesRegex(ValueError, "if_exists"):
+            publish(
+                csv_path=Path("does-not-need-to-exist.csv"),
+                if_exists="replace",
+            )
+
     def test_abandoned_same_date_reservation_is_reclaimed_before_retry(self):
         repository = RecordingDashboardRepository(existing_run="incomplete")
 
-        summary = self.publish_with(repository)
+        summary = self.publish_with(repository, if_exists="skip")
 
         labels = [name for name, _ in repository.calls]
         self.assertEqual(
