@@ -50,6 +50,7 @@ FALSE_TOKENS = {"false", "f", "no", "n", "0"}
 SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("symbol", "Symbol", "text"),
     ("company", "Company", "text"),
+    ("logo_domain", "Logo_Domain", "text"),
     ("sector", "Sector", "text"),
     ("industry", "Industry", "text"),
 

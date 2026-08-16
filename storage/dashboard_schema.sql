@@ -145,6 +145,7 @@ create table if not exists screener_snapshot (
     run_date date not null references screener_runs(run_date) on delete cascade,
     symbol text not null,
     company text,
+    logo_domain text,
     sector text,
     industry text,
 
@@ -352,6 +353,7 @@ alter table screener_runs
     add column if not exists factor_model_applied boolean;
 
 alter table screener_snapshot
+    add column if not exists logo_domain text,
     add column if not exists factor_model_applied boolean,
     add column if not exists research_score numeric(6,2),
     add column if not exists research_score_raw numeric(6,2),

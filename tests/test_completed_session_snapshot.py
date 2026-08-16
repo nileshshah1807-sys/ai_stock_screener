@@ -393,6 +393,7 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
         fixed_now = datetime(2026, 8, 10, 16, 30, tzinfo=IST)
         info = {
             "longName": "Example Limited",
+            "website": "https://www.example.com/investors/",
             "trailingEps": 12.5,
             "bookValue": 80.0,
             "sharesOutstanding": 10_000_000,
@@ -421,6 +422,8 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
         self.assertEqual(row["Total_Debt"], 100_000_000)
         self.assertEqual(row["Total_Cash"], 50_000_000)
         self.assertEqual(row["Dividend_Rate"], 4.0)
+        self.assertEqual(row["Company_Website"], "https://www.example.com/investors/")
+        self.assertEqual(row["Logo_Domain"], "example.com")
         self.assertEqual(row["Fundamental_As_Of"], "2026-08-10T16:30:00+05:30")
         self.assertEqual(row["Fundamental_Fetched_At"], "2026-08-10T16:30:00+05:30")
         self.assertEqual(row["Fundamental_As_Of_Quality"], "fetch_timestamp")
