@@ -1,0 +1,64 @@
+name: Backfill dashboard logo domains
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_date:
+        description: Optional snapshot date (YYYY-MM-DD); blank uses the latest completed run
+        required: false
+        type: string
+      limit:
+        description: Maximum missing rows to inspect; 0 means all
+        required: true
+        default: "0"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dashboard-logo-domain-backfill
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RUN_DATE: ${{ inputs.run_date }}
+      ROW_LIMIT: ${{ inputs.limit }}
+      LOGO_BACKFILL_REQUESTS_PER_MINUTE: "40"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install focused dependencies
+        run: python -m pip install "requests>=2.31.0" "yfinance>=0.2.31"
+
+      - name: Run focused tests
+        run: >-
+          python -m unittest
+          tests.test_dashboard_repository
+          tests.test_logo_domain_backfill
+
+      - name: Verify Supabase credentials
+        shell: bash
+        run: |
+          test -n "$SUPABASE_URL" || { echo "SUPABASE_URL secret is missing"; exit 1; }
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || { echo "SUPABASE_SERVICE_ROLE_KEY secret is missing"; exit 1; }
+
+      - name: Backfill current snapshot
+        shell: bash
+        run: |
+          args=(--limit "$ROW_LIMIT")
+          if [[ -n "$RUN_DATE" ]]; then
+            args+=(--run-date "$RUN_DATE")
+          fi
+          python -m workers.logo_domain_backfill "${args[@]}"
