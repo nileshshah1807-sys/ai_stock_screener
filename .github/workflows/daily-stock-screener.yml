@@ -4,8 +4,8 @@ run-name: Daily stock screener (${{ github.event_name }})
 on:
   schedule:
     # Primary at 16:30 IST; fallback at 18:30 IST, after the 16:15 NSE
-    # trade-modification cutoff. The fallback exits quickly
-    # when a scheduled run has already succeeded on the same UTC date.
+    # trade-modification cutoff. Calendar-day and completed-session guards
+    # keep fallback/weekend/holiday runs from rebuilding the same snapshot.
     - cron: "0 11,13 * * *"
   workflow_dispatch:
     inputs:
@@ -152,12 +152,17 @@ jobs:
           TRANSCRIPT_ENABLE_FINBERT: "false"
         run: python -m unittest discover -s tests
 
+      - name: Check whether completed NSE session is already published
+        id: session-guard
+        if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        run: python -m workers.scheduled_session_guard
+
       - name: Run stock screener
-        if: steps.schedule-dedupe.outputs.skip != 'true'
+        if: steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true'
         run: python app.py
 
       - name: Publish report artifact
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true'
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true'
         uses: actions/upload-artifact@v6
         with:
           name: stock-screener-report-${{ github.run_id }}
@@ -170,7 +175,7 @@ jobs:
           retention-days: 7
 
       - name: Save refreshed market-data cache
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule'
         uses: actions/cache/save@v6
         with:
           path: |
@@ -185,7 +190,7 @@ jobs:
         # Checkpoint a valid partial/full statement build even when the screener
         # later fails the coverage guard. This avoids refetching successful
         # records on the next run. hashFiles prevents saving a missing cache.
-        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule' && hashFiles('reports_advanced/statement_cache.csv') != ''
+        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule' && hashFiles('reports_advanced/statement_cache.csv') != ''
         uses: actions/cache/save@v6
         with:
           path: reports_advanced/statement_cache.csv
@@ -200,7 +205,7 @@ jobs:
         #
         # Scheduled runs only: a manual dispatch is an isolated candidate run
         # and must never overwrite what production serves.
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

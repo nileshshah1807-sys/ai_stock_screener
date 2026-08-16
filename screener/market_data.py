@@ -491,18 +491,24 @@ class PriceCache:
         max_age_hours=18,
         *,
         factor_model_enabled=False,
+        allow_prior_session=False,
         as_of=None,
         completion_cutoff="16:15",
         market_timezone="Asia/Kolkata",
         market_holidays=(),
     ):
-        """Return a schema-, age-, and exchange-session-current cache.
+        """Return a schema-valid cache for the expected exchange session.
 
-        File mtime remains a maximum-age guard, but it is not sufficient on its
-        own: a cache fetched before today's completion cutoff must be refreshed
-        once that cutoff passes, and a same-day bar is never reused before it.
-        A prior bar after cutoff is reusable only on a configured exchange
-        holiday or weekend. On a normal session it is stale and forces refresh.
+        Completed daily bars are immutable, so wall-clock age must not expire a
+        Friday snapshot during a weekend/holiday (or before Monday's close).
+        The cache is current when its recorded *expected session* matches the
+        session the run is analysing.  Individual rows may carry an older bar;
+        those rows remain explicit stale evidence and are policy-capped rather
+        than invalidating and rebuilding the whole cross-section.
+
+        ``allow_prior_session`` is used only as a per-symbol failure fallback
+        while collecting a genuinely newer session.  It still enforces the
+        schema, indicator version and provenance contract.
         """
         try:
             p = Path(cache_path)
@@ -520,10 +526,6 @@ class PriceCache:
                 current = current.tz_localize(timezone_info)
             else:
                 current = current.tz_convert(timezone_info)
-            age_hours = max(0.0, (current.timestamp() - p.stat().st_mtime) / 3600)
-            if age_hours > max_age_hours:
-                logger.info(f"Price cache is {age_hours:.1f}h old (> {max_age_hours}h) - ignoring")
-                return pd.DataFrame()
             df = pd.read_csv(p)
             required_columns = PriceCache.REQUIRED_COLUMNS + (
                 PriceCache.FACTOR_REQUIRED_COLUMNS
@@ -555,6 +557,9 @@ class PriceCache:
                 or str(value).strip().lower() in {"true", "1", "yes"}
             )
             bar_dates = pd.to_datetime(df["Price_Bar_As_Of"], errors="coerce").dt.date
+            expected_dates = pd.to_datetime(
+                df["Expected_Price_Bar_As_Of"], errors="coerce"
+            ).dt.date
             fetched_at = pd.to_datetime(
                 df["Price_Fetched_At"], errors="coerce", utc=True
             )
@@ -562,22 +567,12 @@ class PriceCache:
                 df["Analysis_As_Of"], errors="coerce", utc=True
             )
             if (
-                not complete.all()
-                or bar_dates.isna().any()
+                bar_dates.isna().any()
+                or expected_dates.isna().any()
                 or fetched_at.isna().any()
                 or analysis_at.isna().any()
             ):
                 logger.info("Price cache has incomplete or invalid provenance - refreshing")
-                return pd.DataFrame()
-
-            fetch_age_hours = (
-                current.tz_convert("UTC") - fetched_at
-            ).dt.total_seconds() / 3600.0
-            if (fetch_age_hours > max_age_hours).any():
-                logger.info(
-                    "Price cache source fetch is older than %sh - refreshing",
-                    max_age_hours,
-                )
                 return pd.DataFrame()
 
             if hasattr(completion_cutoff, "hour") and hasattr(completion_cutoff, "minute"):
@@ -601,10 +596,21 @@ class PriceCache:
             expected_session = latest_expected_completed_nse_session(
                 today, current_time, cutoff_time, market_holidays
             )
-            if (bar_dates > today).any():
-                logger.info("Price cache contains a future-dated bar - refreshing")
+            if (bar_dates > expected_dates).any() or (expected_dates > today).any():
+                logger.info("Price cache contains impossible future provenance - refreshing")
                 return pd.DataFrame()
-            if not pd.Series(bar_dates).eq(expected_session).all():
+            aligned_to_recorded_session = pd.Series(bar_dates).eq(expected_dates)
+            if ((~complete) & aligned_to_recorded_session).any():
+                logger.info(
+                    "Price cache marks an expected-session bar incomplete - refreshing"
+                )
+                return pd.DataFrame()
+            expected_matches = pd.Series(expected_dates).eq(expected_session)
+            if not expected_matches.all():
+                if allow_prior_session and pd.Series(expected_dates).le(
+                    expected_session
+                ).all():
+                    return df
                 logger.info(
                     "Price cache is not aligned to expected completed NSE session %s - refreshing",
                     expected_session,
@@ -615,13 +621,13 @@ class PriceCache:
                 # NSE has no regular daily bar on weekends; use the latest prior
                 # completed session on weekends/configured holidays, subject to
                 # the configured maximum age.
-                if (bar_dates >= today).any():
+                if (expected_dates >= today).any():
                     logger.info(
                         "Price cache contains a same-day non-session bar - refreshing"
                     )
                     return pd.DataFrame()
             elif current_time < cutoff_time:
-                if (bar_dates >= today).any():
+                if (expected_dates >= today).any():
                     logger.info(
                         "Price cache contains today's still-incomplete NSE daily bar - refreshing"
                     )

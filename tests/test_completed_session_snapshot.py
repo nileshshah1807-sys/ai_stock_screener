@@ -242,6 +242,7 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
                 "Symbol": "EXAMPLE",
                 "Technical_Indicator_Version": TechnicalEnhancer.INDICATOR_VERSION,
                 "Price_Bar_As_Of": "2026-08-07",
+                "Expected_Price_Bar_As_Of": "2026-08-07",
                 "Price_Bar_Complete": True,
                 "Analysis_As_Of": "2026-08-10T15:00:00+05:30",
                 "Price_Fetched_At": "2026-08-10T15:00:00+05:30",
@@ -317,6 +318,7 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
         # session is Monday 2026-08-10 and the cached bar must match it.
         record = self._cache_record(
             Price_Bar_As_Of="2026-08-10",
+            Expected_Price_Bar_As_Of="2026-08-10",
             Analysis_As_Of="2026-08-11T16:20:00+05:30",
             Price_Fetched_At="2026-08-11T16:20:00+05:30",
         )
@@ -338,6 +340,7 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
         # normal session, so its own completed bar is the one required.
         record = self._cache_record(
             Price_Bar_As_Of="2026-08-10",
+            Expected_Price_Bar_As_Of="2026-08-10",
             Analysis_As_Of="2026-08-11T16:20:00+05:30",
             Price_Fetched_At="2026-08-11T16:20:00+05:30",
         )
@@ -355,6 +358,7 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
 
     def test_after_cutoff_fetch_cannot_relabel_pre_cutoff_snapshot_as_complete(self):
         record = self._cache_record(
+            Expected_Price_Bar_As_Of="2026-08-10",
             Analysis_As_Of="2026-08-10T15:00:00+05:30",
             Price_Fetched_At="2026-08-10T16:20:00+05:30",
         )
@@ -370,15 +374,16 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
 
         self.assertTrue(cached.empty)
 
-    def test_rewriting_cache_file_does_not_extend_old_source_fetch(self):
+    def test_completed_session_cache_does_not_expire_by_wall_clock(self):
         record = self._cache_record(
             Analysis_As_Of="2026-08-09T18:30:00+05:30",
             Price_Fetched_At="2026-08-09T18:30:00+05:30",
         )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "price_cache.csv"
-            # Saving now gives the file a fresh mtime; source-fetch age must
-            # still invalidate it independently of that filesystem timestamp.
+            # The latest completed session is still Friday before Monday's
+            # cutoff. Re-downloading immutable bars here can change adjusted
+            # history and cross-sectional ranks even though no session closed.
             PriceCache.save(path, [record])
 
             cached = PriceCache.load(
@@ -387,7 +392,65 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
                 as_of=datetime(2026, 8, 10, 15, 0, tzinfo=IST),
             )
 
-        self.assertTrue(cached.empty)
+        self.assertFalse(cached.empty)
+
+    def test_one_lagging_row_does_not_invalidate_completed_cross_section(self):
+        record = self._cache_record(
+            Price_Bar_As_Of="2026-08-06",
+            Expected_Price_Bar_As_Of="2026-08-07",
+            Price_Bar_Complete=False,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "price_cache.csv"
+            PriceCache.save(path, [record])
+
+            cached = PriceCache.load(
+                path,
+                max_age_hours=18,
+                as_of=datetime(2026, 8, 9, 12, 0, tzinfo=IST),
+            )
+
+        self.assertFalse(cached.empty)
+        self.assertEqual(cached.iloc[0]["Price_Bar_As_Of"], "2026-08-06")
+
+    def test_new_session_provider_failure_retains_explicit_stale_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache_path = Path(directory) / "price_cache.csv"
+            PriceCache.save(
+                cache_path,
+                [self._cache_record(Current_Price=179.0)],
+            )
+            collector = StockDataCollector(
+                self._config(directory),
+                clock=lambda: datetime(2026, 8, 10, 16, 30, tzinfo=IST),
+            )
+            with patch(
+                "screener.data_collection.yf.download",
+                return_value=pd.DataFrame(),
+            ):
+                result = collector.download_stock_data(["EXAMPLE"])
+
+        self.assertEqual(result["Symbol"].tolist(), ["EXAMPLE"])
+        self.assertEqual(result.iloc[0]["Current_Price"], 179.0)
+        self.assertFalse(result.iloc[0]["Price_Bar_Aligned"])
+        self.assertEqual(
+            result.iloc[0]["Price_Session_Status"], "stale_cached_fallback"
+        )
+        self.assertEqual(
+            collector.collection_diagnostics["technical_provider_failed_symbols"],
+            ["EXAMPLE"],
+        )
+        self.assertEqual(
+            collector.collection_diagnostics["technical_fallback_symbols"],
+            ["EXAMPLE"],
+        )
+        self.assertEqual(
+            collector.collection_diagnostics["technical_failed_symbols"],
+            ["EXAMPLE"],
+        )
+        self.assertEqual(
+            collector.collection_diagnostics["technical_unresolved_symbols"], []
+        )
 
     def test_fundamental_fetch_preserves_raw_recomputation_inputs_and_timestamp(self):
         fixed_now = datetime(2026, 8, 10, 16, 30, tzinfo=IST)

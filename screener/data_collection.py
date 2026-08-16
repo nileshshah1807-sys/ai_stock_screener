@@ -264,6 +264,8 @@ class StockDataCollector:
             "technical_requested_symbols": [],
             "technical_collected_symbols": [],
             "technical_failed_symbols": [],
+            "technical_unresolved_symbols": [],
+            "technical_fallback_symbols": [],
             "fundamental_requested_symbols": [],
             "fundamental_fetch_requested_symbols": [],
             "fundamental_collected_symbols": [],
@@ -494,24 +496,66 @@ class StockDataCollector:
             market_timezone=self.market_timezone,
             market_holidays=self.market_holidays,
         )
+        prior_cache = PriceCache.load(
+            cache_path,
+            self.config.PRICE_CACHE_MAX_AGE_HOURS,
+            factor_model_enabled=factor_model_enabled,
+            allow_prior_session=True,
+            as_of=analysis_as_of,
+            completion_cutoff=self.price_bar_completion_cutoff,
+            market_timezone=self.market_timezone,
+            market_holidays=self.market_holidays,
+        )
         cached_records = []
-        to_download = list(symbols)
+        to_download = list(requested_symbols)
         if not cached.empty and "Symbol" in cached.columns:
             cached = cached.copy()
+            cached["Symbol"] = cached["Symbol"].astype(str).str.strip().str.upper()
             cached["Analysis_As_Of"] = analysis_as_of_text
             cached["Expected_Price_Bar_As_Of"] = expected_price_session.isoformat()
-            # PriceCache.load only returns rows already equal to the expected
-            # session, so anything surviving here is aligned by construction.
-            cached["Price_Bar_Session_Lag"] = 0
-            cached["Price_Bar_Aligned"] = True
-            cached["Price_Session_Status"] = (
+            cached_bar_dates = pd.to_datetime(
+                cached["Price_Bar_As_Of"], errors="coerce"
+            ).dt.date
+            cached["Price_Bar_Session_Lag"] = [
+                expected_sessions_behind(
+                    bar_date, expected_price_session, self.market_holidays
+                )
+                for bar_date in cached_bar_dates
+            ]
+            cached["Price_Bar_Aligned"] = cached_bar_dates.eq(
+                expected_price_session
+            )
+            aligned_status = (
                 "current_completed_session"
                 if expected_price_session == analysis_as_of.date()
                 else "prior_completed_non_session"
             )
-            cached_symbols = set(cached["Symbol"].astype(str))
-            cached_records = cached[cached["Symbol"].isin(symbols)].to_dict("records")
-            to_download = [s for s in symbols if s not in cached_symbols]
+            cached.loc[cached["Price_Bar_Aligned"], "Price_Session_Status"] = (
+                aligned_status
+            )
+            cached.loc[
+                ~cached["Price_Bar_Aligned"]
+                & cached["Price_Session_Status"].ne("stale_cached_fallback"),
+                "Price_Session_Status",
+            ] = "stale_source_bar"
+
+            # A prior-session fallback created after today's close should be
+            # retried by a later scheduled attempt. On weekends/holidays the
+            # expected session has not changed, so the completed cross-section
+            # stays immutable and every row is reused exactly as published.
+            retry_fallback = (
+                cached["Price_Session_Status"].eq("stale_cached_fallback")
+                & (expected_price_session == analysis_as_of.date())
+                & is_expected_nse_session(
+                    analysis_as_of.date(), self.market_holidays
+                )
+            )
+            reusable_cached = cached.loc[~retry_fallback]
+            reusable_symbols = set(reusable_cached["Symbol"].astype(str))
+            cached_records = reusable_cached[
+                reusable_cached["Symbol"].isin(requested_symbols)
+            ].to_dict("records")
+            to_download = [s for s in requested_symbols if s not in reusable_symbols]
             logger.info(
                 f"Price cache hit: {len(cached_records)} reused, {len(to_download)} to download"
             )
@@ -833,7 +877,50 @@ class StockDataCollector:
                 logger.error(f"Batch {batch_num} error: {e}")
                 continue
 
-        all_records = cached_records + results
+        fresh_symbols = {
+            str(record.get("Symbol", "")).strip().upper()
+            for record in results
+            if str(record.get("Symbol", "")).strip()
+        }
+        provider_failed_symbols = sorted(set(to_download) - fresh_symbols)
+        prior_by_symbol = {}
+        if not prior_cache.empty and "Symbol" in prior_cache.columns:
+            prior_cache = prior_cache.copy()
+            prior_cache["Symbol"] = (
+                prior_cache["Symbol"].astype(str).str.strip().str.upper()
+            )
+            prior_by_symbol = {
+                str(record["Symbol"]): record
+                for record in prior_cache.to_dict("records")
+            }
+
+        fallback_records = []
+        for symbol in provider_failed_symbols:
+            previous = prior_by_symbol.get(symbol)
+            if previous is None:
+                continue
+            fallback = dict(previous)
+            bar_date = pd.to_datetime(
+                fallback.get("Price_Bar_As_Of"), errors="coerce"
+            )
+            bar_date = None if pd.isna(bar_date) else bar_date.date()
+            fallback.update(
+                {
+                    "Symbol": symbol,
+                    "Analysis_As_Of": analysis_as_of_text,
+                    "Expected_Price_Bar_As_Of": expected_price_session.isoformat(),
+                    "Price_Bar_Session_Lag": expected_sessions_behind(
+                        bar_date, expected_price_session, self.market_holidays
+                    ),
+                    "Price_Bar_Aligned": bool(
+                        bar_date == expected_price_session
+                    ),
+                    "Price_Session_Status": "stale_cached_fallback",
+                }
+            )
+            fallback_records.append(fallback)
+
+        all_records = cached_records + results + fallback_records
         collected_symbols = sorted(
             {
                 str(record.get("Symbol", "")).strip().upper()
@@ -842,8 +929,18 @@ class StockDataCollector:
             }
         )
         self.collection_diagnostics["technical_collected_symbols"] = collected_symbols
-        self.collection_diagnostics["technical_failed_symbols"] = sorted(
+        self.collection_diagnostics["technical_failed_symbols"] = (
+            provider_failed_symbols
+        )
+        self.collection_diagnostics["technical_unresolved_symbols"] = sorted(
             set(requested_symbols) - set(collected_symbols)
+        )
+        self.collection_diagnostics["technical_provider_failed_symbols"] = (
+            provider_failed_symbols
+        )
+        self.collection_diagnostics["technical_fallback_symbols"] = sorted(
+            str(record.get("Symbol", "")).strip().upper()
+            for record in fallback_records
         )
         self.collection_diagnostics["technical_cached_symbols"] = sorted(
             {
@@ -857,7 +954,9 @@ class StockDataCollector:
             logger.info(f"Price cache saved ({len(all_records)} records) -> {cache_path}")
         logger.info(
             f"Technical data: {len(all_records)} stocks collected "
-            f"({len(results)} fresh, {len(cached_records)} cached, {len(failed)} failed)"
+            f"({len(results)} fresh, {len(cached_records)} cached, "
+            f"{len(fallback_records)} stale fallback, "
+            f"{len(provider_failed_symbols)} provider failed)"
         )
         return pd.DataFrame(all_records)
 
