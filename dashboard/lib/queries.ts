@@ -50,6 +50,7 @@ const GRID_COLUMNS = [
   "run_date",
   "symbol",
   "company",
+  "logo_domain",
   "investment_rank",
   "rating",
   "decision_score",

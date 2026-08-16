@@ -18,6 +18,7 @@ function row(values: Partial<SnapshotRow>): SnapshotRow {
   return {
     run_date: "2026-08-14",
     company: null,
+    logo_domain: null,
     sector: "Capital Goods",
     industry: "Non Electrical Equipment",
     ...values,
@@ -85,6 +86,7 @@ export const previewRows: SnapshotRow[] = [
   row({
     symbol: "HDFCBANK",
     company: "HDFC Bank Ltd",
+    logo_domain: "hdfcbank.com",
     sector: "Financials",
     industry: "Private Banks",
     investment_rank: 2,
@@ -115,6 +117,7 @@ export const previewRows: SnapshotRow[] = [
   row({
     symbol: "TCS",
     company: "Tata Consultancy Services Ltd",
+    logo_domain: "tcs.com",
     sector: "IT Services",
     industry: "IT Consulting",
     investment_rank: 3,
@@ -143,6 +146,7 @@ export const previewRows: SnapshotRow[] = [
   row({
     symbol: "VODAIDEA",
     company: "Vodafone Idea Ltd",
+    logo_domain: "myvi.in",
     sector: "Telecom",
     industry: "Telecom Services",
     investment_rank: 1844,
@@ -173,6 +177,7 @@ export const previewRows: SnapshotRow[] = [
   row({
     symbol: "YESBANK",
     company: "Yes Bank Ltd",
+    logo_domain: "yesbank.in",
     sector: "Financials",
     industry: "Private Banks",
     investment_rank: 1847,

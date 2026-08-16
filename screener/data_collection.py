@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -867,7 +868,7 @@ class StockDataCollector:
     # of these (e.g. was written before Sector/Industry were added), every row
     # in it is missing that data forever unless we force a one-time re-fetch.
     REQUIRED_FUND_COLUMNS = (
-        "Company", "Sector", "Industry", "EPS", "Book_Value",
+        "Company", "Logo_Domain", "Sector", "Industry", "EPS", "Book_Value",
         "Shares_Outstanding", "EBITDA", "Total_Debt", "Total_Cash",
         "Dividend_Rate",
         "Fundamental_Fetched_At", "Fundamental_Source",
@@ -931,6 +932,32 @@ class StockDataCollector:
             if value is not None and str(value).strip() and str(value).strip().lower() != "nan":
                 return str(value).strip()
         return str(symbol)
+
+    @staticmethod
+    def _company_logo_domain(info):
+        """Return a normalized website domain suitable for logo lookup.
+
+        Yahoo does not consistently expose a durable logo URL, but its quote
+        metadata does expose the issuer website for most NSE equities. Store
+        only that stable identifier; the dashboard can choose a logo CDN
+        without coupling the research export to one provider's URL format.
+        """
+        if not isinstance(info, dict):
+            return None
+        website = info.get("website")
+        if website is None or not str(website).strip():
+            return None
+        candidate = str(website).strip()
+        if "://" not in candidate:
+            candidate = f"https://{candidate}"
+        try:
+            hostname = urlparse(candidate).hostname
+        except ValueError:
+            return None
+        if not hostname:
+            return None
+        domain = hostname.lower().rstrip(".")
+        return domain[4:] if domain.startswith("www.") else domain
 
     @staticmethod
     def _split_cache(cached_df, max_age_days):
@@ -1049,6 +1076,8 @@ class StockDataCollector:
                 fundamental_data.append({
                     "Symbol": symbol,
                     "Company": self._company_name(info, symbol),
+                    "Company_Website": info.get("website"),
+                    "Logo_Domain": self._company_logo_domain(info),
                     "Cached_Date": today_str,
                     "Fundamental_As_Of": fundamental_fetched_at,
                     "Fundamental_Fetched_At": fundamental_fetched_at,

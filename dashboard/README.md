@@ -112,7 +112,7 @@ so an operator cannot accidentally replace a completed snapshot.
 
 ```powershell
 cd dashboard
-copy .env.example .env.local   # then fill in the two Supabase values
+copy .env.example .env.local   # then fill in Supabase and Brandfetch values
 npm install
 npm run dev
 ```
@@ -126,6 +126,19 @@ Vercel, with **Root Directory** set to `dashboard`. Environment variables:
 | `NEXT_PUBLIC_SUPABASE_URL` | `https://YOUR_PROJECT.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | project anon key |
 | `NEXT_PUBLIC_SITE_URL` | deployed origin, no trailing slash |
+| `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` | public client ID from the Brandfetch developer portal |
+
+The Brandfetch client ID is intentionally browser-visible: Brandfetch requires
+it in each Logo API image URL. Put the real value in Vercel and in the ignored
+local `dashboard/.env.local`; commit only the placeholder in `.env.example`.
+After changing a `NEXT_PUBLIC_` value in Vercel, redeploy because Next.js
+inlines public environment variables at build time.
+
+Company logo domains come from Yahoo's issuer `website` metadata and are
+published as `screener_snapshot.logo_domain`. Re-run
+`storage/dashboard_schema.sql` before the first logo-enabled publish. Existing
+fundamental caches intentionally refresh once to backfill this new field; a
+missing domain or failed Logo API response falls back to a ticker initial.
 
 The repository already holds `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as
 Actions secrets for the transcript and red-flag workers; the publish step reuses

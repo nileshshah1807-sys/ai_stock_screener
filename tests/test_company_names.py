@@ -23,6 +23,25 @@ class CompanyNameTests(unittest.TestCase):
         self.assertEqual(StockDataCollector._company_name({}, "INFY"), "INFY")
         self.assertEqual(StockDataCollector._company_name(None, "HDFCBANK"), "HDFCBANK")
 
+    def test_yahoo_website_is_normalized_for_logo_lookup(self):
+        self.assertEqual(
+            StockDataCollector._company_logo_domain(
+                {"website": "https://www.infosys.com/investors/"}
+            ),
+            "infosys.com",
+        )
+        self.assertEqual(
+            StockDataCollector._company_logo_domain({"website": "tcs.com"}),
+            "tcs.com",
+        )
+
+    def test_missing_or_invalid_yahoo_website_has_no_logo_domain(self):
+        self.assertIsNone(StockDataCollector._company_logo_domain({}))
+        self.assertIsNone(StockDataCollector._company_logo_domain(None))
+        self.assertIsNone(
+            StockDataCollector._company_logo_domain({"website": "://bad"})
+        )
+
     def test_report_never_renders_nan_as_company(self):
         self.assertEqual(company_label(pd.Series({"Company": float("nan"), "Symbol": "INFY"})), "INFY")
         self.assertEqual(company_label(pd.Series({"Company": "Infosys Limited", "Symbol": "INFY"})), "Infosys Limited")
@@ -31,6 +50,7 @@ class CompanyNameTests(unittest.TestCase):
         cache = pd.DataFrame([
             {
                 "Symbol": "INFY", "Company": float("nan"),
+                "Logo_Domain": "infosys.com",
                 "Cached_Date": datetime.now().strftime("%Y-%m-%d"),
                 "Sector": "Technology", "Industry": "Information Technology Services",
                 "EPS": 1, "Book_Value": 1, "Shares_Outstanding": 1, "EBITDA": 1,
@@ -40,6 +60,7 @@ class CompanyNameTests(unittest.TestCase):
             },
             {
                 "Symbol": "TCS", "Company": "Tata Consultancy Services Limited",
+                "Logo_Domain": "tcs.com",
                 "Cached_Date": datetime.now().strftime("%Y-%m-%d"),
                 "Sector": "Technology", "Industry": "Information Technology Services",
                 "EPS": 1, "Book_Value": 1, "Shares_Outstanding": 1, "EBITDA": 1,
@@ -51,6 +72,22 @@ class CompanyNameTests(unittest.TestCase):
         fresh, stale = StockDataCollector._split_cache(cache, max_age_days=7)
         self.assertEqual([row["Symbol"] for row in fresh], ["TCS"])
         self.assertEqual(stale, {"INFY"})
+
+    def test_cache_without_logo_domain_is_refreshed_once(self):
+        cache = pd.DataFrame(
+            [
+                {
+                    "Symbol": "TCS",
+                    "Company": "Tata Consultancy Services Limited",
+                    "Cached_Date": datetime.now().strftime("%Y-%m-%d"),
+                }
+            ]
+        )
+
+        fresh, stale = StockDataCollector._split_cache(cache, max_age_days=7)
+
+        self.assertEqual(fresh, [])
+        self.assertEqual(stale, {"TCS"})
 
 
 if __name__ == "__main__":

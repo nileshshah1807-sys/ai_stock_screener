@@ -144,6 +144,16 @@ class ExecutionOrderTests(unittest.TestCase):
 
 
 class PublishedColumnTests(unittest.TestCase):
+    def test_logo_domain_exists_for_fresh_and_deployed_snapshot_tables(self):
+        sql = read_schema()
+        create_body = sql.split(
+            "create table if not exists screener_snapshot", 1
+        )[1].split(";", 1)[0]
+        migration = sql.split("alter table screener_snapshot", 1)[1].split(";", 1)[0]
+
+        self.assertIn("logo_domain", columns_in_create_table(create_body))
+        self.assertIn("logo_domain", {m.lower() for m in ALTER_ADD.findall(migration)})
+
     def test_history_columns_exist_in_the_history_table(self):
         from workers.dashboard_publisher import HISTORY_COLUMNS
 

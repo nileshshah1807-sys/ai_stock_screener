@@ -17,6 +17,7 @@ export type SnapshotRow = {
   run_date: string;
   symbol: string;
   company: string | null;
+  logo_domain: string | null;
   sector: string | null;
   industry: string | null;
 

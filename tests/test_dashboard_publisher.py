@@ -27,6 +27,7 @@ def minimal_frame(**overrides):
     row = {
         "Symbol": "INFY",
         "Company": "Infosys Limited",
+        "Logo_Domain": "infosys.com",
         "Sector": "Technology",
         "Rating": "BUY",
         "Investment_Rank": 3,
@@ -166,6 +167,15 @@ class MappingTests(unittest.TestCase):
         mapped = map_row({"Symbol": "INFY"}, columns, CoercionReport())
         self.assertIn("decision_score", mapped)
         self.assertIsNone(mapped["decision_score"])
+
+    def test_logo_domain_is_published_as_a_typed_snapshot_column(self):
+        mapped = map_row(
+            {"Symbol": "INFY", "Logo_Domain": "infosys.com"},
+            SNAPSHOT_COLUMNS,
+            CoercionReport(),
+        )
+
+        self.assertEqual(mapped["logo_domain"], "infosys.com")
 
 
 class FactorModelMappingTests(unittest.TestCase):

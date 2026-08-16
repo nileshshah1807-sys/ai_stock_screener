@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { CompanyLogo } from "@/components/company-logo";
 import { RatingBadge } from "@/components/rating-badge";
 import {
   CappedChip,
@@ -357,16 +358,19 @@ export function ScreenerTable({
                 <td className="sticky-col px-2 py-1.5">
                   <Link
                     href={`/stocks/${row.symbol}`}
-                    className="block rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    {/* Underline alone, no colour shift: --primary and
-                        --foreground are within a hair of each other in both
-                        themes, so a colour hover would be invisible. */}
-                    <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
-                      {row.symbol}
-                    </span>
-                    <span className="block max-w-52 truncate text-[11px] text-muted-foreground">
-                      {row.company ?? MISSING}
+                    <CompanyLogo symbol={row.symbol} domain={row.logo_domain} />
+                    <span className="min-w-0">
+                      {/* Underline alone, no colour shift: --primary and
+                          --foreground are within a hair of each other in both
+                          themes, so a colour hover would be invisible. */}
+                      <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
+                        {row.symbol}
+                      </span>
+                      <span className="block max-w-44 truncate text-[11px] text-muted-foreground">
+                        {row.company ?? MISSING}
+                      </span>
                     </span>
                   </Link>
                 </td>

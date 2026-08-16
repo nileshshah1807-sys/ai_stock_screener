@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
+import { CompanyLogo } from "@/components/company-logo";
 import { RatingBadge } from "@/components/rating-badge";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
@@ -293,12 +294,19 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
             Back to screener
           </Link>
 
-          <div className="mt-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h1 className="font-mono text-[1.75rem] font-bold leading-tight tracking-tight">
-              {row.symbol}
-            </h1>
-            <p className="text-heading text-muted-foreground">{row.company}</p>
-            <RatingBadge rating={row.rating} size="md" />
+          <div className="mt-3 flex items-center gap-3">
+            <CompanyLogo
+              symbol={row.symbol}
+              domain={row.logo_domain}
+              size="lg"
+            />
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="font-mono text-[1.75rem] font-bold leading-tight tracking-tight">
+                {row.symbol}
+              </h1>
+              <p className="text-heading text-muted-foreground">{row.company}</p>
+              <RatingBadge rating={row.rating} size="md" />
+            </div>
           </div>
 
           <p className="mt-1.5 text-xs text-muted-foreground">
