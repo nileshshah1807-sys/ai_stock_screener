@@ -112,7 +112,7 @@ def backfill_logo_domains(
         candidates = candidates[:limit]
 
     summary = BackfillSummary(run_date=target_date, candidates=len(candidates))
-    pending: list[dict[str, str]] = []
+    pending: list[dict[str, Any]] = []
 
     def flush() -> None:
         if not pending:
@@ -139,7 +139,13 @@ def backfill_logo_domains(
 
         if domain:
             summary.resolved += 1
-            pending.append({"symbol": symbol, "logo_domain": domain})
+            pending.append(
+                {
+                    "symbol": symbol,
+                    "logo_domain": domain,
+                    "payload": row.get("payload") or {},
+                }
+            )
             if len(pending) >= batch_size:
                 flush()
         else:

@@ -145,7 +145,10 @@ class DashboardRepository:
         rows: list[dict[str, Any]] = []
         for offset in range(0, 1_000_000, page_size):
             params: dict[str, Any] = {
-                "select": "symbol,company,logo_domain",
+                # `payload` is NOT NULL. The domain update uses an upsert so it
+                # can batch distinct symbols; carrying the existing payload
+                # satisfies the insert side without changing drill-down data.
+                "select": "symbol,company,logo_domain,payload",
                 "run_date": f"eq.{run_date}",
                 "order": "symbol.asc",
                 "limit": str(page_size),
@@ -166,7 +169,7 @@ class DashboardRepository:
     def upsert_snapshot_logo_domains(
         self,
         run_date: str,
-        domains: list[dict[str, str]],
+        domains: list[dict[str, Any]],
         chunk_size: int = DEFAULT_CHUNK_SIZE,
     ) -> int:
         """Patch logo domains without replacing any other snapshot fields."""
@@ -176,6 +179,7 @@ class DashboardRepository:
                 "run_date": run_date,
                 "symbol": row["symbol"],
                 "logo_domain": row["logo_domain"],
+                "payload": row["payload"],
             }
             for row in domains
         ]

@@ -43,6 +43,7 @@ class DashboardRepositoryLogoTests(unittest.TestCase):
         first_params = repository.calls[0][2]["params"]
         second_params = repository.calls[1][2]["params"]
         self.assertEqual(first_params["logo_domain"], "is.null")
+        self.assertIn("payload", first_params["select"])
         self.assertEqual(first_params["offset"], "0")
         self.assertEqual(second_params["offset"], "2")
 
@@ -51,7 +52,13 @@ class DashboardRepositoryLogoTests(unittest.TestCase):
 
         written = repository.upsert_snapshot_logo_domains(
             "2026-08-14",
-            [{"symbol": "RELIANCE", "logo_domain": "ril.com"}],
+            [
+                {
+                    "symbol": "RELIANCE",
+                    "logo_domain": "ril.com",
+                    "payload": {"Symbol": "RELIANCE", "Decision_Score": 36.8},
+                }
+            ],
         )
 
         self.assertEqual(written, 1)
@@ -68,6 +75,7 @@ class DashboardRepositoryLogoTests(unittest.TestCase):
                     "run_date": "2026-08-14",
                     "symbol": "RELIANCE",
                     "logo_domain": "ril.com",
+                    "payload": {"Symbol": "RELIANCE", "Decision_Score": 36.8},
                 }
             ],
         )
