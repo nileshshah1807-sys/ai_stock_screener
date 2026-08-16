@@ -93,6 +93,20 @@ class DashboardRepository:
         )
         return rows[0] if rows else None
 
+    def latest_completed_run(self) -> dict[str, Any] | None:
+        """Return the newest published run, ignoring in-flight reservations."""
+        rows = self._request(
+            "GET",
+            "screener_runs",
+            params={
+                "select": "*",
+                "row_count": "gt.0",
+                "order": "run_date.desc",
+                "limit": "1",
+            },
+        )
+        return rows[0] if rows else None
+
     # -- snapshot -----------------------------------------------------------
 
     def replace_snapshot_rows(
@@ -116,6 +130,61 @@ class DashboardRepository:
                 headers={
                     "Prefer": "resolution=merge-duplicates,return=minimal",
                 },
+            )
+            written += len(chunk)
+        return written
+
+    def snapshot_logo_candidates(
+        self,
+        run_date: str,
+        *,
+        only_missing: bool = True,
+        page_size: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """Read the small set of fields needed for a logo-domain backfill."""
+        rows: list[dict[str, Any]] = []
+        for offset in range(0, 1_000_000, page_size):
+            params: dict[str, Any] = {
+                "select": "symbol,company,logo_domain",
+                "run_date": f"eq.{run_date}",
+                "order": "symbol.asc",
+                "limit": str(page_size),
+                "offset": str(offset),
+            }
+            if only_missing:
+                params["logo_domain"] = "is.null"
+            page = self._request(
+                "GET",
+                "screener_snapshot",
+                params=params,
+            ) or []
+            rows.extend(page)
+            if len(page) < page_size:
+                break
+        return rows
+
+    def upsert_snapshot_logo_domains(
+        self,
+        run_date: str,
+        domains: list[dict[str, str]],
+        chunk_size: int = DEFAULT_CHUNK_SIZE,
+    ) -> int:
+        """Patch logo domains without replacing any other snapshot fields."""
+        written = 0
+        rows = [
+            {
+                "run_date": run_date,
+                "symbol": row["symbol"],
+                "logo_domain": row["logo_domain"],
+            }
+            for row in domains
+        ]
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "screener_snapshot?on_conflict=run_date,symbol",
+                json=chunk,
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )
             written += len(chunk)
         return written
