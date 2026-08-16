@@ -1,5 +1,6 @@
 """Behavioural spec for the Model 5.0 factor blocks."""
 
+import json
 import unittest
 
 import numpy as np
@@ -180,6 +181,31 @@ class BlockTests(unittest.TestCase):
         scored = self.score()
         self.assertTrue((scored["DCF_Blend_Weight"] == 0.0).all())
         self.assertTrue(scored["DCF_In_Value_Block"].all())
+
+    def test_value_coverage_excludes_inputs_that_do_not_apply(self):
+        scored = self.score()
+        # Technology does not use book yield and this fixture's reverse DCF is
+        # not eligible. The three applicable, observed inputs therefore amount
+        # to complete coverage rather than 70% of a fixed five-input template.
+        self.assertTrue((scored["Value_Coverage"] == 1.0).all())
+        audit = json.loads(scored["Value_Input_Audit"].iloc[0])
+        statuses = {item["input"]: item["status"] for item in audit}
+        self.assertEqual(statuses["Book_Yield"], "not_applicable")
+        self.assertEqual(statuses["DCF_Valuation_Score"], "not_applicable")
+
+    def test_value_audit_distinguishes_missing_from_not_applicable(self):
+        frame = universe()
+        frame["DCF_Blend_Eligible"] = True
+        frame.loc[0, "DCF_Valuation_Score"] = np.nan
+        scored = self.score(frame)
+        row = scored.iloc[0]
+        audit = {
+            item["input"]: item for item in json.loads(row["Value_Input_Audit"])
+        }
+        self.assertEqual(audit["DCF_Valuation_Score"]["status"], "missing")
+        self.assertEqual(audit["Book_Yield"]["status"], "not_applicable")
+        self.assertIn("unavailable", audit["DCF_Valuation_Score"]["reason"])
+        self.assertAlmostEqual(row["Value_Coverage"], 0.70 / 0.85, places=4)
 
     def test_absent_evidence_shrinks_a_block_toward_neutral(self):
         frame = universe()

@@ -75,6 +75,50 @@ function reasons(value: unknown): string[] {
   return value.split(";").map((item) => item.trim()).filter(Boolean);
 }
 
+type ValueInputAudit = {
+  input: string;
+  weight: number;
+  status: "available" | "missing" | "not_applicable";
+  source: string;
+  reason: string;
+};
+
+function valueInputAudit(value: unknown): ValueInputAudit[] {
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    const status = String(record.status ?? "");
+    if (!new Set(["available", "missing", "not_applicable"]).has(status)) {
+      return [];
+    }
+    const weight = Number(record.weight);
+    return [{
+      input: String(record.input ?? "Unknown input"),
+      weight: Number.isFinite(weight) ? weight : 0,
+      status: status as ValueInputAudit["status"],
+      source: String(record.source ?? ""),
+      reason: String(record.reason ?? ""),
+    }];
+  });
+}
+
+const VALUE_INPUT_LABELS: Record<string, string> = {
+  Earnings_Yield: "Earnings yield",
+  FCF_Yield: "Free-cash-flow yield",
+  EBIT_To_EV: "EBIT / enterprise value",
+  Book_Yield: "Book yield",
+  DCF_Valuation_Score: "Reverse DCF",
+};
+
 export async function generateMetadata({
   params,
 }: PageProps<"/stocks/[symbol]">) {
@@ -97,6 +141,9 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   if (!row) notFound();
 
   const payload = row.payload ?? {};
+  const valueAudit = valueInputAudit(pick(payload, "Value_Input_Audit"));
+  const missingFundamentalFields = text(payload, "Fundamental_Missing_Fields");
+  const missingTechnicalComponents = text(payload, "Technical_Missing_Components");
   const factorModel = row.factor_model_applied === true;
   const buyFundamentalCoverageMargin = numeric(
     payload,
@@ -121,6 +168,11 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   const pointsRemoved =
     evidenceScore !== null && decisionScore !== null
       ? Math.max(0, evidenceScore - decisionScore)
+      : null;
+  const ma50 = numeric(payload, "MA50");
+  const priceVsMa50 =
+    row.current_price !== null && ma50 !== null && ma50 > 0
+      ? ((row.current_price / ma50) - 1) * 100
       : null;
 
   const policyFields: Field[] = [
@@ -262,6 +314,25 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
           : `BUY-floor margin ${formatRatioAsPercent(buyTechnicalCoverageMargin, 1, true)}.`,
     },
     {
+      label: "Missing fundamental fields",
+      value: missingFundamentalFields === MISSING || !missingFundamentalFields
+        ? "None"
+        : missingFundamentalFields,
+      tone: missingFundamentalFields === MISSING || !missingFundamentalFields
+        ? "muted"
+        : "caution",
+      hint: "Expected fields still unavailable after safe statement fallbacks.",
+    },
+    {
+      label: "Missing technical components",
+      value: missingTechnicalComponents === MISSING || !missingTechnicalComponents
+        ? "None"
+        : missingTechnicalComponents,
+      tone: missingTechnicalComponents === MISSING || !missingTechnicalComponents
+        ? "muted"
+        : "caution",
+    },
+    {
       label: "Price session aligned",
       value:
         row.price_bar_aligned === null
@@ -314,7 +385,34 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     { label: "PE", value: formatNumber(row.pe_ratio, 1) },
     { label: "PB", value: formatNumber(row.pb_ratio, 2) },
     { label: "ROE", value: formatRatioAsPercent(row.roe) },
-    { label: "Debt / equity", value: formatNumber(row.debt_to_equity, 2) },
+    {
+      label: "ROA",
+      value: formatRatioAsPercent(numeric(payload, "ROA")),
+      hint: text(payload, "ROA_Source") === MISSING
+        ? undefined
+        : `Source: ${text(payload, "ROA_Source")}.`,
+    },
+    {
+      label: "Debt / equity",
+      value: row.debt_to_equity === null
+        ? MISSING
+        : `${formatNumber(row.debt_to_equity / 100, 2)}×`,
+      hint: `${text(payload, "Debt_to_Equity_Source") === MISSING ? "Provider value" : `Source: ${text(payload, "Debt_to_Equity_Source")}`}; normalized from percentage points to a debt/equity multiple.`,
+    },
+    {
+      label: "Current ratio",
+      value: formatNumber(numeric(payload, "Current_Ratio"), 2),
+      hint: text(payload, "Current_Ratio_Source") === MISSING
+        ? undefined
+        : `Source: ${text(payload, "Current_Ratio_Source")}.`,
+    },
+    {
+      label: "EV / EBITDA",
+      value: formatNumber(numeric(payload, "EV_EBITDA"), 2),
+      hint: pick(payload, "EV_EBITDA_Price_Aligned") === true
+        ? "Recomputed against the completed-session price."
+        : undefined,
+    },
     { label: "Revenue growth", value: formatRatioAsPercent(row.revenue_growth, 1, true) },
     { label: "Earnings growth", value: formatRatioAsPercent(row.earnings_growth, 1, true) },
     { label: "Market cap", value: formatINRCompact(row.market_cap) },
@@ -344,8 +442,17 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     { label: "RSI 14", value: formatNumber(row.rsi_14, 1) },
     { label: "ADX 14", value: formatNumber(row.adx_14, 1) },
     { label: "MA20", value: formatINR(numeric(payload, "MA20"), 1) },
-    { label: "MA50", value: formatINR(numeric(payload, "MA50"), 1) },
-    { label: "MA50 slope", value: formatPercent(numeric(payload, "MA50_Slope_Pct"), 2, true) },
+    { label: "MA50", value: formatINR(ma50, 1) },
+    {
+      label: "Price vs MA50",
+      value: formatPercent(priceVsMa50, 2, true),
+      hint: "Current completed-session price relative to the MA50 level.",
+    },
+    {
+      label: "MA50 slope (20 sessions)",
+      value: formatPercent(numeric(payload, "MA50_Slope_Pct"), 2, true),
+      hint: "Change in the MA50 itself over 20 trading sessions; it is not price versus MA50.",
+    },
     { label: "1M change", value: formatPercent(row.pct_change_1m, 1, true) },
     { label: "3M change", value: formatPercent(row.pct_change_3m, 1, true) },
     { label: "6M change", value: formatPercent(row.pct_change_6m, 1, true) },
@@ -598,8 +705,61 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
               <FieldList fields={gateFields} columns={4} />
             </TabsContent>
 
-            <TabsContent value="coverage">
+            <TabsContent value="coverage" className="space-y-5">
               <FieldList fields={coverageFields} columns={4} />
+              <div>
+                <h3 className="text-sm font-medium">Value evidence inputs</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Coverage counts only inputs applicable to this row&apos;s sector and evidence state.
+                </p>
+                {valueAudit.length ? (
+                  <div className="mt-3 overflow-x-auto rounded-row border border-border">
+                    <table className="w-full min-w-[640px] text-left text-xs">
+                      <thead className="bg-muted/40 text-muted-foreground">
+                        <tr>
+                          <th scope="col" className="px-3 py-2 font-medium">Input</th>
+                          <th scope="col" className="px-3 py-2 font-medium">Weight</th>
+                          <th scope="col" className="px-3 py-2 font-medium">Status</th>
+                          <th scope="col" className="px-3 py-2 font-medium">Source or reason</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {valueAudit.map((item) => (
+                          <tr key={item.input}>
+                            <th scope="row" className="px-3 py-2.5 font-medium">
+                              {VALUE_INPUT_LABELS[item.input] ?? item.input}
+                            </th>
+                            <td className="px-3 py-2.5 font-mono tabular-nums">
+                              {formatPercent(item.weight * 100, 0)}
+                            </td>
+                            <td className={`px-3 py-2.5 font-medium ${
+                              item.status === "available"
+                                ? "text-positive"
+                                : item.status === "missing"
+                                  ? "text-caution"
+                                  : "text-muted-foreground"
+                            }`}>
+                              {item.status === "not_applicable"
+                                ? "Not applicable"
+                                : item.status === "available"
+                                  ? "Available"
+                                  : "Missing"}
+                            </td>
+                            <td className="px-3 py-2.5 text-muted-foreground">
+                              {item.reason || item.source || MISSING}
+                              {item.reason && item.source ? ` Source: ${item.source}.` : ""}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="mt-3 rounded-row border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                    Per-input availability will appear after the next snapshot is published.
+                  </p>
+                )}
+              </div>
             </TabsContent>
           </Tabs>
         </Panel>

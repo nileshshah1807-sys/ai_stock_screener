@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Bump whenever a derived column's meaning changes so an older cache cannot mix
 # incompatible definitions into a live cross-section.
-STATEMENT_SCHEMA_VERSION = 1
+STATEMENT_SCHEMA_VERSION = 2
 
 # Yahoo row labels. Several are absent for banks and other financials, which is
 # expected: those sectors are routed to the specialist quality path instead of
@@ -68,6 +68,16 @@ DERIVED_COLUMNS = (
     "ROE_Statement",
     "ROA_Statement",
     "Equity_To_Assets",
+    "Statement_Total_Revenue",
+    "Statement_Total_Debt",
+    "Statement_Total_Cash",
+    "Statement_Shares_Outstanding",
+    "Statement_Current_Assets",
+    "Statement_Current_Liabilities",
+    "Statement_Current_Ratio",
+    "Statement_Debt_To_Equity_Pct",
+    "Statement_Free_Cash_Flow",
+    "Statement_Free_Cash_Flow_Source",
     "EBIT_Latest",
     "EBITDA_Latest",
     "Gross_Profit_To_Assets",
@@ -91,6 +101,70 @@ DERIVED_COLUMNS = (
     "Share_Dilution_3Y",
     "Statement_Negative_Base_Flags",
 )
+
+
+STATEMENT_FALLBACKS = {
+    # target column: (statement-derived column, unit/source note)
+    "ROA": ("ROA_Statement", "annual statements"),
+    "Current_Ratio": ("Statement_Current_Ratio", "annual statements"),
+    "Debt_to_Equity": (
+        "Statement_Debt_To_Equity_Pct",
+        "annual statements; percentage points",
+    ),
+    "Free_CashFlow": ("Statement_Free_Cash_Flow", "annual cash-flow statement"),
+    "Total_Debt": ("Statement_Total_Debt", "annual balance sheet"),
+    "Total_Cash": ("Statement_Total_Cash", "annual balance sheet"),
+    "Shares_Outstanding": (
+        "Statement_Shares_Outstanding",
+        "annual balance sheet",
+    ),
+    "Total_Revenue": ("Statement_Total_Revenue", "annual income statement"),
+    "EBITDA": ("EBITDA_Latest", "annual income statement"),
+}
+
+
+def apply_statement_fallbacks(frame):
+    """Fill absent Yahoo quote fields from the same issuer's statements.
+
+    Quote metadata is convenient but sparse for NSE listings. Annual statement
+    rows are already collected for Model 5.0, so use them only where the quote
+    field is absent and publish a per-field source marker. A reported quote
+    value always wins; this function never blends or silently overwrites two
+    providers' definitions.
+    """
+    if frame is None or frame.empty:
+        return frame
+    result = frame.copy()
+    for target, (fallback_column, fallback_note) in STATEMENT_FALLBACKS.items():
+        current = pd.to_numeric(
+            result.get(target, pd.Series(index=result.index, dtype=float)),
+            errors="coerce",
+        )
+        fallback = pd.to_numeric(
+            result.get(
+                fallback_column, pd.Series(index=result.index, dtype=float)
+            ),
+            errors="coerce",
+        )
+        use_fallback = current.isna() & fallback.notna()
+        result[target] = current.where(~use_fallback, fallback)
+        source = pd.Series("unavailable", index=result.index, dtype="object")
+        source.loc[current.notna()] = "Yahoo Finance quote metadata"
+        source.loc[use_fallback] = f"Yahoo Finance {fallback_note}"
+        if target == "Free_CashFlow" and "Statement_Free_Cash_Flow_Source" in result:
+            detail = result["Statement_Free_Cash_Flow_Source"].fillna("").astype(str)
+            source.loc[use_fallback & detail.eq("reported_free_cash_flow")] = (
+                "Yahoo Finance annual cash-flow statement; reported free cash flow"
+            )
+            source.loc[
+                use_fallback
+                & detail.eq("operating_cash_flow_plus_capital_expenditure")
+            ] = (
+                "Yahoo Finance annual cash-flow statement; "
+                "operating cash flow plus capital expenditure"
+            )
+        result[f"{target}_Source"] = source
+    return result
 
 
 def _first_available(frame, labels):
@@ -195,9 +269,14 @@ def derive_statement_factors(income, balance, cashflow):
     total_debt = _first_available(balance, BALANCE_ROWS["total_debt"])
     cash = _first_available(balance, BALANCE_ROWS["cash"])
     shares = _first_available(balance, BALANCE_ROWS["shares"])
+    current_assets = _first_available(balance, BALANCE_ROWS["current_assets"])
+    current_liabilities = _first_available(
+        balance, BALANCE_ROWS["current_liabilities"]
+    )
 
     ocf = _first_available(cashflow, CASHFLOW_ROWS["ocf"])
     fcf = _first_available(cashflow, CASHFLOW_ROWS["fcf"])
+    capex = _first_available(cashflow, CASHFLOW_ROWS["capex"])
 
     negative_base = []
     out = {column: None for column in DERIVED_COLUMNS}
@@ -248,6 +327,34 @@ def derive_statement_factors(income, balance, cashflow):
     )
     out["ROA_Statement"] = _ratio(net_income_latest_raw, assets_avg)
     out["Equity_To_Assets"] = _ratio(equity_now, assets_now)
+    out["Statement_Total_Revenue"] = _value(revenue, 0)
+    out["Statement_Total_Debt"] = _value(total_debt, 0)
+    out["Statement_Total_Cash"] = _value(cash, 0)
+    out["Statement_Shares_Outstanding"] = _value(shares, 0)
+    out["Statement_Current_Assets"] = _value(current_assets, 0)
+    out["Statement_Current_Liabilities"] = _value(current_liabilities, 0)
+    out["Statement_Current_Ratio"] = _ratio(
+        out["Statement_Current_Assets"],
+        out["Statement_Current_Liabilities"],
+    )
+    statement_debt_to_equity = _ratio(out["Statement_Total_Debt"], equity_now)
+    out["Statement_Debt_To_Equity_Pct"] = (
+        statement_debt_to_equity * 100.0
+        if statement_debt_to_equity is not None
+        else None
+    )
+    reported_fcf = _value(fcf, 0)
+    latest_ocf = _value(ocf, 0)
+    latest_capex = _value(capex, 0)
+    if reported_fcf is not None:
+        out["Statement_Free_Cash_Flow"] = reported_fcf
+        out["Statement_Free_Cash_Flow_Source"] = "reported_free_cash_flow"
+    elif latest_ocf is not None and latest_capex is not None:
+        # Yahoo reports capital expenditure as a negative cash-flow line.
+        out["Statement_Free_Cash_Flow"] = latest_ocf + latest_capex
+        out["Statement_Free_Cash_Flow_Source"] = (
+            "operating_cash_flow_plus_capital_expenditure"
+        )
     out["EBIT_Latest"] = ebit_latest
     out["EBITDA_Latest"] = _value(ebitda, 0)
 
