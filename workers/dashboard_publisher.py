@@ -614,7 +614,11 @@ def publish(
     keep_runs: int = 2,
     chunk_size: int = 200,
     dry_run: bool = False,
+    if_exists: str = "error",
 ) -> dict[str, Any]:
+    if if_exists not in {"error", "skip"}:
+        raise ValueError("if_exists must be either 'error' or 'skip'")
+
     df = pd.read_csv(csv_path, low_memory=False)
     if "Symbol" not in df.columns:
         raise ValueError(f"{csv_path.name} has no Symbol column; not a screener export")
@@ -682,6 +686,19 @@ def publish(
     if existing_run is not None:
         existing_row_count = coerce_int(existing_run.get("row_count"))
         if existing_row_count != 0:
+            if if_exists == "skip":
+                summary.update(
+                    {
+                        "skipped": True,
+                        "skip_reason": "already_published",
+                        "existing_row_count": existing_row_count,
+                    }
+                )
+                logger.info(
+                    "Run %s is already published; leaving its snapshot unchanged",
+                    run_date,
+                )
+                return summary
             raise RuntimeError(
                 f"Run {run_date} is already published; refusing a non-atomic "
                 "same-date replacement that could damage its snapshot"
@@ -796,6 +813,15 @@ def main(argv: list[str] | None = None) -> int:
         help="Parse, map, and report without contacting Supabase",
     )
     parser.add_argument(
+        "--if-exists",
+        choices=("error", "skip"),
+        default="error",
+        help=(
+            "Behavior when the resolved trading date is already published "
+            "(default: error)"
+        ),
+    )
+    parser.add_argument(
         "--env-file",
         type=Path,
         default=Path(".env"),
@@ -824,6 +850,7 @@ def main(argv: list[str] | None = None) -> int:
             keep_runs=args.keep_runs,
             chunk_size=args.chunk_size,
             dry_run=args.dry_run,
+            if_exists=args.if_exists,
         )
     except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
         logger.error("Publish failed: %s", exc)
