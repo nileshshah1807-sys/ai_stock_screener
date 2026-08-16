@@ -22,7 +22,10 @@ from screener.data_collection import (
     align_valuation_to_completed_price_bar,
 )
 from screener.factors import FactorModel
-from screener.statements import FinancialStatementCollector
+from screener.statements import (
+    FinancialStatementCollector,
+    apply_statement_fallbacks,
+)
 from screener.liquidity import (
     LiquidityQualityEnricher,
     NSELiquidityProvider,
@@ -270,6 +273,11 @@ def run_daily_analysis():
     factor_model_enabled = bool(getattr(config, "FACTOR_MODEL_ENABLED", False))
     if factor_model_enabled and getattr(config, "STATEMENT_COLLECTION_ENABLED", True):
         merged_df = FinancialStatementCollector(config).enrich(merged_df)
+        merged_df = apply_statement_fallbacks(merged_df)
+        # The statement fallbacks can supply debt, cash and EBITDA that quote
+        # metadata omitted. Re-run the completed-price alignment so EV/EBITDA
+        # and the other price-dependent ratios use the same close as the model.
+        merged_df = align_valuation_to_completed_price_bar(merged_df)
     enforce_factor_statement_coverage(merged_df, config)
 
     scorer = StockScorer(config)

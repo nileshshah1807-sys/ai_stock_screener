@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pandas as pd
 
+from screener.data_collection import align_valuation_to_completed_price_bar
 from screener.statements import (
     STATEMENT_SCHEMA_VERSION,
     FinancialStatementCollector,
+    apply_statement_fallbacks,
     derive_statement_factors,
 )
 
@@ -51,6 +53,8 @@ def balance(**overrides):
         "Total Debt": [1000.0, 1000.0, 1000.0, 1000.0],
         "Cash And Cash Equivalents": [400.0, 350.0, 300.0, 250.0],
         "Ordinary Shares Number": [110.0, 105.0, 102.0, 100.0],
+        "Current Assets": [2400.0, 2200.0, 2000.0, 1800.0],
+        "Current Liabilities": [1200.0, 1100.0, 1000.0, 900.0],
     }
     rows.update(overrides)
     return frame(rows)
@@ -114,6 +118,87 @@ class DerivationTests(unittest.TestCase):
         self.assertAlmostEqual(derived["ROE_Statement"], 500.0 / 3900.0, places=6)
         self.assertAlmostEqual(derived["ROA_Statement"], 500.0 / 9750.0, places=6)
         self.assertAlmostEqual(derived["Equity_To_Assets"], 0.4, places=6)
+
+    def test_statement_fallback_inputs_keep_their_original_units(self):
+        derived = derive_statement_factors(income(), balance(), cashflow())
+        self.assertEqual(derived["Statement_Total_Revenue"], 1331.0)
+        self.assertEqual(derived["Statement_Total_Debt"], 1000.0)
+        self.assertEqual(derived["Statement_Total_Cash"], 400.0)
+        self.assertEqual(derived["Statement_Shares_Outstanding"], 110.0)
+        self.assertAlmostEqual(derived["Statement_Current_Ratio"], 2.0)
+        # Yahoo quote debt/equity is expressed in percentage points, so the
+        # statement fallback uses the same unit: 1000 / 4000 = 25%.
+        self.assertAlmostEqual(derived["Statement_Debt_To_Equity_Pct"], 25.0)
+        self.assertEqual(derived["Statement_Free_Cash_Flow"], 200.0)
+        self.assertEqual(
+            derived["Statement_Free_Cash_Flow_Source"],
+            "reported_free_cash_flow",
+        )
+
+    def test_free_cash_flow_can_be_derived_from_ocf_and_capex(self):
+        without_reported_fcf = cashflow().drop(index="Free Cash Flow")
+        derived = derive_statement_factors(
+            income(), balance(), without_reported_fcf
+        )
+        self.assertEqual(derived["Statement_Free_Cash_Flow"], 200.0)
+        self.assertEqual(
+            derived["Statement_Free_Cash_Flow_Source"],
+            "operating_cash_flow_plus_capital_expenditure",
+        )
+
+    def test_statement_fallbacks_fill_only_missing_quote_metadata(self):
+        row = derive_statement_factors(income(), balance(), cashflow())
+        source = pd.DataFrame(
+            [
+                {
+                    **row,
+                    "ROA": None,
+                    "Current_Ratio": None,
+                    "Debt_to_Equity": 7.5,
+                    "Free_CashFlow": None,
+                    "Total_Debt": None,
+                    "Total_Cash": None,
+                    "Shares_Outstanding": None,
+                    "Total_Revenue": None,
+                    "EBITDA": None,
+                }
+            ]
+        )
+        filled = apply_statement_fallbacks(source).iloc[0]
+        self.assertAlmostEqual(filled["ROA"], row["ROA_Statement"])
+        self.assertEqual(filled["Current_Ratio"], 2.0)
+        self.assertEqual(filled["Free_CashFlow"], 200.0)
+        self.assertEqual(filled["Shares_Outstanding"], 110.0)
+        self.assertEqual(filled["EBITDA"], 1200.0)
+        # A real quote value always wins over the fallback.
+        self.assertEqual(filled["Debt_to_Equity"], 7.5)
+        self.assertEqual(
+            filled["Debt_to_Equity_Source"], "Yahoo Finance quote metadata"
+        )
+        self.assertIn("annual statements", filled["ROA_Source"])
+
+    def test_statement_fallbacks_can_complete_aligned_ev_to_ebitda(self):
+        row = derive_statement_factors(income(), balance(), cashflow())
+        source = pd.DataFrame(
+            [{
+                **row,
+                "Current_Price": 100.0,
+                "Market_Cap": None,
+                "Shares_Outstanding": None,
+                "Total_Debt": None,
+                "Total_Cash": None,
+                "EBITDA": None,
+                "EV_EBITDA": None,
+            }]
+        )
+        aligned = align_valuation_to_completed_price_bar(
+            apply_statement_fallbacks(source)
+        ).iloc[0]
+        self.assertAlmostEqual(aligned["Market_Cap"], 11_000.0)
+        self.assertAlmostEqual(
+            aligned["EV_EBITDA"], (11_000.0 + 1_000.0 - 400.0) / 1_200.0
+        )
+        self.assertTrue(bool(aligned["EV_EBITDA_Price_Aligned"]))
 
     def test_interest_coverage_is_bounded(self):
         tiny = income(**{"Interest Expense": [0.0001, 100.0, 100.0, 100.0]})

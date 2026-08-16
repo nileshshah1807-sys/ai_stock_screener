@@ -23,6 +23,7 @@ Design rules this module enforces:
 
 from __future__ import annotations
 
+import json
 import logging
 
 import numpy as np
@@ -169,15 +170,36 @@ def cross_sectional_percentile(
     return sector.where(usable, market)
 
 
-def _block_score(frame, features, groups, *, min_group, min_coverage):
+def _applicability_mask(frame, value):
+    if value is None:
+        return pd.Series(True, index=frame.index, dtype=bool)
+    if isinstance(value, pd.Series):
+        return value.reindex(frame.index).fillna(False).astype(bool)
+    return pd.Series(bool(value), index=frame.index, dtype=bool)
+
+
+def _block_score(
+    frame,
+    features,
+    groups,
+    *,
+    min_group,
+    min_coverage,
+    applicability=None,
+):
     """Coverage-shrunk weighted percentile composite for one factor block."""
-    total_weight = float(sum(weight for _, weight, _ in features)) or 1.0
+    applicability = applicability or {}
+    applicable_weight = pd.Series(0.0, index=frame.index)
     weighted_sum = pd.Series(0.0, index=frame.index)
     observed_weight = pd.Series(0.0, index=frame.index)
     percentiles = {}
 
     for column, weight, higher_is_better in features:
-        values = _numeric(frame, column)
+        applicable = _applicability_mask(frame, applicability.get(column))
+        applicable_weight = applicable_weight.add(
+            applicable.astype(float) * weight, fill_value=0.0
+        )
+        values = _numeric(frame, column).where(applicable)
         if values.notna().sum() == 0:
             percentiles[column] = values
             continue
@@ -194,7 +216,8 @@ def _block_score(frame, features, groups, *, min_group, min_coverage):
             present.astype(float) * weight, fill_value=0.0
         )
 
-    coverage = observed_weight / total_weight
+    coverage = observed_weight / applicable_weight.where(applicable_weight > 0)
+    coverage = coverage.fillna(0.0)
     observed_score = (weighted_sum / observed_weight.where(observed_weight > 0))
     observed_score = observed_score.fillna(50.0)
     # Identical in spirit to the technical/fundamental shrinkage already used by
@@ -203,6 +226,52 @@ def _block_score(frame, features, groups, *, min_group, min_coverage):
     score = (50.0 + coverage * (observed_score - 50.0)).clip(0.0, 100.0)
     sufficient = coverage >= float(min_coverage)
     return score, coverage, sufficient, percentiles
+
+
+def _input_audit(frame, features, *, applicability=None, sources=None, reasons=None):
+    """Serialize per-input availability for dashboard and CSV auditing."""
+    applicability = applicability or {}
+    sources = sources or {}
+    reasons = reasons or {}
+    audits = []
+    for index in frame.index:
+        items = []
+        for column, weight, _ in features:
+            applicable = bool(
+                _applicability_mask(frame, applicability.get(column)).loc[index]
+            )
+            value = pd.to_numeric(
+                pd.Series([frame.at[index, column] if column in frame else np.nan]),
+                errors="coerce",
+            ).iloc[0]
+            status = (
+                "not_applicable"
+                if not applicable
+                else "available"
+                if pd.notna(value)
+                else "missing"
+            )
+            source_column = sources.get(column)
+            source = (
+                str(frame.at[index, source_column])
+                if source_column in frame
+                and pd.notna(frame.at[index, source_column])
+                else ""
+            )
+            reason = reasons.get(column, "")
+            if callable(reason):
+                reason = reason(frame.loc[index], status)
+            items.append(
+                {
+                    "input": column,
+                    "weight": weight,
+                    "status": status,
+                    "source": source,
+                    "reason": str(reason or ""),
+                }
+            )
+        audits.append(json.dumps(items, separators=(",", ":")))
+    return pd.Series(audits, index=frame.index, dtype="object")
 
 
 class FactorModel:
@@ -222,10 +291,24 @@ class FactorModel:
         frame["Earnings_Yield"] = (eps / price.where(price > 0)).replace(
             [np.inf, -np.inf], np.nan
         )
+        frame["Earnings_Yield_Source"] = np.where(
+            frame["Earnings_Yield"].notna(),
+            "Yahoo Finance quote EPS + completed-session price",
+            "EPS or completed-session price unavailable",
+        )
         fcf = _numeric(frame, "Free_CashFlow")
         frame["FCF_Yield"] = (
             fcf / market_cap.where(market_cap > 0)
         ).replace([np.inf, -np.inf], np.nan)
+        fcf_source = frame.get(
+            "Free_CashFlow_Source",
+            pd.Series("Yahoo Finance quote metadata", index=frame.index),
+        ).fillna("unavailable")
+        frame["FCF_Yield_Source"] = np.where(
+            frame["FCF_Yield"].notna(),
+            fcf_source.astype(str) + " + completed-session market cap",
+            "free cash flow or completed-session market cap unavailable",
+        )
 
         # EV/EBIT is the preferred capital-structure-neutral multiple; EV/EBITDA
         # is the fallback where depreciation is not separable. Expressed as a
@@ -239,9 +322,16 @@ class FactorModel:
         ebitda_yield = (1.0 / ev_ebitda.where(ev_ebitda > 0)).replace(
             [np.inf, -np.inf], np.nan
         )
-        frame["EBIT_To_EV"] = ebit_to_ev.replace(
-            [np.inf, -np.inf], np.nan
-        ).fillna(ebitda_yield)
+        direct_ebit_yield = ebit_to_ev.replace([np.inf, -np.inf], np.nan)
+        frame["EBIT_To_EV"] = direct_ebit_yield.fillna(ebitda_yield)
+        frame["EBIT_To_EV_Source"] = "unavailable"
+        frame.loc[
+            direct_ebit_yield.notna(), "EBIT_To_EV_Source"
+        ] = "annual-statement EBIT + completed-session enterprise value"
+        frame.loc[
+            direct_ebit_yield.isna() & ebitda_yield.notna(),
+            "EBIT_To_EV_Source",
+        ] = "inverse completed-session EV/EBITDA"
 
         sector = (
             frame.get("Sector", pd.Series("", index=frame.index))
@@ -254,6 +344,28 @@ class FactorModel:
         frame["Book_Yield"] = book_yield.where(
             sector.isin(BOOK_YIELD_SECTORS)
         ).replace([np.inf, -np.inf], np.nan)
+        frame["Book_Yield_Applicable"] = sector.isin(BOOK_YIELD_SECTORS)
+        frame["Book_Yield_Source"] = np.where(
+            frame["Book_Yield_Applicable"],
+            np.where(
+                frame["Book_Yield"].notna(),
+                "Yahoo Finance quote book value + completed-session price",
+                "book value or completed-session price unavailable",
+            ),
+            "not used for this sector",
+        )
+        dcf_eligible = frame.get(
+            "DCF_Blend_Eligible", pd.Series(False, index=frame.index)
+        ).fillna(False).astype(bool)
+        frame["DCF_Value_Input_Applicable"] = dcf_eligible
+        dcf_status = frame.get(
+            "DCF_Status", pd.Series("unavailable", index=frame.index)
+        ).fillna("unavailable").astype(str)
+        frame["DCF_Valuation_Score_Source"] = np.where(
+            dcf_eligible,
+            "eligible reverse DCF evidence",
+            "not eligible: " + dcf_status,
+        )
 
         # --- momentum ----------------------------------------------------
         volatility = _numeric(frame, "Volatility_Ann_Pct")
@@ -342,6 +454,11 @@ class FactorModel:
         working["Quality_Coverage"] = quality_coverage
         working["Quality_Coverage_Sufficient"] = quality_sufficient
 
+        value_applicability = {
+            "Book_Yield": working["Book_Yield_Applicable"],
+            "DCF_Valuation_Score": working["DCF_Value_Input_Applicable"],
+        }
+
         for name, features in (
             ("Growth", GROWTH_FEATURES),
             ("Value", VALUE_FEATURES),
@@ -354,10 +471,56 @@ class FactorModel:
                 groups if name != "Momentum" else None,
                 min_group=min_group,
                 min_coverage=min_coverage,
+                applicability=value_applicability if name == "Value" else None,
             )
             working[f"{name}_Score"] = score
             working[f"{name}_Coverage"] = coverage
             working[f"{name}_Coverage_Sufficient"] = sufficient
+
+        working["Value_Input_Audit"] = _input_audit(
+            working,
+            VALUE_FEATURES,
+            applicability=value_applicability,
+            sources={
+                "Earnings_Yield": "Earnings_Yield_Source",
+                "FCF_Yield": "FCF_Yield_Source",
+                "EBIT_To_EV": "EBIT_To_EV_Source",
+                "Book_Yield": "Book_Yield_Source",
+                "DCF_Valuation_Score": "DCF_Valuation_Score_Source",
+            },
+            reasons={
+                "Earnings_Yield": lambda _row, status: (
+                    "EPS or completed-session price was unavailable."
+                    if status == "missing"
+                    else ""
+                ),
+                "FCF_Yield": lambda _row, status: (
+                    "Free cash flow or completed-session market cap was unavailable."
+                    if status == "missing"
+                    else ""
+                ),
+                "EBIT_To_EV": lambda _row, status: (
+                    "Neither statement EBIT/enterprise value nor EV/EBITDA was available."
+                    if status == "missing"
+                    else ""
+                ),
+                "Book_Yield": lambda _row, status: (
+                    "Book yield is excluded from this sector's value template."
+                    if status == "not_applicable"
+                    else "Book value or completed-session price was unavailable."
+                    if status == "missing"
+                    else ""
+                ),
+                "DCF_Valuation_Score": lambda row, status: (
+                    f"Reverse DCF status '{row.get('DCF_Status', 'unavailable')}' "
+                    "did not meet blend eligibility."
+                    if status == "not_applicable"
+                    else "Eligible reverse DCF evidence was unavailable."
+                    if status == "missing"
+                    else ""
+                ),
+            },
+        )
 
         # --- value trap guard ------------------------------------------
         # A cheap multiple on a bottom-decile business is the classic value
