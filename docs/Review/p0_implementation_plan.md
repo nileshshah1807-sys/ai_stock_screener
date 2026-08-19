@@ -22,7 +22,7 @@ recorded here so nobody spends a sprint rebuilding them.
 | --- | --- | --- |
 | §A volatility-adjusted, skip-month momentum | **Already implemented** | `RiskAdj_Momentum_12_1` (w=0.30), `RiskAdj_Momentum_6_1` (w=0.25) in `screener/factors.py`; `TechnicalEnhancer.skip_month_return` in `screener/market_data.py` |
 | P2 sector-neutral percentiles | **Already implemented** | `FACTOR_SECTOR_NEUTRAL=True`, `FACTOR_MIN_SECTOR_PEERS=8` |
-| P2 winsorize inputs before ranking | **Already implemented** | `FACTOR_WINSOR_LOWER_PCT=0.05`, `FACTOR_WINSOR_UPPER_PCT=0.95` |
+| P2 winsorize inputs before ranking | **Not implemented — dead config** | `FACTOR_WINSOR_LOWER_PCT` / `FACTOR_WINSOR_UPPER_PCT` are declared in `runtime.py` and hashed into the reproducibility manifest, but no scoring code reads them. `cross_sectional_percentile` is a pure rank transform with no clipping. |
 | P2 earnings stability + accrual quality | **Already implemented** | `Earnings_Stability`, `Accruals_To_Assets` in `QUALITY_GENERIC` |
 | §4 add a true reverse DCF solving for implied growth | **Already implemented** | `ReverseDCFModel.analyze_row` solves `fcf_solve` for the growth that equates DCF value to market cap |
 
@@ -30,6 +30,14 @@ recorded here so nobody spends a sprint rebuilding them.
 *and* a fixed-assumption base case both live under the name "reverse DCF", and it
 is the fixed-assumption branch that produces the published upside number. The
 rename to `Scenario_DCF` is justified. "Add the missing reverse DCF" is not.
+
+Note on the winsorization row: because every input is rank-transformed, an
+outlier's influence is already bounded by its rank, so the *practical* effect of
+the missing clip is small — which is probably why it was never wired. The problem
+is narrower and worth fixing regardless: two parameters that do nothing are
+recorded in the reproducibility manifest, so a frozen specification claims to pin
+behaviour it does not control. Either wire them or drop them before the freeze in
+C2.
 
 ### 1.1 Criticisms confirmed valid in code
 
