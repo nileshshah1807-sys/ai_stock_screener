@@ -64,6 +64,53 @@ class ClassifyTests(unittest.TestCase):
         _, factor, _, _ = parse_action("Bonus 2:5")
         self.assertAlmostEqual(factor, 1.4)
 
+    def test_preference_share_bonus_never_becomes_a_price_factor(self):
+        """TVSMOTOR's real subject. NCRPS are preference shares, so the equity
+        count is unchanged; applying 4:1 as an equity bonus would turn a ~1.5%
+        ex-date drop into a fabricated +400% return."""
+        action, factor, _, status = parse_action(
+            "Scheme Of Arrangement - Bonus Ncrps 4:1"
+        )
+        self.assertEqual(action, ACTION_BONUS)
+        self.assertIsNone(factor)
+        self.assertEqual(status, "unadjustable_preference_bonus")
+
+    def test_preference_bonus_blocks_its_security(self):
+        table = AdjustmentTable(
+            actions_frame(
+                [
+                    {
+                        "ISIN": "INE494B01015",
+                        "Ex_Date": "2025-08-25",
+                        "Action_Type": ACTION_BONUS,
+                        "Price_Factor": None,
+                        "Dividend_Per_Share": None,
+                    }
+                ]
+            )
+        )
+        self.assertTrue(
+            table.is_blocked("INE494B01015", date(2025, 8, 1), date(2025, 9, 30))
+        )
+
+    def test_other_preference_spellings_are_caught(self):
+        for subject in (
+            "Bonus NCPS 1:10",
+            "Bonus Ncrps 1:116",
+            "Bonus Preference Share 2:1",
+        ):
+            self.assertEqual(
+                parse_action(subject)[3],
+                "unadjustable_preference_bonus",
+                msg=subject,
+            )
+
+    def test_an_ordinary_equity_bonus_is_still_quantified(self):
+        """The preference guard must not swallow real equity bonuses."""
+        _, factor, _, status = parse_action("Bonus 1:1")
+        self.assertAlmostEqual(factor, 2.0)
+        self.assertEqual(status, "ok")
+
     def test_dividend_amount_is_extracted(self):
         action, factor, dividend, status = parse_action("Dividend - Re 0.40 Per Sh")
         self.assertEqual(action, ACTION_DIVIDEND)
@@ -74,6 +121,47 @@ class ClassifyTests(unittest.TestCase):
     def test_rupee_dividend(self):
         _, _, dividend, _ = parse_action("Dividend - Rs 2.75 Per Share")
         self.assertAlmostEqual(dividend, 2.75)
+
+    def test_two_dividends_in_one_subject_are_summed(self):
+        """264 real subjects carry more than one amount; the holder gets both."""
+        _, _, dividend, status = parse_action(
+            "Interim Dividend - Rs 19 Per Share/Special Dividend - Rs 10 Per Share"
+        )
+        self.assertAlmostEqual(dividend, 29.0)
+        self.assertEqual(status, "ok")
+
+    def test_stray_hyphen_before_the_amount_is_tolerated(self):
+        _, _, dividend, _ = parse_action(
+            "Special Dividend Rs -10 Per Share/Interim Dividend Rs - 26 Per Share"
+        )
+        self.assertAlmostEqual(dividend, 36.0)
+
+    def test_amount_stated_before_the_currency(self):
+        _, _, dividend, status = parse_action(
+            "Annual General Meeting /Dividend - 1 Rs Per Share"
+        )
+        self.assertAlmostEqual(dividend, 1.0)
+        self.assertEqual(status, "ok")
+
+    def test_spaced_currency_symbol(self):
+        _, _, dividend, _ = parse_action(
+            "Annual General Meeting/Dividend - R E 1 Per Share"
+        )
+        self.assertAlmostEqual(dividend, 1.0)
+
+    def test_transposed_amount_and_unit(self):
+        _, _, dividend, _ = parse_action("Interim Dividend - Rs Per 0.50 Share")
+        self.assertAlmostEqual(dividend, 0.50)
+
+    def test_dividend_with_no_published_amount_is_reported(self):
+        _, _, dividend, status = parse_action(
+            "Annual General Meeting/Dividend - Rs  Per Share"
+        )
+        self.assertIsNone(dividend)
+        self.assertEqual(status, "unparsed_amount")
+
+    def test_bare_interim_dividend_has_no_amount(self):
+        self.assertEqual(parse_action("Interim Dividend")[3], "unparsed_amount")
 
     def test_rights_is_flagged_unadjustable_not_guessed(self):
         action, factor, _, status = parse_action("Rights 1:4 @ Premium Rs 90/-")

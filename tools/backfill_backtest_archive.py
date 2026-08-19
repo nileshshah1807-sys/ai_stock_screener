@@ -127,16 +127,43 @@ def run_actions(root, start, end):
     if frame.empty:
         logger.warning("Corporate-action feed returned nothing for %s..%s", start, end)
         return frame
+    from backtest.corporate_actions import RATIO_ACTIONS
+
     by_type = frame["Action_Type"].value_counts().to_dict()
-    unparsed = frame[frame["Parse_Status"].astype(str).str.startswith("unparsed")]
     logger.info("Actions ingested: %d %s", len(frame), json.dumps(by_type))
-    if len(unparsed):
-        # Loud on purpose: an unparsed ratio silently treated as 1.0 would put a
-        # fabricated ~50% move into the adjusted series.
+
+    status = frame["Parse_Status"].astype(str)
+    unparsed = frame[status.str.startswith("unparsed")]
+    # The two consequences are different and were previously reported as one.
+    # An unquantified split or bonus blocks its security, because treating it as
+    # no change would put a fabricated ~50% move into the adjusted series. An
+    # unquantified dividend is merely skipped, understating one position's total
+    # return by about a percent -- excluding the security would cost far more.
+    blocking = unparsed[unparsed["Action_Type"].isin(RATIO_ACTIONS)]
+    skipped = unparsed[~unparsed["Action_Type"].isin(RATIO_ACTIONS)]
+
+    if len(blocking):
         logger.warning(
-            "%d actions have an unparsed ratio and will BLOCK their securities: %s",
-            len(unparsed),
-            sorted(set(unparsed["Symbol"].astype(str)))[:20],
+            "%d unquantified ratio actions will BLOCK their securities around the "
+            "ex-date: %s",
+            len(blocking),
+            sorted(set(blocking["Symbol"].astype(str)))[:20],
+        )
+    if len(skipped):
+        logger.info(
+            "%d actions have no published amount and are skipped, not blocked "
+            "(slightly understates total return): %s",
+            len(skipped),
+            sorted(set(skipped["Symbol"].astype(str)))[:20],
+        )
+
+    preference = frame[status.eq("unadjustable_preference_bonus")]
+    if len(preference):
+        logger.info(
+            "%d preference-share bonuses excluded (equity count unchanged, so the "
+            "ratio is not a price factor): %s",
+            len(preference),
+            sorted(set(preference["Symbol"].astype(str)))[:20],
         )
     return frame
 

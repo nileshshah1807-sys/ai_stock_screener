@@ -72,10 +72,52 @@ _FACE_VALUE_RE = re.compile(
     re.IGNORECASE,
 )
 _BONUS_RE = re.compile(r"bonus\s*(?:issue)?\s*(\d+)\s*:\s*(\d+)", re.IGNORECASE)
-_DIVIDEND_RE = re.compile(
-    r"(?:rs\.?|re\.?)\s*([\d.]+)",
-    re.IGNORECASE,
+
+# A "Bonus NCRPS 4:1" awards four non-convertible redeemable *preference* shares
+# per equity share held. The equity share count does not change, so the ratio is
+# emphatically not an equity price factor -- applying TVSMOTOR's 4:1 as one would
+# turn its ~1.5% ex-date drop into a fabricated +400% return. These are matched
+# explicitly and routed to the unadjustable path rather than being left to miss
+# the bonus pattern by luck.
+_PREFERENCE_BONUS_RE = re.compile(
+    r"\b(?:ncrps|ncps|nccrps|preference\s+share)", re.IGNORECASE
 )
+_AMOUNT = r"(\d+(?:\.\d+)?)"
+# Standard form, tolerating the stray hyphen NSE sometimes emits ("Rs -10").
+_DIVIDEND_RE = re.compile(rf"(?:rs|re)\.?\s*-?\s*{_AMOUNT}", re.IGNORECASE)
+# Observed malformations, tried only when the standard form finds nothing.
+_DIVIDEND_REVERSED_RE = re.compile(rf"{_AMOUNT}\s*(?:rs|re)\b", re.IGNORECASE)
+_DIVIDEND_SPACED_RE = re.compile(rf"\br\s+e\s+-?\s*{_AMOUNT}", re.IGNORECASE)
+_DIVIDEND_MALFORMED_RE = re.compile(
+    rf"(?:rs|re)\.?\s*per\s*{_AMOUNT}", re.IGNORECASE
+)
+
+
+def _dividend_amount(text):
+    """Total per-share dividend in a subject, or None.
+
+    Amounts are **summed**, not first-matched. 264 subjects in the 2022-2026 feed
+    carry more than one -- "Interim Dividend - Rs 19 Per Share/Special Dividend -
+    Rs 10 Per Share" is Rs 29 to the holder, and taking only the first understates
+    total return systematically rather than randomly.
+
+    Summing is safe here only because no dividend subject in the feed states a
+    face value; if one ever did, "Rs 5 per share of Rs 10 face value" would sum to
+    15. The fallbacks below are deliberately first-match, since a malformed
+    subject gives no confidence that a second number is another dividend.
+    """
+    matches = _DIVIDEND_RE.findall(text)
+    if matches:
+        return sum(float(value) for value in matches)
+    for pattern in (
+        _DIVIDEND_REVERSED_RE,
+        _DIVIDEND_SPACED_RE,
+        _DIVIDEND_MALFORMED_RE,
+    ):
+        match = pattern.search(text)
+        if match:
+            return float(match.group(1))
+    return None
 
 
 def classify_action(subject):
@@ -125,6 +167,11 @@ def parse_action(subject):
         return action, None, None, "unparsed_ratio"
 
     if action == ACTION_BONUS:
+        # Preference-share bonuses leave the equity count untouched, so their
+        # ratio must never reach the price factor. They still move the price by
+        # the value distributed, which no ratio here captures, so they block.
+        if _PREFERENCE_BONUS_RE.search(text):
+            return action, None, None, "unadjustable_preference_bonus"
         match = _BONUS_RE.search(text)
         if match:
             new, held = float(match.group(1)), float(match.group(2))
@@ -133,9 +180,13 @@ def parse_action(subject):
         return action, None, None, "unparsed_ratio"
 
     if action == ACTION_DIVIDEND:
-        match = _DIVIDEND_RE.search(text)
-        if match:
-            return action, None, float(match.group(1)), "ok"
+        amount = _dividend_amount(text)
+        if amount is not None:
+            return action, None, amount, "ok"
+        # A dividend whose amount NSE never published. Skipped rather than
+        # blocked: a missed rupee understates one position's total return by
+        # about a percent, while excluding the security loses the whole
+        # observation. That trade is the opposite way round for a split.
         return action, None, None, "unparsed_amount"
 
     if action in UNADJUSTABLE_ACTIONS:
