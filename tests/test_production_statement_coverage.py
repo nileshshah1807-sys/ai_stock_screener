@@ -121,22 +121,6 @@ class ProductionStatementCoverageTests(unittest.TestCase):
             DEFAULT_REPRODUCIBILITY_CONFIG_KEYS,
         )
 
-    def test_candidate_backfills_accumulate_before_comparison_guard(self):
-        workflow = (
-            Path(__file__).resolve().parents[1]
-            / ".github"
-            / "workflows"
-            / "candidate-model-validation.yml"
-        ).read_text(encoding="utf-8")
-        self.assertIn(
-            'FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0"', workflow
-        )
-        self.assertIn("--min-statement-coverage 0.95", workflow)
-        self.assertLess(
-            workflow.index("- name: Save accumulated candidate statement cache"),
-            workflow.index("- name: Compare candidate with optional baseline"),
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

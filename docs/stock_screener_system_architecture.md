@@ -4,7 +4,8 @@
 - **Scope:** current `app.run_daily_analysis()` production path and its supporting modules
 - **Scheduled production contract:** model `5.0.0` / recommendation policy `5.0.0` / output schema `4.1.0`
 - **Local and manual-daily default:** `4.0.0-candidate`, with the factor switch off
-- **Last reviewed against code:** 2026-08-16 (`main` through PR #12 plus this documentation/icon revision)
+- **Last reviewed against code:** 2026-08-19 (`main` through PR #12, plus workflow retirement and repository cleanup)
+- **Live workflows:** `daily-stock-screener.yml`, `red-flag-shadow.yml`, `transcript-sentiment.yml` (see `development_guidelines.md`)
 
 > **Two models live in this codebase.** Sections 1-19 describe the shared pipeline and the
 > legacy **4.x model**, which remains the local/runtime default (`FACTOR_MODEL_ENABLED=False`)
@@ -853,30 +854,45 @@ an internal cache version, so adding `statement_cache.csv` there would make othe
 production entries unreachable. The daily workflow therefore restores and saves statements
 under a separate production-only statement-cache key.
 
-The one-shot `seed-production-statement-cache.yml` workflow initializes that namespace from
-the artifact of an already successful candidate validation. It accepts a candidate run ID and
-expected Git SHA, verifies both before extracting `candidate/statement_cache.csv`, validates
-the cache, and saves only that file under the production statement-cache prefix. Promotion uses
-green run `31685056109` at `fa9d3094129b9540717a67fda040449340d7dec1`; the seed is cache
-bootstrap, not a second model validation or evidence of predictive performance. Scheduled
-production independently enforces at least 95% statement coverage before scoring. If that
-guard fails, its `always()` cache checkpoint preserves successfully fetched records for the
+That namespace was originally initialized by the one-shot `seed-production-statement-cache.yml`
+workflow, which extracted and validated `candidate/statement_cache.csv` from the artifact of an
+already successful candidate validation and saved it under the production statement-cache prefix.
+The initial promotion used green run `31685056109` at
+`fa9d3094129b9540717a67fda040449340d7dec1`; that seed was cache bootstrap, not a second model
+validation or evidence of predictive performance.
+
+**Retired 2026-08-19.** The seeding workflow has been removed now that the scheduled run sustains
+its own statement cache: it restores under the `stock-screener-statements-v1-` prefix and saves
+the refreshed file on every scheduled run, keeping the entry inside GitHub's seven-day eviction
+window. A cold rebuild remains possible without it — `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` is
+`2500` on scheduled runs so a single run can fetch the whole NSE universe — but a cold first run
+may land below the 95% coverage floor and produce degraded factor output until coverage recovers.
+The workflow remains in git history and can be restored with
+`git checkout <sha> -- .github/workflows/seed-production-statement-cache.yml`.
+
+Scheduled production independently enforces at least 95% statement coverage before scoring. If
+that guard fails, its `always()` cache checkpoint preserves successfully fetched records for the
 next attempt without publishing a partial cross-section.
 
-The candidate workflow can read production vendor inputs but cannot update either production
-cache namespace. When `baseline_run_id` is supplied, it validates the baseline report artifact
-before dependency installation and expensive screening, restores the exact five-path production
-cache saved by that run, and verifies that the baseline and candidate use the same completed
-price session. Without a baseline ID it may use the latest production cache only as a read-only
+**`candidate-model-validation.yml` retired 2026-08-19,** having served its purpose once Model 5.0
+reached scheduled production. Its isolation contract is recorded here because the same guarantees
+apply to any future candidate workflow, and because the manual-dispatch path of
+`daily-stock-screener.yml` still relies on the same isolation reasoning.
+
+The candidate workflow could read production vendor inputs but could not update either production
+cache namespace. When `baseline_run_id` was supplied, it validated the baseline report artifact
+before dependency installation and expensive screening, restored the exact five-path production
+cache saved by that run, and verified that the baseline and candidate used the same completed
+price session. Without a baseline ID it could use the latest production cache only as a read-only
 seed.
 
-Candidate statements have their own branch-scoped cache. A run may restore its accumulated
+Candidate statements had their own branch-scoped cache. A run could restore its accumulated
 tranches or explicitly seed from the statement artifact of an earlier candidate run, and it
-saves a successful statement backfill immediately after screening even if comparison later
-fails. Candidate transcript parity does require the Supabase URL and service-role secret, but
-`SUPABASE_READ_ONLY=True` rejects non-GET requests. The job does not publish to Supabase,
+saved a successful statement backfill immediately after screening even if comparison later
+failed. Candidate transcript parity did require the Supabase URL and service-role secret, but
+`SUPABASE_READ_ONLY=True` rejected non-GET requests. The job did not publish to Supabase,
 append production backtests, send notifications, or include secrets in caches or artifacts.
-A factor-model comparison is refused until statement coverage reaches at least 95% of the
+A factor-model comparison was refused until statement coverage reached at least 95% of the
 full candidate universe.
 
 ### 15.5 Supabase publication and private web dashboard
@@ -929,9 +945,11 @@ Actions. RLS helper calls are wrapped as scalar subqueries so Postgres evaluates
 statement rather than once per returned row.
 
 Company logos are identifiers, not stored image blobs. The collector publishes the normalized
-issuer website as `logo_domain`; a separate, resumable `backfill-logo-domains.yml` workflow can
-fill missing domains on an existing snapshot through Yahoo website metadata. It patches only
-`logo_domain` and carries the existing non-null `payload`, so drill-down evidence is preserved.
+issuer website as `logo_domain`. Missing domains on an existing snapshot were filled through Yahoo
+website metadata by the resumable `backfill-logo-domains.yml` workflow, **retired 2026-08-19** once
+the backfill completed; its worker `workers/logo_domain_backfill.py` remains in the tree and can
+still be run directly. It patches only `logo_domain` and carries the existing non-null `payload`,
+so drill-down evidence is preserved.
 The browser requests the image from Brandfetch's CDN using the public
 `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID`. Missing domains, absent client configuration, and CDN/image
 errors all fall back to the ticker initial. No Brandfetch secret key or company image is stored
@@ -1009,7 +1027,7 @@ This document describes current implementation behavior. The authoritative files
 11c. `workers/dashboard_publisher.py` and `storage/dashboard_repository.py` — Supabase read-model mapping, reservation protocol, immutable-date policy, retention, and logo-domain patching.
 11d. `storage/dashboard_schema.sql` — typed/read payload schema, RLS, movers view, allowlist functions, and snapshot pruning.
 11e. `dashboard/app`, `dashboard/components`, and `dashboard/lib` — authenticated Next.js read paths, visual semantics, queries, and formatting.
-11f. `workers/logo_domain_backfill.py` and `.github/workflows/backfill-logo-domains.yml` — resumable Yahoo website-domain resolution for Brandfetch identifiers.
+11f. `workers/logo_domain_backfill.py` — resumable Yahoo website-domain resolution for Brandfetch identifiers, run directly since `backfill-logo-domains.yml` was retired.
 12. `tests/test_technical_scoring.py`, `tests/test_recommendation.py`, `tests/test_liquidity.py`, and `tests/test_valuation.py` — executable behavioral specifications.
 13. `tests/test_statements.py`, `tests/test_benchmark.py`, `tests/test_factors.py`,
     `tests/test_factor_policy.py`, `tests/test_trend_risk_features.py`,
