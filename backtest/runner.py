@@ -87,8 +87,18 @@ class UniverseRule:
     held at size, and leaving it in the cross-section inflates the top decile with
     positions the strategy could never actually take.
 
-    ``exclude_isin_prefixes`` and ``exclude_symbols`` exist for ETFs, which sit in
-    the ``EQ`` series and are not stock-selection candidates.
+    ETFs are excluded structurally rather than by name. Indian ISINs encode the
+    instrument class in their third character: ``INE`` is a company security,
+    ``INF`` is a mutual-fund scheme -- which is what an ETF unit is. So
+    ``NIFTYBEES`` (``INF204KB14I2``) and ``GOLDBEES`` (``INF204KB17I5``) are
+    excluded while ``RELIANCE`` (``INE002A01018``) is kept, with no name patterns
+    and no dependence on a snapshot of today's ETF list. That matters for a
+    historical run: a list fetched now would miss ETFs that delisted years ago,
+    whereas the ISIN prefix was correct on every date.
+
+    This also explains the reused-ticker warnings from the security master -- ETF
+    schemes are renumbered on scheme changes, and every reused ticker observed in
+    the archive belonged to a fund rather than a company.
     """
 
     def __init__(
@@ -97,11 +107,17 @@ class UniverseRule:
         min_median_turnover_inr=2_000_000.0,
         min_trading_frequency=0.80,
         min_history_sessions=200,
+        require_identifier_prefix="INE",
         exclude_symbols=(),
     ):
         self.min_median_turnover_inr = float(min_median_turnover_inr)
         self.min_trading_frequency = float(min_trading_frequency)
         self.min_history_sessions = int(min_history_sessions)
+        self.require_identifier_prefix = (
+            str(require_identifier_prefix).strip().upper()
+            if require_identifier_prefix
+            else ""
+        )
         self.exclude_symbols = {str(s).strip().upper() for s in exclude_symbols}
 
     def apply(self, frame):
@@ -113,6 +129,16 @@ class UniverseRule:
         frequency = pd.to_numeric(frame.get("Trading_Frequency"), errors="coerce")
         history = pd.to_numeric(frame.get("Price_History_Sessions"), errors="coerce")
         symbols = frame.get("Symbol", pd.Series("", index=frame.index)).astype(str).str.upper()
+        identifiers = (
+            frame.get("Security_ID", pd.Series("", index=frame.index))
+            .astype(str)
+            .str.upper()
+        )
+        is_equity = (
+            identifiers.str.startswith(self.require_identifier_prefix)
+            if self.require_identifier_prefix
+            else pd.Series(True, index=frame.index)
+        )
 
         mask = (
             turnover_values.notna()
@@ -121,6 +147,7 @@ class UniverseRule:
             & frequency.ge(self.min_trading_frequency)
             & history.notna()
             & history.ge(self.min_history_sessions)
+            & is_equity
             & ~symbols.isin(self.exclude_symbols)
         )
         diagnostics = {
@@ -129,6 +156,7 @@ class UniverseRule:
             "failed_turnover": int((~turnover_values.ge(self.min_median_turnover_inr)).sum()),
             "failed_frequency": int((~frequency.ge(self.min_trading_frequency)).sum()),
             "failed_history": int((~history.ge(self.min_history_sessions)).sum()),
+            "excluded_non_equity": int((~is_equity).sum()),
             "excluded_by_name": int(symbols.isin(self.exclude_symbols).sum()),
         }
         return frame.loc[mask].reset_index(drop=True), diagnostics
@@ -138,6 +166,7 @@ class UniverseRule:
             "min_median_turnover_inr": self.min_median_turnover_inr,
             "min_trading_frequency": self.min_trading_frequency,
             "min_history_sessions": self.min_history_sessions,
+            "require_identifier_prefix": self.require_identifier_prefix,
             "excluded_symbols": sorted(self.exclude_symbols),
         }
 

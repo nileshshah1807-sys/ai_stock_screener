@@ -181,10 +181,17 @@ class CrossSectionTests(unittest.TestCase):
 
 class UniverseRuleTests(unittest.TestCase):
     def frame(self):
+        """Real ISIN cores: INE is a company security, INF a fund scheme."""
         return pd.DataFrame(
             {
-                "Security_ID": ["LIQUID", "ILLIQUID", "PATCHY", "SHORT", "ETF"],
-                "Symbol": ["LIQUID", "ILLIQUID", "PATCHY", "SHORT", "NIF100IETF"],
+                "Security_ID": [
+                    "INE002A01",  # RELIANCE
+                    "INE467B01",  # TCS, illiquid here
+                    "INE001A01",  # patchy
+                    "INE003C01",  # short history
+                    "INF204KB1",  # NIFTYBEES, an ETF
+                ],
+                "Symbol": ["RELIANCE", "TCS", "PATCHY", "SHORT", "NIFTYBEES"],
                 "Median_Turnover_INR": [5e7, 1e5, 5e7, 5e7, 5e7],
                 "Trading_Frequency": [1.0, 1.0, 0.4, 1.0, 1.0],
                 "Price_History_Sessions": [300, 300, 300, 50, 300],
@@ -192,27 +199,37 @@ class UniverseRuleTests(unittest.TestCase):
         )
 
     def test_illiquid_name_is_excluded(self):
-        rule = UniverseRule(exclude_symbols=("NIF100IETF",))
-        eligible, _ = rule.apply(self.frame())
-        self.assertNotIn("ILLIQUID", set(eligible["Security_ID"]))
+        eligible, _ = UniverseRule().apply(self.frame())
+        self.assertNotIn("INE467B01", set(eligible["Security_ID"]))
 
     def test_intermittently_traded_name_is_excluded(self):
         eligible, _ = UniverseRule().apply(self.frame())
-        self.assertNotIn("PATCHY", set(eligible["Security_ID"]))
+        self.assertNotIn("INE001A01", set(eligible["Security_ID"]))
 
     def test_short_history_is_excluded(self):
         eligible, _ = UniverseRule().apply(self.frame())
-        self.assertNotIn("SHORT", set(eligible["Security_ID"]))
+        self.assertNotIn("INE003C01", set(eligible["Security_ID"]))
 
-    def test_named_exclusion_removes_etfs(self):
-        rule = UniverseRule(exclude_symbols=("NIF100IETF",))
+    def test_etf_is_excluded_by_isin_class_not_by_name(self):
+        """INF is a mutual-fund scheme; no name pattern is involved."""
+        eligible, diagnostics = UniverseRule().apply(self.frame())
+        self.assertNotIn("INF204KB1", set(eligible["Security_ID"]))
+        self.assertEqual(diagnostics["excluded_non_equity"], 1)
+
+    def test_company_equity_survives_the_isin_class_filter(self):
+        eligible, _ = UniverseRule().apply(self.frame())
+        self.assertEqual(list(eligible["Security_ID"]), ["INE002A01"])
+
+    def test_isin_class_filter_can_be_disabled(self):
+        rule = UniverseRule(require_identifier_prefix=None)
+        eligible, _ = rule.apply(self.frame())
+        self.assertIn("INF204KB1", set(eligible["Security_ID"]))
+
+    def test_named_exclusion_still_works_alongside(self):
+        rule = UniverseRule(exclude_symbols=("RELIANCE",))
         eligible, diagnostics = rule.apply(self.frame())
-        self.assertNotIn("ETF", set(eligible["Security_ID"]))
         self.assertEqual(diagnostics["excluded_by_name"], 1)
-
-    def test_liquid_name_survives(self):
-        eligible, _ = UniverseRule(exclude_symbols=("NIF100IETF",)).apply(self.frame())
-        self.assertEqual(list(eligible["Security_ID"]), ["LIQUID"])
+        self.assertTrue(eligible.empty)
 
     def test_diagnostics_report_each_reason(self):
         _, diagnostics = UniverseRule().apply(self.frame())
@@ -325,8 +342,12 @@ class StrategyTests(unittest.TestCase):
 
 class RunnerTests(unittest.TestCase):
     def setUp(self):
-        # Drift ordering is the ground truth momentum should recover.
-        specs = {f"S{index:02d}": (100.0, 0.0025 - index * 0.0002) for index in range(25)}
+        # Drift ordering is the ground truth momentum should recover. Keys are
+        # INE-prefixed so the production ISIN-class filter treats them as equity.
+        specs = {
+            f"INE{index:03d}A01": (100.0, 0.0025 - index * 0.0002)
+            for index in range(25)
+        }
         frame = synthetic_panel(specs)
         self.calendar = TradingCalendar(SESSIONS)
         self.history = HistoryPanel(frame)
