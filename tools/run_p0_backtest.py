@@ -41,6 +41,18 @@ def _parse_horizons(value):
     return tuple(int(part.strip()) for part in str(value).split(",") if part.strip())
 
 
+def _action_span(actions):
+    """First and last ex-date in the corporate-action feed, or None."""
+    import pandas as pd
+
+    if actions is None or actions.empty or "Ex_Date" not in actions:
+        return None
+    dates = pd.to_datetime(actions["Ex_Date"], errors="coerce").dropna()
+    if dates.empty:
+        return None
+    return dates.min().date(), dates.max().date()
+
+
 def load_archive(root, *, terminal_absence_sessions=None):
     """Load calendar, master, actions and the adjusted price panel."""
     from backtest.bhavcopy import BhavcopyStore
@@ -99,10 +111,26 @@ def load_archive(root, *, terminal_absence_sessions=None):
     actions = ActionStore(root / "corporate_actions.csv").load()
     table = AdjustmentTable(actions, master=master)
     logger.info("Corporate actions: %s", json.dumps(table.summary()))
+    action_span = _action_span(actions)
     if actions.empty:
         logger.warning(
             "No corporate actions cached. Splits will read as ~50%% losses; "
             "run the backfill's action stage before trusting any result."
+        )
+    elif action_span and (
+        action_span[0] > sessions[0] or action_span[1] < sessions[-1]
+    ):
+        # A partial feed is more dangerous than an empty one: the empty case is
+        # obvious, while a feed covering only part of the window silently leaves
+        # every split outside it as a fabricated ~50% loss.
+        logger.warning(
+            "Corporate-action feed covers %s -> %s but the archive spans %s -> %s. "
+            "Splits outside the feed will read as fabricated losses. Re-run "
+            "tools.backfill_backtest_archive over the full window.",
+            action_span[0],
+            action_span[1],
+            sessions[0],
+            sessions[-1],
         )
 
     logger.info("Assembling adjusted price panel over %d sessions", len(sessions))
