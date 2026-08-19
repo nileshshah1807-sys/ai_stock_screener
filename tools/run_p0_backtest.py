@@ -208,6 +208,14 @@ def main(argv=None):
                         help="load and report the archive without scoring")
     parser.add_argument("--out", default=None, help="report path (JSON)")
     parser.add_argument("--fills-out", default=None, help="optional fill-level CSV")
+    # The PDF goes to a tracked path by default. reports_advanced/ is gitignored,
+    # so a report written there could not be committed or shared.
+    parser.add_argument(
+        "--pdf-out",
+        default="docs/Review/p0_backtest_report.pdf",
+        help="PDF report path (tracked in git so it can be shared)",
+    )
+    parser.add_argument("--no-pdf", action="store_true", help="skip the PDF report")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -311,7 +319,17 @@ def main(argv=None):
         fills.to_csv(args.fills_out, index=False)
         logger.info("Fills written: %s", args.fills_out)
 
+    if not args.no_pdf:
+        from backtest.report_pdf import write_pdf
+
+        pdf_path = write_pdf(payload, args.pdf_out)
+        if pdf_path:
+            logger.info("PDF report written: %s", pdf_path)
+
     _print_summary(payload, horizons)
+    if not args.no_pdf:
+        print(f"\nPDF report: {args.pdf_out}")
+        print(f"JSON report: {out}")
     return 0
 
 
