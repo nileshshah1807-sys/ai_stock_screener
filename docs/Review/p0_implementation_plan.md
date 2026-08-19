@@ -131,16 +131,25 @@ is the swappable part.
 
 ### Phase A — spine (no fundamentals required)
 
-| # | Component | Module | P0 item |
-| --- | --- | --- | --- |
-| A1 | Trading calendar from bhavcopy availability | `backtest/calendar.py` | 4 |
-| A2 | Bhavcopy ingestion, both formats, cached + resumable | `backtest/bhavcopy.py` | 3 |
-| A3 | ISIN-keyed security master: listing, delisting, symbol changes, suspensions | `backtest/security_master.py` | 3 |
-| A4 | Next-session execution (signal on close *t*, fill at open *t+1*) | `backtest/execution.py` | 4 |
-| A5 | Forward returns at 1/3/6/12 months | `backtest/forward_returns.py` | 4 |
-| A6 | Costs, turnover, slippage, liquidity capacity | `backtest/costs.py` | 5 |
-| A7 | Rank IC, decile buckets, portfolio metrics | `backtest/metrics.py` | 4 |
-| A8 | Walk-forward orchestration | `backtest/runner.py` | 4 |
+| # | Component | Module | P0 item | Status |
+| --- | --- | --- | --- | --- |
+| A1 | Trading calendar from bhavcopy availability | `backtest/calendar.py` | 4 | **done** |
+| A2 | Bhavcopy ingestion, both formats, cached + resumable | `backtest/bhavcopy.py` | 3 | **done** |
+| A3 | `Security_ID` master: listing, delisting, renames, splits, suspensions | `backtest/security_master.py` | 3 | **done** |
+| A3b | Corporate-action adjustment (**added**, see below) | `backtest/corporate_actions.py` | 4 | **done** |
+| A4 | Next-session execution (signal on close *t*, fill at open *t+1*) | `backtest/execution.py` | 4 | |
+| A5 | Forward returns at 1/3/6/12 months | `backtest/forward_returns.py` | 4 | |
+| A6 | Costs, turnover, slippage, liquidity capacity | `backtest/costs.py` | 5 | |
+| A7 | Rank IC, decile buckets, portfolio metrics | `backtest/metrics.py` | 4 | |
+| A8 | Walk-forward orchestration | `backtest/runner.py` | 4 | |
+
+**A3b was not in the original plan and is not optional.** Bhavcopy prices are raw
+and `Prev_Close` is *not* exchange-adjusted — verified on NARMADA's 2026-07-31
+split, where the close moved 36.19 → 17.02 while `Prev_Close` still read 36.19.
+Without adjustment every split is a fabricated ~50% loss and the momentum block
+scores corporate actions instead of performance. Splits, bonuses and dividends are
+adjusted exactly from `nse.actions()`; rights issues, demergers and buybacks are
+flagged and excluded rather than approximated.
 
 **Phase A milestone — a genuine retrospective test with zero fundamentals.**
 The momentum and risk blocks need only price history, and the equal-weight
