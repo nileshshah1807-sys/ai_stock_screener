@@ -88,7 +88,30 @@ Two properties make this the right spine:
 2. The bhavcopy for date *t* **is** the tradable universe on date *t*. Symbols
    later delisted are present; today's survivors are not privileged.
 
-### 3.1 The constraint that shapes everything
+### 3.1 Findings from the live archive
+
+Two things surfaced only by ingesting real files, and both would have corrupted
+the run silently.
+
+**ISIN is not a permanent identifier in India.** A face-value change — a split or
+bonus issue — is assigned a new ISIN that keeps only the nine-character
+issuer-security core. `BAJFINANCE` went `INE296A01024` → `INE296A01032`;
+`KOTAKBANK`, `DRREDDY`, `CANBK`, `COFORGE`, `PERSISTENT`, `SHRIRAMFIN` and `MCX`
+all did the same. **150 of 226 apparent disappearances between 2024-01 and
+2026-08 were face-value changes, not delistings** — 66%. Keyed on the raw ISIN,
+those healthy large-caps would each have been marked delisted and exited at
+whatever `DelistingPolicy` assumes, fabricating losses in the most liquid part of
+the universe. Fixed by bridging ISINs into a `Security_ID` chain; the true
+delisting rate over the window is **3.4%, not the naive 10.7%**.
+
+**ETFs sit in the `EQ` series.** `LICMFGOLD`, `NIF100IETF`, `IVZINNIFTY` and
+`IVZINGOLD` came through the equity filter. They are not stock-selection
+candidates and will distort sector-neutral percentiles and the equal-weight
+benchmark. *Open item:* exclude them at universe-build time via `nse.listEtf()`.
+The bhavcopy archive itself stays faithful to what traded — filtering belongs in
+the universe layer, not the raw store.
+
+### 3.2 The constraint that shapes everything
 
 yfinance holds **exactly four annual periods** (confirmed: TCS returns
 FY2023–FY2026) and publishes **no** statement dates. `Revenue_CAGR_3Y` needs
