@@ -202,13 +202,22 @@ class RandomRanking(Strategy):
         self.seed = int(seed)
 
     def score(self, frame, shared=None):
+        import hashlib
+
         working = frame.copy()
-        # Seeded per signal date so the run is reproducible but not identical
-        # across dates, which would create artificial serial correlation.
+        # Seeded per signal date so the null varies across dates -- one seed for
+        # the whole run would impose the same ordering every month and create
+        # artificial serial correlation in a benchmark that must have none.
+        #
+        # The digest is blake2b rather than the builtin hash(): Python randomises
+        # string hashing per process, so hash() gave a different null on every
+        # invocation. The measured "no signal" baseline has to be reproducible or
+        # it cannot calibrate anything.
         signal = str(working.get("Signal_Date", pd.Series(["x"])).iloc[0])
-        generator = np.random.default_rng(
-            abs(hash((self.seed, signal))) % (2**32)
-        )
+        digest = hashlib.blake2b(
+            f"{self.seed}:{signal}".encode("utf-8"), digest_size=8
+        ).digest()
+        generator = np.random.default_rng(int.from_bytes(digest, "big") % (2**32))
         working["Score"] = generator.uniform(0, 100, len(working))
         working["Score_Coverage"] = 1.0
         return working

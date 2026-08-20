@@ -435,3 +435,53 @@ class RunnerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RandomNullReproducibilityTests(unittest.TestCase):
+    """The measured null must be identical across processes.
+
+    Python randomises string hashing per process, so seeding from hash() gave a
+    different null on every run -- and a baseline that moves cannot calibrate
+    "about zero". The seed is now a stable blake2b digest.
+    """
+
+    def frame(self):
+        return pd.DataFrame(
+            {
+                "Security_ID": [f"INE{i:03d}A01" for i in range(40)],
+                "Signal_Date": ["2024-01-31"] * 40,
+            }
+        )
+
+    def test_scores_are_stable_for_a_given_seed_and_date(self):
+        import subprocess
+        import sys
+
+        code = (
+            "import pandas as pd;"
+            "from backtest.strategies import RandomRanking;"
+            "f=pd.DataFrame({'Security_ID':[f'INE{i:03d}A01' for i in range(40)],"
+            "'Signal_Date':['2024-01-31']*40});"
+            "print(round(float(RandomRanking(seed=7).score(f)['Score'].sum()),6))"
+        )
+        first = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        second = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        ).stdout.strip()
+        self.assertEqual(first, second)
+
+    def test_different_dates_give_different_orderings(self):
+        """One seed for the whole run would impose the same monthly ordering."""
+        january = RandomRanking(seed=7).score(self.frame())["Score"].tolist()
+        february_frame = self.frame()
+        february_frame["Signal_Date"] = "2024-02-29"
+        february = RandomRanking(seed=7).score(february_frame)["Score"].tolist()
+        self.assertNotEqual(january, february)
+
+    def test_different_seeds_give_different_orderings(self):
+        self.assertNotEqual(
+            RandomRanking(seed=7).score(self.frame())["Score"].tolist(),
+            RandomRanking(seed=8).score(self.frame())["Score"].tolist(),
+        )

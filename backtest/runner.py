@@ -386,7 +386,16 @@ def evaluate(fills, *, horizons=DEFAULT_HORIZONS, portfolio_sizes=DEFAULT_PORTFO
                 usable = period.dropna(subset=[return_column])
                 if usable.empty:
                     continue
-                universe_returns.append(float(usable[return_column].mean()))
+                universe_mean = float(usable[return_column].mean())
+                universe_returns.append(universe_mean)
+                # A constant score cannot rank. Slicing "top N" from it returns
+                # whichever rows sort first, which reads as a selection but is an
+                # arbitrary fixed subset. Such a strategy's portfolio is the whole
+                # eligible universe -- that is what a flat score expresses.
+                if usable[score_column].nunique() <= 1:
+                    for size in portfolio_sizes:
+                        period_returns[size].append(universe_mean)
+                    continue
                 ordered = usable.sort_values(score_column, ascending=False)
                 for size in portfolio_sizes:
                     top = ordered.head(size)

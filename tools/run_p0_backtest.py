@@ -235,6 +235,20 @@ def main(argv=None):
     )
     parser.add_argument("--no-pdf", action="store_true", help="skip the PDF report")
     parser.add_argument(
+        "--comparison-pdf-out",
+        default="docs/Review/p0_index_comparison.pdf",
+        help="CAGR-vs-index comparison PDF (tracked in git so it can be shared)",
+    )
+    parser.add_argument(
+        "--no-comparison",
+        action="store_true",
+        help="skip the index comparison (also skips fetching index history)",
+    )
+    parser.add_argument(
+        "--comparison-size", type=int, default=20,
+        help="portfolio size used for the CAGR comparison",
+    )
+    parser.add_argument(
         "--with-fundamentals",
         action="store_true",
         help="run the full Model 5.0 matrix using the point-in-time statement panel",
@@ -349,6 +363,49 @@ def main(argv=None):
         "net": net_results,
     }
 
+    # --- index comparison -------------------------------------------------
+    # CAGR is only meaningful from chaining periods. At a monthly rebalance that
+    # is the 1-month horizon: each period's exit session is the next period's
+    # entry. Compounding an overlapping horizon would count the same market move
+    # several times over.
+    comparison = None
+    if not args.no_comparison:
+        chaining = {"monthly": 1, "quarterly": 3}[args.frequency]
+        periods_per_year = {"monthly": 12, "quarterly": 4}[args.frequency]
+        if chaining not in horizons:
+            logger.warning(
+                "CAGR comparison needs the %d-month horizon to chain at a %s "
+                "rebalance; add it to --horizons. Skipping the comparison.",
+                chaining,
+                args.frequency,
+            )
+        else:
+            from backtest.benchmarks import (
+                DEFAULT_INDICES,
+                IndexSeries,
+                IndexStore,
+                build_comparison,
+            )
+
+            index_store = IndexStore(Path(args.root) / "indices.csv")
+            index_frame = index_store.load()
+            if index_frame.empty:
+                logger.info("Fetching index history (first run only)")
+                index_frame = index_store.fetch(DEFAULT_INDICES, start, end)
+            series = IndexSeries(index_frame)
+            logger.info("Indices available: %s", ", ".join(series.names()))
+            comparison = build_comparison(
+                fills,
+                series,
+                archive["calendar"],
+                size=args.comparison_size,
+                horizon_months=chaining,
+                periods_per_year=periods_per_year,
+                return_column=f"Forward_Return_{chaining}M_Pct",
+                cost_rate_column=f"Cost_Rate_{chaining}M",
+            )
+            payload["comparison"] = comparison
+
     out = Path(args.out) if args.out else Path(args.root) / "p0_backtest_report.json"
     write_report(out, payload)
     logger.info("Report written: %s", out)
@@ -364,11 +421,63 @@ def main(argv=None):
         if pdf_path:
             logger.info("PDF report written: %s", pdf_path)
 
+    if comparison and not args.no_pdf:
+        from backtest.comparison_pdf import write_comparison_pdf
+
+        comparison_path = write_comparison_pdf(
+            payload, args.comparison_pdf_out, comparison=comparison
+        )
+        if comparison_path:
+            logger.info("Comparison PDF written: %s", comparison_path)
+
     _print_summary(payload, horizons)
+    if comparison:
+        _print_comparison(comparison)
     if not args.no_pdf:
         print(f"\nPDF report: {args.pdf_out}")
         print(f"JSON report: {out}")
     return 0
+
+
+def _print_comparison(comparison):
+    """Console view of the CAGR table."""
+    indices = comparison.get("indices", {})
+    strategies = comparison.get("strategies", {})
+    if not strategies:
+        return
+    index_names = sorted(indices)
+    print()
+    print("=" * 78)
+    print(
+        f"CAGR COMPARISON  (top {comparison.get('portfolio_size')}, "
+        f"{comparison.get('horizon_months')}M non-overlapping, "
+        f"{comparison.get('rebalances')} periods)"
+    )
+    print("=" * 78)
+    print("index CAGR:")
+    for name in index_names:
+        print(f"  {name:<26}{indices[name].get('cagr_pct'):>9.2f}%")
+    universe = comparison.get("eligible_universe", {})
+    if universe.get("cagr_pct") is not None:
+        print(f"  {'eligible universe (EW)':<26}{universe['cagr_pct']:>9.2f}%")
+    print()
+    header = f"{'strategy':<24}{'gross':>9}{'net':>9}"
+    for name in index_names:
+        header += f"{'vs ' + name.replace('NIFTY ', 'N'):>16}"
+    print(header)
+    for name in sorted(strategies):
+        entry = strategies[name]
+        gross = entry.get("gross_cagr_pct")
+        net = entry.get("net_cagr_pct")
+        row = (
+            f"{name:<24}"
+            f"{'-' if gross is None else format(gross, '.2f'):>9}"
+            f"{'-' if net is None else format(net, '.2f'):>9}"
+        )
+        for index_name in index_names:
+            diff = entry.get("versus", {}).get(index_name, {}).get("cagr_difference_pct")
+            row += f"{'-' if diff is None else format(diff, '+.2f'):>16}"
+        print(row)
 
 
 def _print_summary(payload, horizons):

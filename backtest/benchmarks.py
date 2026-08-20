@@ -33,6 +33,17 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+# The historical endpoint truncates a response at roughly this many rows without
+# erroring. Requests are sized to stay under it.
+ENDPOINT_ROW_CAP = 70
+DEFAULT_CHUNK_MONTHS = 3
+
+# How far back level_on_or_before may reach for a missing session. It exists to
+# bridge a one-session mismatch between the index and equity calendars, not to
+# paper over a data gap: reaching across a hole returns a stale level and turns a
+# wrong CAGR into a plausible-looking one.
+MAX_LEVEL_STALENESS_DAYS = 7
+
 # Price indices available from the historical endpoint. NIFTY 500 is the broad
 # investable benchmark p0.md asks for; the size indices are there because a
 # small-cap-heavy strategy beating NIFTY 500 may only be showing size exposure.
@@ -111,11 +122,18 @@ class IndexStore:
             logger.warning("Index cache unreadable: %s", exc)
             return pd.DataFrame(columns=list(INDEX_COLUMNS))
 
-    def fetch(self, indices, start, end, *, chunk_years=1):
+    def fetch(self, indices, start, end, *, chunk_months=DEFAULT_CHUNK_MONTHS):
         """Fetch each index across the window and cache the combined frame.
 
-        The endpoint is unreliable over multi-year spans, so the window is
-        requested in chunks and stitched.
+        **The endpoint silently caps a response at about 70 rows** regardless of
+        the window requested: a quarter returns 61 rows, six months returns 70,
+        and a full year also returns 71. It does not error or paginate -- it just
+        truncates, so a naive yearly loop yields roughly a third of the sessions
+        and leaves months-long holes that look like ordinary missing data.
+
+        Chunking by quarter keeps every request under the cap. A chunk that comes
+        back at or above the cap is reported, because that is the signature of the
+        truncation returning.
         """
         from tempfile import TemporaryDirectory
 
@@ -131,7 +149,7 @@ class IndexStore:
                             end,
                             (
                                 pd.Timestamp(chunk_start)
-                                + pd.DateOffset(years=int(chunk_years))
+                                + pd.DateOffset(months=int(chunk_months))
                                 - pd.Timedelta(days=1)
                             ).date(),
                         )
@@ -139,6 +157,16 @@ class IndexStore:
                             records = nse.fetch_historical_index_data(
                                 index_name, from_date=chunk_start, to_date=chunk_end
                             )
+                            if len(records or []) >= ENDPOINT_ROW_CAP:
+                                logger.warning(
+                                    "Index %s %s..%s returned %d rows, at the "
+                                    "endpoint cap -- the response was probably "
+                                    "truncated. Reduce chunk_months.",
+                                    index_name,
+                                    chunk_start,
+                                    chunk_end,
+                                    len(records),
+                                )
                             collected.extend(records or [])
                         except Exception as exc:
                             logger.warning(
@@ -156,11 +184,23 @@ class IndexStore:
                     if not frame.empty:
                         frames.append(frame)
 
-        combined = (
-            pd.concat(frames, ignore_index=True)
-            if frames
-            else pd.DataFrame(columns=list(INDEX_COLUMNS))
-        )
+        # Merge with whatever is already cached rather than replacing it. The
+        # endpoint returns intermittent 500s on individual quarters, so a run can
+        # come back with holes; overwriting would discard sessions a previous run
+        # fetched successfully and make the gaps permanent. Merging means simply
+        # re-running the fetch heals them.
+        existing = self.load()
+        combined = pd.concat(
+            [frame for frame in ([existing] if not existing.empty else []) + frames],
+            ignore_index=True,
+        ) if (frames or not existing.empty) else pd.DataFrame(columns=list(INDEX_COLUMNS))
+
+        if not combined.empty:
+            combined = (
+                combined.drop_duplicates(subset=["Index", "Trade_Date"], keep="last")
+                .sort_values(["Index", "Trade_Date"])
+                .reset_index(drop=True)
+            )
         self.path.parent.mkdir(parents=True, exist_ok=True)
         combined.to_csv(self.path, index=False)
         return combined
@@ -188,11 +228,15 @@ class IndexSeries:
     def names(self):
         return sorted(self._levels)
 
-    def level_on_or_before(self, index_name, day):
-        """Index level on ``day``, or the most recent session before it.
+    def level_on_or_before(self, index_name, day, *,
+                           max_staleness_days=MAX_LEVEL_STALENESS_DAYS):
+        """Index level on ``day``, or the most recent session shortly before it.
 
-        The index calendar and the equity calendar can differ by a session, so a
-        missing exact date falls back rather than dropping the period.
+        The fallback is **bounded**. It exists because the index and equity
+        calendars can differ by a session; it must not reach across a gap in the
+        data, because a level from months earlier produces a wrong return that
+        looks entirely reasonable. Beyond the bound this returns None and the
+        period is dropped instead.
         """
         levels = self._levels.get(str(index_name))
         if not levels:
@@ -211,7 +255,21 @@ class IndexSeries:
                 low = mid + 1
             else:
                 high = mid
-        return levels[sessions[position]] if position >= 0 else None
+        if position < 0:
+            return None
+        nearest = sessions[position]
+        if max_staleness_days is not None and (day - nearest).days > int(
+            max_staleness_days
+        ):
+            logger.debug(
+                "Index %s has no session within %s days of %s (nearest %s)",
+                index_name,
+                max_staleness_days,
+                day,
+                nearest,
+            )
+            return None
+        return levels[nearest]
 
     def period_return_pct(self, index_name, start, end):
         """Percentage change in the index between two dates."""
@@ -249,6 +307,70 @@ def compound_cagr(period_returns_pct, *, periods_per_year):
     return (growth ** (1.0 / years) - 1.0) * 100.0
 
 
+def strategy_period_table(fills, strategy, *, size=20, score_column="Score",
+                          return_column="Forward_Return_1M_Pct",
+                          cost_rate_column=None):
+    """Per-rebalance gross return, turnover, cost and net return for one strategy.
+
+    **Costs are charged on what actually traded, not on everything held.** A
+    position carried from one rebalance to the next incurs nothing; only the
+    fraction replaced pays. Charging a full round trip to every holding every
+    period -- which is what a naive per-position net return does -- makes a
+    9%-turnover benchmark look as expensive as a 96%-turnover one, and destroys
+    precisely the comparison `p0.md` §7C exists for: a model with twice the
+    turnover may be worse after costs even when its gross ranking is better.
+
+    With one-way turnover ``T`` and a round-trip rate ``c``, the period cost is
+    ``T * c``. That is consistent at both ends: a full replacement (``T = 1``)
+    pays one complete round trip, and an initial build from cash (``T = 0.5``)
+    pays one buy leg.
+    """
+    rows = fills[fills["Strategy"] == strategy]
+    if rows.empty or return_column not in rows:
+        return pd.DataFrame(
+            columns=["Signal_Date", "Gross_Pct", "Turnover", "Cost_Pct", "Net_Pct"]
+        )
+
+    from .metrics import turnover as one_way_turnover
+
+    records = []
+    previous: dict = {}
+    for signal_date, period in sorted(
+        rows.groupby("Signal_Date"), key=lambda item: item[0]
+    ):
+        usable = period.dropna(subset=[return_column, score_column])
+        if usable.empty:
+            continue
+        if usable[score_column].nunique() <= 1:
+            held = usable
+        else:
+            held = usable.sort_values(score_column, ascending=False).head(size)
+        if held.empty:
+            continue
+
+        weight = 1.0 / len(held)
+        current = {str(key): weight for key in held["Security_ID"]}
+        traded = one_way_turnover(previous, current)
+        previous = current
+
+        gross = float(held[return_column].mean())
+        cost_pct = 0.0
+        if cost_rate_column and cost_rate_column in held:
+            rate = pd.to_numeric(held[cost_rate_column], errors="coerce").mean()
+            if pd.notna(rate):
+                cost_pct = float(traded) * float(rate) * 100.0
+        records.append(
+            {
+                "Signal_Date": str(signal_date),
+                "Gross_Pct": gross,
+                "Turnover": traded,
+                "Cost_Pct": cost_pct,
+                "Net_Pct": gross - cost_pct,
+            }
+        )
+    return pd.DataFrame(records)
+
+
 def strategy_period_returns(fills, strategy, *, size=20, score_column="Score",
                             return_column="Forward_Return_1M_Pct"):
     """Equal-weighted top-``size`` return per rebalance, in date order.
@@ -266,11 +388,18 @@ def strategy_period_returns(fills, strategy, *, size=20, score_column="Score",
         usable = period.dropna(subset=[return_column, score_column])
         if usable.empty:
             continue
-        top = usable.sort_values(score_column, ascending=False).head(size)
-        if top.empty:
-            continue
+        if usable[score_column].nunique() <= 1:
+            # A constant score cannot rank, so "top N" would be whichever rows
+            # happen to sort first -- an arbitrary fixed subset masquerading as a
+            # selection. The equal-weight benchmark's portfolio is the whole
+            # eligible universe, which is what its score actually expresses.
+            returns.append(float(usable[return_column].mean()))
+        else:
+            top = usable.sort_values(score_column, ascending=False).head(size)
+            if top.empty:
+                continue
+            returns.append(float(top[return_column].mean()))
         dates.append(str(signal_date))
-        returns.append(float(top[return_column].mean()))
     return dates, returns
 
 
@@ -301,14 +430,14 @@ def universe_period_returns(fills, *, return_column="Forward_Return_1M_Pct"):
 def build_comparison(fills, index_series, calendar, *, strategies=None, size=20,
                      horizon_months=1, periods_per_year=12,
                      return_column="Forward_Return_1M_Pct",
-                     net_column="Net_Return_1M_Pct"):
+                     cost_rate_column="Cost_Rate_1M"):
     """CAGR of each strategy against each index over the same rebalance dates.
 
     Index returns are measured between the same entry and exit sessions the
     strategy actually traded, not between month-ends, so the comparison is not
     quietly measuring a different span of market time.
     """
-    from .metrics import excess_metrics, max_drawdown, portfolio_metrics
+    from .metrics import excess_metrics, portfolio_metrics
 
     if fills is None or fills.empty:
         return {}
@@ -350,15 +479,29 @@ def build_comparison(fills, index_series, calendar, *, strategies=None, size=20,
 
     strategy_results = {}
     for name in names:
-        _dates, gross = strategy_period_returns(
-            fills, name, size=size, return_column=return_column
+        table = strategy_period_table(
+            fills,
+            name,
+            size=size,
+            return_column=return_column,
+            cost_rate_column=cost_rate_column,
         )
-        net = []
-        if net_column in fills:
-            _d, net = strategy_period_returns(
-                fills, name, size=size, return_column=net_column
-            )
+        gross = table["Gross_Pct"].tolist() if not table.empty else []
+        # Net is charged on the fraction actually traded, so a low-turnover
+        # strategy keeps most of its gross return instead of paying a full round
+        # trip on every holding every period.
+        net = (
+            table["Net_Pct"].tolist()
+            if not table.empty and table["Cost_Pct"].abs().sum() > 0
+            else []
+        )
         entry = {
+            "mean_turnover": _round(
+                float(table["Turnover"].mean()) if not table.empty else None
+            ),
+            "mean_cost_pct_per_period": _round(
+                float(table["Cost_Pct"].mean()) if not table.empty else None
+            ),
             "periods": len(gross),
             "gross_cagr_pct": _round(
                 compound_cagr(gross, periods_per_year=periods_per_year)
