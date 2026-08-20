@@ -208,6 +208,7 @@ def fills_frame():
                         "Security_ID": f"INE{index:03d}A01",
                         "Score": score,
                         "Forward_Return_1M_Pct": base + index * 0.1,
+                        "Forward_Return_Chain_Pct": base + index * 0.1,
                         "Cost_Rate_1M": 0.004,
                     }
                 )
@@ -235,7 +236,9 @@ class PeriodReturnTests(unittest.TestCase):
         self.assertEqual(len(returns), 3)
 
     def test_universe_return_counts_each_security_once(self):
-        _dates, returns = universe_period_returns(fills_frame())
+        _dates, returns = universe_period_returns(
+            fills_frame(), return_column="Forward_Return_Chain_Pct"
+        )
         self.assertAlmostEqual(returns[0], 1.45, places=6)
 
     def test_unknown_strategy_yields_nothing(self):

@@ -401,7 +401,7 @@ def main(argv=None):
                 size=args.comparison_size,
                 horizon_months=chaining,
                 periods_per_year=periods_per_year,
-                return_column=f"Forward_Return_{chaining}M_Pct",
+                return_column="Forward_Return_Chain_Pct",
                 cost_rate_column=f"Cost_Rate_{chaining}M",
             )
             payload["comparison"] = comparison

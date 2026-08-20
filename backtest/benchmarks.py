@@ -8,11 +8,16 @@ CAGR means nothing until you know the index did 18% with lower turnover.
 
 *Overlapping horizons.* A 6-month forward return sampled monthly reuses five of
 its six months. Compounding those into a CAGR counts the same market move up to
-six times and produces a number that cannot happen. CAGR is therefore computed
-only from **non-overlapping, chaining** periods: at a monthly rebalance the
-1-month horizon chains exactly, because each period's exit session is the next
-period's entry session. `compound_cagr` refuses any other construction rather
-than producing a plausible-looking wrong answer.
+six times and produces a number that cannot happen.
+
+A calendar-month horizon is not safe either, which is subtler. "Entry plus one
+month" and "the next rebalance's entry" land on different sessions whenever the
+month-end and the horizon date disagree: on this archive that happened in 16 of
+51 periods, overlapping by 1-2 days each (once by 11), counting ~2.4% of market
+time twice and overstating every CAGR by roughly a point. CAGR is therefore
+computed from ``Forward_Return_Chain_Pct``, whose exit *is* the next period's
+entry, so the series chains by construction rather than by coincidence. The final
+period has no successor and is dropped rather than closed on a different basis.
 
 *Dividend asymmetry.* NSE's historical index endpoint serves **price** indices
 only -- every TRI spelling tried returns zero rows. The strategy's returns include
@@ -308,7 +313,7 @@ def compound_cagr(period_returns_pct, *, periods_per_year):
 
 
 def strategy_period_table(fills, strategy, *, size=20, score_column="Score",
-                          return_column="Forward_Return_1M_Pct",
+                          return_column="Forward_Return_Chain_Pct",
                           cost_rate_column=None):
     """Per-rebalance gross return, turnover, cost and net return for one strategy.
 
@@ -372,7 +377,7 @@ def strategy_period_table(fills, strategy, *, size=20, score_column="Score",
 
 
 def strategy_period_returns(fills, strategy, *, size=20, score_column="Score",
-                            return_column="Forward_Return_1M_Pct"):
+                            return_column="Forward_Return_Chain_Pct"):
     """Equal-weighted top-``size`` return per rebalance, in date order.
 
     Returns ``(dates, returns)``. Uses the 1-month horizon by default because
@@ -403,7 +408,7 @@ def strategy_period_returns(fills, strategy, *, size=20, score_column="Score",
     return dates, returns
 
 
-def universe_period_returns(fills, *, return_column="Forward_Return_1M_Pct"):
+def universe_period_returns(fills, *, return_column="Forward_Return_Chain_Pct"):
     """Equal-weighted return of the whole eligible universe per rebalance.
 
     This is the `p0.md` §7B benchmark, and unlike a top-N slice of a constant
@@ -429,7 +434,7 @@ def universe_period_returns(fills, *, return_column="Forward_Return_1M_Pct"):
 
 def build_comparison(fills, index_series, calendar, *, strategies=None, size=20,
                      horizon_months=1, periods_per_year=12,
-                     return_column="Forward_Return_1M_Pct",
+                     return_column="Forward_Return_Chain_Pct",
                      cost_rate_column="Cost_Rate_1M"):
     """CAGR of each strategy against each index over the same rebalance dates.
 
@@ -456,10 +461,15 @@ def build_comparison(fills, index_series, calendar, *, strategies=None, size=20,
         return {}
 
     entries = [entry for _, entry in boundaries]
-    exits = [
-        calendar.session_after_calendar_months(entry, horizon_months)
-        for entry in entries
+    # Each period ends where the next begins. Measuring the index over a calendar
+    # month instead would compare it against a strategy series held to the next
+    # rebalance, so the two sides would cover different spans of market time.
+    exits = entries[1:] + [
+        calendar.session_after_calendar_months(entries[-1], horizon_months)
     ]
+    # The final period has no successor, so it cannot chain; drop it rather than
+    # close it on a differently-measured horizon.
+    entries, exits = entries[:-1], exits[:-1]
 
     index_results = {}
     for index_name in index_series.names():
@@ -549,7 +559,12 @@ def build_comparison(fills, index_series, calendar, *, strategies=None, size=20,
         fills, return_column=return_column
     )
     return {
-        "rebalances": len(boundaries),
+        # Periods actually compounded. The final rebalance has no successor to
+        # chain into, so it is excluded; reporting the raw rebalance count would
+        # overstate the elapsed time the CAGR is annualised over.
+        "rebalances": len(entries),
+        "rebalances_available": len(boundaries),
+        "final_period_excluded": len(boundaries) - len(entries),
         "horizon_months": horizon_months,
         "portfolio_size": size,
         "indices": {

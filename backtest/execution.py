@@ -164,11 +164,16 @@ class ExecutionModel:
             entry_session, horizon_months
         )
 
-    def resolve(self, key, signal_date, horizon_months):
+    def resolve(self, key, signal_date, horizon_months, *, exit_override=None):
         """Return a fill record for one security and horizon.
 
         The record always carries ``Status``; ``Return_Pct`` is populated only when
         both legs priced cleanly.
+
+        ``exit_override`` pins the exit to a specific session instead of deriving
+        it from ``horizon_months``. That is what makes a chaining series exact: a
+        calendar-month exit and the next rebalance's entry do not always coincide,
+        so compounding month-horizon returns double-counts the days between them.
         """
         signal_date = _as_date(signal_date)
         record = {
@@ -199,8 +204,12 @@ class ExecutionModel:
             return record
         record["Entry_Price"] = entry_price
 
-        exit_session = self.exit_session(entry, horizon_months)
-        if exit_session is None:
+        exit_session = (
+            _as_date(exit_override)
+            if exit_override is not None
+            else self.exit_session(entry, horizon_months)
+        )
+        if exit_session is None or exit_session <= entry:
             record["Status"] = SKIP_HORIZON_BEYOND_DATA
             return record
         record["Exit_Session"] = exit_session.isoformat()
@@ -289,17 +298,32 @@ def forward_returns(
     return pd.DataFrame(rows)
 
 
-def attach_forward_returns(scores, execution, signal_date, horizons=DEFAULT_HORIZON_MONTHS):
+def attach_forward_returns(scores, execution, signal_date,
+                           horizons=DEFAULT_HORIZON_MONTHS, *, chain_exit=None):
     """Widen a scored cross-section with one forward-return column per horizon.
 
     ``scores`` must carry ``Security_ID``. Returns a copy with
     ``Forward_Return_{n}M_Pct`` and ``Forward_Status_{n}M`` per horizon, so a
     dropped position is visible as a reason instead of a silent NaN.
+
+    ``chain_exit`` additionally produces ``Forward_Return_Chain_Pct``, held from
+    this rebalance's entry to the *next* rebalance's entry. Only that series may
+    be compounded into a CAGR: a calendar-month horizon overlaps the following
+    period whenever the month-end and the horizon date fall on different
+    sessions, which on this archive happened in 16 of 51 periods and counted
+    ~2.4% of market time twice.
     """
     if scores is None or len(scores) == 0:
         return scores
     out = scores.copy()
     keys = out["Security_ID"].astype(str).tolist()
+    if chain_exit is not None:
+        records = [
+            execution.resolve(key, signal_date, 0, exit_override=chain_exit)
+            for key in keys
+        ]
+        out["Forward_Return_Chain_Pct"] = [r["Return_Pct"] for r in records]
+        out["Forward_Status_Chain"] = [r["Status"] for r in records]
     for horizon in horizons:
         records = [execution.resolve(key, signal_date, horizon) for key in keys]
         out[f"Forward_Return_{horizon}M_Pct"] = [

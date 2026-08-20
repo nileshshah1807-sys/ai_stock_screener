@@ -142,13 +142,29 @@ def write_comparison_pdf(payload, path, *, comparison=None):
 
     story.append(Paragraph("Model vs Index &mdash; CAGR Comparison", title_style))
     story.append(
-        Paragraph(
-            f"{window.get('start')} to {window.get('end')} &nbsp;|&nbsp; "
-            f"{payload.get('frequency')} rebalance, {rebalances} periods "
-            f"&nbsp;|&nbsp; equal-weighted top {size} &nbsp;|&nbsp; "
-            f"{horizon}-month holding, non-overlapping &nbsp;|&nbsp; "
-            f"generated {payload.get('generated_at')}",
-            subtitle_style,
+        Paragraph(f"Generated {payload.get('generated_at')}", subtitle_style)
+    )
+
+    years = rebalances / 12.0 if payload.get("frequency") == "monthly" else rebalances / 4.0
+    story.append(Paragraph("What period this covers", heading_style))
+    story.append(
+        table(
+            [
+                ["Item", "Value"],
+                ["Test window", f"{window.get('start')} to {window.get('end')}"],
+                ["Rebalance frequency", str(payload.get("frequency"))],
+                ["Rebalance dates", str(rebalances)],
+                ["Elapsed time", f"{years:.2f} years"],
+                ["Holding period", "entry to the next rebalance's entry (chaining)"],
+                ["Portfolio", f"equal-weighted top {size}, rebalanced each period"],
+                [
+                    "CAGR formula",
+                    f"product of (1 + period return) over {rebalances} periods, "
+                    f"then raised to 1/{years:.2f}",
+                ],
+            ],
+            [4.6 * cm, 12.2 * cm],
+            align_right_from=99,
         )
     )
 
@@ -180,20 +196,34 @@ def write_comparison_pdf(payload, path, *, comparison=None):
     indices = comparison.get("indices", {})
     index_names = sorted(indices)
 
+    universe = comparison.get("eligible_universe", {})
+    universe_cagr = universe.get("cagr_pct")
+
     story.append(Paragraph("Headline: CAGR by strategy", heading_style))
-    header = ["Strategy", "Gross CAGR", "Net CAGR"] + [
+    header = ["Strategy", "Gross", "Net", "vs UNIVERSE"] + [
         f"vs {name.replace('NIFTY ', 'N')}" for name in index_names
     ]
     rows = [header]
     emphasis = []
     for row_index, name in enumerate(sorted(strategies), start=1):
         entry = strategies[name]
+        net = entry.get("net_cagr_pct")
+        gross = entry.get("gross_cagr_pct")
+        basis = net if net is not None else gross
+        against_universe = (
+            None if basis is None or universe_cagr is None else basis - universe_cagr
+        )
         row = [
             name.replace("_", " "),
-            _pct(entry.get("gross_cagr_pct")),
-            _pct(entry.get("net_cagr_pct")),
+            _pct(gross),
+            _pct(net),
+            _pct(against_universe, "+.2f"),
         ]
-        for column_index, index_name in enumerate(index_names, start=3):
+        if against_universe is not None:
+            emphasis.append(
+                (row_index, 3, GOOD if against_universe > 0 else BAD)
+            )
+        for column_index, index_name in enumerate(index_names, start=4):
             versus = entry.get("versus", {}).get(index_name, {})
             difference = versus.get("cagr_difference_pct")
             row.append(_pct(difference, "+.2f"))
@@ -202,16 +232,33 @@ def write_comparison_pdf(payload, path, *, comparison=None):
                     (row_index, column_index, GOOD if difference > 0 else BAD)
                 )
         rows.append(row)
-    widths = [3.6 * cm, 2.3 * cm, 2.3 * cm] + [2.4 * cm] * len(index_names)
-    story.append(table(rows, widths, emphasis=emphasis))
+    widths = [3.3 * cm, 1.9 * cm, 1.9 * cm, 2.5 * cm] + [2.1 * cm] * len(index_names)
+    story.append(table(rows, widths, emphasis=emphasis, font_size=7.6))
     story.append(
         Paragraph(
-            "<b>vs &lt;index&gt;</b> is the strategy's CAGR minus that index's "
-            "CAGR over the identical periods, net of costs where a cost model ran. "
-            "A positive number is outperformance in annualised percentage points.",
+            "<b>vs UNIVERSE is the column that matters, and it is deliberately "
+            "placed before the index columns.</b> It compares the strategy against "
+            "an equal-weighted holding of the very same point-in-time universe it "
+            "selected from, so it isolates stock selection.",
             body_style,
         )
     )
+    if universe_cagr is not None and index_names:
+        broad_cagr = (indices.get("NIFTY 500") or {}).get("cagr_pct")
+        if broad_cagr is not None:
+            story.append(
+                Paragraph(
+                    f"<b>Why the index columns flatter every strategy.</b> The "
+                    f"eligible universe returned {universe_cagr:.2f}% against "
+                    f"NIFTY 500's {broad_cagr:.2f}% &mdash; a "
+                    f"{universe_cagr - broad_cagr:+.2f} point gap earned purely by "
+                    "equal-weighting a broad, small-cap-heavy universe, before any "
+                    "selection at all. That gap is inside every &quot;vs index&quot; "
+                    "number below. A strategy that beats NIFTY 500 by 20 points "
+                    "while matching the universe has selected nothing.",
+                    warn_style,
+                )
+            )
 
     # ---- index reference --------------------------------------------------
     story.append(Paragraph("Index reference", heading_style))
@@ -227,7 +274,6 @@ def write_comparison_pdf(payload, path, *, comparison=None):
             _pct(metrics.get("max_drawdown_pct")),
             str(entry.get("periods", 0)),
         ])
-    universe = comparison.get("eligible_universe", {})
     if universe.get("cagr_pct") is not None:
         rows.append([
             "Eligible universe (equal weight)",

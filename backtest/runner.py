@@ -270,8 +270,19 @@ class WalkForwardRunner:
                 logger.warning("Empty eligible universe on %s", signal_date)
                 continue
 
+            # The chain exit is the *next* rebalance's entry session, which is
+            # what makes the compounded series exact. Deriving it from a calendar
+            # month instead overlaps the following period whenever the month-end
+            # and the horizon date land on different sessions.
+            chain_exit = None
+            if index < len(signal_dates):
+                chain_exit = self.calendar.next_session(signal_dates[index])
             with_returns = attach_forward_returns(
-                frame, self.execution, signal_date, horizons=self.horizons
+                frame,
+                self.execution,
+                signal_date,
+                horizons=self.horizons,
+                chain_exit=chain_exit,
             )
 
             # Model 5.0 is scored once per rebalance and shared. The block-level
