@@ -40,10 +40,13 @@ jobs:
       # this workflow remain isolated 4.x smoke runs; use the dedicated
       # candidate workflow for manual Model 5.0 validation.
       FACTOR_MODEL_ENABLED: ${{ github.event_name == 'schedule' && 'True' || 'False' }}
-      MODEL_VERSION: ${{ github.event_name == 'schedule' && '5.0.0' || '4.0.0-candidate' }}
-      RECOMMENDATION_POLICY_VERSION: ${{ github.event_name == 'schedule' && '5.0.0' || '4.0.0-candidate' }}
+      # 5.1.0: value/quality reweighting and research-first ranking, both
+      # justified in docs/Review/p0_implementation_plan.md §8. Semantic ranking
+      # change, so the version bumps per the contract in screener/runtime.py.
+      MODEL_VERSION: ${{ github.event_name == 'schedule' && '5.1.0' || '4.0.0-candidate' }}
+      RECOMMENDATION_POLICY_VERSION: ${{ github.event_name == 'schedule' && '5.1.0' || '4.0.0-candidate' }}
       OUTPUT_SCHEMA_VERSION: "4.1.0"
-      MODEL_VALIDATION_STATUS: ${{ github.event_name == 'schedule' && 'Production active; point-in-time out-of-sample validation pending' || 'Research model; point-in-time out-of-sample validation pending' }}
+      MODEL_VALIDATION_STATUS: ${{ github.event_name == 'schedule' && 'Production active; point-in-time validated over four windows incl. 2018-2020 drawdown; weights fitted in-sample, forward validation pending' || 'Research model; point-in-time out-of-sample validation pending' }}
       # A factor cross-section is not representative while statement coverage
       # is partial. The first production run can build the whole NSE cache;
       # subsequent runs normally reuse its 90-day statement records.
