@@ -177,6 +177,23 @@ def build_runner(archive, args):
         min_history_sessions=args.min_history,
     )
     policy = DelistingPolicy(args.delisting_strategy, args.recovery_rate)
+
+    # The Model 5.0 regime overlay is a real gate, so the gated strategy needs a
+    # point-in-time regime. Built from the cached index history before the run
+    # rather than from the comparison stage, which happens after it.
+    provider = None
+    if not getattr(args, "no_comparison", False):
+        from backtest.benchmarks import IndexStore, regime_provider
+
+        index_frame = IndexStore(Path(args.root) / "indices.csv").load()
+        if not index_frame.empty:
+            provider = regime_provider(index_frame)
+        else:
+            logger.warning(
+                "No cached index history; the gated strategy runs without a "
+                "market-regime overlay"
+            )
+
     cost_model = None if args.gross else CostModel(
         half_spread_rate=args.half_spread,
         impact_coefficient=args.impact_coefficient,
@@ -199,6 +216,7 @@ def build_runner(archive, args):
             fundamental_panel is not None
             and not getattr(args, "allow_missing_fundamentals", False)
         ),
+        regime_provider=provider,
     )
     return runner, universe_rule, policy, cost_model
 
@@ -224,7 +242,12 @@ def main(argv=None):
     parser.add_argument("--gross", action="store_true", help="skip the cost model")
     parser.add_argument("--dry-run", action="store_true",
                         help="load and report the archive without scoring")
-    parser.add_argument("--out", default=None, help="report path (JSON)")
+    # ``--out`` is the original spelling and still works. The default is stamped
+    # with the resolved window because a fixed name silently overwrote the
+    # previous run: comparing two windows means having both files.
+    parser.add_argument("--json-out", "--out", dest="json_out", default=None,
+                        help="report path (JSON); defaults to a window-stamped "
+                             "name under --root")
     parser.add_argument("--fills-out", default=None, help="optional fill-level CSV")
     # The PDF goes to a tracked path by default. reports_advanced/ is gitignored,
     # so a report written there could not be committed or shared.
@@ -406,7 +429,10 @@ def main(argv=None):
             )
             payload["comparison"] = comparison
 
-    out = Path(args.out) if args.out else Path(args.root) / "p0_backtest_report.json"
+    if args.json_out:
+        out = Path(args.json_out)
+    else:
+        out = Path(args.root) / f"p0_backtest_{start}_{end}.json"
     write_report(out, payload)
     logger.info("Report written: %s", out)
 

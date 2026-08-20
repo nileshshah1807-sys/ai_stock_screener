@@ -190,6 +190,7 @@ class WalkForwardRunner:
         fundamental_panel=None,
         max_statement_age_days=None,
         require_fundamentals=False,
+        regime_provider=None,
     ):
         self.calendar = calendar
         self.history_panel = history_panel
@@ -207,6 +208,10 @@ class WalkForwardRunner:
         # blocks shrink to neutral and quietly turn Model 5.0 into a momentum
         # model for exactly the names whose fundamentals are missing.
         self.require_fundamentals = bool(require_fundamentals)
+        # ``signal_date -> "RISK_ON"|"NEUTRAL"|"RISK_OFF"|None``. Injected rather
+        # than computed here so a run without index history simply has no regime
+        # overlay instead of a fabricated one.
+        self.regime_provider = regime_provider
         self.execution = ExecutionModel(
             calendar,
             price_panel,
@@ -290,6 +295,8 @@ class WalkForwardRunner:
             # strategy would repeat the whole factor model five more times for
             # results that must be identical anyway.
             shared = {}
+            if self.regime_provider is not None:
+                shared["market_regime"] = self.regime_provider(signal_date)
             if any(getattr(s, "needs_model5", False) for s in strategies):
                 producer = next(
                     (s for s in strategies if getattr(s, "produces_model5", False)),

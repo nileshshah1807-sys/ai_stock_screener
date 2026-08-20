@@ -6,7 +6,7 @@ assumption.
 """
 
 import unittest
-from datetime import date, datetime
+from datetime import date, timedelta, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -79,6 +79,36 @@ class LedgerTests(unittest.TestCase):
         ledger.record(date(2026, 8, 14), UNKNOWN)
         ledger.resolve_pending()
         self.assertEqual(ledger.status(date(2026, 8, 14)), UNKNOWN)
+
+    def test_a_long_run_of_failures_is_not_settled_as_holidays(self):
+        """A failed fetch must not delete real sessions from the archive.
+
+        One probe of each pre-2020 date against a rate-limiting endpoint marked
+        368 weekdays as holidays, which silently removed the 2018-2020 bear
+        market -- and 74 sessions inside the main window -- from every backtest.
+        The market does not close for three months.
+        """
+        ledger = CalendarLedger(self.path)
+        day = date(2026, 1, 5)  # a Monday
+        for _ in range(20):
+            ledger.record(day, UNKNOWN)
+            day += timedelta(days=1)
+            while day.weekday() >= 5:
+                day += timedelta(days=1)
+        ledger.record(day, SESSION)
+
+        self.assertEqual(ledger.resolve_pending(), 0)
+        self.assertEqual(ledger.status(date(2026, 1, 5)), UNKNOWN)
+        self.assertEqual(len(ledger.unresolved()), 20)
+
+    def test_a_short_gap_is_still_settled_as_a_holiday(self):
+        """The long-run guard must not stop ordinary festival clusters settling."""
+        ledger = CalendarLedger(self.path)
+        ledger.record(date(2026, 1, 5), UNKNOWN)
+        ledger.record(date(2026, 1, 6), UNKNOWN)
+        ledger.record(date(2026, 1, 7), SESSION)
+        self.assertEqual(ledger.resolve_pending(), 2)
+        self.assertEqual(ledger.status(date(2026, 1, 5)), NO_SESSION)
 
     def test_unresolved_dates_are_excluded_from_sessions(self):
         ledger = CalendarLedger(self.path)

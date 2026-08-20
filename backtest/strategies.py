@@ -82,7 +82,8 @@ def weighted_block(frame, features, *, min_coverage=0.50, min_group=8, groups=No
     return score, coverage
 
 
-def attach_market_relative(frame, *, benchmark_return_6m=None):
+def attach_market_relative(frame, *, benchmark_return_6m=None,
+                           benchmark_return_12m=None):
     """Market-relative 6-month strength.
 
     The benchmark is the equal-weight median of the cross-section itself rather
@@ -90,7 +91,18 @@ def attach_market_relative(frame, *, benchmark_return_6m=None):
     makes. Using an index would fold a size bet into a momentum measurement.
     """
     working = frame.copy()
-    six_month = pd.to_numeric(working.get("Momentum_6_1_Pct"), errors="coerce")
+
+    def column(name):
+        # ``frame.get`` returns None for an absent column, and pd.to_numeric on
+        # None yields a scalar NaN rather than a Series -- which then blows up
+        # on ``.notna()``. An absent input must produce an all-NaN column so the
+        # gate reading it fails on absence instead of crashing.
+        values = working.get(name)
+        if values is None:
+            return pd.Series(np.nan, index=working.index, dtype=float)
+        return pd.to_numeric(values, errors="coerce")
+
+    six_month = column("Momentum_6_1_Pct")
     reference = (
         float(benchmark_return_6m)
         if benchmark_return_6m is not None
@@ -99,6 +111,17 @@ def attach_market_relative(frame, *, benchmark_return_6m=None):
         else np.nan
     )
     working["RS_Market_6M_Pct"] = six_month - reference
+
+    # The STRONG BUY gate reads a 12-month relative strength on the same basis.
+    twelve_month = column("Pct_Change_12M")
+    reference_12m = (
+        float(benchmark_return_12m)
+        if benchmark_return_12m is not None
+        else float(twelve_month.median())
+        if twelve_month.notna().any()
+        else np.nan
+    )
+    working["RS_Market_12M_Pct"] = twelve_month - reference_12m
     return working
 
 
@@ -282,13 +305,34 @@ class Model5(Strategy):
 
         working = attach_market_relative(frame)
         working = self._prepare(working)
-        scored = FactorModel(self.config).score(working)
+        # FactorModel recomputes RS_Market_6M/12M from market_context and
+        # overwrites whatever the caller attached. Passing no context left both
+        # terms NaN for every security, silently deleting 15% of the momentum
+        # block (and 20% more via the absent sector map) from every model_5
+        # result. The benchmark is the cross-sectional median, the same basis
+        # attach_market_relative uses -- the eligible universe is the comparison
+        # the model makes, and an index would fold a size bet into it.
+        scored = FactorModel(self.config).score(
+            working, market_context=self._market_context(working)
+        )
         scored["Score"] = scored["Research_Score"]
         scored["Score_Coverage"] = scored[
             ["Quality_Coverage", "Growth_Coverage", "Value_Coverage",
              "Momentum_Coverage", "Risk_Coverage"]
         ].mean(axis=1)
         return scored
+
+    @staticmethod
+    def _market_context(frame):
+        context = {}
+        for horizon, column in (("6M", "Pct_Change_6M"), ("12M", "Pct_Change_12M")):
+            values = pd.to_numeric(frame.get(column), errors="coerce")
+            if values is not None and getattr(values, "notna", lambda: None)() is not None:
+                median = float(values.median()) if values.notna().any() else np.nan
+            else:
+                median = np.nan
+            context[f"Benchmark_Return_{horizon}_Pct"] = median
+        return context
 
     @staticmethod
     def _prepare(frame):
@@ -317,6 +361,52 @@ class Model5(Strategy):
                 working["Trading_Frequency"]
             )
         return working
+
+
+class Model5Gated(Strategy):
+    """Model 5.0 ranked the way the dashboard ranks it -- gates included.
+
+    Every other strategy here ranks on `Research_Score` alone. Production does
+    not: `screener.recommendation` caps names that fail an eligibility gate and
+    sorts `Eligibility_Class` first, `Research_Score` second. So the published
+    top-20 is drawn from the gated ordering, and comparing this against
+    `model_5` is the only way to learn whether the gates earn their place or
+    merely cost return.
+
+    The score published here is a rank surrogate, not a rating: eligible names
+    keep their research score, and each failing class is pushed strictly below
+    every better class. Ranking on the *capped* score directly would sort a
+    column that is constant within a class -- the exact failure mode the
+    production code comments on -- so the class offset preserves research order
+    inside each band while eligibility still dominates across bands.
+
+    See `backtest.gates` for which production gates are reproduced and which the
+    archive cannot support.
+    """
+
+    name = "model_5_gated"
+    needs_model5 = True
+
+    #: Width of one eligibility band. Scores are 0-100, so a 1000-point step
+    #: cannot be closed by any research-score difference.
+    CLASS_OFFSET = 1000.0
+
+    def __init__(self, config=None):
+        from .gates import GateConfig
+
+        self.config = config or GateConfig.from_runtime()
+
+    def score(self, frame, shared=None):
+        from .gates import apply_gates
+
+        scored = _model5_result(frame, shared)
+        regime = (shared or {}).get("market_regime")
+        gated = apply_gates(scored, self.config, regime=regime)
+
+        research = pd.to_numeric(gated["Score"], errors="coerce").fillna(0.0)
+        klass = pd.to_numeric(gated["Eligibility_Class"], errors="coerce").fillna(3)
+        gated["Score"] = research - klass * self.CLASS_OFFSET
+        return gated
 
 
 class QualityOnly(Strategy):
@@ -396,6 +486,7 @@ PRICE_ONLY_STRATEGIES = (
 # The full benchmark matrix, requiring the fundamental panel.
 FUNDAMENTAL_STRATEGIES = (
     Model5(),
+    Model5Gated(),
     QualityOnly(),
     GrowthOnly(),
     ValueOnly(),

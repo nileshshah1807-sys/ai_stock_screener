@@ -34,6 +34,8 @@ import logging
 from pathlib import Path
 
 import numpy as np
+from bisect import bisect_right
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -430,6 +432,45 @@ def universe_period_returns(fills, *, return_column="Forward_Return_Chain_Pct"):
         dates.append(str(signal_date))
         returns.append(float(usable[return_column].mean()))
     return dates, returns
+
+
+def regime_provider(index_series, index_name="NIFTY 500"):
+    """A ``signal_date -> regime`` callable over point-in-time index closes.
+
+    Reuses `screener.benchmark.classify_regime` unchanged -- the production
+    classifier is the thing under test, so reimplementing its thresholds here
+    would test a lookalike. Returns ``None`` when the index has no history at
+    the signal date, which leaves the regime overlay inert rather than guessing
+    a regime the model could not have known.
+    """
+    from screener.benchmark import classify_regime
+
+    frame = index_series.frame if hasattr(index_series, "frame") else index_series
+    rows = frame[frame["Index"].astype(str) == str(index_name)].copy()
+    if rows.empty:
+        return lambda signal_date: None
+    rows["_date"] = pd.to_datetime(rows["Trade_Date"]).dt.date
+    rows = rows.sort_values("_date")
+    dates = rows["_date"].tolist()
+    closes = pd.to_numeric(rows["Close"], errors="coerce").tolist()
+    cache = {}
+
+    def provide(signal_date):
+        day = _as_date(signal_date)
+        if day in cache:
+            return cache[day]
+        # Strictly at-or-before the signal date: the classifier may not see a
+        # close that had not printed when the signal was formed.
+        cut = bisect_right(dates, day)
+        regime = None
+        if cut:
+            regime = classify_regime(closes[:cut]).get("Market_Regime")
+            if regime == "UNKNOWN":
+                regime = None
+        cache[day] = regime
+        return regime
+
+    return provide
 
 
 def build_comparison(fills, index_series, calendar, *, strategies=None, size=20,

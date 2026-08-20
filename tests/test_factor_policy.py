@@ -10,7 +10,11 @@ import unittest
 
 import pandas as pd
 
-from screener.recommendation import finalize_recommendations, primary_gate
+from screener.recommendation import (
+    finalize_recommendations,
+    is_integrity_gate,
+    primary_gate,
+)
 
 
 class Config:
@@ -106,6 +110,28 @@ def clean_row(symbol="ALPHA", score=82.0, **overrides):
 
 def finalize(rows):
     return finalize_recommendations(pd.DataFrame(rows), Config)
+
+
+class ResearchRankConfig(Config):
+    """Model 5.1 default: gates rate and label, they do not rank or cap."""
+
+    RANK_BY_ELIGIBILITY_CLASS = False
+    APPLY_RATING_CAP = False
+
+
+class LegacyCapConfig(Config):
+    """Model 5.0 behaviour: eligibility ranks first and the cap is enforced."""
+
+    RANK_BY_ELIGIBILITY_CLASS = True
+    APPLY_RATING_CAP = True
+
+
+def finalize_legacy(rows):
+    return finalize_recommendations(pd.DataFrame(rows), LegacyCapConfig)
+
+
+def finalize_research_ranked(rows):
+    return finalize_recommendations(pd.DataFrame(rows), ResearchRankConfig)
 
 
 def failures(frame, symbol):
@@ -345,7 +371,7 @@ class EligibilityRankingTests(unittest.TestCase):
             # One clean candidate that must outrank both.
             clean_row("MANGO", score=78.0),
         ]
-        result = finalize(rows).sort_values("Investment_Rank")
+        result = finalize_legacy(rows).sort_values("Investment_Rank")
         self.assertEqual(list(result["Symbol"]), ["MANGO", "ZEBRA", "APPLE"])
         # Both capped rows share the identical 59.99 ceiling, so ranking on
         # Decision_Score alone would have fallen through to the symbol
@@ -377,6 +403,117 @@ class EligibilityRankingTests(unittest.TestCase):
     def test_rank_alias_tracks_investment_rank(self):
         result = finalize([clean_row("A", score=80.0), clean_row("B", score=60.0)])
         self.assertTrue((result["Rank"] == result["Investment_Rank"]).all())
+
+
+class ResearchRankingTests(unittest.TestCase):
+    """Ranking on research merit alone -- the Model 5.1 default.
+
+    Four point-in-time windows found eligibility-first ranking cost 5-16 CAGR
+    points wherever the gates bound and contributed nothing in the 2018-2020
+    drawdown, where every name failed a gate and the class key was constant.
+    """
+
+    def test_a_capped_name_can_outrank_a_clean_one_on_merit(self):
+        rows = [
+            clean_row("MANGO", score=78.0),
+            clean_row("ZEBRA", score=95.0, Portfolio_Actionable=False),
+        ]
+        result = finalize_research_ranked(rows).sort_values("Investment_Rank")
+        self.assertEqual(list(result["Symbol"]), ["ZEBRA", "MANGO"])
+
+    def test_eligibility_first_still_available_behind_the_flag(self):
+        """The old policy must stay reachable, not be deleted."""
+        rows = [
+            clean_row("MANGO", score=78.0),
+            clean_row("ZEBRA", score=95.0, Portfolio_Actionable=False),
+        ]
+        result = finalize(rows).sort_values("Investment_Rank")
+        self.assertEqual(list(result["Symbol"]), ["MANGO", "ZEBRA"])
+
+    def test_research_merit_survives_where_the_capped_score_would_not(self):
+        """Policy_Capped_Score is constant across a class; sorting it is alphabetical.
+
+        Both rows fail a *policy* gate (quality percentile below the BUY floor),
+        so 5.1 publishes their research score. An integrity failure would still
+        cap -- see test_an_integrity_failure_still_caps.
+        """
+        rows = [
+            clean_row("ZEBRA", score=95.0, Quality_Percentile=5.0),
+            clean_row("APPLE", score=61.0, Quality_Percentile=5.0),
+        ]
+        result = finalize_research_ranked(rows).sort_values("Investment_Rank")
+        # The ceiling both rows would have shared, had it been enforced.
+        self.assertEqual(result["Policy_Capped_Score"].nunique(), 1)
+        # The published score keeps them apart, and so does the order.
+        self.assertEqual(result["Decision_Score"].nunique(), 2)
+        self.assertEqual(list(result["Symbol"]), ["ZEBRA", "APPLE"])
+
+    def test_gates_are_still_computed_and_published(self):
+        """Turning the gates off for ranking must not stop them being reported."""
+        result = finalize_research_ranked(
+            [clean_row("CAPPEDCO", score=88.0, Quality_Percentile=5.0)]
+        ).iloc[0]
+        self.assertEqual(result["Eligibility_Class"], 2)
+        self.assertTrue(json.loads(result["Gate_Failures"]))
+        self.assertTrue(str(result["Primary_Gate"]))
+        # The cap is reported, not applied.
+        self.assertEqual(result["Decision_Score"], result["Research_Score"])
+        self.assertLess(result["Policy_Capped_Score"], result["Research_Score"])
+        self.assertTrue(bool(result["Rating_Capped"]))
+        self.assertFalse(bool(result["Cap_Enforced"]))
+
+    def test_a_gated_name_carries_a_warning_naming_the_policy_rating(self):
+        """The details page needs one rendered sentence, not raw JSON."""
+        result = finalize_research_ranked(
+            [clean_row("CAPPEDCO", score=88.0, Quality_Percentile=5.0)]
+        ).iloc[0]
+        warning = str(result["Gate_Warning"])
+        self.assertIn("research merit", warning)
+        self.assertIn(str(result["Policy_Eligible_Rating"]), warning)
+
+    def test_a_clean_name_carries_no_warning(self):
+        result = finalize_research_ranked([clean_row("CLEANCO", score=88.0)]).iloc[0]
+        self.assertEqual(str(result["Gate_Warning"]), "")
+        self.assertFalse(bool(result["Rating_Capped"]))
+
+    def test_an_integrity_failure_still_caps(self):
+        """Bad evidence is not a research view.
+
+        The archive excludes unscorable names by construction, so the
+        point-in-time validation never measured the integrity gates and cannot
+        license lifting them. Only the policy gates were relaxed.
+        """
+        result = finalize_research_ranked(
+            [clean_row("THINCO", score=88.0, Portfolio_Actionable=False)]
+        ).iloc[0]
+        self.assertLess(result["Decision_Score"], result["Research_Score"])
+        self.assertTrue(bool(result["Cap_Enforced"]))
+
+    def test_an_unclassified_gate_fails_closed(self):
+        """A new gate must cap until someone classifies it."""
+        self.assertTrue(is_integrity_gate("some brand new gate nobody classified"))
+        self.assertTrue(is_integrity_gate(""))
+        self.assertFalse(is_integrity_gate("price below MA200 tolerance band (98%)"))
+        self.assertFalse(is_integrity_gate("quality percentile below BUY floor"))
+        self.assertTrue(is_integrity_gate("quality percentile unavailable"))
+
+    def test_the_cap_is_restorable_for_a_rollback(self):
+        """5.0 behaviour must stay reachable, not be deleted."""
+        result = finalize_legacy(
+            [clean_row("CAPPEDCO", score=88.0, Quality_Percentile=5.0)]
+        ).iloc[0]
+        self.assertLess(result["Decision_Score"], result["Research_Score"])
+        self.assertTrue(bool(result["Cap_Enforced"]))
+
+    def test_ranks_stay_dense_and_order_independent(self):
+        rows = [clean_row(f"SYM{index}", score=70.0 + index) for index in range(6)]
+        first = finalize_research_ranked(rows)
+        second = finalize_research_ranked(list(reversed(rows)))
+        self.assertEqual(sorted(first["Investment_Rank"]), list(range(1, 7)))
+        self.assertEqual(
+            list(first.sort_values("Investment_Rank")["Symbol"]),
+            list(second.sort_values("Investment_Rank")["Symbol"]),
+        )
 
 
 class PrimaryGateTests(unittest.TestCase):

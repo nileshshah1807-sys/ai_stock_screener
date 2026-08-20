@@ -312,9 +312,16 @@ class Config:
     # it re-ranks the universe: promote it only after the candidate-validation
     # workflow has compared it against the 4.x baseline on identical inputs.
     FACTOR_MODEL_ENABLED = _env_bool("FACTOR_MODEL_ENABLED", False)
-    FACTOR_WEIGHT_QUALITY = _env_float("FACTOR_WEIGHT_QUALITY", 0.35)
+    # Model 5.1 weights. Point-in-time validation over four windows -- a bear
+    # market (2018-11..2020-06), the main window, the balance-sheet era and a
+    # forward slice -- found value positive against the equal-weight universe in
+    # every one (+27.4/+43.9/+31.1/+21.4) and quality negative in every one
+    # (-1.4/-9.9/-3.7/-17.2), including both windows where quality had real
+    # balance-sheet inputs. Ten points move from the block that never worked to
+    # the only block that always did. See docs/Review/p0_implementation_plan.md.
+    FACTOR_WEIGHT_QUALITY = _env_float("FACTOR_WEIGHT_QUALITY", 0.25)
     FACTOR_WEIGHT_GROWTH = _env_float("FACTOR_WEIGHT_GROWTH", 0.20)
-    FACTOR_WEIGHT_VALUE = _env_float("FACTOR_WEIGHT_VALUE", 0.15)
+    FACTOR_WEIGHT_VALUE = _env_float("FACTOR_WEIGHT_VALUE", 0.25)
     FACTOR_WEIGHT_MOMENTUM = _env_float("FACTOR_WEIGHT_MOMENTUM", 0.25)
     FACTOR_WEIGHT_RISK = _env_float("FACTOR_WEIGHT_RISK", 0.05)
     # Rank each factor inside its own sector where the sector has enough usable
@@ -431,7 +438,18 @@ class Config:
     )
     # Rank capped candidates by eligibility class then research score, instead
     # of letting every gate failure collapse onto an identical 59.99.
-    RANK_BY_ELIGIBILITY_CLASS = _env_bool("RANK_BY_ELIGIBILITY_CLASS", True)
+    # False since Model 5.1: a failed gate no longer suppresses the published
+    # score. The gate outcome is reported instead -- Gate_Warning,
+    # Policy_Eligible_Rating, Policy_Capped_Score, Primary_Gate and
+    # Gate_Failures are all still populated for the details page. Set True to
+    # restore the 5.0 contract exactly.
+    APPLY_RATING_CAP = _env_bool("APPLY_RATING_CAP", False)
+
+    # False since Model 5.1: ranking eligibility-first cost 5-16 CAGR points in
+    # every validation window where the gates bound, and changed nothing in the
+    # drawdown window (all names capped => constant sort key). Gates are still
+    # computed and published; they rate and label, they no longer rank.
+    RANK_BY_ELIGIBILITY_CLASS = _env_bool("RANK_BY_ELIGIBILITY_CLASS", False)
 
     # --- Financial-statement collection (Model 5.0 inputs) -------------------
     # Yahoo's quote metadata has no total assets, EBIT, gross profit, cash flow

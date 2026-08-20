@@ -260,3 +260,109 @@ P1 (valuation interpretation), P2 (remaining factor construction) and P3
 outcome distribution P0 produces. The `Scenario_DCF` rename and the
 valuation-conflict gate from P1 are independent of P0 and can proceed in
 parallel on their own branch.
+
+---
+
+## 8. Results — four windows, and the Model 5.1 changes they justify
+
+The archive spans 2018-01-01 to 2026-08-18. Four windows were run, three of
+which had never been examined when the weights and rank policy were set.
+
+| Window | Dates | Rebalances | Universe (EW) | NIFTY 500 |
+|---|---|---|---|---|
+| BEAR | 2018-11 → 2020-06 | 19 | **−10.95%** | −4.01% |
+| MAIN | 2020-07 → 2025-01 | 54 | +41.13% | +21.43% |
+| BS_ERA | 2023-07 → 2025-01 | 18 | +29.17% | +16.36% |
+| FORWARD | 2025-02 → 2025-10 | 8 | +34.42% | +30.91% |
+
+### 8.1 Three defects found and fixed during the run
+
+**The calendar ledger deleted 368 real sessions.** `resolve_pending()` settled
+any probed-but-unresolved weekday as a holiday once a later session existed.
+Sound for a one-day gap; wrong for a failed fetch. One probe of each pre-2020
+date against a rate-limiting endpoint marked nine runs totalling 368 weekdays
+as market holidays — permanently, since `build_calendar` skips `no_session`.
+The bear window held 7.7 sessions/month against an expected 21, and the *main*
+window silently lost 74 sessions across 2020-11 → 2021-03. Fixed by refusing to
+settle a run longer than `MAX_HOLIDAY_RUN_WEEKDAYS`; the archive now holds 2,116
+sessions at ~20/month in every window.
+
+**`model_5` lost 15% of its momentum block to a silent NaN.** `FactorModel`
+recomputes `RS_Market_6M_Pct`/`RS_Market_12M_Pct` from a `market_context`
+argument the backtest never passed, overwriting the values
+`attach_market_relative` had just computed. `Pct_Change_6M` was also absent from
+the feature set. The market-relative term (0.15) was therefore NaN in every
+`model_5` result, on top of the already-documented sector-relative term (0.20).
+`momentum_only` was unaffected — it uses its own feature tuple — which is why
+this hid. Fixed by supplying both the feature and the cross-sectional benchmark.
+
+**Overlapping chaining periods.** 16 of 51 periods double-counted 1-2 days.
+`Forward_Return_Chain_Pct` now holds entry-to-next-entry by construction.
+
+### 8.2 Blocks, net CAGR minus the equal-weight universe
+
+| Strategy | BEAR | MAIN | BS_ERA | FORWARD |
+|---|---|---|---|---|
+| **value_only** | **+27.40** | **+43.87** | **+31.07** | **+21.43** |
+| model_5 | +22.42 | +15.73 | +17.20 | −1.26 |
+| momentum_only | +12.73 | +0.71 | +23.82 | −23.68 |
+| growth_only | −8.98 | +4.92 | +17.80 | +22.03 |
+| **quality_only** | **−1.39** | **−9.86** | **−3.70** | **−17.24** |
+| random_ranking | −23.86 | −28.34 | −22.54 | −13.19 |
+
+Value is the only block positive in all four, including the drawdown. Quality is
+negative in all four — including BS_ERA and FORWARD, the two windows where it
+has real balance-sheet inputs, so this is no longer explicable as the pre-FY2023
+coverage gap. In the bear window quality_only drew down **−43.92%** against the
+universe's −43.18%: it is not buying downside protection either.
+
+Momentum and growth both flip sign across windows and must not drive weights.
+
+**Hence Model 5.1: quality 0.35 → 0.25, value 0.15 → 0.25.** Ten points move
+from the block that never worked to the only block that always did. Growth,
+momentum and risk are unchanged.
+
+The blend still earns its place on drawdown: in the bear window `model_5` fell
+**−16.04%** against the universe's −43.18% and value_only's −33.56%, while still
+beating the universe by 22 points. That is the argument against concentrating
+further into value.
+
+### 8.3 The gates rate and label; they no longer rank
+
+`model_5_gated` reproduces `RecommendationPolicy._factor_gate_failures` on the
+archive (see `backtest/gates.py` for the four gates the archive cannot support,
+all on the BUY side, so the comparison is *more* permissive than production).
+
+| Window | Ungated vs universe | Gated vs universe | Gate cost |
+|---|---|---|---|
+| BEAR | +22.42 | +22.42 | **0.00** |
+| MAIN | +15.73 | +10.20 | −5.53 |
+| BS_ERA | +17.20 | +2.47 | −14.73 |
+| FORWARD | −1.26 | −17.53 | −16.27 |
+
+The bear figure is identical, not merely close. On 2020-03-31 **all 778 eligible
+names were capped**, so sorting by `(Eligibility_Class, Research_Score)`
+degenerates to sorting by `Research_Score`: the cap flattens the score but never
+the rank. The gates cost 5-16 points wherever they bind and contribute exactly
+nothing in the one regime that would justify them.
+
+`RANK_BY_ELIGIBILITY_CLASS` therefore defaults to `False`. Gates are still
+computed, still cap `Decision_Score`, still drive `Rating`, `Eligibility_Class`,
+`Primary_Gate` and `Gate_Failures`. They label; they do not select.
+
+> **Limitation this backtest cannot address.** Production does not hold 20 names
+> unconditionally — it publishes "no BUY-rated names" and the reader does not
+> deploy. That abstention is the gates' real protective function, and a
+> top-20-always backtest is structurally blind to it. Measuring it needs a
+> cash-allocation backtest. Nothing here argues the gates are worthless as a
+> deploy signal; it argues only that they are a poor stock-selection input.
+
+### 8.4 What is still not established
+
+* **Every window in the archive has now been examined.** No untouched data
+  remains, so the 5.1 weights are fitted to everything seen. The only honest
+  validation left is forward paper trading on months not yet in the archive.
+* Rank IC is ~0.05 at best — a real but small edge that pays across many names
+  and periods, never on an individual pick.
+* Ranking is market-wide, not sector-neutral; the DCF block is disabled; the
+  balance sheet does not exist before FY2023. §5.1 still applies in full.

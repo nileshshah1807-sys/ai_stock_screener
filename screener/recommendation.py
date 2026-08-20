@@ -105,6 +105,62 @@ def rating_from_score(score):
     return "SELL"
 
 
+# Gate failures that are statements about *evidence quality*, not investment
+# policy. Point-in-time validation covers the policy gates only -- the archive
+# excludes unscorable names by construction, so it never measured these and
+# cannot license lifting them. A name whose data is stale, thin or anomalous
+# stays capped: publishing STRONG BUY on evidence known to be unreliable is a
+# different error from publishing it on a stock in a downtrend.
+_INTEGRITY_GATE_MARKERS = (
+    "unavailable",
+    "coverage insufficient",
+    "insufficient fundamental data",
+    "specialized fundamental model",
+    "stale fundamental fallback",
+    "price bar behind",
+    "data anomalies",
+    "insufficient for BUY",
+    "insufficient execution liquidity",
+    "fresh quality transcript required",
+)
+
+
+def is_integrity_gate(reason):
+    """True when ``reason`` reports bad evidence rather than a policy judgement.
+
+    Unrecognised reasons count as integrity failures. A new gate should fail
+    closed -- capped until someone classifies it -- rather than silently
+    inherit the uncapped path.
+    """
+    text = str(reason or "").strip().lower()
+    if not text:
+        return True
+    if any(marker in text for marker in _INTEGRITY_GATE_MARKERS):
+        return True
+    return not any(
+        marker in text
+        for marker in (
+            "ma200",
+            "ma50",
+            "relative strength",
+            "percentile below",
+            "market regime",
+            "trend breakdown",
+            "not above ma",
+            "ma50 falling",
+            "3m return",
+            "adx",
+            "directional indicators",
+            "positive di",
+            "growth below threshold",
+            "technical score",
+            "not stacked bullishly",
+            "not rising",
+            "not positive",
+        )
+    )
+
+
 def _rating_ceiling(score):
     """Highest score that stays inside the score's current rating class."""
 
@@ -698,6 +754,7 @@ class RecommendationPolicy:
         ratings = []
         evidence_ratings = []
         ceilings = []
+        policy_scores = []
         buy_eligible_values = []
         strong_eligible_values = []
         trend_confirmed_values = []
@@ -712,6 +769,7 @@ class RecommendationPolicy:
 
         for _, row in frame.iterrows():
             evidence_score = _safe_float(row.get("Evidence_Score"))
+            factor_model = _as_bool(row.get("Factor_Model_Applied"), False)
             buy_failures, strong_failures = self._gate_failures(row)
             policy_failures = list(strong_failures)
             ceiling = 100.0
@@ -724,17 +782,50 @@ class RecommendationPolicy:
             buy_failures = _dedupe(buy_failures)
             strong_failures = _dedupe(strong_failures)
             policy_failures = _dedupe(policy_failures)
+            # Since Model 5.1 the cap is *reported*, not applied. Point-in-time
+            # validation found the gates cost 5-16 CAGR points wherever they
+            # bound and changed nothing in the 2018-2020 drawdown, so
+            # suppressing the published score on a failed gate discards research
+            # merit for no measured benefit. The gate outcome is still computed
+            # in full and surfaced as a warning -- Decision_Score_Ceiling,
+            # Cap_Would_Apply, Eligibility_Class, Primary_Gate, Gate_Failures
+            # and Policy_Eligible_Rating all remain populated.
+            #
+            # APPLY_RATING_CAP=True restores the 5.0 behaviour exactly. The
+            # relaxation applies only where the validation applies: the factor
+            # model, and only for policy gates. An integrity failure still caps,
+            # because bad evidence is not a research view.
+            apply_cap = _as_bool(
+                getattr(self.config, "APPLY_RATING_CAP", False), False
+            ) or not factor_model
+            enforced_ceiling = ceiling
+            if not apply_cap:
+                integrity_buy = [r for r in buy_failures if is_integrity_gate(r)]
+                integrity_strong = [r for r in strong_failures if is_integrity_gate(r)]
+                enforced_ceiling = 100.0
+                if integrity_buy:
+                    enforced_ceiling = min(enforced_ceiling, 59.99)
+                elif integrity_strong:
+                    enforced_ceiling = min(enforced_ceiling, 69.99)
+
             if evidence_score is None:
                 decision_score = np.nan
                 cap_applied = False
+                capped_score = np.nan
             else:
-                decision_score = round_half_up(min(evidence_score, ceiling), 2)
-                cap_applied = decision_score < round_half_up(evidence_score, 2)
+                capped_score = round_half_up(min(evidence_score, ceiling), 2)
+                decision_score = round_half_up(
+                    min(evidence_score, enforced_ceiling), 2
+                )
+                # Whether the *policy* ceiling would bind -- the warning the
+                # details page renders, regardless of what was enforced.
+                cap_applied = capped_score < round_half_up(evidence_score, 2)
 
             decision_scores.append(decision_score)
             ratings.append(rating_from_score(decision_score))
             evidence_ratings.append(rating_from_score(evidence_score))
             ceilings.append(ceiling)
+            policy_scores.append(capped_score)
             buy_eligible_values.append(not buy_failures)
             strong_eligible_values.append(not strong_failures)
             # Trend confirmation is specifically the medium-term/ADX subset;
@@ -780,7 +871,13 @@ class RecommendationPolicy:
         # separate fields keeps the decision auditable and lets capped rows keep
         # a meaningful relative order.
         frame["Research_Rating"] = evidence_ratings
-        frame["Policy_Eligible_Rating"] = ratings
+        # What the gates alone would have published. Since 5.1 this diverges
+        # from Rating whenever a gate fires, which is the point: the details
+        # page can show both and name the difference.
+        frame["Policy_Eligible_Rating"] = [
+            rating_from_score(score) for score in policy_scores
+        ]
+        frame["Policy_Capped_Score"] = policy_scores
         frame["Primary_Gate"] = [
             primary_gate(json.loads(value)) for value in all_reason_json
         ]
@@ -840,10 +937,33 @@ class RecommendationPolicy:
         # Backward-compatible scalar audit columns now contain every failure.
         frame["Buy_Gate_Reason"] = buy_reason_text
         frame["Strong_Buy_Gate_Reason"] = strong_reason_text
+        # These now mean "a cap would bind", not "the score was reduced". The
+        # names are kept so existing consumers keep working; Cap_Enforced states
+        # whether it actually changed the published score.
         frame["Rating_Capped"] = cap_applied_values
         frame["Rating_Cap_Reason"] = cap_reason_text
         frame["Decision_Cap_Applied"] = cap_applied_values
         frame["Decision_Cap_Reason"] = cap_reason_text
+        frame["Cap_Enforced"] = [
+            bool(_safe_float(policy) is not None
+                 and _safe_float(decision) is not None
+                 and _safe_float(decision) < _safe_float(evidence))
+            for policy, decision, evidence in zip(
+                policy_scores, decision_scores, frame["Evidence_Score"]
+            )
+        ]
+        # One rendered sentence for the details page, empty when nothing fired.
+        frame["Gate_Warning"] = [
+            (
+                f"Rated on research merit; policy gates would cap this at "
+                f"{policy} ({reason})."
+                if flagged and reason
+                else ""
+            )
+            for flagged, reason, policy in zip(
+                cap_applied_values, cap_reason_text, frame["Policy_Eligible_Rating"]
+            )
+        ]
         # Backward-compatible audit column is authored by the same finalizer
         # that actually applies the policy; the evidence enricher cannot know
         # whether the final score needed a STRONG BUY ceiling.
@@ -1144,32 +1264,41 @@ class RecommendationPolicy:
             and "Factor_Model_Applied" in ranked
             and bool(_bool_series(ranked, "Factor_Model_Applied", False).all())
         )
-        if (
-            factor_model_run
-            and _as_bool(
-                getattr(self.config, "RANK_BY_ELIGIBILITY_CLASS", False)
-            )
-            and "Eligibility_Class" in ranked
-        ):
-            # Eligibility first, then the uncapped research score. Every capped
-            # candidate shares one ceiling, so ordering them by Decision_Score
-            # sorts a column that is constant by construction and falls through
-            # to the symbol tie-break -- i.e. alphabetical order presented as
-            # investment merit. Research_Score restores a real ordering inside
-            # each class while eligibility still dominates across classes.
+        if factor_model_run:
+            # Never rank Model 5.0 on Decision_Score. Every capped candidate
+            # shares one ceiling, so ordering them by it sorts a column that is
+            # constant by construction and falls through to the symbol
+            # tie-break -- alphabetical order presented as investment merit.
             research = (
                 "Research_Score" if "Research_Score" in ranked else "Evidence_Score"
             )
-            assign(
-                "Investment_Rank",
-                [
-                    "Eligibility_Class",
-                    research,
-                    "Gate_Severity",
-                    "_Symbol_Sort",
-                ],
-                [True, False, True, True],
-            )
+            if (
+                _as_bool(getattr(self.config, "RANK_BY_ELIGIBILITY_CLASS", False))
+                and "Eligibility_Class" in ranked
+            ):
+                # Eligibility dominates, research score orders within a class.
+                assign(
+                    "Investment_Rank",
+                    ["Eligibility_Class", research, "Gate_Severity", "_Symbol_Sort"],
+                    [True, False, True, True],
+                )
+            else:
+                # Research merit alone. Point-in-time validation across four
+                # windows (`docs/Review/p0_implementation_plan.md`) found that
+                # sorting eligibility first cost 5-16 CAGR points wherever the
+                # gates bound, and contributed exactly nothing in the 2018-2020
+                # drawdown: when every name fails a gate the class key is
+                # constant and the ordering collapses back to this one anyway.
+                #
+                # The gates are still computed, published and used for rating,
+                # so a failing name is labelled rather than hidden -- they are
+                # simply no longer a stock-selection input.
+                keys = [research, "_Symbol_Sort"]
+                ascending = [False, True]
+                if "Gate_Severity" in ranked:
+                    keys.insert(1, "Gate_Severity")
+                    ascending.insert(1, True)
+                assign("Investment_Rank", keys, ascending)
         else:
             assign(
                 "Investment_Rank",

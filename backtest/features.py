@@ -40,6 +40,9 @@ PRICE_FEATURE_COLUMNS = (
     "Momentum_12_1_Pct",
     "Momentum_6_1_Pct",
     "Pct_Change_12M",
+    # FactorModel derives RS_Market_6M_Pct from this, not from Momentum_6_1_Pct.
+    # Without it the market-relative momentum term is NaN for every security.
+    "Pct_Change_6M",
     "Volatility_Ann_Pct",
     "Downside_Deviation_Pct",
     "Max_Drawdown_1Y_Pct",
@@ -49,6 +52,10 @@ PRICE_FEATURE_COLUMNS = (
     "MA200",
     "Price_To_MA200_Pct",
     "MA50_To_MA200_Pct",
+    # Read by the Model 5.0 BUY gates, not by the factor blocks. Both already
+    # come out of calculate_trend_risk_features; they were simply not carried.
+    "MA200_Slope_Pct",
+    "Below_MA200_Streak",
     "Median_Turnover_INR",
     "Trading_Frequency",
     "RiskAdj_Momentum_12_1",
@@ -141,6 +148,12 @@ def price_features(history, signal_date, *, min_history=MIN_HISTORY_SESSIONS):
 
     opens = pd.Series(history["open"], dtype=float)
     features = calculate_trend_risk_features(closes, opens=opens)
+    # calculate_trend_risk_features publishes the 12-month plain return but not
+    # the 6-month one. Computed here with the production helper and lookback so
+    # the definition cannot drift from screener.market_data.
+    from screener.market_data import TechnicalEnhancer
+
+    features["Pct_Change_6M"] = TechnicalEnhancer.calculate_pct_return(closes, 126)
 
     turnover = pd.Series(history["turnover"], dtype=float).dropna()
     recent = turnover.iloc[-TURNOVER_WINDOW_SESSIONS:]
@@ -172,6 +185,7 @@ def price_features(history, signal_date, *, min_history=MIN_HISTORY_SESSIONS):
         "Momentum_12_1_Pct",
         "Momentum_6_1_Pct",
         "Pct_Change_12M",
+        "Pct_Change_6M",
         "Volatility_Ann_Pct",
         "Downside_Deviation_Pct",
         "Max_Drawdown_1Y_Pct",
@@ -181,6 +195,8 @@ def price_features(history, signal_date, *, min_history=MIN_HISTORY_SESSIONS):
         "MA200",
         "Price_To_MA200_Pct",
         "MA50_To_MA200_Pct",
+        "MA200_Slope_Pct",
+        "Below_MA200_Streak",
     ):
         record[column] = features.get(column)
 

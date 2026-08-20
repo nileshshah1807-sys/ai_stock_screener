@@ -20,7 +20,7 @@ at. This is why the ledger stores a tri-state and not a boolean.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import logging
 from pathlib import Path
 
@@ -35,6 +35,31 @@ NO_SESSION = "no_session"
 UNKNOWN = "unknown"
 
 LEDGER_COLUMNS = ("Date", "Status", "Probes", "First_Probed_At", "Last_Probed_At")
+
+# The longest believable run of consecutive non-trading weekdays. NSE closes for
+# scattered festival days and the odd two-day cluster; it does not close for a
+# working week. A longer unresolved run is a failed fetch, not a holiday, and
+# settling it as one would silently delete real sessions from the archive.
+MAX_HOLIDAY_RUN_WEEKDAYS = 5
+
+
+def _consecutive_runs(days):
+    """Group sorted dates into runs unbroken by an intervening weekday."""
+    runs = []
+    for day in sorted(days):
+        if runs and _is_next_weekday(runs[-1][-1], day):
+            runs[-1].append(day)
+        else:
+            runs.append([day])
+    return runs
+
+
+def _is_next_weekday(previous, day):
+    """True when no weekday falls strictly between ``previous`` and ``day``."""
+    step = previous + timedelta(days=1)
+    while step.weekday() >= 5:
+        step += timedelta(days=1)
+    return step == day
 
 
 class CalendarLedger:
@@ -123,9 +148,27 @@ class CalendarLedger:
         if not sessions:
             return 0
         latest_session = sessions[-1]
+        candidates = [
+            day
+            for day in self.unresolved()
+            if day < latest_session and self._rows[day]["Probes"] > 0
+        ]
+
+        # Settle isolated gaps only. A long consecutive run means the fetch
+        # itself failed -- one probe of a pre-2020 date against an endpoint that
+        # was rate-limiting marked 280 straight weekdays as holidays and removed
+        # the whole 2018-2020 bear market from the archive. Those days stay
+        # UNKNOWN so a later run retries them.
         promoted = 0
-        for day in self.unresolved():
-            if day < latest_session and self._rows[day]["Probes"] > 0:
+        for run in _consecutive_runs(candidates):
+            if len(run) > MAX_HOLIDAY_RUN_WEEKDAYS:
+                logger.warning(
+                    "Not settling %d consecutive unresolved weekdays %s..%s as "
+                    "holidays; this is a failed fetch, not a market closure",
+                    len(run), run[0], run[-1],
+                )
+                continue
+            for day in run:
                 self._rows[day]["Status"] = NO_SESSION
                 promoted += 1
         return promoted
