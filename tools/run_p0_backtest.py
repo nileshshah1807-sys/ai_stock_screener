@@ -156,8 +156,20 @@ def load_archive(root, *, terminal_absence_sessions=None):
 
 def build_runner(archive, args):
     from backtest.costs import CostModel
+    from backtest.fundamentals import FundamentalPanel
     from backtest.runner import UniverseRule, WalkForwardRunner
     from backtest.security_master import DelistingPolicy
+
+    fundamental_panel = None
+    if getattr(args, "with_fundamentals", False):
+        panel_path = Path(args.root) / "fundamental_panel.csv"
+        if not panel_path.exists():
+            raise SystemExit(
+                f"No fundamental panel at {panel_path}. Build it first. "
+                "  python -m tools.build_fundamental_panel"
+            )
+        fundamental_panel = FundamentalPanel.load(panel_path)
+        logger.info("Fundamental panel: %d securities", len(fundamental_panel))
 
     universe_rule = UniverseRule(
         min_median_turnover_inr=args.min_turnover,
@@ -181,6 +193,12 @@ def build_runner(archive, args):
         cost_model=cost_model,
         value_per_position=args.position_size,
         horizons=_parse_horizons(args.horizons),
+        fundamental_panel=fundamental_panel,
+        max_statement_age_days=getattr(args, "max_statement_age_days", None),
+        require_fundamentals=(
+            fundamental_panel is not None
+            and not getattr(args, "allow_missing_fundamentals", False)
+        ),
     )
     return runner, universe_rule, policy, cost_model
 
@@ -216,6 +234,22 @@ def main(argv=None):
         help="PDF report path (tracked in git so it can be shared)",
     )
     parser.add_argument("--no-pdf", action="store_true", help="skip the PDF report")
+    parser.add_argument(
+        "--with-fundamentals",
+        action="store_true",
+        help="run the full Model 5.0 matrix using the point-in-time statement panel",
+    )
+    parser.add_argument(
+        "--max-statement-age-days",
+        type=int,
+        default=550,
+        help="drop evidence older than this; 550 allows one late annual filing",
+    )
+    parser.add_argument(
+        "--allow-missing-fundamentals",
+        action="store_true",
+        help="score names with no visible statement instead of dropping them",
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -233,7 +267,7 @@ def main(argv=None):
         rebalance_dates,
         write_report,
     )
-    from backtest.strategies import DEFAULT_STRATEGIES
+    from backtest.strategies import FUNDAMENTAL_STRATEGIES, PRICE_ONLY_STRATEGIES
 
     dates = rebalance_dates(archive["calendar"], start, end, frequency=args.frequency)
     horizons = _parse_horizons(args.horizons)
@@ -254,6 +288,12 @@ def main(argv=None):
         raise SystemExit("No rebalance dates in the requested window")
 
     runner, universe_rule, policy, cost_model = build_runner(archive, args)
+    strategies = list(
+        FUNDAMENTAL_STRATEGIES if args.with_fundamentals else PRICE_ONLY_STRATEGIES
+    )
+    logger.info(
+        "Strategies: %s", ", ".join(strategy.name for strategy in strategies)
+    )
 
     def on_progress(signal_date, index, total, diagnostics):
         logger.info(
@@ -266,9 +306,7 @@ def main(argv=None):
         )
 
     started = time.monotonic()
-    fills, diagnostics = runner.run(
-        list(DEFAULT_STRATEGIES), dates, on_progress=on_progress
-    )
+    fills, diagnostics = runner.run(strategies, dates, on_progress=on_progress)
     logger.info("Scored %d fill rows in %.1fs", len(fills), time.monotonic() - started)
 
     if fills.empty:

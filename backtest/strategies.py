@@ -103,11 +103,19 @@ def attach_market_relative(frame, *, benchmark_return_6m=None):
 
 
 class Strategy:
-    """A named scoring rule over a point-in-time cross-section."""
+    """A named scoring rule over a point-in-time cross-section.
+
+    ``score`` may accept a ``shared`` mapping of work already done for this
+    cross-section. The runner scores Model 5.0 once per rebalance and passes it
+    through, so the five block-level ablations read from that result instead of
+    recomputing the whole factor model five more times.
+    """
 
     name = "abstract"
+    #: Whether this strategy reads ``shared["model_5"]``.
+    needs_model5 = False
 
-    def score(self, frame):  # pragma: no cover - interface
+    def score(self, frame, shared=None):  # pragma: no cover - interface
         raise NotImplementedError
 
 
@@ -116,7 +124,7 @@ class MomentumOnly(Strategy):
 
     name = "momentum_only"
 
-    def score(self, frame):
+    def score(self, frame, shared=None):
         working = attach_market_relative(frame)
         score, coverage = weighted_block(working, MOMENTUM_PRICE_FEATURES)
         working["Score"] = score
@@ -129,7 +137,7 @@ class RiskOnly(Strategy):
 
     name = "risk_only"
 
-    def score(self, frame):
+    def score(self, frame, shared=None):
         working = frame.copy()
         score, coverage = weighted_block(working, RISK_PRICE_FEATURES)
         working["Score"] = score
@@ -147,7 +155,7 @@ class MomentumRiskBlend(Strategy):
 
     name = "momentum_risk_blend"
 
-    def score(self, frame):
+    def score(self, frame, shared=None):
         working = attach_market_relative(frame)
         momentum, momentum_coverage = weighted_block(working, MOMENTUM_PRICE_FEATURES)
         risk, risk_coverage = weighted_block(working, RISK_PRICE_FEATURES)
@@ -173,7 +181,7 @@ class EqualWeightUniverse(Strategy):
 
     name = "equal_weight_universe"
 
-    def score(self, frame):
+    def score(self, frame, shared=None):
         working = frame.copy()
         working["Score"] = 50.0
         working["Score_Coverage"] = 1.0
@@ -193,7 +201,7 @@ class RandomRanking(Strategy):
     def __init__(self, seed=7):
         self.seed = int(seed)
 
-    def score(self, frame):
+    def score(self, frame, shared=None):
         working = frame.copy()
         # Seeded per signal date so the run is reproducible but not identical
         # across dates, which would create artificial serial correlation.
@@ -206,10 +214,186 @@ class RandomRanking(Strategy):
         return working
 
 
-DEFAULT_STRATEGIES = (
+def _model5_result(frame, shared):
+    """The shared Model 5.0 scoring for this cross-section, computing it only if
+    the runner did not already."""
+    if shared is not None and "model_5" in shared:
+        return shared["model_5"].copy()
+    return Model5().score(frame)
+
+
+class Model5(Strategy):
+    """The production Model 5.0 score, run on point-in-time evidence.
+
+    Delegates to `screener.factors.FactorModel` unchanged. That is the whole
+    point of the exercise -- a reimplementation would be testing a lookalike, and
+    the only defensible answer to "does Model 5.0 predict returns" comes from
+    running the object that makes the production decision.
+
+    Two documented departures from the production configuration, both forced by
+    what the archive carries rather than chosen:
+
+    * **Ranking is market-wide, not sector-neutral.** The bhavcopy has no sector
+      classification, and the obvious substitute -- today's sector map from the
+      production fundamental cache -- exists only for companies still listed
+      today. Joining it would quietly reintroduce the survivorship bias the whole
+      archive was built to remove, since delisted names would fall into an
+      "Unknown" bucket and be ranked against each other. Ranking market-wide is
+      a real methodological difference and is stated, not hidden.
+    * **The DCF block is disabled.** It needs free cash flow, and the filings
+      carry operating cash flow with no capital expenditure. Its weight is
+      redistributed by the block's own coverage machinery rather than being
+      filled with a guess.
+    """
+
+    name = "model_5"
+    produces_model5 = True
+
+    def __init__(self, config=None):
+        self.config = config or self._default_config()
+
+    @staticmethod
+    def _default_config():
+        from screener.runtime import Config
+
+        class BacktestConfig:
+            pass
+
+        config = BacktestConfig()
+        for attribute in dir(Config):
+            if attribute.startswith("FACTOR_"):
+                setattr(config, attribute, getattr(Config, attribute))
+        # See the class docstring: no point-in-time sector map exists that does
+        # not smuggle survivorship back in.
+        config.FACTOR_SECTOR_NEUTRAL = False
+        return config
+
+    def score(self, frame, shared=None):
+        from screener.factors import FactorModel
+
+        working = attach_market_relative(frame)
+        working = self._prepare(working)
+        scored = FactorModel(self.config).score(working)
+        scored["Score"] = scored["Research_Score"]
+        scored["Score_Coverage"] = scored[
+            ["Quality_Coverage", "Growth_Coverage", "Value_Coverage",
+             "Momentum_Coverage", "Risk_Coverage"]
+        ].mean(axis=1)
+        return scored
+
+    @staticmethod
+    def _prepare(frame):
+        """Supply the columns FactorModel expects but the archive cannot."""
+        working = frame.copy()
+        if "Sector" not in working:
+            working["Sector"] = "Unknown"
+        if "Fundamental_Model" not in working:
+            # Every row scored on the generic template. The specialist bank and
+            # NBFC templates need regulatory line items the results XBRL does not
+            # carry, so routing financials there would score them on absence.
+            working["Fundamental_Model"] = "Generic Fundamental Model"
+        for column, default in (
+            ("DCF_Blend_Eligible", False),
+            ("DCF_Valuation_Score", np.nan),
+            ("Trading_Frequency_60D", np.nan),
+        ):
+            if column not in working:
+                working[column] = default
+        if "DCF_Status" not in working:
+            working["DCF_Status"] = "unavailable: no capex in the filing feed"
+        # The production risk block reads Trading_Frequency_60D; the archive
+        # computes the same quantity under a shorter name.
+        if "Trading_Frequency" in working:
+            working["Trading_Frequency_60D"] = working["Trading_Frequency_60D"].fillna(
+                working["Trading_Frequency"]
+            )
+        return working
+
+
+class QualityOnly(Strategy):
+    """Model 5.0's quality block alone -- `p0.md` §7D."""
+
+    name = "quality_only"
+
+    needs_model5 = True
+
+    def score(self, frame, shared=None):
+        scored = _model5_result(frame, shared)
+        scored["Score"] = scored["Quality_Score"]
+        scored["Score_Coverage"] = scored["Quality_Coverage"]
+        return scored
+
+
+class GrowthOnly(Strategy):
+    """Model 5.0's growth block alone -- `p0.md` §7 strategy 5."""
+
+    name = "growth_only"
+
+    needs_model5 = True
+
+    def score(self, frame, shared=None):
+        scored = _model5_result(frame, shared)
+        scored["Score"] = scored["Growth_Score"]
+        scored["Score_Coverage"] = scored["Growth_Coverage"]
+        return scored
+
+
+class ValueOnly(Strategy):
+    """Model 5.0's value block alone -- `p0.md` §7F."""
+
+    name = "value_only"
+
+    needs_model5 = True
+
+    def score(self, frame, shared=None):
+        scored = _model5_result(frame, shared)
+        scored["Score"] = scored["Value_Score"]
+        scored["Score_Coverage"] = scored["Value_Coverage"]
+        return scored
+
+
+class SimpleQualityMomentum(Strategy):
+    """The 50/50 challenger from `p0.md` §7G.
+
+    Deliberately simple, and the most important comparison in the matrix: if a
+    two-block average matches the full model, the extra complexity has not earned
+    its place.
+    """
+
+    name = "simple_quality_momentum"
+
+    needs_model5 = True
+
+    def score(self, frame, shared=None):
+        scored = _model5_result(frame, shared)
+        quality = pd.to_numeric(scored["Quality_Score"], errors="coerce")
+        momentum = pd.to_numeric(scored["Momentum_Score"], errors="coerce")
+        scored["Score"] = 0.5 * quality.fillna(50.0) + 0.5 * momentum.fillna(50.0)
+        scored["Score_Coverage"] = (
+            scored["Quality_Coverage"] + scored["Momentum_Coverage"]
+        ) / 2.0
+        return scored
+
+
+# Price-only strategies. Runnable without any fundamental data.
+PRICE_ONLY_STRATEGIES = (
     MomentumOnly(),
     RiskOnly(),
     MomentumRiskBlend(),
     EqualWeightUniverse(),
     RandomRanking(),
 )
+
+# The full benchmark matrix, requiring the fundamental panel.
+FUNDAMENTAL_STRATEGIES = (
+    Model5(),
+    QualityOnly(),
+    GrowthOnly(),
+    ValueOnly(),
+    MomentumOnly(),
+    SimpleQualityMomentum(),
+    EqualWeightUniverse(),
+    RandomRanking(),
+)
+
+DEFAULT_STRATEGIES = PRICE_ONLY_STRATEGIES

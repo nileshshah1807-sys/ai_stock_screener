@@ -187,6 +187,9 @@ class WalkForwardRunner:
         cost_model=None,
         value_per_position=100_000.0,
         horizons=DEFAULT_HORIZONS,
+        fundamental_panel=None,
+        max_statement_age_days=None,
+        require_fundamentals=False,
     ):
         self.calendar = calendar
         self.history_panel = history_panel
@@ -197,6 +200,13 @@ class WalkForwardRunner:
         self.cost_model = cost_model
         self.value_per_position = float(value_per_position)
         self.horizons = tuple(int(h) for h in horizons)
+        self.fundamental_panel = fundamental_panel
+        self.max_statement_age_days = max_statement_age_days
+        # When true, a security with no visible statement is dropped rather than
+        # scored on price alone. Scoring it anyway would let the fundamental
+        # blocks shrink to neutral and quietly turn Model 5.0 into a momentum
+        # model for exactly the names whose fundamentals are missing.
+        self.require_fundamentals = bool(require_fundamentals)
         self.execution = ExecutionModel(
             calendar,
             price_panel,
@@ -214,7 +224,38 @@ class WalkForwardRunner:
             keys=keys,
             min_history=self.universe_rule.min_history_sessions,
         )
-        return self.universe_rule.apply(frame)
+        frame, diagnostics = self.universe_rule.apply(frame)
+        if self.fundamental_panel is not None and frame is not None and len(frame):
+            frame, fundamental_diagnostics = self._attach_fundamentals(
+                frame, signal_date
+            )
+            diagnostics.update(fundamental_diagnostics)
+        return frame, diagnostics
+
+    def _attach_fundamentals(self, frame, signal_date):
+        """Merge point-in-time statement factors onto the price cross-section."""
+        from .fundamentals import attach_valuation_inputs
+
+        fundamentals = self.fundamental_panel.cross_section(
+            frame["Security_ID"].astype(str).tolist(),
+            signal_date,
+            max_age_days=self.max_statement_age_days,
+        )
+        diagnostics = {
+            "with_fundamentals": int(len(fundamentals)),
+            "without_fundamentals": int(len(frame) - len(fundamentals)),
+        }
+        if fundamentals.empty:
+            logger.warning("No visible statements on %s", signal_date)
+            return (frame.iloc[0:0] if self.require_fundamentals else frame), diagnostics
+
+        merged = frame.merge(
+            fundamentals, on="Security_ID", how="inner" if self.require_fundamentals else "left"
+        )
+        # Market cap and book value must be built from the point-in-time price and
+        # the filed share count, never from a vendor's current market cap.
+        merged = attach_valuation_inputs(merged, price_column="Close")
+        return merged, diagnostics
 
     def run(self, strategies, signal_dates, *, on_progress=None):
         """Score every strategy on every date and return the long fill frame."""
@@ -233,8 +274,26 @@ class WalkForwardRunner:
                 frame, self.execution, signal_date, horizons=self.horizons
             )
 
+            # Model 5.0 is scored once per rebalance and shared. The block-level
+            # ablations are views on the same scoring, so recomputing it per
+            # strategy would repeat the whole factor model five more times for
+            # results that must be identical anyway.
+            shared = {}
+            if any(getattr(s, "needs_model5", False) for s in strategies):
+                producer = next(
+                    (s for s in strategies if getattr(s, "produces_model5", False)),
+                    None,
+                )
+                from .strategies import Model5
+
+                shared["model_5"] = (producer or Model5()).score(with_returns)
+
             for strategy in strategies:
-                scored = strategy.score(with_returns)
+                scored = (
+                    shared["model_5"].copy()
+                    if getattr(strategy, "produces_model5", False) and "model_5" in shared
+                    else strategy.score(with_returns, shared)
+                )
                 scored = scored.assign(
                     Strategy=strategy.name,
                     Signal_Date=_as_date(signal_date).isoformat(),
