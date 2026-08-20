@@ -157,11 +157,12 @@ def run_actions(root, start, end):
             sorted(set(skipped["Symbol"].astype(str)))[:20],
         )
 
-    preference = frame[status.eq("unadjustable_preference_bonus")]
+    preference = frame[status.eq("unadjustable_non_equity_bonus")]
     if len(preference):
         logger.info(
-            "%d preference-share bonuses excluded (equity count unchanged, so the "
-            "ratio is not a price factor): %s",
+            "%d non-equity bonuses excluded -- preference shares, debentures or "
+            "warrants, so the equity count is unchanged and the ratio is not a "
+            "price factor: %s",
             len(preference),
             sorted(set(preference["Symbol"].astype(str)))[:20],
         )

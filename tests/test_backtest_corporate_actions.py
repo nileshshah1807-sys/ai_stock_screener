@@ -73,7 +73,7 @@ class ClassifyTests(unittest.TestCase):
         )
         self.assertEqual(action, ACTION_BONUS)
         self.assertIsNone(factor)
-        self.assertEqual(status, "unadjustable_preference_bonus")
+        self.assertEqual(status, "unadjustable_non_equity_bonus")
 
     def test_preference_bonus_blocks_its_security(self):
         table = AdjustmentTable(
@@ -101,12 +101,36 @@ class ClassifyTests(unittest.TestCase):
         ):
             self.assertEqual(
                 parse_action(subject)[3],
-                "unadjustable_preference_bonus",
+                "unadjustable_non_equity_bonus",
                 msg=subject,
             )
 
+    def test_debenture_bonus_never_becomes_a_price_factor(self):
+        """BRITANNIA's real subject, NSE's spelling included. A debenture bonus
+        leaves the equity count unchanged; read as 1:1 it would apply factor 2.0
+        and fabricate +100% on a large cap."""
+        action, factor, _, status = parse_action(
+            "Scheme Of Arangement- Bonus - 1 Debenture For 1 Equity Share Held"
+        )
+        self.assertEqual(action, ACTION_BONUS)
+        self.assertIsNone(factor)
+        self.assertEqual(status, "unadjustable_non_equity_bonus")
+
+    def test_hyphenated_bonus_ratio_is_parsed(self):
+        """AJANTPHARM's real subject. A genuine equity bonus that the earlier
+        pattern missed on the hyphen, needlessly blocking the security."""
+        action, factor, _, status = parse_action("Bonus- 1:2")
+        self.assertEqual(action, ACTION_BONUS)
+        self.assertAlmostEqual(factor, 1.5)
+        self.assertEqual(status, "ok")
+
+    def test_bonus_issue_wording_is_parsed(self):
+        _, factor, _, status = parse_action("Bonus Issue 1:1")
+        self.assertAlmostEqual(factor, 2.0)
+        self.assertEqual(status, "ok")
+
     def test_an_ordinary_equity_bonus_is_still_quantified(self):
-        """The preference guard must not swallow real equity bonuses."""
+        """The non-equity guard must not swallow real equity bonuses."""
         _, factor, _, status = parse_action("Bonus 1:1")
         self.assertAlmostEqual(factor, 2.0)
         self.assertEqual(status, "ok")

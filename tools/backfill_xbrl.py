@@ -25,6 +25,7 @@ from the original rather than overwriting it.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import gzip
 import logging
@@ -104,6 +105,8 @@ class Downloader:
         self.skipped = 0
         self.failed = 0
         self.bytes = 0
+        self.failure_reasons = Counter()
+        self.failure_examples = {}
 
     def _session(self):
         # One session per worker thread: requests.Session is not documented as
@@ -127,8 +130,24 @@ class Downloader:
         last_error = None
         for attempt in range(1, self.retries + 1):
             try:
-                response = self._session().get(url, timeout=self.timeout)
-                if response.status_code == 200 and response.content:
+                # A short connect timeout prevents a dead NSE edge node from
+                # occupying every worker for the full read timeout.  The CLI's
+                # --timeout value remains the (more generous) read timeout.
+                response = self._session().get(
+                    url, timeout=(min(10, self.timeout), self.timeout)
+                )
+                content_type = response.headers.get("Content-Type", "").lower()
+                body_start = response.content[:256].lstrip().lower()
+                looks_like_html = (
+                    "text/html" in content_type
+                    or body_start.startswith(b"<!doctype html")
+                    or body_start.startswith(b"<html")
+                )
+                if (
+                    response.status_code == 200
+                    and response.content
+                    and not looks_like_html
+                ):
                     path.parent.mkdir(parents=True, exist_ok=True)
                     # Write to a temp name then rename, so an interrupted run
                     # cannot leave a truncated file that a later run treats as
@@ -141,7 +160,15 @@ class Downloader:
                         self.fetched += 1
                         self.bytes += len(response.content)
                     return "fetched"
-                last_error = f"HTTP {response.status_code}"
+                if response.status_code == 200:
+                    last_error = "HTTP 200 returned HTML/non-document content"
+                else:
+                    last_error = f"HTTP {response.status_code}"
+
+                # These client errors are permanent for a static archive URL.
+                # Retrying them only adds backoff and cannot change the result.
+                if 400 <= response.status_code < 500 and response.status_code != 429:
+                    break
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
             if attempt < self.retries:
@@ -151,8 +178,17 @@ class Downloader:
 
         with self._lock:
             self.failed += 1
+            reason = (last_error or "unknown error").split(":", 1)[0]
+            self.failure_reasons[reason] += 1
+            self.failure_examples.setdefault(reason, (url, last_error))
         logger.debug("Failed %s: %s", url, last_error)
         return "failed"
+
+    def failure_summary(self):
+        return ", ".join(
+            f"{reason}={count}"
+            for reason, count in self.failure_reasons.most_common()
+        )
 
     def run(self, targets, *, on_progress=None):
         started = time.monotonic()
@@ -184,9 +220,14 @@ def run_status(root):
     print(f"filing metadata    : {'present' if metadata.exists() else 'MISSING'}")
     if metadata.exists():
         targets = load_targets(root)
+        target_paths = {
+            document_path(root, row["Seq_Number"], row["Period_End"])
+            for row in targets.to_dict("records")
+        }
+        cached_targets = sum(path.exists() for path in target_paths)
         print(f"Ind-AS filings     : {len(targets)}")
-        print(f"documents cached   : {len(cached)}")
-        remaining = max(0, len(targets) - len(cached))
+        print(f"documents cached   : {cached_targets}")
+        remaining = len(target_paths) - cached_targets
         print(f"remaining          : {remaining}")
         if remaining:
             print(f"  est. at 6 workers: {remaining * 0.66 / 6 / 60:.0f} min")
@@ -267,6 +308,8 @@ def main(argv=None):
             downloader.failed,
             remaining,
         )
+        if downloader.failed:
+            logger.info("  failure reasons: %s", downloader.failure_summary())
 
     elapsed = downloader.run(pending, on_progress=on_progress)
     logger.info(
@@ -287,6 +330,9 @@ def main(argv=None):
             downloader.failed,
             args.retries,
         )
+        logger.warning("Failure reasons: %s", downloader.failure_summary())
+        for reason, (url, detail) in downloader.failure_examples.items():
+            logger.warning("Example %s: %s (%s)", reason, url, detail)
     return 0
 
 

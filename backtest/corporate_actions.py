@@ -71,16 +71,27 @@ _FACE_VALUE_RE = re.compile(
     r"(?:rs\.?|re\.?)\s*([\d.]+)",
     re.IGNORECASE,
 )
-_BONUS_RE = re.compile(r"bonus\s*(?:issue)?\s*(\d+)\s*:\s*(\d+)", re.IGNORECASE)
+# Punctuation between "Bonus" and the ratio is common: NSE emits "Bonus 1:1",
+# "Bonus- 1:2" and "Bonus Issue 1:1" interchangeably. Without the separator class
+# AJANTPHARM's real "Bonus- 1:2" is missed and the security is needlessly blocked.
+_BONUS_RE = re.compile(
+    r"bonus\b[\s\-:.]*(?:issue)?[\s\-:.]*(\d+)\s*:\s*(\d+)", re.IGNORECASE
+)
 
-# A "Bonus NCRPS 4:1" awards four non-convertible redeemable *preference* shares
-# per equity share held. The equity share count does not change, so the ratio is
-# emphatically not an equity price factor -- applying TVSMOTOR's 4:1 as one would
-# turn its ~1.5% ex-date drop into a fabricated +400% return. These are matched
-# explicitly and routed to the unadjustable path rather than being left to miss
-# the bonus pattern by luck.
-_PREFERENCE_BONUS_RE = re.compile(
-    r"\b(?:ncrps|ncps|nccrps|preference\s+share)", re.IGNORECASE
+# A bonus paid in something other than equity leaves the equity share count
+# unchanged, so its ratio is emphatically not an equity price factor. Two real
+# cases from the 2018-2026 feed:
+#
+#   TVSMOTOR   "Scheme Of Arrangement - Bonus Ncrps 4:1"
+#   BRITANNIA  "Scheme Of Arangement- Bonus - 1 Debenture For 1 Equity Share Held"
+#
+# Treated as equity ratios these would apply factors of 5.0 and 2.0, turning
+# ~1% ex-date drops into fabricated +400% and +100% returns on large caps. Both
+# happened to miss the bonus pattern and block by luck; matching them explicitly
+# makes the safety deliberate. ("Arangement" is NSE's spelling, not a typo here.)
+_NON_EQUITY_BONUS_RE = re.compile(
+    r"\b(?:ncrps|ncps|nccrps|ncd|preference\s+share|debenture|bond|warrant)",
+    re.IGNORECASE,
 )
 _AMOUNT = r"(\d+(?:\.\d+)?)"
 # Standard form, tolerating the stray hyphen NSE sometimes emits ("Rs -10").
@@ -167,11 +178,12 @@ def parse_action(subject):
         return action, None, None, "unparsed_ratio"
 
     if action == ACTION_BONUS:
-        # Preference-share bonuses leave the equity count untouched, so their
-        # ratio must never reach the price factor. They still move the price by
-        # the value distributed, which no ratio here captures, so they block.
-        if _PREFERENCE_BONUS_RE.search(text):
-            return action, None, None, "unadjustable_preference_bonus"
+        # A bonus paid in preference shares, debentures or warrants leaves the
+        # equity count untouched, so its ratio must never reach the price factor.
+        # The price still moves by the value distributed, which no ratio here
+        # captures, so these block rather than being adjusted.
+        if _NON_EQUITY_BONUS_RE.search(text):
+            return action, None, None, "unadjustable_non_equity_bonus"
         match = _BONUS_RE.search(text)
         if match:
             new, held = float(match.group(1)), float(match.group(2))
