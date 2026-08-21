@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -21,6 +22,34 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 DEFAULT_ROOT = Path("reports_advanced/backtest")
 
 logger = logging.getLogger("publish_price_series")
+
+
+def load_env_file(path=Path(".env")):
+    """Read a local ``.env`` into the environment if one is present.
+
+    Deliberately local to this tool rather than added to `screener.runtime`:
+    the scheduled workflow sets real environment variables, and giving the
+    production config a file-loading side effect would mean a stray `.env` on a
+    runner could silently redirect a live run.
+
+    A real variable always wins, so `SUPABASE_URL=... python -m tools...` still
+    overrides the file. Written by hand to avoid adding python-dotenv for a
+    fifteen-line parser.
+    """
+    if not path.exists():
+        return []
+    loaded = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        name = name.strip()
+        value = value.strip().strip('"').strip("'")
+        if name and name not in os.environ:
+            os.environ[name] = value
+            loaded.append(name)
+    return loaded
 
 
 def main(argv=None):
@@ -40,6 +69,28 @@ def main(argv=None):
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
+
+    loaded = load_env_file()
+    if loaded:
+        logger.info("Loaded %s from .env", ", ".join(sorted(loaded)))
+
+    # Constructed before the archive read, which takes about a minute. Missing
+    # credentials should fail in the first second, not the sixty-first.
+    repository = None
+    if not args.dry_run:
+        from storage.dashboard_repository import DashboardRepository
+
+        try:
+            repository = DashboardRepository.from_environment()
+        except ValueError as error:
+            hint = [
+                str(error),
+                "",
+                "Set them in .env or the environment, e.g.",
+                "  SUPABASE_URL=https://<project>.supabase.co",
+                "  SUPABASE_SERVICE_ROLE_KEY=<service role key>",
+            ]
+            raise SystemExit("\n".join(hint)) from error
 
     from datetime import date
 
@@ -94,12 +145,6 @@ def main(argv=None):
     rows = build_rows(sessions, observations, symbols, min_points=args.min_points)
     if args.limit:
         rows = rows[: args.limit]
-
-    repository = None
-    if not args.dry_run:
-        from storage.dashboard_repository import DashboardRepository
-
-        repository = DashboardRepository.from_environment()
 
     publish(repository, sessions, rows, dry_run=args.dry_run)
     return 0
