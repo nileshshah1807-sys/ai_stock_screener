@@ -1,163 +1,265 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
+import {
+  AreaSeries,
+  HistogramSeries,
+  LineSeries,
+  createChart,
+  type IChartApi,
+  type UTCTimestamp,
+} from "lightweight-charts";
+
+import {
+  RANGES,
+  clipFrom,
+  decodeSeries,
+  movingAverage,
+  sliceRange,
+} from "@/lib/price-series.mjs";
 
 /**
- * TradingView Advanced Chart for one NSE symbol.
+ * Daily price, volume and the 50/200-day averages for one symbol.
  *
- * Embedded rather than self-hosted. The archive under `backtest/` could serve
- * a split-adjusted series for ~7 MB, but an embed costs no storage, no egress
- * and no daily publish step, and TradingView already provides the range
- * selector, volume pane and moving averages that would otherwise be built by
- * hand.
+ * Drawn from this project's own archive rather than an embed. TradingView's
+ * free widget does not serve NSE equities, and even where a third-party feed is
+ * available it is the wrong source here: the chart has to agree with the prices
+ * the model scored on, which are corporate-action adjusted by
+ * `backtest/corporate_actions.py`. A chart that disagrees with the screener
+ * beside it is worse than no chart.
  *
- * What the embed cannot do, and why this file is worth revisiting if either
- * matters later:
- *
- *   * It draws TradingView's prices, not the corporate-action-adjusted prices
- *     this model scored on. The two normally agree; they can disagree around a
- *     split or a bonus issue.
- *   * It is an iframe, so none of this app's own evidence -- rating changes,
- *     the session a gate fired, factor percentiles over time -- can be drawn
- *     on it.
- *   * Delisted and very thinly traded names may not resolve, which is why the
- *     unresolved case is handled explicitly below rather than left as an empty
- *     frame.
+ * The averages are computed over the whole series and then clipped to the
+ * visible range, so a 1M view still shows a true 200-day average rather than
+ * one restarted at the left edge of the window.
  */
 
 /**
- * TradingView's script mutates the container, so React must not own it.
+ * The encoded row, decoded in the browser rather than on the server.
  *
- * `next/script` is not usable here: it accepts either a `src` or inline
- * children, and this embed needs both -- a remote script whose own innerHTML is
- * the config JSON. The DOM is therefore built by hand and torn down on cleanup.
+ * Decoding server-side would put ~2,100 expanded objects into the RSC payload,
+ * roughly triple the ~22 KB the three encoded arrays cost. The decoder is a few
+ * hundred bytes, so shipping it and the compact form is the cheaper trade.
  */
-const SCRIPT_SRC =
-  "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+export type EncodedSeries = {
+  session_deltas: string;
+  closes: string;
+  volumes: string;
+};
 
 /**
- * Simple moving averages drawn on the price pane.
+ * Volume occupies the lower quarter of the pane.
  *
- * The object form carries per-instance `inputs`, which is what allows two
- * copies of the same study at different lengths -- `studies_overrides` applies
- * to a study *type* and cannot distinguish them. If a future widget version
- * ignores the inputs it falls back to TradingView's default length rather than
- * failing, so the chart degrades to a shorter average instead of breaking.
+ * A separate pane would halve the space given to price, and price is what the
+ * reader came for; scaling volume into its own margin keeps both legible
+ * without splitting the frame.
  */
-const STUDIES = [
-  { id: "MASimple@tv-basicstudies", inputs: { length: 50 } },
-  { id: "MASimple@tv-basicstudies", inputs: { length: 200 } },
-];
+const VOLUME_SCALE_MARGIN = { top: 0.78, bottom: 0 };
+const PRICE_SCALE_MARGIN = { top: 0.08, bottom: 0.26 };
 
-function widgetConfig(symbol: string, dark: boolean) {
+const MA50_COLOR = "#f59e0b";
+
+function palette(dark: boolean) {
   return {
-    autosize: true,
-    symbol: `NSE:${symbol.toUpperCase()}`,
-    interval: "D",
-    timezone: "Asia/Kolkata",
-    theme: dark ? "dark" : "light",
-    style: "1", // candles; "2" is bars, "3" is a line
-    locale: "in",
-    // The daily bar is the unit this whole application reasons in, so intraday
-    // resolutions are deliberately not offered.
-    hide_legend: false,
-    hide_side_toolbar: true,
-    allow_symbol_change: false,
-    save_image: false,
-    enable_publishing: false,
-    withdateranges: true,
-    range: "12M",
-    studies: STUDIES,
-    support_host: "https://www.tradingview.com",
+    text: dark ? "#8b95a8" : "#64748b",
+    grid: dark ? "rgba(148,163,184,0.10)" : "rgba(100,116,139,0.14)",
+    price: dark ? "#818cf8" : "#4f46e5",
+    priceFillTop: dark ? "rgba(129,140,248,0.28)" : "rgba(79,70,229,0.22)",
+    priceFillBottom: dark ? "rgba(129,140,248,0.02)" : "rgba(79,70,229,0.02)",
+    ma50: MA50_COLOR,
+    ma200: dark ? "#94a3b8" : "#64748b",
+    volume: dark ? "rgba(129,140,248,0.42)" : "rgba(79,70,229,0.30)",
   };
 }
 
 export function PriceChart({
-  symbol,
-  height = 460,
+  series,
+  sessions,
+  height = 380,
 }: {
-  symbol: string;
+  series: EncodedSeries | null;
+  sessions: string[];
   height?: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
-  // `resolvedTheme` is undefined until next-themes has read the preference on
-  // the client, which doubles as the mount signal: server and first client
-  // render both show the placeholder, so there is nothing to mismatch, and the
-  // widget is never built with a theme that is about to change under it.
   const { resolvedTheme } = useTheme();
-  // Keyed by symbol rather than a bare boolean, so navigating to another stock
-  // clears a previous failure without writing state from inside the effect.
-  const [failedFor, setFailedFor] = useState<string | null>(null);
-  const failed = failedFor === symbol;
+  const [rangeLabel, setRangeLabel] = useState("1Y");
+
+  const decoded = useMemo(
+    () => decodeSeries(series, sessions),
+    [series, sessions],
+  );
+  const points = decoded.points;
+
+  const range = RANGES.find((entry) => entry.label === rangeLabel) ?? RANGES[2];
+
+  // Averages come from the full series; only the view is sliced.
+  const { visible, ma50, ma200 } = useMemo(() => {
+    const full50 = movingAverage(points, 50);
+    const full200 = movingAverage(points, 200);
+    const slice = sliceRange(points, range.sessions);
+    const from = slice[0]?.time;
+    return {
+      visible: slice,
+      ma50: clipFrom(full50, from),
+      ma200: clipFrom(full200, from),
+    };
+  }, [points, range.sessions]);
 
   useEffect(() => {
     if (!resolvedTheme) return;
     const node = container.current;
-    if (!node) return;
+    if (!node || visible.length === 0) return;
 
-    node.innerHTML = "";
+    const colors = palette(resolvedTheme === "dark");
+    const instance: IChartApi = createChart(node, {
+      height,
+      layout: {
+        background: { color: "transparent" },
+        textColor: colors.text,
+        attributionLogo: false,
+      },
+      grid: {
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
+      },
+      rightPriceScale: { borderVisible: false, scaleMargins: PRICE_SCALE_MARGIN },
+      timeScale: { borderVisible: false, fixLeftEdge: true, fixRightEdge: true },
+      crosshair: { mode: 1 },
+      handleScroll: false,
+      handleScale: false,
+    });
 
-    const widget = document.createElement("div");
-    widget.className = "tradingview-widget-container__widget";
-    widget.style.height = `${height}px`;
-    node.appendChild(widget);
-
-    const script = document.createElement("script");
-    script.src = SCRIPT_SRC;
-    script.async = true;
-    script.type = "text/javascript";
-    script.innerHTML = JSON.stringify(
-      widgetConfig(symbol, resolvedTheme === "dark"),
+    // Volume first, so the price line draws over it.
+    const volume = instance.addSeries(HistogramSeries, {
+      color: colors.volume,
+      priceFormat: { type: "volume" },
+      priceScaleId: "volume",
+      lastValueVisible: false,
+      priceLineVisible: false,
+    });
+    instance
+      .priceScale("volume")
+      .applyOptions({ scaleMargins: VOLUME_SCALE_MARGIN });
+    volume.setData(
+      visible.map((point) => ({
+        time: point.time as unknown as UTCTimestamp,
+        value: point.volume,
+      })),
     );
-    // A blocked script (offline, extension, ad blocker) must say so rather than
-    // leave a silent empty box that reads as "this stock has no price history".
-    script.onerror = () => setFailedFor(symbol);
-    node.appendChild(script);
+
+    const price = instance.addSeries(AreaSeries, {
+      lineColor: colors.price,
+      topColor: colors.priceFillTop,
+      bottomColor: colors.priceFillBottom,
+      lineWidth: 2,
+      priceLineVisible: false,
+    });
+    price.setData(
+      visible.map((point) => ({
+        time: point.time as unknown as UTCTimestamp,
+        value: point.close,
+      })),
+    );
+
+    // Only draw an average that has a full window behind it.
+    const averages = [
+      { data: ma50, color: colors.ma50, title: "50 DMA" },
+      { data: ma200, color: colors.ma200, title: "200 DMA" },
+    ];
+    for (const average of averages) {
+      if (average.data.length === 0) continue;
+      const line = instance.addSeries(LineSeries, {
+        color: average.color,
+        lineWidth: 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        title: average.title,
+      });
+      line.setData(
+        average.data.map((point) => ({
+          time: point.time as unknown as UTCTimestamp,
+          value: point.value,
+        })),
+      );
+    }
+
+    instance.timeScale().fitContent();
+
+    const observer = new ResizeObserver(([entry]) => {
+      instance.applyOptions({ width: entry.contentRect.width });
+    });
+    observer.observe(node);
 
     return () => {
-      node.innerHTML = "";
+      observer.disconnect();
+      instance.remove();
     };
-  }, [symbol, resolvedTheme, height]);
+  }, [visible, ma50, ma200, resolvedTheme, height]);
 
-  if (!resolvedTheme) {
+  if (points.length === 0) {
     return (
-      <div
-        style={{ height }}
-        className="animate-pulse rounded-row bg-muted/20"
-        aria-hidden
-      />
-    );
-  }
-
-  if (failed) {
-    return (
-      <div
-        style={{ height }}
-        className="flex items-center justify-center rounded-row border border-border bg-muted/20 px-6 text-center text-sm text-muted-foreground"
-      >
-        The chart could not be loaded. It is served by TradingView, so a network
-        block or content blocker will stop it; the scores on this page are
-        unaffected.
-      </div>
+      <p className="py-10 text-center text-sm text-muted-foreground">
+        {decoded.ok
+          ? "No price history published for this symbol yet."
+          : "This symbol's price series could not be read. The scores on this page are unaffected."}
+      </p>
     );
   }
 
   return (
-    <div className="space-y-2">
-      <div
-        ref={container}
-        className="tradingview-widget-container overflow-hidden rounded-row"
-        style={{ height }}
-      />
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-1">
+        {RANGES.map((entry) => {
+          // A range longer than the series renders an identical chart under a
+          // different label, which reads as a bug. Max always stays.
+          const reachable =
+            entry.sessions === null || entry.sessions < points.length;
+          if (!reachable) return null;
+          const active = entry.label === rangeLabel;
+          return (
+            <button
+              key={entry.label}
+              type="button"
+              onClick={() => setRangeLabel(entry.label)}
+              aria-pressed={active}
+              className={`rounded-row px-2.5 py-1 text-xs font-medium transition-colors ${
+                active
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-muted/40"
+              }`}
+            >
+              {entry.label}
+            </button>
+          );
+        })}
+        <span className="ml-auto flex items-center gap-3 text-[11px] text-muted-foreground">
+          <Swatch color={MA50_COLOR} label="50 DMA" />
+          <Swatch color="#94a3b8" label="200 DMA" />
+        </span>
+      </div>
+
+      <div ref={container} style={{ height }} />
+
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Price, volume and the 50/200-day averages are drawn by TradingView from
-        their own NSE feed. They are shown for context only: this
-        application&rsquo;s scores are computed from its own
-        corporate-action-adjusted prices, which can differ around a split or
-        bonus issue. A symbol TradingView does not carry — including a delisted
-        one — will show as unavailable here.
+        Adjusted closes from this project&rsquo;s own NSE bhavcopy archive &mdash;
+        the same series the model is scored on. Splits and bonus issues are
+        already applied, so the line is continuous across them. Sessions a stock
+        did not trade are left as gaps rather than filled.
       </p>
     </div>
+  );
+}
+
+function Swatch({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        aria-hidden
+        className="inline-block h-0.5 w-3.5 rounded-full"
+        style={{ background: color }}
+      />
+      {label}
+    </span>
   );
 }

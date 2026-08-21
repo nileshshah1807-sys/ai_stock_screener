@@ -452,6 +452,65 @@ export async function getStock(
   return data as SnapshotRowWithPayload | null;
 }
 
+/**
+ * The encoded daily price series for one symbol, plus the shared calendar.
+ *
+ * Two reads rather than a join: the calendar is one row shared by every symbol
+ * and is `cache()`d per request, so a page that renders several charts pays for
+ * it once. PostgREST cannot express "give me this series and that singleton" in
+ * one round trip anyway.
+ *
+ * Returns null rather than throwing when the tables do not exist yet, so a
+ * deployment that has not run the price-series migration renders the rest of
+ * the stock page normally.
+ */
+export const getPriceCalendar = cache(async (): Promise<string[] | null> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("price_calendar")
+    .select("sessions")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("getPriceCalendar failed", error.message);
+    return null;
+  }
+  if (!data?.sessions) return null;
+  try {
+    return JSON.parse(data.sessions as string) as string[];
+  } catch {
+    console.error("getPriceCalendar: sessions is not valid JSON");
+    return null;
+  }
+});
+
+export type PriceSeriesRow = {
+  session_deltas: string;
+  closes: string;
+  volumes: string;
+  points: number;
+  first_session: string;
+  last_session: string;
+};
+
+export async function getPriceSeries(
+  symbol: string,
+): Promise<PriceSeriesRow | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("price_series")
+    .select("session_deltas, closes, volumes, points, first_session, last_session")
+    .eq("symbol", symbol.toUpperCase())
+    .maybeSingle();
+
+  if (error) {
+    console.error("getPriceSeries failed", error.message);
+    return null;
+  }
+  return (data as PriceSeriesRow | null) ?? null;
+}
+
 export async function getStockHistory(
   symbol: string,
   limit = 180,

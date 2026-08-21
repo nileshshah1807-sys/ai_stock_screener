@@ -36,7 +36,13 @@ import {
   primaryGate,
   stabilityStatus,
 } from "@/lib/labels";
-import { getLatestRun, getStock, getStockHistory } from "@/lib/queries";
+import {
+  getLatestRun,
+  getPriceCalendar,
+  getPriceSeries,
+  getStock,
+  getStockHistory,
+} from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -134,9 +140,13 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   const run = await getLatestRun();
   if (!run) notFound();
 
-  const [row, history] = await Promise.all([
+  // The price series and its calendar are independent of the snapshot, so all
+  // four reads go out together rather than adding two round trips to the page.
+  const [row, history, priceSeries, sessions] = await Promise.all([
     getStock(run.run_date, symbol),
     getStockHistory(symbol),
+    getPriceSeries(symbol),
+    getPriceCalendar(),
   ]);
 
   if (!row) notFound();
@@ -679,9 +689,9 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
 
         <Panel
           title="Price"
-          description="Daily candles with volume and the 50/200-day simple moving averages. Use the range buttons for 1M through Max."
+          description="Adjusted daily closes with volume and the 50/200-day simple moving averages, from this project's own archive."
         >
-          <PriceChart symbol={row.symbol} />
+          <PriceChart series={priceSeries} sessions={sessions ?? []} />
         </Panel>
 
         <Panel

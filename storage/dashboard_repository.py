@@ -19,6 +19,10 @@ import requests
 # for request-body limits rather than row count.
 DEFAULT_CHUNK_SIZE = 200
 
+# A price-series row carries three encoded arrays and runs 20-30 KB, so the
+# snapshot chunk size would produce a ~6 MB request body.
+PRICE_SERIES_CHUNK_SIZE = 25
+
 
 def chunked(rows: list[dict[str, Any]], size: int) -> Iterator[list[dict[str, Any]]]:
     for start in range(0, len(rows), size):
@@ -187,6 +191,37 @@ class DashboardRepository:
             self._request(
                 "POST",
                 "screener_snapshot?on_conflict=run_date,symbol",
+                json=chunk,
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        return written
+
+    def upsert_price_calendar(self, calendar: dict[str, Any]) -> None:
+        """Replace the single shared trading calendar row."""
+        self._request(
+            "POST",
+            "price_calendar?on_conflict=id",
+            json=[{**calendar, "id": 1}],
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+
+    def upsert_price_series(
+        self,
+        rows: list[dict[str, Any]],
+        chunk_size: int = PRICE_SERIES_CHUNK_SIZE,
+    ) -> int:
+        """Upsert encoded per-symbol series.
+
+        Chunked far smaller than the snapshot writer: a snapshot row is a few
+        hundred bytes, while a series row carries three encoded arrays and runs
+        20-30 KB, so 200 of them would be a ~6 MB request body.
+        """
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "price_series?on_conflict=symbol",
                 json=chunk,
                 headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )
