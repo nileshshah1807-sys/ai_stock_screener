@@ -1,7 +1,7 @@
 # AI Stock Screener
 
 Daily NSE research screener with auditable fundamental, technical, reverse-DCF,
-and management-transcript evidence. Scheduled production runs use the Model 5.0
+and management-transcript evidence. Scheduled production runs use the Model 5.1
 factor architecture; local runs and manual dispatches of the daily workflow
 retain the isolated 4.x path unless a factor run is selected explicitly.
 
@@ -25,47 +25,128 @@ screener/
    valuation.py        Evidence-only reverse DCF analysis
    recommendation.py   Single score, gate, rating, and investment-rank policy
    reporting.py        Dashboard, email, PDF, and WhatsApp reporting
-   statements.py       Annual-statement collection and factor derivation (Model 5.0)
-   benchmark.py        Benchmark index, relative strength, market regime (Model 5.0)
-   factors.py          Quality/growth/value/momentum/risk blocks (Model 5.0)
+   statements.py       Annual-statement collection and factor derivation (Model 5.x)
+   benchmark.py        Benchmark index, relative strength, market regime (Model 5.x)
+   factors.py          Quality/growth/value/momentum/risk blocks (Model 5.x)
+```
+
+Point-in-time backtesting lives in its own package, deliberately separate from
+the live path so a validation run cannot read anything the model could not have
+seen on the day:
+
+```text
+backtest/
+   bhavcopy.py         NSE day-file ingestion, both UDIFF and legacy formats
+   calendar.py         Empirical trading calendar from bhavcopy availability
+   security_master.py  ISIN chains, renames, delistings, survivorship
+   corporate_actions.py Split/bonus/dividend adjustment
+   features.py         Point-in-time price features (the one look-ahead boundary)
+   fundamentals.py     As-filed statement panel, keyed on visibility date
+   xbrl.py             Ind-AS results XBRL parsing
+   execution.py        Next-session fills, forward returns, delisting policy
+   costs.py            Effective-dated Indian charges and market impact
+   strategies.py       Model 5.0, block ablations, gated variant, null benchmark
+   gates.py            Eligibility gates evaluated on point-in-time evidence
+   metrics.py          Rank IC, decile buckets, monotonicity
+   benchmarks.py       Index history, CAGR comparison, market regime
+   runner.py           Walk-forward driver
 ```
 
 Transcript ingestion and local NLP remain in `workers/`, `transcripts/`,
 `sentiment/`, and `storage/`. Run the daily screener with `python app.py` or
 schedule the same entry point with `python scheduler.py`.
 
-### Model 5.0 (scheduled production; predictive validation pending)
+### Model 5.1 (scheduled production; point-in-time validated, forward validation pending)
 
-The scheduled production workflow selects **Model 5.0** with
-`FACTOR_MODEL_ENABLED=true`, `MODEL_VERSION=5.0.0`, and
-`RECOMMENDATION_POLICY_VERSION=5.0.0`; its additive output contract remains
+The scheduled production workflow selects **Model 5.1** with
+`FACTOR_MODEL_ENABLED=true`, `MODEL_VERSION=5.1.0`, and
+`RECOMMENDATION_POLICY_VERSION=5.1.0`; its additive output contract remains
 `OUTPUT_SCHEMA_VERSION=4.1.0`. The runtime default and a manual dispatch of the
-daily workflow stay on the isolated 4.x path. Model 5.0 replaces the 70/30 core
-score with five separable factor blocks (quality 35%, growth 20%, value 15%,
-momentum 25%, risk 5%), swaps the MA50/ADX trend gates for an MA200 trend gate
-with hysteresis and 6/12-month relative strength, adds a market-regime overlay,
-and ranks by eligibility class rather than collapsing every capped row onto an
-identical 59.99.
+daily workflow stay on the isolated 4.x path.
+
+Model 5.x replaces the 70/30 core score with five separable factor blocks, swaps
+the MA50/ADX trend gates for an MA200 trend gate with hysteresis and 6/12-month
+relative strength, and adds a market-regime overlay.
+
+**Block weights (5.1):** quality 25%, growth 20%, value 25%, momentum 25%,
+risk 5%. 5.0 ran quality 35% / value 15%; ten points moved on the validation
+evidence below. Every weight is overridable with `FACTOR_WEIGHT_*`.
+
+**Ranking (5.1):** `Investment_Rank` orders on `Research_Score` alone.
+`RANK_BY_ELIGIBILITY_CLASS=false` is the default; setting it `true` restores the
+5.0 eligibility-first order. Ranking on `Decision_Score` is no longer reachable
+under the factor model, because that column is constant inside a capped class
+and fell through to an alphabetical tie-break.
+
+**Rating (unchanged):** the eligibility cap still applies. `Research_Score` is a
+cross-sectional percentile, so `>=70` means "top 30% of today's universe" by
+construction and roughly 30% of any universe clears STRONG BUY in any market.
+The gates are the only absolute check between that and "top 30% of a collapsing
+market", so `APPLY_RATING_CAP` defaults `true`. A gated name can therefore rank
+highly and still be rated HOLD, with `Gate_Warning` and `Policy_Eligible_Rating`
+explaining why. The validation below measures ranking only -- the backtest holds
+the top 20 regardless of rating, so it never measured a rating.
 
 It needs data the 4.x path never collected, so enabling it also turns on annual
 financial-statement collection (`statement_cache.csv`, 90-day TTL, bounded
 per-run backfill) and a benchmark index download. The disabled/default 4.x path
 keeps its existing `6mo` download and technical-indicator cache contract v6.
-Enabling Model 5.0 selects `2y` and cache contract v7 because a 200-day average
+Enabling Model 5.x selects `2y` and cache contract v7 because a 200-day average
 and a 12-1 momentum window cannot be expressed in six months. Features defined
 on a six-month window stay pinned to 126 sessions, and v6/v7 caches are kept
 distinct so switching models cannot mix incompatible technical rows.
 
-Candidate run `31685056109` completed the full-NSE operational validation with
-the statement-coverage guard satisfied. That green run proves that the model
-executes coherently at production scale; it does **not** prove that Model 5.0
-predicts returns better than 4.x. Point-in-time fundamentals and genuine
-out-of-sample evidence remain pending. Use the **Candidate model validation
-(isolated)** workflow with `factor_model: true` for further comparisons, and
-read section 20 of `docs/stock_screener_system_architecture.md` first — in
-particular 20.3 (why the score is a percentile), 20.8 (financials are barred
-from BUY by a gate whose data nobody collects), and 20.9 (the predictive-
-validation protocol and its blocking point-in-time fundamentals dependency).
+### Point-in-time validation
+
+The blocking dependency recorded against 5.0 -- point-in-time fundamentals and
+genuine out-of-sample evidence -- is now satisfied. `backtest/` builds an
+as-of-date archive from free NSE sources (2018-01-01 to present, 2,116 confirmed
+sessions, ~3,380 securities including 522 delisted) and replays Model 5.0's own
+`FactorModel` object against it. Signals are formed on the close of *t* and
+filled at the open of *t+1*; returns are corporate-action adjusted and net of
+effective-dated Indian charges.
+
+Four windows, net CAGR minus the equal-weight eligible universe:
+
+| Strategy | BEAR 2018-11→2020-06 | MAIN 2020-07→2025-01 | BS_ERA 2023-07→2025-01 | FORWARD 2025-02→2025-10 |
+|---|---|---|---|---|
+| value_only | +27.40 | +43.87 | +31.07 | +21.43 |
+| model_5 (5.1 weights) | +22.00 | +22.54 | +23.73 | −9.39 |
+| model_5 (5.0 weights) | +22.42 | +15.73 | +17.20 | −1.26 |
+| momentum_only | +12.73 | +0.71 | +23.82 | −23.68 |
+| growth_only | −8.98 | +4.92 | +17.80 | +22.03 |
+| quality_only | −1.39 | −9.86 | −3.70 | −17.24 |
+| random_ranking | −23.86 | −28.34 | −22.54 | −13.19 |
+
+The bear window is a genuine drawdown: the universe fell 10.95% and NIFTY 500
+fell 4.01%. The blend's max drawdown there was −16.04% against the universe's
+−43.18%, which is the argument for keeping five blocks rather than concentrating
+into value.
+
+Run it with:
+
+```bash
+python -m tools.backfill_backtest_archive --start 2018-01-01   # resumable
+python -m tools.backfill_xbrl --fetch-metadata                 # resumable
+python -m tools.build_fundamental_panel
+python -m tools.run_p0_backtest --with-fundamentals   --start 2020-07-01 --end 2025-01-31 --horizons 1,3,6 --min-history 200
+```
+
+Full method, the three measurement defects the exercise uncovered, and the
+limitations are in
+[`docs/Review/p0_implementation_plan.md`](docs/Review/p0_implementation_plan.md)
+section 8.
+
+**What this does not establish.** Rank IC is ~0.05 -- a real but small edge that
+pays across many names and periods, never on an individual pick. Every window in
+the archive has now been examined, so the 5.1 weights are fitted to everything
+visible and only forward paper trading validates them; note that the 8-period
+forward window preferred the 5.0 weights. Ranking is market-wide rather than
+sector-neutral because no point-in-time sector map exists that does not
+reintroduce survivorship, the DCF block is disabled in the backtest for want of
+capex, and the results XBRL carries no balance sheet before FY2023. The gates'
+abstention value -- publishing no BUY at all -- cannot be measured by a backtest
+that always holds twenty names.
 
 ## GitHub Actions
 
@@ -96,7 +177,7 @@ accepts the validated candidate run ID and expected commit SHA, verifies the
 candidate artifact, and copies only `candidate/statement_cache.csv` into the
 separate production statement-cache namespace. The scheduled screener still
 allows a full-universe statement backfill as a recovery path, refuses to score
-or publish Model 5.0 below 95% statement coverage, and checkpoints any valid
+or publish Model 5.x below 95% statement coverage, and checkpoints any valid
 partial cache even when that coverage guard deliberately fails the run.
 
 The separate **Candidate model validation (isolated)** workflow is the safe
