@@ -472,6 +472,14 @@ alter table screener_history
     add column if not exists eligibility_class smallint,
     add column if not exists primary_gate text;
 
+-- Volume on the same completed bar as current_price, so the stock chart can
+-- continue its volume bars past the last price_series backfill. bigint rather
+-- than integer: an NSE penny stock can trade past 2^31 shares in a session, and
+-- integer would drop exactly the busiest rows. Nullable, so rows written before
+-- this column existed stay valid and simply have no bar.
+alter table screener_history
+    add column if not exists volume bigint;
+
 create index if not exists screener_history_symbol_date_idx
     on screener_history (symbol, observed_on desc);
 create index if not exists screener_history_date_idx

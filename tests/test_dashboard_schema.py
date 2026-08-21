@@ -161,9 +161,13 @@ class PublishedColumnTests(unittest.TestCase):
         body = sql.split("create table if not exists screener_history", 1)[1]
         body = body.split(";", 1)[0]
         declared = columns_in_create_table(body)
-        # Plus anything the migration adds to the same table.
-        alter_block = sql.split("alter table screener_history", 1)[1].split(";", 1)[0]
-        declared.update(m.lower() for m in ALTER_ADD.findall(alter_block))
+        # Plus anything any migration adds to the same table. Reading only the
+        # first alter block would fail the moment a second migration is
+        # appended, which is exactly how this file grows.
+        for alter_block in sql.split("alter table screener_history")[1:]:
+            declared.update(
+                m.lower() for m in ALTER_ADD.findall(alter_block.split(";", 1)[0])
+            )
 
         for db_column, _, _ in HISTORY_COLUMNS:
             self.assertIn(

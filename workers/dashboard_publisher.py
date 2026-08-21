@@ -211,6 +211,10 @@ HISTORY_COLUMNS: list[tuple[str, str, str]] = [
     ("technical_score", "Technical_Score", "num:6,2"),
     ("rating", "Rating", "text"),
     ("current_price", "Current_Price", "num:14,2"),
+    # Volume on the same completed bar as current_price. Carried so the stock
+    # chart's volume bars continue past the archive backfill rather than
+    # stopping on the day the series was last published.
+    ("volume", "Latest_Volume", "bigint"),
     ("buy_eligible", "Buy_Eligible", "bool"),
     ("strong_buy_eligible", "Strong_Buy_Eligible", "bool"),
     ("rating_capped", "Rating_Capped", "bool"),
@@ -310,6 +314,26 @@ def coerce_int(value: Any) -> int | None:
     return int(round(number))
 
 
+def coerce_bigint(value: Any) -> int | None:
+    """64-bit counterpart of :func:`coerce_int`.
+
+    Daily share volume is the reason this exists: an NSE penny stock can trade
+    well past 2^31 shares in a session, and coerce_int would drop exactly those
+    rows -- the most heavily traded ones -- to null.
+    """
+    if is_missing(value):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(number) or math.isinf(number):
+        return None
+    if not -9_223_372_036_854_775_808 <= number <= 9_223_372_036_854_775_807:
+        return None
+    return int(round(number))
+
+
 def coerce_numeric(value: Any, precision: int, scale: int) -> float | None:
     if is_missing(value):
         return None
@@ -359,6 +383,11 @@ def coerce(value: Any, kind: str, column: str, report: CoercionReport) -> Any:
         return result
     if kind == "int":
         result = coerce_int(value)
+        if result is None and not is_missing(value):
+            report.record_out_of_range(column)
+        return result
+    if kind == "bigint":
+        result = coerce_bigint(value)
         if result is None and not is_missing(value):
             report.record_out_of_range(column)
         return result

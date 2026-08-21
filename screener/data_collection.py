@@ -841,6 +841,13 @@ class StockDataCollector:
                             "Pct_Change_6M": round(pct_6m, 2),
                             **trend_risk,
                             "Avg_Volume": int(avg_volume),
+                            # Shares traded on the same completed bar that
+                            # produced Current_Price. Published to
+                            # screener_history so the stock chart's volume bars
+                            # continue past the archive backfill. Unadjusted by
+                            # design: it is a count of shares that changed hands
+                            # that session, not a price to be restated.
+                            "Latest_Volume": int(last_volume),
                             "Avg_Turnover_INR": round(liquidity["Avg_Turnover_INR"], 2),
                             "Median_Turnover_20D_INR": round(
                                 liquidity["Median_Turnover_20D_INR"], 2

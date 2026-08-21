@@ -40,6 +40,7 @@ import {
   getLatestRun,
   getPriceCalendar,
   getPriceSeries,
+  getPriceTail,
   getStock,
   getStockHistory,
 } from "@/lib/queries";
@@ -148,6 +149,13 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     getPriceSeries(symbol),
     getPriceCalendar(),
   ]);
+
+  // Sessions since the base series was last rebuilt. Fetched after it because
+  // the cutoff is the base's own last_session; with no base there is nothing to
+  // append to, and the daily rows alone would draw an unadjusted stub.
+  const priceTail = priceSeries
+    ? await getPriceTail(symbol, priceSeries.last_session)
+    : [];
 
   if (!row) notFound();
 
@@ -691,7 +699,11 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
           title="Price"
           description="Adjusted daily closes with volume and the 50/200-day simple moving averages, from this project's own archive."
         >
-          <PriceChart series={priceSeries} sessions={sessions ?? []} />
+          <PriceChart
+            series={priceSeries}
+            sessions={sessions ?? []}
+            tail={priceTail}
+          />
         </Panel>
 
         <Panel

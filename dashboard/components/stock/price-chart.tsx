@@ -17,6 +17,7 @@ import {
   decodeSeries,
   movingAverage,
   sliceRange,
+  withTail,
 } from "@/lib/price-series.mjs";
 
 /**
@@ -75,10 +76,13 @@ function palette(dark: boolean) {
 export function PriceChart({
   series,
   sessions,
+  tail = [],
   height = 380,
 }: {
   series: EncodedSeries | null;
   sessions: string[];
+  /** Sessions after the published base, from the daily run. */
+  tail?: { time: string; close: number; volume: number }[];
   height?: number;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -89,7 +93,10 @@ export function PriceChart({
     () => decodeSeries(series, sessions),
     [series, sessions],
   );
-  const points = decoded.points;
+  const points = useMemo(
+    () => withTail(decoded.points, tail),
+    [decoded.points, tail],
+  );
 
   const range = RANGES.find((entry) => entry.label === rangeLabel) ?? RANGES[2];
 
@@ -245,7 +252,9 @@ export function PriceChart({
         Adjusted closes from this project&rsquo;s own NSE bhavcopy archive &mdash;
         the same series the model is scored on. Splits and bonus issues are
         already applied, so the line is continuous across them. Sessions a stock
-        did not trade are left as gaps rather than filled.
+        did not trade are left as gaps rather than filled. The most recent
+        sessions come from the daily run and are restated at the next archive
+        rebuild.
       </p>
     </div>
   );

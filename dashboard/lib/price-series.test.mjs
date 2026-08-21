@@ -7,6 +7,7 @@ import {
   decodeSeries,
   movingAverage,
   sliceRange,
+  withTail,
 } from "./price-series.mjs";
 
 /** Mirror of workers/price_series.py encode_deltas, so both halves are tested. */
@@ -141,4 +142,58 @@ test("averages are clipped to the view, not recomputed inside it", () => {
   const clipped = clipFrom(ma, visible[0].time);
   assert.equal(clipped.length, 30);
   assert.equal(clipped[0].value, 100);
+});
+
+test("the daily tail is appended after the published base", () => {
+  const base = [
+    { time: "2026-08-01", close: 10, volume: 1 },
+    { time: "2026-08-02", close: 11, volume: 1 },
+  ];
+  const tail = [
+    { time: "2026-08-03", close: 12, volume: 2 },
+    { time: "2026-08-04", close: 13, volume: 2 },
+  ];
+  const merged = withTail(base, tail);
+  assert.equal(merged.length, 4);
+  assert.deepEqual(
+    merged.map((p) => p.time),
+    ["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04"],
+  );
+});
+
+test("an overlapping tail point is dropped, base wins", () => {
+  // Both sources can cover a day around a rebuild. A duplicate timestamp makes
+  // lightweight-charts throw, and the base is the adjusted one.
+  const base = [
+    { time: "2026-08-01", close: 10, volume: 1 },
+    { time: "2026-08-02", close: 11, volume: 1 },
+  ];
+  const tail = [
+    { time: "2026-08-02", close: 99, volume: 9 },
+    { time: "2026-08-03", close: 12, volume: 2 },
+  ];
+  const merged = withTail(base, tail);
+  assert.equal(merged.length, 3);
+  assert.equal(merged[1].close, 11);
+  assert.equal(merged[2].time, "2026-08-03");
+});
+
+test("merged series is strictly ascending with no duplicate timestamps", () => {
+  const base = [{ time: "2026-08-01", close: 10, volume: 1 }];
+  const tail = [
+    { time: "2026-08-03", close: 12, volume: 2 },
+    { time: "2026-08-02", close: 11, volume: 2 },
+    { time: "2026-08-03", close: 12, volume: 2 },
+  ];
+  const times = withTail(base, tail).map((p) => p.time);
+  assert.deepEqual(times, ["2026-08-01", "2026-08-02", "2026-08-03"]);
+  assert.deepEqual([...new Set(times)], times);
+});
+
+test("either side missing degrades to the other", () => {
+  const base = [{ time: "2026-08-01", close: 10, volume: 1 }];
+  assert.deepEqual(withTail(base, []), base);
+  assert.deepEqual(withTail(base, null), base);
+  assert.equal(withTail([], [{ time: "2026-08-02", close: 1, volume: 0 }]).length, 1);
+  assert.deepEqual(withTail(null, null), []);
 });

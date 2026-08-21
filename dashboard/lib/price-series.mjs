@@ -130,6 +130,36 @@ export function sliceRange(points, sessions) {
 }
 
 /**
+ * Append the daily tail to the published base series.
+ *
+ * The base is rebuilt from the archive only periodically because it is
+ * back-adjusted, and an append cannot restate history across a new split. In
+ * between, `screener_history` supplies one point per session.
+ *
+ * A tail point on or before the base's last session is dropped rather than
+ * appended: the two sources can both cover a day around a rebuild, and a
+ * duplicate timestamp makes lightweight-charts throw on an unordered series.
+ * The base wins that overlap because it is the adjusted one.
+ *
+ * @param {{time: string, close: number, volume: number}[]} base
+ * @param {{time: string, close: number, volume: number}[]} tail
+ */
+export function withTail(base, tail) {
+  if (!tail?.length) return base ?? [];
+  if (!base?.length) return [...tail].sort((a, b) => (a.time < b.time ? -1 : 1));
+  const lastBase = base[base.length - 1].time;
+  const seen = new Set();
+  const extra = [];
+  for (const point of tail) {
+    if (point.time <= lastBase || seen.has(point.time)) continue;
+    seen.add(point.time);
+    extra.push(point);
+  }
+  extra.sort((a, b) => (a.time < b.time ? -1 : 1));
+  return base.concat(extra);
+}
+
+/**
  * Trim a series to the visible window, keeping only what overlaps it.
  *
  * @template {{time: string}} T

@@ -511,6 +511,45 @@ export async function getPriceSeries(
   return (data as PriceSeriesRow | null) ?? null;
 }
 
+/**
+ * Sessions observed after the published series ends.
+ *
+ * The base series is rebuilt from the archive only periodically, because it is
+ * back-adjusted -- a new split has to restate every historical price, which an
+ * append cannot do. Between rebuilds the daily run is already writing a row per
+ * symbol into `screener_history`, so the chart reads that tail rather than
+ * going stale.
+ *
+ * These closes are unadjusted, which is correct until the next corporate
+ * action: they are on the same scale as the adjusted base right up to the
+ * moment a split happens, after which a rebuild restates both.
+ */
+export async function getPriceTail(
+  symbol: string,
+  after: string,
+): Promise<{ time: string; close: number; volume: number }[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("screener_history")
+    .select("observed_on, current_price, volume")
+    .eq("symbol", symbol.toUpperCase())
+    .gt("observed_on", after)
+    .order("observed_on", { ascending: true });
+
+  if (error) {
+    // A stale tail is a far smaller problem than a blank stock page.
+    console.error("getPriceTail failed", error.message);
+    return [];
+  }
+  return (data ?? [])
+    .filter((row) => row.current_price !== null && Number(row.current_price) > 0)
+    .map((row) => ({
+      time: row.observed_on as string,
+      close: Number(row.current_price),
+      volume: row.volume === null ? 0 : Number(row.volume),
+    }));
+}
+
 export async function getStockHistory(
   symbol: string,
   limit = 180,
