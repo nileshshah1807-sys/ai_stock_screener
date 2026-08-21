@@ -10,6 +10,7 @@ import { FactorBlocks } from "@/components/stock/factor-blocks";
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
 import { HistoryChart } from "@/components/stock/history-chart";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
+import { PriceChart } from "@/components/stock/price-chart";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import {
   Tabs,
@@ -675,6 +676,13 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
             </Panel>
           </div>
         </div>
+
+        <Panel
+          title="Price"
+          description="Daily candles with volume and the 50/200-day simple moving averages. Use the range buttons for 1M through Max."
+        >
+          <PriceChart symbol={row.symbol} />
+        </Panel>
 
         <Panel
           title="Decision audit"
