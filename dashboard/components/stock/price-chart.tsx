@@ -249,12 +249,10 @@ export function PriceChart({
       <div ref={container} style={{ height }} />
 
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Adjusted closes from this project&rsquo;s own NSE bhavcopy archive &mdash;
-        the same series the model is scored on. Splits and bonus issues are
-        already applied, so the line is continuous across them. Sessions a stock
-        did not trade are left as gaps rather than filled. The most recent
-        sessions come from the daily run and are restated at the next archive
-        rebuild.
+        Split-adjusted closes from this project&rsquo;s own NSE archive &mdash; the
+        same series the model is scored on. Untraded sessions are left as gaps,
+        not filled; the most recent points come from the daily run and are
+        restated at the next rebuild.
       </p>
     </div>
   );

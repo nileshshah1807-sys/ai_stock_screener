@@ -583,10 +583,13 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     <ZoomIn className="space-y-4 px-4 py-5 sm:px-6">
         {/*
           Hero band. The headline figures -- price, 1M, 3M, market cap, rank --
-          are pulled up here rather than sitting in a "Price and size" card
+          and the price chart are pulled up here rather than sitting in cards
           further down. The previous header used a full-width row for a ticker
           and a company name and nothing else, leaving most of the fold empty
-          while the numbers a reader opens this page for were below it.
+          while the numbers a reader opens this page for were below it. The
+          chart belongs with the return figures for the same reason: they answer
+          one question between them, and separating them meant scrolling from
+          the numbers to the shape they describe.
         */}
         <div className="panel p-5 sm:p-6">
           <Link
@@ -646,6 +649,21 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
               </div>
             ))}
           </dl>
+
+          {/*
+            Part of the summary rather than a panel further down. Price, the
+            return figures above it and the rating are one thought -- "what has
+            this done lately" -- and splitting them meant scrolling between the
+            numbers and the shape they describe.
+          */}
+          <div className="mt-4">
+            <PriceChart
+              series={priceSeries}
+              sessions={sessions ?? []}
+              tail={priceTail}
+              height={300}
+            />
+          </div>
         </div>
 
         {/*
@@ -694,17 +712,6 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
             </Panel>
           </div>
         </div>
-
-        <Panel
-          title="Price"
-          description="Adjusted daily closes with volume and the 50/200-day simple moving averages, from this project's own archive."
-        >
-          <PriceChart
-            series={priceSeries}
-            sessions={sessions ?? []}
-            tail={priceTail}
-          />
-        </Panel>
 
         <Panel
           title="Decision audit"
