@@ -91,13 +91,19 @@ function ScoreMeter({
  * number would hide the single most important fact about the row: that the
  * model wanted to score it higher but a gate stopped it.
  */
+/** True when a gate actually lowered the published score, not merely fired. */
+function scoreWasReduced(row: SnapshotRow): boolean {
+  const decision = row.decision_score ?? row.final_score;
+  const evidence = row.evidence_score;
+  return (
+    evidence !== null && decision !== null && Math.abs(evidence - decision) > 0.05
+  );
+}
+
 function ScoreCell({ row }: { row: SnapshotRow }) {
   const decision = row.decision_score ?? row.final_score;
   const evidence = row.evidence_score;
-  const capped =
-    evidence !== null &&
-    decision !== null &&
-    Math.abs(evidence - decision) > 0.05;
+  const capped = scoreWasReduced(row);
 
   if (!capped) {
     return (
@@ -459,6 +465,7 @@ export function ScreenerTable({
                     <CappedChip
                       capped={row.rating_capped}
                       reason={row.rating_cap_reason ?? row.decision_cap_reason}
+                      enforced={scoreWasReduced(row)}
                     />
                   </span>
                 </td>

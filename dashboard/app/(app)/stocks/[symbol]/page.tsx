@@ -156,8 +156,13 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   const gate = primaryGate(row.primary_gate);
   const regime = marketRegime(row.market_regime);
   const eligibility = eligibilityClass(row.eligibility_class);
-  const capApplied =
+  // Since Model 5.1 a policy gate reports rather than reduces. `capFlagged`
+  // means a gate fired; `capEnforced` means it actually moved the published
+  // score, which now only evidence-quality gates do. Conflating the two printed
+  // "Rating capped: Yes" beside an unchanged score.
+  const capFlagged =
     row.decision_cap_applied === true || row.rating_capped === true;
+  const gateWarning = text(payload, "Gate_Warning");
   const capReasons = reasons(
     row.decision_cap_reason ??
       row.rating_cap_reason ??
@@ -169,6 +174,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     evidenceScore !== null && decisionScore !== null
       ? Math.max(0, evidenceScore - decisionScore)
       : null;
+  const capEnforced = pointsRemoved !== null && pointsRemoved > 0.005;
   const ma50 = numeric(payload, "MA50");
   const priceVsMa50 =
     row.current_price !== null && ma50 !== null && ma50 > 0
@@ -184,7 +190,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     {
       label: "Policy-eligible rating",
       value: row.policy_eligible_rating ?? row.decision_rating ?? MISSING,
-      tone: capApplied ? "caution" : "default",
+      tone: capFlagged ? "caution" : "default",
       hint: "The highest rating allowed after applying this row's observed gates.",
     },
     {
@@ -195,8 +201,11 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     {
       label: "Decision ceiling",
       value: formatScore(row.decision_score_ceiling),
-      tone: capApplied ? "caution" : "muted",
-      hint: "Maximum score permitted by the active gate combination.",
+      tone: capFlagged ? "caution" : "muted",
+      hint:
+        capFlagged && !capEnforced
+          ? "The ceiling this row's gates imply. Not applied: Model 5.1 publishes research merit for policy gates and reports them instead."
+          : "Maximum score permitted by the active gate combination.",
     },
     {
       label: "Published decision",
@@ -204,16 +213,17 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     },
     {
       label: "Points removed",
-      value:
-        pointsRemoved !== null && pointsRemoved > 0.005
-          ? `-${formatNumber(pointsRemoved, 2)}`
-          : "0.00",
-      tone: pointsRemoved !== null && pointsRemoved > 0.005 ? "negative" : "muted",
+      value: capEnforced ? `-${formatNumber(pointsRemoved as number, 2)}` : "0.00",
+      tone: capEnforced ? "negative" : "muted",
+      hint:
+        capFlagged && !capEnforced
+          ? "A policy gate fired but did not reduce the score. Only evidence-quality gates still cap."
+          : undefined,
     },
     {
       label: "Primary constraint",
       value: gate.label,
-      tone: capApplied ? "caution" : "muted",
+      tone: capFlagged ? "caution" : "muted",
       hint: gate.meaning || undefined,
     },
     {
@@ -243,10 +253,12 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
         : text(payload, "Strong_Buy_Gate_Reason"),
     },
     {
-      label: "Rating capped",
-      value: row.rating_capped ? "Yes" : "No",
-      tone: row.rating_capped ? "caution" : "muted",
-      hint: row.rating_capped ? (row.rating_cap_reason ?? undefined) : undefined,
+      label: "Policy gate",
+      value: capFlagged ? (capEnforced ? "Capped" : "Flagged, not applied") : "Clear",
+      tone: capFlagged ? "caution" : "muted",
+      hint: capFlagged
+        ? (gateWarning ?? row.rating_cap_reason ?? undefined)
+        : undefined,
     },
     {
       label: "Trend confirmed",
@@ -673,14 +685,16 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
             <TabsContent value="policy" className="space-y-4">
               <div
                 className={`rounded-row border p-4 ${
-                  capApplied
+                  capFlagged
                     ? "border-caution/40 bg-caution/5"
                     : "border-border bg-muted/20"
                 }`}
               >
                 <p className="text-sm font-medium">
-                  {capApplied
-                    ? `${gate.label} limited the policy-eligible decision.`
+                  {capFlagged
+                    ? capEnforced
+                      ? `${gate.label} limited the published decision.`
+                      : `${gate.label} would cap this at ${row.policy_eligible_rating ?? "a lower rating"}. Model 5.1 publishes research merit and reports the gate instead.`
                     : "No policy ceiling reduced this decision."}
                 </p>
                 {capReasons.length ? (

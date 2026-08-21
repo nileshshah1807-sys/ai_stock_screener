@@ -48,11 +48,32 @@ export function researchScoreMode(basis) {
 }
 
 /**
+ * Whether a run ranked eligibility-first (<= 5.0) or on research merit (5.1+).
+ *
+ * Read from the run's own policy version rather than assumed, because the older
+ * behaviour stays reachable behind RANK_BY_ELIGIBILITY_CLASS and historical
+ * snapshots must keep describing themselves correctly.
+ *
+ * @param {string | null | undefined} policyVersion
+ * @returns {boolean}
+ */
+export function ranksEligibilityFirst(policyVersion) {
+  const major = Number.parseInt(String(policyVersion ?? "").split(".")[0], 10);
+  const minor = Number.parseInt(String(policyVersion ?? "").split(".")[1], 10);
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) return true;
+  return major < 5 || (major === 5 && minor < 1);
+}
+
+/**
  * @param {boolean} factorModel
+ * @param {string | null | undefined} [policyVersion]
  * @returns {string}
  */
-export function investmentRankExplanation(factorModel) {
-  return factorModel
+export function investmentRankExplanation(factorModel, policyVersion) {
+  if (!factorModel) {
+    return "Investment Rank is decision-score-first and is the primary order.";
+  }
+  return ranksEligibilityFirst(policyVersion)
     ? "Investment Rank orders eligibility class first, then the uncapped research score within each class."
-    : "Investment Rank is decision-score-first and is the primary order.";
+    : "Investment Rank orders on research score alone. Eligibility gates are reported, not ranked, so a gated name can rank highly -- check its rating and gate warning before acting.";
 }

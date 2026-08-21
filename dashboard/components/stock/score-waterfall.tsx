@@ -15,6 +15,12 @@ import type { SnapshotRowWithPayload } from "@/lib/types";
  *   Evidence      = After DCF + w_tx * min(Transcript_Effective - 50, 0)
  *   Decision      = min(Evidence, applicable policy ceiling)
  *
+ * Since Model 5.1 a *policy* gate no longer lowers the ceiling -- it is reported
+ * instead. So the ceiling stage can be flat while a gate has still fired, and
+ * the note has to say which of the two happened. Reading `evidence - decision`
+ * alone would print "No ceiling applied" on a row the rest of the page flags as
+ * gated.
+ *
  * A waterfall is the right form because the question is "how did we get from
  * the core score to the published one", which is a sequence of signed
  * contributions against a running total -- not five independent magnitudes.
@@ -39,6 +45,53 @@ function num(value: unknown): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+/**
+ * Describe the ceiling stage, distinguishing three states that a bare
+ * `evidence - decision` comparison collapses into two.
+ *
+ * Enforced   -- an integrity gate lowered the published score.
+ * Advisory   -- a policy gate fired but Model 5.1 publishes research merit
+ *               anyway. The stage is flat; saying nothing happened would
+ *               contradict the capped badge elsewhere on the page.
+ * Clear      -- nothing fired.
+ */
+export function ceilingNote(
+  row: SnapshotRowWithPayload,
+  evidence: number,
+  decision: number,
+): string {
+  const payload = row.payload ?? {};
+  const reason =
+    row.decision_cap_reason ?? row.rating_cap_reason ?? text(payload.Decision_Cap_Reason);
+  const enforced = Math.abs(evidence - decision) > 0.05;
+
+  if (enforced) {
+    return reason
+      ? `Reduced the decision score: ${reason}`
+      : "A policy ceiling reduced the decision score.";
+  }
+
+  const wouldCap =
+    row.rating_capped === true ||
+    row.decision_cap_applied === true ||
+    Boolean(text(payload.Gate_Warning));
+  if (!wouldCap) return "No ceiling applied.";
+
+  const policyRating =
+    row.policy_eligible_rating ?? text(payload.Policy_Eligible_Rating);
+  const capped = num(payload.Policy_Capped_Score);
+  const target = policyRating
+    ? `${policyRating}${capped !== null ? ` (${formatScore(capped)})` : ""}`
+    : capped !== null
+      ? formatScore(capped)
+      : "a lower rating";
+  return `Not applied. Policy gates would have capped this at ${target}; Model 5.1 publishes research merit and reports the gate instead${reason ? `: ${reason}` : "."}`;
 }
 
 export function buildStages(row: SnapshotRowWithPayload): Stage[] {
@@ -104,12 +157,7 @@ export function buildStages(row: SnapshotRowWithPayload): Stage[] {
       from: evidence,
       to: decision,
       kind: "cap",
-      note:
-        Math.abs(evidence - decision) > 0.05
-          ? (row.decision_cap_reason ??
-            row.rating_cap_reason ??
-            "A policy ceiling reduced the decision score.")
-          : "No ceiling applied.",
+      note: ceilingNote(row, evidence, decision),
     },
     {
       key: "decision",

@@ -5,6 +5,7 @@ import {
   factorContribution,
   finiteNumber,
   investmentRankExplanation,
+  ranksEligibilityFirst,
   publishedFactorWeight,
   researchScoreMode,
 } from "./model-display.mjs";
@@ -30,6 +31,22 @@ test("research-score copy distinguishes percentile, weighted and unknown bases",
 });
 
 test("rank explanation follows the model used by the run", () => {
-  assert.match(investmentRankExplanation(true), /eligibility class first/i);
-  assert.match(investmentRankExplanation(false), /decision-score-first/i);
+  assert.match(investmentRankExplanation(true, "5.0.0"), /eligibility class first/i);
+  assert.match(investmentRankExplanation(false, "4.0.0"), /decision-score-first/i);
+});
+
+test("5.1 runs are described as ranking on research merit", () => {
+  const text = investmentRankExplanation(true, "5.1.0");
+  assert.match(text, /research score alone/i);
+  assert.doesNotMatch(text, /eligibility class first/i);
+});
+
+test("an older or unreadable policy version keeps the eligibility-first copy", () => {
+  // A historical snapshot must keep describing itself correctly, and an
+  // unparseable version must not silently claim the new behaviour.
+  assert.equal(ranksEligibilityFirst("5.0.0"), true);
+  assert.equal(ranksEligibilityFirst("4.0.0-candidate"), true);
+  assert.equal(ranksEligibilityFirst(null), true);
+  assert.equal(ranksEligibilityFirst("5.1.0"), false);
+  assert.equal(ranksEligibilityFirst("6.0.0"), false);
 });

@@ -60,7 +60,11 @@ export default async function ScreenerLayout({ children }: LayoutProps<"/">) {
 
       <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
         <span className="font-medium">Reading the ranks.</span>{" "}
-        {investmentRankExplanation(factorModel)} Score Rank uses uncapped
+        {investmentRankExplanation(
+          factorModel,
+          run.recommendation_policy_version,
+        )}{" "}
+        Score Rank uses uncapped
         evidence, Recommendation Rank groups by published rating, and Actionable
         Rank is an execution-only view that never changes a score or rating.
         Price, indicators, turnover, and aligned valuation ratios all use the

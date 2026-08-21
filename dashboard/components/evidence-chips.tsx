@@ -147,20 +147,35 @@ export function RedFlagChip({
   );
 }
 
+/**
+ * A fired eligibility gate.
+ *
+ * Since Model 5.1 a *policy* gate reports rather than reduces, so `capped`
+ * means "a gate fired" and `enforced` means it actually moved the published
+ * score -- which now only evidence-quality gates do. Labelling both "Rating
+ * capped" claimed a reduction that did not happen.
+ */
 export function CappedChip({
   capped,
   reason,
+  enforced = true,
 }: {
   capped: boolean | null;
   reason: string | null;
+  enforced?: boolean;
 }) {
   if (!capped) return null;
   return (
     <Chip
       icon={Lock}
       tone="warn"
-      label="Rating capped"
-      detail={reason || "A policy ceiling limits this rating below its score."}
+      label={enforced ? "Rating capped" : "Gate flagged"}
+      detail={
+        reason ||
+        (enforced
+          ? "A policy ceiling limits this rating below its score."
+          : "A policy gate fired but did not reduce the published score.")
+      }
     />
   );
 }
