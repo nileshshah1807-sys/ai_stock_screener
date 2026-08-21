@@ -1,0 +1,122 @@
+name: Price series
+run-name: Price series (${{ github.event_name }})
+
+# Rebuilds the stock-page price chart from the point-in-time bhavcopy archive.
+#
+# Deliberately separate from daily-stock-screener.yml. The chart is a reading
+# aid; the screener is the product. A failure here, or the ~160 MB cache restore
+# this needs, must never touch the run that publishes scores.
+#
+# Twice weekly rather than weekly, and that is not a preference. GitHub evicts a
+# cache after 7 days without access, so a weekly schedule sits exactly on the
+# boundary: one skipped or failed run and the archive is gone. Sunday/Wednesday
+# keeps the longest gap at four days.
+#
+# Losing the cache is recoverable but slow -- the backfill is resumable and
+# capped per run, so it refills over several runs rather than fetching 2,116
+# day-files from NSE in one go. Until it is whole again, the publisher's shrink
+# guard refuses to overwrite the live series with a partial one.
+
+on:
+  schedule:
+    # 03:30 IST Sunday and Wednesday. Well clear of the 16:30/18:30 IST screener
+    # runs, so the two never contend for NSE or for Supabase.
+    - cron: "0 22 * * 2,6"
+  workflow_dispatch:
+    inputs:
+      since:
+        description: >-
+          Republish only symbols with a corporate action on or after this date
+          (YYYY-MM-DD). Leave blank for a full rebuild.
+        required: false
+        type: string
+      dry_run:
+        description: Build and report sizes without writing to Supabase
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# Never let two runs publish at once: they would race on the same rows, and a
+# queued run inherits nothing useful from the one it is waiting on.
+concurrency:
+  group: price-series
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ARCHIVE_ROOT: reports_advanced/backtest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      # Only what the price series needs. The XBRL directory is another ~129 MB
+      # and belongs to the backtest, not to charts.
+      - name: Restore price archive
+        id: archive-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            reports_advanced/backtest/bhavcopy
+            reports_advanced/backtest/calendar.csv
+            reports_advanced/backtest/corporate_actions.csv
+            reports_advanced/backtest/security_master.csv
+          key: price-archive-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            price-archive-v1-${{ runner.os }}-
+
+      - name: Report archive state
+        id: archive-state
+        run: |
+          sessions=$(find "${ARCHIVE_ROOT}/bhavcopy" -name '*.csv.gz' 2>/dev/null | wc -l)
+          echo "sessions=${sessions}" >> "${GITHUB_OUTPUT}"
+          echo "Cached day-files: ${sessions}"
+          if [ "${sessions}" -lt 2000 ]; then
+            echo "::warning::Archive has ${sessions} day-files, fewer than expected. The backfill is capped per run, so re-run until it is complete; the publisher refuses to overwrite the live series from a partial archive."
+          fi
+
+      # Resumable: a cached day is skipped, so a warm run fetches only the
+      # sessions since the last one. The cap bounds a cold start so it cannot
+      # spend an hour hammering NSE; the next run continues where it stopped.
+      - name: Fetch new sessions and corporate actions
+        run: |
+          python -m tools.backfill_backtest_archive \
+            --root "${ARCHIVE_ROOT}" \
+            --start 2018-01-01 \
+            --max-fetches 400
+
+      # Saved before publishing. The fetch is the expensive, rate-limited part;
+      # if the publish then fails, the next run should not have to refetch.
+      - name: Save price archive
+        if: always() && steps.archive-state.outcome == 'success'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            reports_advanced/backtest/bhavcopy
+            reports_advanced/backtest/calendar.csv
+            reports_advanced/backtest/corporate_actions.csv
+            reports_advanced/backtest/security_master.csv
+          key: ${{ steps.archive-cache.outputs.cache-primary-key }}
+
+      - name: Publish price series
+        run: |
+          python -m tools.publish_price_series \
+            --root "${ARCHIVE_ROOT}" \
+            ${{ inputs.since && format('--since {0}', inputs.since) || '' }} \
+            ${{ inputs.dry_run && '--dry-run' || '' }}

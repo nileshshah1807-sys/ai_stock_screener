@@ -206,6 +206,15 @@ class DashboardRepository:
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
         )
 
+    def published_calendar_size(self) -> int | None:
+        """Session count of the live calendar, or None if none is published."""
+        rows = self._request(
+            "GET", "price_calendar", params={"select": "session_count", "id": "eq.1"}
+        )
+        if not rows:
+            return None
+        return int(rows[0].get("session_count") or 0) or None
+
     def upsert_price_series(
         self,
         rows: list[dict[str, Any]],

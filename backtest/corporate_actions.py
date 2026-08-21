@@ -342,6 +342,21 @@ class AdjustmentTable:
             elif action in UNADJUSTABLE_ACTIONS:
                 self._blocked.setdefault(key, []).append((ex_date, action))
 
+    def securities_with_actions_since(self, since):
+        """Securities with a *ratio* action on or after ``since``.
+
+        Only ratio actions -- splits, bonuses, consolidations -- matter here.
+        They rescale the whole price history, so a series published before one
+        is wrong from its first point until it is rebuilt. Dividends adjust
+        returns rather than the price line a chart draws, so they are not a
+        reason to republish.
+        """
+        return {
+            key
+            for key, entries in self._factors.items()
+            if any(ex_date >= since for ex_date, _ in entries)
+        }
+
     def _key(self, isin):
         isin = str(isin or "").strip().upper()
         if not isin:

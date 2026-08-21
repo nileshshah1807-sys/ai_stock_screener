@@ -62,6 +62,12 @@ def main(argv=None):
                         help="skip securities with fewer observations")
     parser.add_argument("--limit", type=int, default=None,
                         help="publish only the first N symbols, for a bounded trial")
+    parser.add_argument("--since", default=None,
+                        help="republish only symbols with a corporate action on "
+                             "or after this date, instead of the whole universe")
+    parser.add_argument("--allow-shrink", action="store_true",
+                        help="publish even if the archive is much smaller than "
+                             "what is already live (normally a cold cache)")
     parser.add_argument("--dry-run", action="store_true",
                         help="build and report sizes without writing")
     args = parser.parse_args(argv)
@@ -143,10 +149,36 @@ def main(argv=None):
     )
 
     rows = build_rows(sessions, observations, symbols, min_points=args.min_points)
+
+    if args.since:
+        # A back-adjustment restates a symbol's whole history, so only symbols
+        # with a *new* ratio action need republishing -- typically a handful a
+        # month out of three thousand. Dividends do not rescale the price series
+        # this chart draws, so they are not a reason to rebuild.
+        affected = table.securities_with_actions_since(date.fromisoformat(args.since))
+        wanted = {symbols[key] for key in affected if key in symbols}
+        before = len(rows)
+        rows = [row for row in rows if row["symbol"] in wanted]
+        logger.info(
+            "Targeted rebuild since %s: %d of %d symbols have a new ratio action",
+            args.since, len(rows), before,
+        )
+        if not rows:
+            logger.info("Nothing to republish")
+            return 0
+
     if args.limit:
         rows = rows[: args.limit]
 
-    publish(repository, sessions, rows, dry_run=args.dry_run)
+    publish(
+        repository,
+        sessions,
+        rows,
+        dry_run=args.dry_run,
+        # A targeted run publishes a subset by design; the calendar is
+        # unchanged, so the shrink guard would be comparing the wrong thing.
+        allow_shrink=args.allow_shrink or bool(args.since),
+    )
     return 0
 
 

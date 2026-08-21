@@ -109,7 +109,42 @@ def calendar_row(sessions):
     }
 
 
-def publish(repository, sessions, rows, *, dry_run=False):
+class PublishRefused(RuntimeError):
+    """Raised when publishing would replace good data with less of it."""
+
+
+def check_not_shrinking(repository, sessions, rows, *, tolerance=0.9):
+    """Refuse to publish a series materially smaller than the one live.
+
+    The archive is resumable and cached, so a cold or evicted cache leaves it
+    nearly empty rather than failing. Publishing from that state would overwrite
+    2,116 sessions with whatever few were fetched, and every chart would quietly
+    lose its history -- an upsert gives no hint that it happened.
+
+    A modest shrink is legitimate (a symbol delisting, a trimmed window), so the
+    guard trips only below ``tolerance`` of what is already published.
+    """
+    published = None
+    try:
+        published = repository.published_calendar_size()
+    except Exception as error:  # noqa: BLE001 - never block on a diagnostic read
+        logger.warning("Could not read the published calendar size: %s", error)
+        return
+
+    if not published:
+        return
+    if len(sessions) >= published * tolerance:
+        return
+
+    raise PublishRefused(
+        f"Refusing to publish {len(sessions)} sessions over the {published} "
+        f"already live. The archive is probably cold or partially restored; "
+        f"run tools.backfill_backtest_archive until it is complete, or pass "
+        f"--allow-shrink if the smaller window is intended."
+    )
+
+
+def publish(repository, sessions, rows, *, dry_run=False, allow_shrink=False):
     """Write the calendar and every series row.
 
     The calendar goes first. A series indexes into it, so publishing series
@@ -129,6 +164,9 @@ def publish(repository, sessions, rows, *, dry_run=False):
     if dry_run:
         logger.info("Dry run: nothing written")
         return 0
+
+    if not allow_shrink:
+        check_not_shrinking(repository, sessions, rows)
 
     repository.upsert_price_calendar(calendar_row(sessions))
     written = repository.upsert_price_series(rows)

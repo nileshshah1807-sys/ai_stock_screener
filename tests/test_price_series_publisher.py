@@ -9,7 +9,12 @@ import unittest
 from datetime import date, timedelta
 
 from workers.price_series import decode_series
-from workers.price_series_publisher import build_rows, calendar_row, publish
+from workers.price_series_publisher import (
+    PublishRefused,
+    build_rows,
+    calendar_row,
+    publish,
+)
 
 
 def calendar(days, start=date(2024, 1, 1)):
@@ -141,6 +146,66 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(row["session_count"], 60)
         self.assertEqual(row["first_session"], self.sessions[0].isoformat())
         self.assertEqual(row["last_session"], self.sessions[-1].isoformat())
+
+
+
+class ShrinkGuardTests(unittest.TestCase):
+    """A cold or partly-restored archive must not overwrite a good series.
+
+    The archive is resumable and cached, so an evicted CI cache leaves it nearly
+    empty rather than failing outright. An upsert gives no hint that history was
+    replaced with a stub, so the guard is the only thing standing between a cache
+    miss and every chart silently losing eight years.
+    """
+
+    def setUp(self):
+        self.sessions = calendar(60)
+        self.rows = build_rows(
+            self.sessions,
+            {"SEC1": observations(self.sessions)},
+            {"SEC1": "ALPHA"},
+        )
+
+    def _repository(self, published):
+        repository = RecordingRepository()
+        repository.published_calendar_size = lambda: published
+        return repository
+
+    def test_a_truncated_archive_is_refused(self):
+        repository = self._repository(2116)
+        with self.assertRaises(PublishRefused) as caught:
+            publish(repository, self.sessions, self.rows)
+        self.assertIn("2116", str(caught.exception))
+        self.assertEqual(repository.rows, [])
+
+    def test_a_full_archive_publishes(self):
+        repository = self._repository(60)
+        self.assertEqual(publish(repository, self.sessions, self.rows), 1)
+
+    def test_a_small_shrink_is_allowed(self):
+        """Delistings and trimmed windows legitimately shorten the calendar."""
+        repository = self._repository(63)  # 60/63 is inside the tolerance
+        self.assertEqual(publish(repository, self.sessions, self.rows), 1)
+
+    def test_the_first_publish_is_not_blocked(self):
+        repository = self._repository(None)
+        self.assertEqual(publish(repository, self.sessions, self.rows), 1)
+
+    def test_allow_shrink_overrides_the_guard(self):
+        repository = self._repository(2116)
+        self.assertEqual(
+            publish(repository, self.sessions, self.rows, allow_shrink=True), 1
+        )
+
+    def test_an_unreadable_calendar_does_not_block_publishing(self):
+        """A diagnostic read must never be the reason a run fails."""
+        repository = RecordingRepository()
+
+        def explode():
+            raise RuntimeError("network")
+
+        repository.published_calendar_size = explode
+        self.assertEqual(publish(repository, self.sessions, self.rows), 1)
 
 
 if __name__ == "__main__":
