@@ -350,6 +350,31 @@ nothing in the one regime that would justify them.
 computed, still cap `Decision_Score`, still drive `Rating`, `Eligibility_Class`,
 `Primary_Gate` and `Gate_Failures`. They label; they do not select.
 
+**The rating cap stays on, and briefly did not.** Removing it looked like the
+same change, and it is not. This table measures *ranking* -- which names the
+top 20 holds. The backtest buys those 20 whatever their rating, so it never
+measured a rating, and the result does not reach that far.
+
+It matters because `Research_Score` is a cross-sectional percentile: `>=70` is
+"top 30% of today's universe" by construction, so ~30% of any universe clears
+STRONG BUY in any market. The gates are the only absolute check between that and
+"top 30% of a collapsing market". Simulated over 200 names:
+
+| Market | | STRONG BUY | BUY | HOLD |
+|---|---|---|---|---|
+| Rising | cap on | 60 | 20 | 20 |
+| Rising | cap off | 60 | 20 | 20 |
+| Falling, risk-off, below a falling MA200 | cap on | **0** | **0** | 100 |
+| Falling, risk-off, below a falling MA200 | cap off | **60** | **20** | 20 |
+
+Uncapped, a crash publishes the same rating distribution as a bull market.
+`APPLY_RATING_CAP` therefore defaults `True`, and the `getattr` fallback in
+`recommendation.py` defaults `True` as well so a config object missing the
+attribute fails safe. The readability problem that motivated removing it -- a
+99.8 research score displayed as 70.0 -- is solved by the ranking change on its
+own, which puts the name where its merit belongs and shows the gate as a
+warning.
+
 > **Limitation this backtest cannot address.** Production does not hold 20 names
 > unconditionally — it publishes "no BUY-rated names" and the reader does not
 > deploy. That abstention is the gates' real protective function, and a

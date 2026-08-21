@@ -438,12 +438,22 @@ class Config:
     )
     # Rank capped candidates by eligibility class then research score, instead
     # of letting every gate failure collapse onto an identical 59.99.
-    # False since Model 5.1: a failed gate no longer suppresses the published
-    # score. The gate outcome is reported instead -- Gate_Warning,
-    # Policy_Eligible_Rating, Policy_Capped_Score, Primary_Gate and
-    # Gate_Failures are all still populated for the details page. Set True to
-    # restore the 5.0 contract exactly.
-    APPLY_RATING_CAP = _env_bool("APPLY_RATING_CAP", False)
+    # The rating cap stays ON. It was briefly removed during 5.1 on the strength
+    # of the ranking result, which does not extend to it: the backtest buys the
+    # top 20 regardless of rating, so it never measured a rating at all.
+    #
+    # Research_Score is a cross-sectional percentile, so >=70 is "top 30% of
+    # today's universe" by construction and roughly 30% of any universe clears
+    # STRONG BUY in any market. The gates are the only absolute check standing
+    # between that and "top 30% of a collapsing market" -- see the comment above
+    # FACTOR_SCORE_AS_PERCENTILE in screener/factors.py. Without the cap, a
+    # simulated risk-off universe below a falling MA200 published exactly the
+    # same rating distribution as a bull market: 60 STRONG BUY of 200 either way.
+    #
+    # The information the cap used to destroy is recovered by ranking on
+    # research merit instead (RANK_BY_ELIGIBILITY_CLASS below), which is the
+    # change the evidence actually supports.
+    APPLY_RATING_CAP = _env_bool("APPLY_RATING_CAP", True)
 
     # False since Model 5.1: ranking eligibility-first cost 5-16 CAGR points in
     # every validation window where the gates bound, and changed nothing in the

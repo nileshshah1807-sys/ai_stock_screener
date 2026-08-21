@@ -796,7 +796,7 @@ class RecommendationPolicy:
             # model, and only for policy gates. An integrity failure still caps,
             # because bad evidence is not a research view.
             apply_cap = _as_bool(
-                getattr(self.config, "APPLY_RATING_CAP", False), False
+                getattr(self.config, "APPLY_RATING_CAP", True), True
             ) or not factor_model
             enforced_ceiling = ceiling
             if not apply_cap:
