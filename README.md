@@ -78,14 +78,25 @@ evidence below. Every weight is overridable with `FACTOR_WEIGHT_*`.
 under the factor model, because that column is constant inside a capped class
 and fell through to an alphabetical tie-break.
 
-**Rating (unchanged):** the eligibility cap still applies. `Research_Score` is a
-cross-sectional percentile, so `>=70` means "top 30% of today's universe" by
-construction and roughly 30% of any universe clears STRONG BUY in any market.
-The gates are the only absolute check between that and "top 30% of a collapsing
-market", so `APPLY_RATING_CAP` defaults `true`. A gated name can therefore rank
-highly and still be rated HOLD, with `Gate_Warning` and `Policy_Eligible_Rating`
-explaining why. The validation below measures ranking only -- the backtest holds
-the top 20 regardless of rating, so it never measured a rating.
+**Score and rating are separate (5.1).** `Final_Score` -- the number published
+in the dashboard, the emailed PDF, the CSV and Supabase -- is the *uncapped*
+evidence score. A row whose research scores 99.8 reads 99.8. Flattening it to
+the ceiling made every capped candidate look identical and hid the most useful
+number on the row.
+
+The **rating** is still gated. `Research_Score` is a cross-sectional percentile,
+so `>=70` means "top 30% of today's universe" by construction and roughly 30% of
+any universe clears STRONG BUY in any market; the gates are the only absolute
+check between that and publishing STRONG BUY on the top 30% of a collapsing
+market. `APPLY_RATING_CAP` therefore defaults `true`.
+
+So a row can read **99.8 / BUY**, and that is not a contradiction: the score
+says how strong the evidence is, the rating says whether policy will act on it.
+`Decision_Score` (the ceiling), `Decision_Score_Ceiling`,
+`Policy_Eligible_Rating` and `Gate_Warning` carry the difference, and the
+screener shows the ceiling beside the score. The validation below measures
+ranking only -- the backtest holds the top 20 regardless of rating, so it never
+measured a rating.
 
 It needs data the 4.x path never collected, so enabling it also turns on annual
 financial-statement collection (`statement_cache.csv`, 90-day TTL, bounded

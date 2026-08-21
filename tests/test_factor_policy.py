@@ -497,6 +497,33 @@ class ResearchRankingTests(unittest.TestCase):
         self.assertFalse(is_integrity_gate("quality percentile below BUY floor"))
         self.assertTrue(is_integrity_gate("quality percentile unavailable"))
 
+    def test_the_published_score_is_uncapped_while_the_rating_is_not(self):
+        """Score and rating answer different questions.
+
+        Final_Score reports how strong the evidence is; Rating reports whether
+        policy will act on it. Flattening the score to the ceiling made every
+        capped candidate look identical, which is what motivated separating
+        them -- but uncapping the rating too would publish STRONG BUY on the top
+        30% of a collapsing market, because Research_Score is a percentile.
+        """
+        result = finalize(
+            [clean_row("CAPPEDCO", score=99.8, Quality_Percentile=5.0)]
+        ).iloc[0]
+        self.assertAlmostEqual(
+            float(result["Final_Score"]), float(result["Evidence_Score"]), places=2
+        )
+        self.assertLess(float(result["Decision_Score"]), float(result["Final_Score"]))
+        self.assertNotEqual(result["Rating"], "STRONG BUY")
+        self.assertEqual(result["Rating"], result["Decision_Rating"])
+
+    def test_an_ungated_row_publishes_one_number(self):
+        """With nothing firing, score and ceiling must agree."""
+        result = finalize([clean_row("CLEANCO", score=88.0)]).iloc[0]
+        self.assertAlmostEqual(
+            float(result["Final_Score"]), float(result["Decision_Score"]), places=2
+        )
+        self.assertEqual(result["Rating"], "STRONG BUY")
+
     def test_the_cap_is_restorable_for_a_rollback(self):
         """5.0 behaviour must stay reachable, not be deleted."""
         result = finalize_legacy(

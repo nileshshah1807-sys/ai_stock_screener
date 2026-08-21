@@ -169,6 +169,9 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
       pick(payload, "Gate_Failures"),
   );
   const evidenceScore = row.evidence_score;
+  // The ceiling the gates imply. Since Model 5.1 this no longer reduces the
+  // published score -- it limits the rating -- so it is a comparison point,
+  // not the number shown.
   const decisionScore = row.decision_score ?? row.final_score;
   const pointsRemoved =
     evidenceScore !== null && decisionScore !== null
@@ -208,8 +211,9 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
           : "Maximum score permitted by the active gate combination.",
     },
     {
-      label: "Published decision",
-      value: formatScore(decisionScore),
+      label: "Published score",
+      value: formatScore(row.final_score ?? evidenceScore),
+      hint: "Uncapped. Policy gates limit the rating, not this number.",
     },
     {
       label: "Points removed",
@@ -633,16 +637,17 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
         */}
         <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
           <Panel
-            title="Decision score"
-            description="Against the 0-100 range it is rated on. Ticks mark the REDUCE / HOLD / BUY / STRONG BUY boundaries."
+            title="Published score"
+            description="The uncapped research evidence, against the 0-100 range. Ticks mark the REDUCE / HOLD / BUY / STRONG BUY boundaries; policy gates limit the rating, not the score."
           >
             <DecisionScore
-              score={row.decision_score ?? row.final_score}
+              score={row.final_score ?? row.evidence_score}
               rating={row.rating}
               caption={
-                row.rating_capped
-                  ? (row.rating_cap_reason ??
-                    "A policy ceiling reduced this score.")
+                capFlagged
+                  ? (gateWarning ??
+                    row.rating_cap_reason ??
+                    "Policy gates limit the rating below this score.")
                   : undefined
               }
             />

@@ -276,11 +276,14 @@ export async function getSnapshotPage(
   if (filters.sector?.length) {
     query = query.in("sector", filters.sector);
   }
+  // Filter on the number the table displays. Since Model 5.1 that is the
+  // uncapped published score; filtering on the capped decision_score would
+  // silently exclude rows whose visible score is inside the requested range.
   if (typeof filters.minScore === "number") {
-    query = query.gte("decision_score", filters.minScore);
+    query = query.gte("final_score", filters.minScore);
   }
   if (typeof filters.maxScore === "number") {
-    query = query.lte("decision_score", filters.maxScore);
+    query = query.lte("final_score", filters.maxScore);
   }
   if (filters.actionableOnly) {
     query = query.eq("portfolio_actionable", true);
@@ -359,13 +362,13 @@ export async function getSnapshotPage(
 export const getSearchIndex = cache(
   async (runDate: string, rowCount?: number): Promise<SearchEntry[]> => {
     const supabase = await createClient();
-    const select = "symbol, company, investment_rank, rating, decision_score";
+    const select = "symbol, company, investment_rank, rating, final_score";
     const toEntry = (row: Record<string, unknown>): SearchEntry => ({
       s: row.symbol as string,
       c: (row.company as string) ?? "",
       r: row.investment_rank as number | null,
       g: row.rating as string | null,
-      d: row.decision_score as number | null,
+      d: row.final_score as number | null,
     });
 
     const chunk = (offset: number) =>

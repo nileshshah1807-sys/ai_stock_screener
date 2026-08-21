@@ -85,33 +85,38 @@ function ScoreMeter({
 }
 
 /**
- * Decision score with its evidence score behind it.
+ * The published score, uncapped, with the ceiling its gates imply behind it.
  *
- * When a ceiling has been applied the two differ, and showing only the final
- * number would hide the single most important fact about the row: that the
- * model wanted to score it higher but a gate stopped it.
+ * A row whose evidence scores 99.8 reads 99.8. Publishing the 70.0 ceiling
+ * instead destroyed the most useful number on the row and made every capped
+ * candidate look identical.
+ *
+ * The *rating* is still gated, so a 99.8 can read BUY rather than STRONG BUY.
+ * That is not an inconsistency: the score says how strong the evidence is, the
+ * rating says whether policy will act on it, and the ceiling annotation is the
+ * difference between the two.
  */
-/** True when a gate actually lowered the published score, not merely fired. */
+/** True when the row's gates imply a ceiling below its published score. */
 function scoreWasReduced(row: SnapshotRow): boolean {
-  const decision = row.decision_score ?? row.final_score;
-  const evidence = row.evidence_score;
+  const published = row.final_score ?? row.evidence_score;
+  const ceiling = row.decision_score;
   return (
-    evidence !== null && decision !== null && Math.abs(evidence - decision) > 0.05
+    published !== null && ceiling !== null && Math.abs(published - ceiling) > 0.05
   );
 }
 
 function ScoreCell({ row }: { row: SnapshotRow }) {
-  const decision = row.decision_score ?? row.final_score;
-  const evidence = row.evidence_score;
+  const published = row.final_score ?? row.evidence_score;
+  const ceiling = row.decision_score;
   const capped = scoreWasReduced(row);
 
   if (!capped) {
     return (
       <span className="inline-block w-[3.25rem] align-middle">
         <span className="tabular font-mono text-sm font-semibold">
-          {formatScore(decision)}
+          {formatScore(published)}
         </span>
-        <ScoreMeter score={decision} rating={row.rating} />
+        <ScoreMeter score={published} rating={row.rating} />
       </span>
     );
   }
@@ -124,18 +129,19 @@ function ScoreCell({ row }: { row: SnapshotRow }) {
         }
       >
         <span className="tabular font-mono text-sm font-semibold">
-          {formatScore(decision)}
+          {formatScore(published)}
         </span>
         <span className="ml-1 text-[10px] font-normal text-caution">
-          ▼{formatScore(evidence)}
+          ⌐{formatScore(ceiling)}
         </span>
-        <ScoreMeter score={decision} rating={row.rating} />
+        <ScoreMeter score={published} rating={row.rating} />
       </TooltipTrigger>
       <TooltipContent className="max-w-72">
-        <p className="font-medium">Decision score capped</p>
+        <p className="font-medium">Rating limited by a policy gate</p>
         <p className="text-xs opacity-90">
-          Evidence scored {formatScore(evidence)}; a policy ceiling reduced the
-          published decision to {formatScore(decision)}.
+          Evidence scored {formatScore(published)}. Policy gates cap the rating
+          at {row.policy_eligible_rating ?? "a lower band"} (ceiling{" "}
+          {formatScore(ceiling)}); the score itself is published in full.
         </p>
         {row.decision_cap_reason || row.rating_cap_reason ? (
           <p className="mt-1 text-xs opacity-90">
@@ -253,10 +259,10 @@ export function ScreenerTable({
               <PlainHeader label="Rating" />
               <SortHeader
                 {...headerProps}
-                label="Decision"
-                column="decision_score"
+                label="Score"
+                column="final_score"
                 numeric
-                title="Decision Score: evidence score after all coverage, quality, anomaly, and trend ceilings."
+                title="Published score: the uncapped research evidence. Policy gates limit the rating, not this number; a capped row shows the ceiling beside it."
               />
               {factorModel ? (
                 <>

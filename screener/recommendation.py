@@ -912,7 +912,20 @@ class RecommendationPolicy:
         frame["Decision_Score_Ceiling"] = ceilings
         frame["Decision_Score"] = decision_scores
         frame["Decision_Rating"] = ratings
-        frame["Final_Score"] = frame["Decision_Score"]
+        # The published score is the *uncapped* one. A row whose research
+        # evidence scores 99.8 is reported as 99.8, not flattened to the 70.0
+        # ceiling its gates imply -- collapsing it destroyed the single most
+        # useful number on the row and made every capped candidate look
+        # identical.
+        #
+        # The rating is deliberately NOT uncapped with it. Research_Score is a
+        # cross-sectional percentile, so >=70 is "top 30% of today's universe"
+        # by construction; the gates are the only absolute check between that
+        # and publishing STRONG BUY on the top 30% of a collapsing market.
+        # Score and rating therefore answer different questions -- "how good is
+        # the evidence" and "may we act on it" -- and Decision_Score,
+        # Decision_Score_Ceiling and Gate_Warning carry the difference.
+        frame["Final_Score"] = frame["Evidence_Score"]
         frame["Rating"] = frame["Decision_Rating"]
         # Compatibility alias.  Liquidity now runs before this policy so Model
         # 5.0 can use execution suitability as a gate; at that earlier stage no
