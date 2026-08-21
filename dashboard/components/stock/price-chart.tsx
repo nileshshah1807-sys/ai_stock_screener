@@ -120,6 +120,11 @@ export function PriceChart({
 
     const colors = palette(resolvedTheme === "dark");
     const instance: IChartApi = createChart(node, {
+      // The library owns the ResizeObserver. A hand-rolled one missed the first
+      // layout pass on mobile, leaving the canvas narrower than its container
+      // with a band of dead space down the right. `height` stays as the
+      // documented fallback for when ResizeObserver is unavailable.
+      autoSize: true,
       height,
       layout: {
         background: { color: "transparent" },
@@ -170,9 +175,11 @@ export function PriceChart({
     );
 
     // Only draw an average that has a full window behind it.
+    // No `title` on these: it renders an on-canvas badge that overlaps the
+    // price line on a phone, and the swatch legend above already names them.
     const averages = [
-      { data: ma50, color: colors.ma50, title: "50 DMA" },
-      { data: ma200, color: colors.ma200, title: "200 DMA" },
+      { data: ma50, color: colors.ma50 },
+      { data: ma200, color: colors.ma200 },
     ];
     for (const average of averages) {
       if (average.data.length === 0) continue;
@@ -181,7 +188,6 @@ export function PriceChart({
         lineWidth: 1,
         priceLineVisible: false,
         lastValueVisible: false,
-        title: average.title,
       });
       line.setData(
         average.data.map((point) => ({
@@ -193,13 +199,7 @@ export function PriceChart({
 
     instance.timeScale().fitContent();
 
-    const observer = new ResizeObserver(([entry]) => {
-      instance.applyOptions({ width: entry.contentRect.width });
-    });
-    observer.observe(node);
-
     return () => {
-      observer.disconnect();
       instance.remove();
     };
   }, [visible, ma50, ma200, resolvedTheme, height]);
@@ -240,7 +240,9 @@ export function PriceChart({
             </button>
           );
         })}
-        <span className="ml-auto flex items-center gap-3 text-[11px] text-muted-foreground">
+        {/* Right-aligned only when it shares the row; a wrapped legend pinned
+            right reads as detached from the buttons above it. */}
+        <span className="flex w-full items-center gap-3 pt-1 text-[11px] text-muted-foreground sm:ml-auto sm:w-auto sm:pt-0">
           <Swatch color={MA50_COLOR} label="50 DMA" />
           <Swatch color="#94a3b8" label="200 DMA" />
         </span>
