@@ -69,17 +69,30 @@ const GATE_CHIP: Record<string, string> = {
   ILLIQUID: "illiquid",
 };
 
-/** True when a policy gate held this row's rating below its evidence. */
+/** Ratings that are actionable as published, whatever a gate took away. */
+const ACTIONABLE = new Set(["strong-buy", "buy"]);
+
+/**
+ * True when a gate held this row's rating down *into a non-actionable band*.
+ *
+ * Being capped is not sufficient on its own. A row capped from STRONG BUY to
+ * BUY is still a BUY -- it lost conviction, not actionability -- and labelling
+ * it `WAIT` is worse than the `HOLD` this component was written to replace,
+ * because it tells the reader to stand aside from a name the policy is
+ * actually willing to act on. Only a cap that lands on HOLD or below is a
+ * "wait".
+ */
 export function ratingWasGated(row: {
+  rating?: string | null;
   rating_capped?: boolean | null;
   decision_cap_reason?: string | null;
   rating_cap_reason?: string | null;
 }): boolean {
-  return (
+  const capped =
     row.rating_capped === true ||
     Boolean(row.decision_cap_reason) ||
-    Boolean(row.rating_cap_reason)
-  );
+    Boolean(row.rating_cap_reason);
+  return capped && !ACTIONABLE.has(ratingToken(row.rating));
 }
 
 /**
