@@ -259,13 +259,12 @@ export function ScreenerTable({
                 title="Investment Rank: decision score first, then evidence. The primary rank."
               />
               <PlainHeader label="Stock" className="sticky-col min-w-44" />
-              <PlainHeader label="Rating" />
               <SortHeader
                 {...headerProps}
                 label="Score"
                 column="final_score"
                 numeric
-                title="Published score: the uncapped research evidence. Policy gates limit the rating, not this number; a capped row shows the ceiling beside it."
+                title="Published score: the uncapped research evidence. Policy gates limit the rating, not this number."
               />
               {factorModel ? (
                 <>
@@ -307,6 +306,12 @@ export function ScreenerTable({
                   />
                 </>
               )}
+              {/* After the factor block, not before the score. The score and
+                  its three block percentiles answer "how strong is this?" and
+                  belong together; the rating answers the separate question of
+                  whether policy will act on it, and reads as a conclusion drawn
+                  from the columns to its left. */}
+              <PlainHeader label="Rating" />
               <PlainHeader
                 label="Cov F/T"
                 numeric
@@ -390,10 +395,6 @@ export function ScreenerTable({
                   </Link>
                 </td>
 
-                <td className="px-2 py-1.5">
-                  <EntryBadge row={row} />
-                </td>
-
                 <td className="px-2 py-1.5 text-right">
                   <ScoreCell row={row} />
                 </td>
@@ -420,6 +421,10 @@ export function ScreenerTable({
                     </td>
                   </>
                 )}
+
+                <td className="px-2 py-1.5">
+                  <EntryBadge row={row} />
+                </td>
 
                 <td className="px-2 py-1.5 text-right">
                   <CoverageCell
