@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { CompanyLogo } from "@/components/company-logo";
-import { RatingBadge } from "@/components/rating-badge";
+import { EntryBadge } from "@/components/entry-badge";
+import { decodeSeries, withTail } from "@/lib/price-series.mjs";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
 import { FactorBlocks } from "@/components/stock/factor-blocks";
@@ -159,6 +160,24 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
 
   if (!row) notFound();
 
+  // Last completed session's move, from the same merged series the chart
+  // draws. There is no Pct_Change_1D in the model output, and deriving it here
+  // rather than adding a column keeps the tile and the chart on one source:
+  // if the chart shows a gap, the tile shows nothing rather than a number the
+  // chart contradicts.
+  const chartPoints = withTail(
+    decodeSeries(priceSeries, sessions ?? []).points,
+    priceTail,
+  );
+  const change1d =
+    chartPoints.length >= 2
+      ? (() => {
+          const previous = chartPoints[chartPoints.length - 2].close;
+          const latest = chartPoints[chartPoints.length - 1].close;
+          return previous > 0 ? (latest / previous - 1) * 100 : null;
+        })()
+      : null;
+
   const payload = row.payload ?? {};
   const valueAudit = valueInputAudit(pick(payload, "Value_Input_Audit"));
   const missingFundamentalFields = text(payload, "Fundamental_Missing_Fields");
@@ -259,7 +278,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   const gateFields: Field[] = [
     {
       label: "Published rating",
-      value: <RatingBadge rating={row.rating} size="md" />,
+      value: <EntryBadge row={row} size="md" showReason={false} />,
     },
     {
       label: "BUY gates",
@@ -611,7 +630,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
                 {row.symbol}
               </h1>
               <p className="text-heading text-muted-foreground">{row.company}</p>
-              <RatingBadge rating={row.rating} size="md" />
+              <EntryBadge row={row} size="md" />
             </div>
           </div>
 
@@ -622,9 +641,19 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
             {formatDate(row.price_bar_as_of ?? run.price_bar_as_of)}
           </p>
 
-          <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border sm:grid-cols-4">
+          <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border sm:grid-cols-3 lg:grid-cols-5">
             {[
               { label: "Price", value: formatINR(row.current_price), tone: "" },
+              {
+                label: "1D",
+                value: formatPercent(change1d, 2, true),
+                tone:
+                  change1d === null
+                    ? ""
+                    : change1d >= 0
+                      ? "text-positive"
+                      : "text-negative",
+              },
               {
                 label: "1M",
                 value: formatPercent(row.pct_change_1m, 1, true),
