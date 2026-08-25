@@ -85,6 +85,9 @@ const GRID_COLUMNS = [
   "growth_percentile",
   "momentum_percentile",
   "primary_gate",
+  // Feeds the entry chip's distance-to-clearing text: "2.3% below 200DMA"
+  // says what would have to change, where a bare gate name does not.
+  "price_to_ma200_pct",
 ].join(",");
 
 /**

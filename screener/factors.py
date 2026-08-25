@@ -107,6 +107,48 @@ RISK_FEATURES = (
     ("Return_Concentration_1Y", 0.10, False),
 )
 
+def resolve_feature_weights(features, override):
+    """Re-weight ``features`` from a ``{name: weight}`` mapping.
+
+    The inputs and their directions are fixed; only the balance between them
+    moves. That is deliberate — a variant that could add or drop inputs would
+    be testing a different block, not a different weighting of this one, and
+    the coverage arithmetic in :func:`_block_score` would no longer be
+    comparable across the grid.
+
+    An unknown or missing name is an error rather than a silent no-op: a typo
+    in a declared grid must not quietly run the baseline and be reported as a
+    variant. Weights are renormalized to the original total so a variant cannot
+    change the block's overall influence as a side effect of reweighting.
+    """
+    if not override:
+        return features
+    names = [column for column, _, _ in features]
+    unknown = sorted(set(override) - set(names))
+    if unknown:
+        raise ValueError(
+            f"unknown factor input(s) in weight override: {', '.join(unknown)}; "
+            f"expected a subset of {', '.join(names)}"
+        )
+    missing = sorted(set(names) - set(override))
+    if missing:
+        raise ValueError(
+            f"weight override must name every input; missing: {', '.join(missing)}"
+        )
+    supplied = {name: float(override[name]) for name in names}
+    if any(weight < 0 for weight in supplied.values()):
+        raise ValueError("factor input weights must be non-negative")
+    total = sum(supplied.values())
+    if total <= 0:
+        raise ValueError("factor input weights must not sum to zero")
+    original = sum(weight for _, weight, _ in features)
+    scale = original / total
+    return tuple(
+        (column, supplied[column] * scale, higher_is_better)
+        for column, _, higher_is_better in features
+    )
+
+
 BLOCKS = {
     "Quality": None,  # resolved per row: generic or financial
     "Growth": GROWTH_FEATURES,
@@ -459,8 +501,13 @@ class FactorModel:
             "DCF_Valuation_Score": working["DCF_Value_Input_Applicable"],
         }
 
+        growth_features = resolve_feature_weights(
+            GROWTH_FEATURES,
+            getattr(self.config, "FACTOR_GROWTH_FEATURE_WEIGHTS", None),
+        )
+
         for name, features in (
-            ("Growth", GROWTH_FEATURES),
+            ("Growth", growth_features),
             ("Value", VALUE_FEATURES),
             ("Momentum", MOMENTUM_FEATURES),
             ("Risk", RISK_FEATURES),

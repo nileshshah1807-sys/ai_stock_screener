@@ -232,6 +232,23 @@ def main(argv=None):
     parser.add_argument("--min-turnover", type=float, default=2_000_000.0)
     parser.add_argument("--min-trading-frequency", type=float, default=0.80)
     parser.add_argument("--min-history", type=int, default=200)
+    parser.add_argument(
+        "--growth-reweight-grid",
+        action="store_true",
+        help=(
+            "also run the pre-registered growth-block reweight ladder "
+            "(G1/G2/G3); see docs/Review/p1_growth_reweight_preregistration.md"
+        ),
+    )
+    parser.add_argument(
+        "--gate-relaxation-grid",
+        action="store_true",
+        help=(
+            "also run the pre-registered relative-strength gate ladder "
+            "(R1/R2/R3); see "
+            "docs/Review/p2_relative_strength_gate_preregistration.md"
+        ),
+    )
     parser.add_argument("--position-size", type=float, default=100_000.0)
     parser.add_argument("--half-spread", type=float, default=0.0010)
     parser.add_argument("--impact-coefficient", type=float, default=0.10)
@@ -304,7 +321,12 @@ def main(argv=None):
         rebalance_dates,
         write_report,
     )
-    from backtest.strategies import FUNDAMENTAL_STRATEGIES, PRICE_ONLY_STRATEGIES
+    from backtest.strategies import (
+        FUNDAMENTAL_STRATEGIES,
+        PRICE_ONLY_STRATEGIES,
+        gate_relaxation_strategies,
+        growth_reweight_strategies,
+    )
 
     dates = rebalance_dates(archive["calendar"], start, end, frequency=args.frequency)
     horizons = _parse_horizons(args.horizons)
@@ -328,6 +350,20 @@ def main(argv=None):
     strategies = list(
         FUNDAMENTAL_STRATEGIES if args.with_fundamentals else PRICE_ONLY_STRATEGIES
     )
+    if args.growth_reweight_grid:
+        if not args.with_fundamentals:
+            raise SystemExit(
+                "--growth-reweight-grid needs --with-fundamentals: the growth "
+                "block has no inputs without the fundamental panel"
+            )
+        strategies.extend(growth_reweight_strategies())
+    if args.gate_relaxation_grid:
+        if not args.with_fundamentals:
+            raise SystemExit(
+                "--gate-relaxation-grid needs --with-fundamentals: the gates "
+                "read quality and growth percentiles"
+            )
+        strategies.extend(gate_relaxation_strategies())
     logger.info(
         "Strategies: %s", ", ".join(strategy.name for strategy in strategies)
     )

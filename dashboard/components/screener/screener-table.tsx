@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { CompanyLogo } from "@/components/company-logo";
-import { RatingBadge } from "@/components/rating-badge";
+import { EntryBadge } from "@/components/entry-badge";
 import {
   CappedChip,
   CoverageCell,
@@ -85,16 +85,22 @@ function ScoreMeter({
 }
 
 /**
- * The published score, uncapped, with the ceiling its gates imply behind it.
+ * The published score, uncapped. One number per row.
  *
  * A row whose evidence scores 99.8 reads 99.8. Publishing the 70.0 ceiling
  * instead destroyed the most useful number on the row and made every capped
  * candidate look identical.
  *
- * The *rating* is still gated, so a 99.8 can read BUY rather than STRONG BUY.
- * That is not an inconsistency: the score says how strong the evidence is, the
- * rating says whether policy will act on it, and the ceiling annotation is the
- * difference between the two.
+ * The ceiling used to be annotated beside the score as `⌐70.0`. It is now in
+ * the tooltip only. Rendered inline it read as a second, worse score competing
+ * with the headline figure -- the reader has no reason to know that one of the
+ * two numbers is a policy artefact and the other is the evidence, so the cell
+ * asked a question instead of answering one.
+ *
+ * The *rating* is still gated, and the `EntryBadge` in the next column carries
+ * that: a gated row reads `WAIT · below 200DMA` rather than `HOLD`, which is a
+ * statement about timing and so does not compete with the score for the same
+ * meaning.
  */
 /** True when the row's gates imply a ceiling below its published score. */
 function scoreWasReduced(row: SnapshotRow): boolean {
@@ -125,14 +131,11 @@ function ScoreCell({ row }: { row: SnapshotRow }) {
     <Tooltip>
       <TooltipTrigger
         render={
-          <span className="inline-block w-[4.75rem] cursor-help align-middle" />
+          <span className="inline-block w-[3.25rem] cursor-help align-middle" />
         }
       >
         <span className="tabular font-mono text-sm font-semibold">
           {formatScore(published)}
-        </span>
-        <span className="ml-1 text-[10px] font-normal text-caution">
-          ⌐{formatScore(ceiling)}
         </span>
         <ScoreMeter score={published} rating={row.rating} />
       </TooltipTrigger>
@@ -388,7 +391,7 @@ export function ScreenerTable({
                 </td>
 
                 <td className="px-2 py-1.5">
-                  <RatingBadge rating={row.rating} />
+                  <EntryBadge row={row} />
                 </td>
 
                 <td className="px-2 py-1.5 text-right">

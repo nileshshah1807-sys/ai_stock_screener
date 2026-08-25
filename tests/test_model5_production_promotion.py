@@ -30,7 +30,7 @@ class Model5ProductionPromotionTests(unittest.TestCase):
         expected_contract = (
             "FACTOR_MODEL_ENABLED: ${{ github.event_name == 'schedule' && 'True' || 'False' }}",
             "MODEL_VERSION: ${{ github.event_name == 'schedule' && '5.1.0' || '4.0.0-candidate' }}",
-            "RECOMMENDATION_POLICY_VERSION: ${{ github.event_name == 'schedule' && '5.1.0' || '4.0.0-candidate' }}",
+            "RECOMMENDATION_POLICY_VERSION: ${{ github.event_name == 'schedule' && '5.2.0' || '4.0.0-candidate' }}",
             'OUTPUT_SCHEMA_VERSION: "4.1.0"',
             "STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ github.event_name == 'schedule' && '2500' || '400' }}",
             'FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0.95"',

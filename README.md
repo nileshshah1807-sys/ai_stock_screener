@@ -90,6 +90,23 @@ any universe clears STRONG BUY in any market; the gates are the only absolute
 check between that and publishing STRONG BUY on the top 30% of a collapsing
 market. `APPLY_RATING_CAP` therefore defaults `true`.
 
+**Recommendation policy 5.2.0 removes the two momentum *percentile* floors**
+(`STRONG_BUY_MIN_MOMENTUM_PCT` 70 -> 0,
+`REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY` 85 -> 0). A percentile floor is
+cross-sectional: in a falling market the top 30% by momentum is still the top
+30%, so it never supplied the absolute check quoted above, while measurably
+costing return as a selection input. The absolute gates are unchanged -- MA200
+band and slope, confirmed breakdown, the MA50/MA200 stack, both relative-strength
+gates, the quality/growth floors, and `REGIME_RISK_OFF_DISABLES_STRONG_BUY`, so
+STRONG BUY is still disabled outright in a risk-off regime. `MODEL_VERSION`
+stays 5.1.0: the score and `Investment_Rank` are untouched, only the published
+rating changes. On the 2026-08-24 cross-section this moves STRONG BUY from 40 to
+69 of 2,383 (1.7% -> 2.9%). Method, the refuted hypothesis it came from, and the
+limits are in
+[`docs/Review/p2_relative_strength_gate_preregistration.md`](docs/Review/p2_relative_strength_gate_preregistration.md).
+Both thresholds remain env-overridable, so the previous policy is one variable
+away.
+
 So a row can read **99.8 / BUY**, and that is not a contradiction: the score
 says how strong the evidence is, the rating says whether policy will act on it.
 `Decision_Score` (the ceiling), `Decision_Score_Ceiling`,

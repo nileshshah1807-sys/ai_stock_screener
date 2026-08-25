@@ -324,6 +324,15 @@ class Config:
     FACTOR_WEIGHT_VALUE = _env_float("FACTOR_WEIGHT_VALUE", 0.25)
     FACTOR_WEIGHT_MOMENTUM = _env_float("FACTOR_WEIGHT_MOMENTUM", 0.25)
     FACTOR_WEIGHT_RISK = _env_float("FACTOR_WEIGHT_RISK", 0.05)
+    # Within-block weight override for the growth block, keyed by the input
+    # names in screener.factors.GROWTH_FEATURES. `None` means "use the module
+    # defaults", so production is unchanged unless this is set deliberately.
+    # It exists so the trailing-versus-turning balance can be varied as a
+    # declared backtest grid instead of by editing the module constant; see
+    # docs/Review/p1_growth_reweight_preregistration.md. Unknown names are
+    # rejected rather than silently ignored, and the weights are renormalized
+    # so a variant cannot change the block's total influence by accident.
+    FACTOR_GROWTH_FEATURE_WEIGHTS = None
     # Rank each factor inside its own sector where the sector has enough usable
     # peers. A utility and a software company do not share a normal ROIC, growth
     # rate, or earnings yield, so a single market-wide percentile would encode a
@@ -386,8 +395,17 @@ class Config:
     REGIME_RISK_OFF_MIN_MOMENTUM_PCT = _env_float(
         "REGIME_RISK_OFF_MIN_MOMENTUM_PCT", 90.0
     )
+    # Disabled in policy 5.2.0 together with STRONG_BUY_MIN_MOMENTUM_PCT below.
+    # Both were momentum *percentile* floors, and a percentile floor is
+    # cross-sectional: in a falling market the top 30% by momentum is still the
+    # top 30%, so the floor keeps clearing and buys no absolute protection. The
+    # gates that do buy it -- the MA200 band and slope, confirmed breakdown, the
+    # MA50/MA200 stack, and REGIME_RISK_OFF_DISABLES_STRONG_BUY -- are unchanged,
+    # so STRONG BUY remains fully disabled in a risk-off regime.
+    # Measured in docs/Review/p2_relative_strength_gate_preregistration.md (R4).
+    # Restore the previous policy with the env var; no code change needed.
     REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY = _env_float(
-        "REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY", 85.0
+        "REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY", 0.0
     )
 
     # --- MA200 trend gate with hysteresis ------------------------------------
@@ -409,7 +427,10 @@ class Config:
     BUY_MIN_QUALITY_PCT = _env_float("BUY_MIN_QUALITY_PCT", 40.0)
     STRONG_BUY_MIN_QUALITY_PCT = _env_float("STRONG_BUY_MIN_QUALITY_PCT", 70.0)
     STRONG_BUY_MIN_GROWTH_PCT = _env_float("STRONG_BUY_MIN_GROWTH_PCT", 60.0)
-    STRONG_BUY_MIN_MOMENTUM_PCT = _env_float("STRONG_BUY_MIN_MOMENTUM_PCT", 70.0)
+    # 70.0 -> 0.0 in policy 5.2.0. See the note on
+    # REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY above; the quality and
+    # growth percentile floors either side of this line are unchanged.
+    STRONG_BUY_MIN_MOMENTUM_PCT = _env_float("STRONG_BUY_MIN_MOMENTUM_PCT", 0.0)
     # Model 5.0 tightens the BUY coverage floors the proposal calls out.
     FACTOR_FUNDAMENTAL_MIN_COVERAGE_FOR_BUY = _env_float(
         "FACTOR_FUNDAMENTAL_MIN_COVERAGE_FOR_BUY", 0.70
