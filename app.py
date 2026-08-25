@@ -21,6 +21,7 @@ from screener.data_collection import (
     StockDataCollector,
     align_valuation_to_completed_price_bar,
 )
+from screener.expectations import attach_expectations_gap
 from screener.factors import FactorModel
 from screener.statements import (
     FinancialStatementCollector,
@@ -356,6 +357,14 @@ def run_daily_analysis():
     # One final deterministic ordering after every rating gate. Transcript
     # confirmation is only a tie-break because its effect is already in score.
     scored_df = rank_actionable_recommendations(scored_df)
+
+    # Display-only, and deliberately last: every score, gate, rating and rank is
+    # already fixed above, so the expectations diagnostic cannot influence the
+    # decision even by accident. It exists because every input the model reads
+    # is backward-looking, so when the market disagrees with the filed numbers
+    # the score has no way to say so.
+    scored_df = attach_expectations_gap(scored_df, config)
+
     scored_df["Model_Version"] = config.MODEL_VERSION
     scored_df["Recommendation_Policy_Version"] = config.RECOMMENDATION_POLICY_VERSION
     scored_df["Output_Schema_Version"] = config.OUTPUT_SCHEMA_VERSION

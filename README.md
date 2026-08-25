@@ -124,6 +124,41 @@ and a 12-1 momentum window cannot be expressed in six months. Features defined
 on a six-month window stay pinned to 126 sessions, and v6/v7 caches are kept
 distinct so switching models cannot mix incompatible technical rows.
 
+### Expectations gap (display-only)
+
+Every input the factor model reads is backward-looking -- a closed fiscal year,
+a three-year CAGR, a filed balance sheet. The price is a claim about what gets
+filed next, so when the two disagree the score has no way to say so.
+`screener/expectations.py` runs after `finalize_recommendations`, changes
+nothing that scores, and exports three signals:
+
+| Column | Meaning |
+|---|---|
+| `Expected_EPS_Change_Pct` | Forward EPS implied by `Forward_PE`, against trailing `EPS` |
+| `Implied_Growth_Gap_Pct` | `DCF_Implied_FCF_CAGR` minus `DCF_Assumed_Growth`, in points |
+| `Guidance_Transition` / `Guidance_Downgraded` | Last quarter's guidance against this quarter's |
+
+plus `Expectations_Status` and a one-sentence `Expectations_Warning`.
+
+LUPIN on 2026-08-24 is the case it was written for: rank 14, `Research_Score`
+99.45, trailing PE 18.13 and forward PE **21.40**. Forward above trailing means
+one thing -- consensus expects earnings to fall, here by 15.3%, while the median
+stock in the same run was priced for +42.5%.
+
+**`Forward_PE` is deliberately not scored.** It is present for 45% of the
+universe with a 19x market-cap skew between covered and uncovered names, so
+inside `_block_score` it would shrink the blocks of the 55% analysts ignore --
+re-sorting the screen by analyst attention, which is a size proxy. It also
+cannot be backtested: `backtest/xbrl.py` parses filed results, and consensus
+estimates are not filed with the exchange. Scoring it would make `model_5`
+unreproducible against the archive.
+
+`Implied_Growth_Gap_Pct` is exported but never raises a warning. Across the
+2026-08-24 run it is near-symmetric about zero (median +3.06, negative on 46.5%
+of rows) because `DCF_Assumed_Growth` is a sector template, not a company
+forecast; wired to the warning it fired on 22.6% of rows. The warning fires only
+on an expected earnings decline or a guidance downgrade -- 7.3% of the universe.
+
 ### Point-in-time validation
 
 The blocking dependency recorded against 5.0 -- point-in-time fundamentals and

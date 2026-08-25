@@ -63,8 +63,15 @@ transaction costs, and no look-ahead data.
   evidence remains shadow-only and requires confirmation against the original
   filing before any future live policy.
 - The free application has no reliable point-in-time analyst-consensus and
-  estimate-revision history. Earnings-surprise/consensus is therefore absent,
-  not silently approximated. News keywords and the FII/DII placeholder do not
+  estimate-revision history. Earnings-surprise/consensus is therefore absent
+  from the score, not silently approximated. Since 2026-08-25 the collected
+  `Forward_PE` is *displayed* as an expectations-gap diagnostic
+  (`screener/expectations.py`): it is exported alongside the market-implied DCF
+  growth and the quarter-over-quarter guidance transition, and none of the
+  three enters `Research_Score`, `Decision_Score`, `Rating` or any rank. The
+  distinction is deliberate -- 45% coverage with a 19x market-cap skew would
+  make it a size proxy inside a block score, and it cannot be reconstructed
+  point-in-time for the backtest archive. News keywords and the FII/DII placeholder do not
   enter the score.
 
 ## Legacy Model v4 score and decision contract

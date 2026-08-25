@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 
 import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
+import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, withTail } from "@/lib/price-series.mjs";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
@@ -201,6 +202,33 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   const capFlagged =
     row.decision_cap_applied === true || row.rating_capped === true;
   const gateWarning = text(payload, "Gate_Warning");
+
+  // Display-only diagnostics from screener/expectations.py. Read through the
+  // payload rather than a promoted column: they change nothing that scores, so
+  // they do not earn a place in the snapshot schema.
+  const expectations = {
+    status: text(payload, "Expectations_Status"),
+    warning: text(payload, "Expectations_Warning") === MISSING
+      ? ""
+      : text(payload, "Expectations_Warning"),
+    forwardEps: numeric(payload, "Expected_EPS_Forward"),
+    changePct: numeric(payload, "Expected_EPS_Change_Pct"),
+    trailingEps: numeric(payload, "EPS"),
+    impliedGrowthPct: (() => {
+      const raw = numeric(payload, "DCF_Implied_FCF_CAGR");
+      return raw === null ? null : raw * 100;
+    })(),
+    assumedGrowthPct: (() => {
+      const raw = numeric(payload, "DCF_Assumed_Growth");
+      return raw === null ? null : raw * 100;
+    })(),
+    growthGapPct: numeric(payload, "Implied_Growth_Gap_Pct"),
+    guidanceTransition: text(payload, "Guidance_Transition") === MISSING
+      ? ""
+      : text(payload, "Guidance_Transition"),
+    guidanceDowngraded: payload["Guidance_Downgraded"] === true
+      || String(payload["Guidance_Downgraded"] ?? "").toLowerCase() === "true",
+  };
   const capReasons = reasons(
     row.decision_cap_reason ??
       row.rating_cap_reason ??
@@ -694,6 +722,14 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
             />
           </div>
         </div>
+
+        {/*
+          Directly under the hero, above the score breakdown. The reader has
+          just seen the score, the price and the chart; this is the first thing
+          that argues with them, and burying it below the factor panels would
+          make the disagreement something you have to go looking for.
+        */}
+        <ExpectationsGap data={expectations} />
 
         {/*
           The ring gets a fixed narrow column and the waterfall gets the rest.
