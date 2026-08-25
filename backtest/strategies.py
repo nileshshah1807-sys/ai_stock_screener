@@ -29,6 +29,7 @@ nothing here compensates for their absence.
 
 from __future__ import annotations
 
+import copy
 import logging
 
 import numpy as np
@@ -472,6 +473,143 @@ class SimpleQualityMomentum(Strategy):
             scored["Quality_Coverage"] + scored["Momentum_Coverage"]
         ) / 2.0
         return scored
+
+
+class Model5GrowthVariant(Model5):
+    """Model 5.1 with the growth block's inputs reweighted.
+
+    Everything else -- block weights, the other four blocks, the percentile
+    re-rank, the market-relative context -- is the production object. The only
+    difference is the trailing-versus-turning balance inside the growth block,
+    supplied as a declared weight map.
+
+    These exist to run the pre-registered ladder in
+    `docs/Review/p1_growth_reweight_preregistration.md`. They are not
+    production candidates on their own; promotion requires the decision rule
+    recorded there, and that rule keeps the production default at G0 even on a
+    clean win, pending live out-of-sample evidence.
+    """
+
+    produces_model5 = False
+
+    def __init__(self, name, weights, config=None):
+        super().__init__(config=config)
+        self.name = name
+        # Copy, so sibling variants in the same run cannot share a config
+        # object and overwrite each other's weights.
+        self.config = copy.copy(self.config)
+        self.config.FACTOR_GROWTH_FEATURE_WEIGHTS = dict(weights)
+
+
+# The pre-registered ladder: trailing-heavy to turning-heavy, one step at a
+# time. G0 is the production baseline and is already covered by `model_5`, so
+# it is not duplicated here.
+GROWTH_REWEIGHT_GRID = {
+    "g1_minimal_swap": {
+        "Revenue_CAGR_3Y": 0.25,
+        "EPS_CAGR_3Y": 0.15,
+        "Revenue_Acceleration": 0.15,
+        "EPS_Acceleration": 0.20,
+        "Margin_Direction": 0.15,
+        "Cash_Conversion": 0.10,
+    },
+    "g2_decel_tilted": {
+        "Revenue_CAGR_3Y": 0.20,
+        "EPS_CAGR_3Y": 0.15,
+        "Revenue_Acceleration": 0.20,
+        "EPS_Acceleration": 0.20,
+        "Margin_Direction": 0.15,
+        "Cash_Conversion": 0.10,
+    },
+    "g3_turning_dominant": {
+        "Revenue_CAGR_3Y": 0.15,
+        "EPS_CAGR_3Y": 0.10,
+        "Revenue_Acceleration": 0.25,
+        "EPS_Acceleration": 0.25,
+        "Margin_Direction": 0.15,
+        "Cash_Conversion": 0.10,
+    },
+}
+
+
+def growth_reweight_strategies():
+    """The declared ladder as strategy objects, in declared order."""
+    return tuple(
+        Model5GrowthVariant(f"model_5_{name}", weights)
+        for name, weights in GROWTH_REWEIGHT_GRID.items()
+    )
+
+
+class Model5GateVariant(Model5Gated):
+    """`model_5_gated` with selected gate thresholds overridden.
+
+    Only the thresholds named in `overrides` move; every other gate keeps its
+    production value, so a variant cannot quietly disable a risk-control gate
+    the declared grid did not name.
+
+    For the pre-registered ladder in
+    `docs/Review/p2_relative_strength_gate_preregistration.md`.
+    """
+
+    def __init__(self, name, overrides, config=None):
+        super().__init__(config=config)
+        self.name = name
+        # Copy, so sibling variants cannot share one GateConfig and overwrite
+        # each other's thresholds.
+        self.config = copy.copy(self.config)
+        for key, value in overrides.items():
+            if not hasattr(self.config, key):
+                raise ValueError(f"unknown gate threshold: {key}")
+            setattr(self.config, key, value)
+
+
+# Progressive removal of the relative-strength requirements. Risk-control gates
+# (MA200 band and slope, confirmed breakdown, bullish stack, risk-off regime,
+# quality/growth floors) are untouched in every variant -- see the
+# pre-registration for the full list of what is deliberately held fixed.
+#
+# The RS floors are exclusive comparisons (`rs <= floor` fails), so a large
+# negative sentinel disables the gate without changing the comparison's shape.
+RS_GATE_OFF = -1.0e9
+
+GATE_RELAXATION_GRID = {
+    "r1_no_6m_rs": {
+        "BUY_MIN_RS_6M": RS_GATE_OFF,
+    },
+    "r2_no_rs": {
+        "BUY_MIN_RS_6M": RS_GATE_OFF,
+        "STRONG_BUY_MIN_RS_12M": RS_GATE_OFF,
+    },
+    "r3_risk_control_only": {
+        "BUY_MIN_RS_6M": RS_GATE_OFF,
+        "STRONG_BUY_MIN_RS_12M": RS_GATE_OFF,
+        "STRONG_BUY_MIN_MOMENTUM_PCT": 0.0,
+        "REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY": 0.0,
+    },
+    # Decomposition, declared after R1-R3 ran and before R4 did: R3 moves four
+    # thresholds at once, and R1/R2 showed the two RS gates do nothing, so R4
+    # isolates the remaining pair. Its job is to attribute R3's result, not to
+    # find a better variant. See the P2 result section for the two outcomes
+    # declared in advance.
+    # NOTE: as of recommendation policy 5.2.0 these two thresholds ARE the
+    # production defaults, so `model_5_gated` and this variant now score
+    # identically. The recorded R1-R4 results were produced against the 5.1.0
+    # baseline (floors at 70/85); re-running the grid today compares 5.2.0
+    # against itself. Kept so the declared grid remains reproducible from the
+    # tagged commit, not because it still discriminates.
+    "r4_momentum_floors_only": {
+        "STRONG_BUY_MIN_MOMENTUM_PCT": 0.0,
+        "REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY": 0.0,
+    },
+}
+
+
+def gate_relaxation_strategies():
+    """The declared gate ladder as strategy objects, in declared order."""
+    return tuple(
+        Model5GateVariant(f"model_5_{name}", overrides)
+        for name, overrides in GATE_RELAXATION_GRID.items()
+    )
 
 
 # Price-only strategies. Runnable without any fundamental data.

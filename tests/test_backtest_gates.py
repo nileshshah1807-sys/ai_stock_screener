@@ -5,6 +5,7 @@ when it should not silently removes real candidates, and a gate that never
 fires makes the whole comparison against `model_5` meaningless.
 """
 
+import copy
 import unittest
 
 import numpy as np
@@ -137,14 +138,54 @@ class GateFailureTests(unittest.TestCase):
         self.assertEqual(buy, [])
 
     def test_neutral_regime_only_tightens_strong_buy(self):
+        """The mechanism, exercised with the floor explicitly configured.
+
+        Policy 5.2.0 disables this floor by default (see the next test), but the
+        overlay itself must keep working for anyone who re-enables it: neutral
+        constrains STRONG BUY and must never touch BUY.
+        """
+        config = copy.copy(self.config)
+        config.REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY = 85.0
         buy, strong = gate_failures(
-            clean_row(Momentum_Percentile=80.0), self.config, regime="NEUTRAL"
+            clean_row(Momentum_Percentile=80.0), config, regime="NEUTRAL"
         )
         self.assertEqual(buy, [])
         self.assertIn(
             "market regime neutral: STRONG BUY requires exceptional momentum",
             strong,
         )
+
+    def test_momentum_percentile_floors_are_disabled_by_default(self):
+        """Recommendation policy 5.2.0.
+
+        Both momentum *percentile* floors are off. A percentile floor is
+        cross-sectional -- in a falling market the top 30% by momentum is still
+        the top 30% -- so it never bought absolute downside protection, and it
+        measurably cost return as a selection input. See
+        docs/Review/p2_relative_strength_gate_preregistration.md (R4).
+
+        The absolute protections must remain on, which is the other half of
+        this assertion: risk-off still disables STRONG BUY outright.
+        """
+        config = GateConfig.from_runtime()
+        self.assertEqual(config.STRONG_BUY_MIN_MOMENTUM_PCT, 0.0)
+        self.assertEqual(
+            config.REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY, 0.0
+        )
+        self.assertTrue(config.REGIME_RISK_OFF_DISABLES_STRONG_BUY)
+        self.assertEqual(config.REGIME_RISK_OFF_MIN_MOMENTUM_PCT, 90.0)
+        self.assertEqual(config.BUY_MA200_TOLERANCE, 0.98)
+        self.assertTrue(config.STRONG_BUY_REQUIRE_MA50_ABOVE_MA200)
+
+        # A weak-momentum name in a neutral regime now clears the overlay.
+        _buy, strong = gate_failures(
+            clean_row(Momentum_Percentile=20.0), config, regime="NEUTRAL"
+        )
+        self.assertNotIn(
+            "market regime neutral: STRONG BUY requires exceptional momentum",
+            strong,
+        )
+        self.assertNotIn("momentum percentile below STRONG BUY floor", strong)
 
     def test_thresholds_are_read_from_the_production_config(self):
         """A drifting production threshold must not leave the backtest behind."""
