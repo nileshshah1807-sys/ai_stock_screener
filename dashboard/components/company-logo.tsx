@@ -3,20 +3,15 @@
 import Image from "next/image";
 import { useState } from "react";
 
+import { resolveLogoDomain } from "@/lib/logo-domain.mjs";
 import { cn } from "@/lib/utils";
 
 type LogoSize = "sm" | "lg";
 
 const SIZES: Record<LogoSize, { pixels: number; className: string }> = {
-  sm: { pixels: 32, className: "size-8 rounded-lg text-[10px]" },
-  lg: { pixels: 56, className: "size-14 rounded-xl text-sm" },
+  sm: { pixels: 32, className: "size-8 text-[10px]" },
+  lg: { pixels: 56, className: "size-14 text-sm" },
 };
-
-function normalizeDomain(value: string | null | undefined): string | null {
-  const domain = value?.trim().toLowerCase().replace(/^www\./, "");
-  if (!domain || !/^[a-z0-9.-]+\.[a-z0-9-]{2,}$/i.test(domain)) return null;
-  return domain;
-}
 
 export function CompanyLogo({
   symbol,
@@ -31,11 +26,11 @@ export function CompanyLogo({
 }) {
   const [failed, setFailed] = useState(false);
   const clientId = process.env.NEXT_PUBLIC_BRANDFETCH_CLIENT_ID?.trim();
-  const normalizedDomain = normalizeDomain(domain);
+  const resolvedDomain = resolveLogoDomain(domain);
   const dimensions = SIZES[size];
   const logoUrl =
-    clientId && normalizedDomain
-      ? `https://cdn.brandfetch.io/domain/${encodeURIComponent(normalizedDomain)}` +
+    clientId && resolvedDomain
+      ? `https://cdn.brandfetch.io/domain/${encodeURIComponent(resolvedDomain)}` +
         `/w/${dimensions.pixels * 2}/h/${dimensions.pixels * 2}` +
         `/fallback/lettermark/type/icon?c=${encodeURIComponent(clientId)}`
       : null;
@@ -44,7 +39,7 @@ export function CompanyLogo({
     <span
       aria-hidden="true"
       className={cn(
-        "relative inline-flex shrink-0 items-center justify-center overflow-hidden border bg-card font-mono font-bold uppercase text-muted-foreground shadow-xs",
+        "relative inline-flex shrink-0 items-center justify-center font-mono font-bold uppercase text-muted-foreground",
         dimensions.className,
         className,
       )}
@@ -55,7 +50,7 @@ export function CompanyLogo({
           width={dimensions.pixels}
           height={dimensions.pixels}
           alt=""
-          className="size-full object-contain p-1"
+          className="size-full object-contain"
           // Brandfetch already sizes, formats, caches, and serves the asset.
           // Sending it through another optimizer only adds a second image bill.
           unoptimized
