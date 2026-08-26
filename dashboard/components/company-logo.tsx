@@ -9,8 +9,8 @@ import { cn } from "@/lib/utils";
 type LogoSize = "sm" | "lg";
 
 const SIZES: Record<LogoSize, { pixels: number; className: string }> = {
-  sm: { pixels: 32, className: "size-8 text-[10px]" },
-  lg: { pixels: 56, className: "size-14 text-sm" },
+  sm: { pixels: 32, className: "size-8 rounded-lg text-[10px]" },
+  lg: { pixels: 56, className: "size-14 rounded-xl text-sm" },
 };
 
 export function CompanyLogo({
@@ -39,7 +39,7 @@ export function CompanyLogo({
     <span
       aria-hidden="true"
       className={cn(
-        "relative inline-flex shrink-0 items-center justify-center font-mono font-bold uppercase text-muted-foreground",
+        "relative inline-flex shrink-0 items-center justify-center overflow-hidden font-mono font-bold uppercase text-muted-foreground",
         dimensions.className,
         className,
       )}
