@@ -269,17 +269,22 @@ export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
  *
  * The projection follows the caller's hidden-column set, so hiding columns is a
  * transfer saving on every subsequent sort, filter and page change rather than
- * only a visual one. An explicit `columns` argument still wins, which is how
- * the export asks for its own wider set.
+ * only a visual one. An explicit `columns` option still wins, which is how the
+ * export asks for its own wider set.
+ *
+ * `symbols` restricts the read to an explicit set, which is what lets the
+ * watchlist page reuse this function whole rather than growing a parallel query
+ * that would have to re-implement the projection, the sort whitelist, all
+ * fourteen filters and the pagination -- and then drift from them.
  */
 export async function getSnapshotPage(
   runDate: string,
   filters: ScreenerFilters,
-  columns?: string,
+  options: { columns?: string; symbols?: readonly string[] } = {},
 ): Promise<{ rows: SnapshotRow[]; total: number }> {
   const supabase = await createClient();
   const projection =
-    columns ??
+    options.columns ??
     (filters.hiddenColumns?.length
       ? gridProjection(filters.hiddenColumns)
       : GRID_COLUMNS);
@@ -288,6 +293,17 @@ export async function getSnapshotPage(
     .from("screener_snapshot")
     .select(projection, { count: "exact" })
     .eq("run_date", runDate);
+
+  if (options.symbols) {
+    // An empty restriction means "nothing", never "everything". Falling through
+    // to an unrestricted read would show an empty watchlist the entire
+    // universe, which is the worst possible failure for this feature.
+    if (!options.symbols.length) return { rows: [], total: 0 };
+    // PostgREST expresses this as `symbol=in.(A,B,C)` in the query string, so
+    // the set size is bounded by URL length. WATCHLIST_MAX_SYMBOLS keeps it
+    // inside a couple of kilobytes.
+    query = query.in("symbol", [...options.symbols]);
+  }
 
   if (filters.q?.trim()) {
     const term = filters.q.trim().replace(/[%,()]/g, "");
@@ -839,7 +855,7 @@ export async function getExportRows(
     const { rows: chunk, total } = await getSnapshotPage(
       runDate,
       { ...filters, page },
-      EXPORT_COLUMNS,
+      { columns: EXPORT_COLUMNS },
     );
     rows.push(...chunk);
     if (!chunk.length || rows.length >= total) break;

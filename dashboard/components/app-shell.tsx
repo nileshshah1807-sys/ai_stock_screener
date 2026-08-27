@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, ArrowLeftRight, LayoutGrid, LogOut } from "lucide-react";
+import { Activity, ArrowLeftRight, Bookmark, LayoutGrid, LogOut } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
@@ -13,8 +13,14 @@ import type { Viewer } from "@/lib/auth";
 
 import { signOut } from "@/app/login/actions";
 
+/*
+ * Four destinations. The comment on AppShell notes this group stays comfortable
+ * to about six before it needs an overflow menu; Watchlists is the fourth, so
+ * there is room, but that ceiling is now closer than it was.
+ */
 const NAV = [
   { href: "/", label: "Screener", icon: LayoutGrid },
+  { href: "/watchlists", label: "Watchlists", icon: Bookmark },
   { href: "/movers", label: "Movers", icon: ArrowLeftRight },
   { href: "/health", label: "Run health", icon: Activity },
 ] as const;

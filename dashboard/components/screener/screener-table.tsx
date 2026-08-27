@@ -349,6 +349,24 @@ const CELLS: Record<ColumnId, (row: SnapshotRow) => ReactNode> = {
  * simultaneous-failure count, stays on the stock page's Decision audit.
  */
 
+/**
+ * An optional trailing column of per-row controls.
+ *
+ * This is how the watchlist page reuses this table rather than forking it. The
+ * screener renders the grid with no action; the watchlist renders the same grid
+ * with a remove control. Everything else -- the registry, the projection, the
+ * frozen columns, sorting, density, keyboard traversal -- is shared, so a change
+ * to any of it lands on both pages at once.
+ *
+ * A render prop rather than a registry entry because the cell needs data the
+ * snapshot row does not carry: which list this row is being shown in.
+ */
+export type RowAction = {
+  /** Header text. Kept for screen readers even when visually empty. */
+  label: string;
+  render: (row: SnapshotRow) => ReactNode;
+};
+
 export function ScreenerTable({
   rows,
   params,
@@ -356,6 +374,8 @@ export function ScreenerTable({
   dir,
   hiddenColumns = [],
   density = "compact",
+  rowAction,
+  emptyState,
 }: {
   rows: SnapshotRow[];
   params: URLSearchParams;
@@ -363,6 +383,13 @@ export function ScreenerTable({
   dir: "asc" | "desc";
   hiddenColumns?: ColumnId[];
   density?: Density;
+  rowAction?: RowAction;
+  /**
+   * Replaces the default "no stocks match these filters" panel. An empty
+   * watchlist and an over-filtered screener are different situations and need
+   * different sentences.
+   */
+  emptyState?: ReactNode;
 }) {
   const headerProps = { currentSort: sort, currentDir: dir, params };
   // A run is either 4.x or Model 5.0 for its whole cross-section, so one row
@@ -373,12 +400,14 @@ export function ScreenerTable({
 
   if (!rows.length) {
     return (
-      <div className="panel animate-rise py-16 text-center">
-        <p className="text-sm font-medium">No stocks match these filters</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Try widening the rating selection or clearing the evidence filters.
-        </p>
-      </div>
+      emptyState ?? (
+        <div className="panel animate-rise py-16 text-center">
+          <p className="text-sm font-medium">No stocks match these filters</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Try widening the rating selection or clearing the evidence filters.
+          </p>
+        </div>
+      )
     );
   }
 
@@ -433,6 +462,12 @@ export function ScreenerTable({
                   />
                 ),
               )}
+              {rowAction ? (
+                <PlainHeader
+                  label={rowAction.label}
+                  className="sticky-col-right"
+                />
+              ) : null}
             </tr>
           </thead>
 
@@ -455,6 +490,11 @@ export function ScreenerTable({
                     {CELLS[column.id](row)}
                   </td>
                 ))}
+                {rowAction ? (
+                  <td className="grid-cell sticky-col-right text-right">
+                    {rowAction.render(row)}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

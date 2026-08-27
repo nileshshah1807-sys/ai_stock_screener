@@ -561,13 +561,30 @@
     background: color-mix(in oklab, var(--muted) 40%, var(--card));
   }
 
-  /* The two corner cells, frozen on both axes at once. They need the header's
-     own tint rather than the `bg-card` the frozen columns use, or the header row
-     reads as two pale cells with a tinted strip to their right. This was already
-     true of the ticker header; it only became obvious once the header stopped
+  /* Row actions, frozen to the right edge.
+     A trailing column in a 15-column grid is off screen at rest, which for an
+     action is the same as not existing. Pinning the identifier left and the
+     actions right is the standard shape for a wide grid, and it is the only
+     placement that does not disturb the two left-frozen columns: a leading
+     action column would shift Stock and Score off left:0 and break their
+     offsets. Shadow points the other way, marking the band's left edge. */
+  .sticky-col-right {
+    @apply sticky right-0 z-10 bg-card transition-colors;
+    box-shadow: inset 1px 0 0 var(--border);
+  }
+
+  .group:hover .sticky-col-right {
+    background: color-mix(in oklab, var(--muted) 40%, var(--card));
+  }
+
+  /* The corner cells, frozen on both axes at once. They need the header's own
+     tint rather than the `bg-card` the frozen columns use, or the header row
+     reads as pale cells with a tinted strip beside them. This was already true
+     of the ticker header; it only became obvious once the header stopped
      scrolling away. */
   .sticky-head .sticky-col,
-  .sticky-head .sticky-col-2 {
+  .sticky-head .sticky-col-2,
+  .sticky-head .sticky-col-right {
     background: color-mix(in oklab, var(--muted) 55%, var(--card));
   }
 

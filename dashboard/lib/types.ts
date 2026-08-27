@@ -263,6 +263,36 @@ export type HistoryRow = {
   current_price: number | null;
 };
 
+/**
+ * A named, per-user list of symbols.
+ *
+ * The first thing in this app owned by a viewer rather than published by a run,
+ * which is why it carries an `owner_id` and lives behind an ownership policy
+ * rather than the shared invite-list one.
+ */
+export type Watchlist = {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  /** Symbols on the list, ordered as stored. */
+  symbols: string[];
+};
+
+/**
+ * Upper bound on one list.
+ *
+ * Not a storage limit -- it is the read path. Members are fetched with
+ * `symbol=in.(...)`, which PostgREST expresses in the query string, so the set
+ * size is bounded by URL length rather than by anything about the table. 200
+ * twelve-character tickers is roughly 2.4 KB, comfortably inside every limit in
+ * the chain, and well past what anyone tracks by hand.
+ */
+export const WATCHLIST_MAX_SYMBOLS = 200;
+
+/** Upper bound on lists per viewer, so the selector stays a row of chips. */
+export const WATCHLIST_MAX_LISTS = 20;
+
 /** Slim record shipped to the browser for instant client-side search. */
 export type SearchEntry = {
   s: string; // symbol
