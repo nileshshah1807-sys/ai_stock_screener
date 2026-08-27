@@ -1,3 +1,5 @@
+import type { ColumnId, Density } from "@/lib/columns";
+
 export const RATINGS = [
   "STRONG BUY",
   "BUY",
@@ -64,6 +66,7 @@ export type SnapshotRow = {
   fundamental_anomaly: boolean | null;
 
   current_price: number | null;
+  pct_change_1d: number | null;
   pct_change_1m: number | null;
   pct_change_3m: number | null;
   pct_change_6m: number | null;
@@ -288,4 +291,12 @@ export type ScreenerFilters = {
   sort?: string;
   dir?: "asc" | "desc";
   page?: number;
+  /**
+   * Presentation, not filtering. In the URL beside the filters for one reason:
+   * it makes a hidden-column set and a row density part of a saved view, so
+   * "the screen I look at every morning" is one link rather than a link plus
+   * two settings to re-apply.
+   */
+  hiddenColumns?: ColumnId[];
+  density?: Density;
 };

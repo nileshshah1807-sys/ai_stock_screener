@@ -116,14 +116,17 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-dvh bg-background p-0 sm:p-6 lg:p-10">
+    /* lg:p-8 rather than p-10. The screener grid is bounded to the viewport so
+       its header can stay pinned, which makes every rem of shell chrome a rem
+       the rows do not get; 8 still reads as a floating sheet. */
+    <div className="min-h-dvh bg-background p-0 sm:p-6 lg:p-8">
       <div
         className={cn(
           "mx-auto flex min-h-dvh w-full max-w-[1440px] flex-col bg-workspace",
           "sm:min-h-0 sm:rounded-workspace sm:elevate-workspace sm:overflow-hidden",
         )}
       >
-        <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-4 sm:px-8 sm:py-6">
+        <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-4 sm:px-8 sm:py-5">
           <Brand run={run} />
 
           {/*

@@ -27,6 +27,7 @@ const COLUMNS: Array<[keyof SnapshotRow, string]> = [
   ["rating_cap_reason", "Rating_Cap_Reason"],
   ["gate_failures", "Gate_Failures"],
   ["current_price", "Current_Price"],
+  ["pct_change_1d", "Pct_Change_1D"],
   ["pct_change_1m", "Pct_Change_1M"],
   ["pct_change_3m", "Pct_Change_3M"],
   ["market_cap", "Market_Cap"],

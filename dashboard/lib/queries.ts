@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import { gridProjection } from "@/lib/columns";
 import { createClient } from "@/lib/supabase/server";
 import type {
   HistoryRow,
@@ -33,62 +34,25 @@ function chunkOffsets(rowCount: number): number[] {
 }
 
 /**
- * Columns the on-screen grid renders.
+ * Columns the on-screen grid renders, when nothing is hidden.
  *
- * Kept to exactly what ScreenerTable reads, because this read is payload-bound
- * rather than latency-bound: measured against this database, 100 rows of 61
- * columns is 155 KB and 301 ms, while the same 100 rows of the ~34 columns the
- * grid actually displays is 66 KB and 171 ms -- within noise of the 167 ms
- * network round trip. Every unused column is pure transfer cost on every sort,
- * filter and page change.
+ * Derived from the column registry rather than listed here, so a column and the
+ * fields it reads are declared in one place and cannot drift apart -- the way
+ * `pb_ratio` and `roe` once did in the export, where the column map named them
+ * but the select did not and they were written empty for every row.
+ *
+ * This read is payload-bound rather than latency-bound: measured against this
+ * database, 100 rows of 61 columns is 155 KB and 301 ms, while the same 100
+ * rows of the ~34 columns the grid actually displays is 66 KB and 171 ms --
+ * within noise of the 167 ms network round trip. Every unused column is pure
+ * transfer cost on every sort, filter and page change, which is why hiding a
+ * column narrows this select instead of only hiding cells in the browser.
  *
  * Sorting is unaffected by what is selected: `.order()` runs in Postgres, so a
  * sortable column need not appear here. The CSV export needs a different and
  * partly wider set, which is why EXPORT_COLUMNS exists separately.
  */
-const GRID_COLUMNS = [
-  "run_date",
-  "symbol",
-  "company",
-  "logo_domain",
-  "investment_rank",
-  "rating",
-  "decision_score",
-  "final_score",
-  "evidence_score",
-  "fundamental_score",
-  "technical_score",
-  "fundamental_coverage",
-  "technical_coverage",
-  "rating_capped",
-  "rating_cap_reason",
-  "decision_cap_reason",
-  "current_price",
-  "pct_change_1m",
-  "market_cap",
-  "pe_ratio",
-  "dcf_status",
-  "dcf_base_case_upside",
-  "transcript_status",
-  "transcript_scoring_eligible",
-  "transcript_guidance",
-  "red_flag_status",
-  "red_flag_severity",
-  "shadow_red_flag_would_change",
-  "liquidity_grade",
-  "portfolio_actionable",
-  "median_turnover_20d_inr",
-  // Model 5.0. Null on 4.x rows, so the grid renders these columns only when
-  // factor_model_applied is set rather than showing a wall of dashes.
-  "factor_model_applied",
-  "quality_percentile",
-  "growth_percentile",
-  "momentum_percentile",
-  "primary_gate",
-  // Feeds the entry chip's distance-to-clearing text: "2.3% below 200DMA"
-  // says what would have to change, where a bare gate name does not.
-  "price_to_ma200_pct",
-].join(",");
+const GRID_COLUMNS = gridProjection([]);
 
 /**
  * Columns the CSV export writes.
@@ -124,6 +88,7 @@ const EXPORT_COLUMNS = [
   "fund_fields_present",
   "fund_fields_expected",
   "current_price",
+  "pct_change_1d",
   "pct_change_1m",
   "pct_change_3m",
   "market_cap",
@@ -177,6 +142,7 @@ const SORTABLE = new Set([
   "fundamental_score",
   "technical_score",
   "current_price",
+  "pct_change_1d",
   "pct_change_1m",
   "pct_change_3m",
   "market_cap",
@@ -254,17 +220,27 @@ export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
  * Filtering runs in Postgres rather than the browser so the page weight stays
  * constant as the universe grows, and so a filter reflects the whole universe
  * rather than whatever subset happened to be loaded.
+ *
+ * The projection follows the caller's hidden-column set, so hiding columns is a
+ * transfer saving on every subsequent sort, filter and page change rather than
+ * only a visual one. An explicit `columns` argument still wins, which is how
+ * the export asks for its own wider set.
  */
 export async function getSnapshotPage(
   runDate: string,
   filters: ScreenerFilters,
-  columns: string = GRID_COLUMNS,
+  columns?: string,
 ): Promise<{ rows: SnapshotRow[]; total: number }> {
   const supabase = await createClient();
+  const projection =
+    columns ??
+    (filters.hiddenColumns?.length
+      ? gridProjection(filters.hiddenColumns)
+      : GRID_COLUMNS);
 
   let query = supabase
     .from("screener_snapshot")
-    .select(columns, { count: "exact" })
+    .select(projection, { count: "exact" })
     .eq("run_date", runDate);
 
   if (filters.q?.trim()) {
@@ -730,6 +706,74 @@ export async function getMovers(
     upgrades,
     downgrades,
     entrants,
+  };
+}
+
+export type PriceMoverRow = {
+  symbol: string;
+  company: string | null;
+  investment_rank: number | null;
+  rating: string | null;
+  current_price: number | null;
+  pct_change_1d: number | null;
+};
+
+const PRICE_MOVER_COLUMNS =
+  "symbol, company, investment_rank, rating, current_price, pct_change_1d";
+
+/**
+ * Biggest single-session gainers and losers.
+ *
+ * Reads `screener_snapshot` rather than the `screener_movers` view, for two
+ * reasons. The view diffs `screener_history.current_price`, which is the *raw*
+ * close, so a split or a large dividend would publish a fabricated -90% mover;
+ * `pct_change_1d` is computed on adjusted closes by the model itself. And a
+ * snapshot read needs no previous run, so these two panels work on a first-ever
+ * publication, where every rank and rating bucket is necessarily empty.
+ *
+ * Two ordered reads rather than one full-universe read and a client-side sort:
+ * Postgres already has the index, and the whole point is to move ~2,400 rows of
+ * transfer off the wire for the 15 rows actually rendered.
+ */
+export async function getPriceMovers(
+  runDate: string,
+  limit = 15,
+): Promise<{ gainers: PriceMoverRow[]; losers: PriceMoverRow[] }> {
+  const supabase = await createClient();
+
+  const side = (ascending: boolean) =>
+    supabase
+      .from("screener_snapshot")
+      .select(PRICE_MOVER_COLUMNS)
+      .eq("run_date", runDate)
+      // Runs published before Pct_Change_1D existed carry null for every row.
+      // Excluding them here is what lets the page decide to render nothing at
+      // all rather than two panels of dashes presented as the day's movers.
+      .not("pct_change_1d", "is", null)
+      .order("pct_change_1d", { ascending, nullsFirst: false })
+      .order("symbol", { ascending: true })
+      .limit(limit);
+
+  const [top, bottom] = await Promise.all([side(false), side(true)]);
+
+  if (top.error || bottom.error) {
+    console.error(
+      "getPriceMovers failed",
+      top.error?.message ?? bottom.error?.message,
+    );
+    return { gainers: [], losers: [] };
+  }
+
+  const rows = (result: { data: unknown }) =>
+    ((result.data ?? []) as unknown as PriceMoverRow[]).filter(
+      (row) => row.pct_change_1d !== null,
+    );
+
+  return {
+    // A flat session is neither a gain nor a fall. Without this a universe that
+    // barely moved fills both panels with +0.00% rows.
+    gainers: rows(top).filter((row) => (row.pct_change_1d ?? 0) > 0),
+    losers: rows(bottom).filter((row) => (row.pct_change_1d ?? 0) < 0),
   };
 }
 

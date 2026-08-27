@@ -252,6 +252,12 @@
  * second red would make the two ends of the scale indistinguishable.
  */
 :root {
+  /* Width of the grid's frozen ticker column. Declared once because the second
+     frozen column offsets itself by exactly this value, and a mismatch shows up
+     as a seam or an overlap rather than as a compile error. Sized for the
+     logo, the ticker, and a truncated company name. */
+  --sticky-col-w: 11.5rem;
+
   --background: #f2f2f2;
   --foreground: #1c1b1b;
   --card: #fdf8f8;
@@ -484,17 +490,105 @@
     box-shadow: inset 0 -1px 0 var(--border);
   }
 
+  /* The grid's scroll container, and the reason `.sticky-head` works at all.
+     `position: sticky` resolves against the nearest scrollport, and CSS refuses
+     to combine `overflow-x: auto` with `overflow-y: visible` -- it forces the
+     other axis to `auto`. So the horizontal scroller this table needs is also a
+     *vertical* scrollport, and while its height was unconstrained it grew to fit
+     every row and never scrolled. The header was pinning to a scrollport that
+     could not move, which looks exactly like not pinning at all.
+
+     Bounding the height is what gives that scrollport somewhere to scroll. The
+     page still scrolls the chrome above; once the grid fills the viewport, the
+     wheel scrolls the grid and the header stays put. Scroll chaining is left on
+     deliberately, so reaching the last row continues into the pagination
+     instead of dead-ending. */
+  .grid-scroll {
+    overflow: auto;
+    /* The subtrahend is an estimate of the chrome above the grid, which CSS
+       cannot measure. Getting it *too small* is the failure that matters: the
+       grid then overflows the viewport, the page scrolls to compensate, the
+       grid's top passes the viewport top, and the pinned header rides off
+       screen with it -- which looks like the header not working at all.
+
+       Current budget on a desktop viewport, which is what this 19rem is:
+         2.0  workspace padding (lg:p-8)
+         5.0  app header
+         1.25 screener page padding
+         6.3  summary band (trimmed from 7.7 for exactly this reason)
+         1    page gap
+         2.5  filter row + the shared views/active-filters row
+         1    page gap
+       Re-measure and update this if that chrome changes; the `max()` floor is
+       the safety net if nobody does, turning a stale estimate into "slightly
+       too tall" rather than "unusable".
+
+       Note the hard ceiling this implies. At ~44px per compact row -- set by the
+       32px issuer logo plus padding -- a 992px viewport can show at most ~22
+       rows even with zero chrome above the grid. A pinned header and a long
+       table are in direct competition here, and no value of this variable
+       escapes that. */
+    max-height: max(40rem, calc(100dvh - var(--grid-chrome, 19rem)));
+  }
+
   /* The frozen ticker column needs its own opaque fill to cover the columns
      scrolling under it, which means it cannot inherit the row's hover tint.
      It repaints that tint itself so a hovered row highlights as one band
      rather than leaving the ticker stranded at the card colour. */
   .sticky-col {
     @apply sticky left-0 z-10 bg-card transition-colors;
+    /* Fixed rather than min-width, because the second frozen column offsets
+       itself by exactly this value. A min-width would let content widen the
+       ticker column and leave a gap or an overlap beside it. */
+    width: var(--sticky-col-w);
+    min-width: var(--sticky-col-w);
+    max-width: var(--sticky-col-w);
+  }
+
+  /* The score, frozen immediately right of the ticker.
+     Pinning the identifier alone still lost the reader the one number the page
+     is about as soon as they scrolled right to reach PE or Liq, so the frozen
+     band is "which stock" plus "how good". The divider moves here because this
+     is now the right edge of that band. */
+  .sticky-col-2 {
+    @apply sticky z-10 bg-card transition-colors;
+    left: var(--sticky-col-w);
     box-shadow: inset -1px 0 0 var(--border);
   }
 
-  .group:hover .sticky-col {
+  .group:hover .sticky-col,
+  .group:hover .sticky-col-2 {
     background: color-mix(in oklab, var(--muted) 40%, var(--card));
+  }
+
+  /* The two corner cells, frozen on both axes at once. They need the header's
+     own tint rather than the `bg-card` the frozen columns use, or the header row
+     reads as two pale cells with a tinted strip to their right. This was already
+     true of the ticker header; it only became obvious once the header stopped
+     scrolling away. */
+  .sticky-head .sticky-col,
+  .sticky-head .sticky-col-2 {
+    background: color-mix(in oklab, var(--muted) 55%, var(--card));
+  }
+
+  /* Density is a real option rather than a default: the compact rows an
+     analyst wants for a 100-row cross-section are tight for someone reading a
+     handful of names. Driven by one custom property so every cell in the grid
+     -- including the two frozen ones, which do not inherit row styling --
+     changes together. Values are literal rather than Tailwind's spacing scale
+     so this does not depend on a generated theme variable being in scope.
+     0.375rem matches the py-1.5 the grid shipped with. */
+  .grid-density-compact {
+    --row-pad-y: 0.375rem;
+  }
+
+  .grid-density-comfortable {
+    --row-pad-y: 0.75rem;
+  }
+
+  .grid-cell {
+    padding-block: var(--row-pad-y, 0.375rem);
+    padding-inline: 0.5rem;
   }
 
   /* The mock's two elevation levels. Kept as utilities rather than baked into

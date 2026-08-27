@@ -4,8 +4,15 @@ import { ArrowDownRight, ArrowUpRight, Sparkles, TrendingDown, TrendingUp } from
 
 import { RatingBadge } from "@/components/rating-badge";
 import { Reveal } from "@/components/motion";
-import { formatDate, formatScore, MISSING } from "@/lib/format";
-import { getLatestRun, getMovers } from "@/lib/queries";
+import {
+  formatDate,
+  formatINR,
+  formatPercent,
+  formatScore,
+  MISSING,
+} from "@/lib/format";
+import { getLatestRun, getMovers, getPriceMovers } from "@/lib/queries";
+import type { PriceMoverRow } from "@/lib/queries";
 import type { MoverRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -123,6 +130,90 @@ function MoverList({
   );
 }
 
+/**
+ * Single-session price movers.
+ *
+ * Structurally separate from `MoverList` rather than a sixth `mode` on it,
+ * because it answers a different question. Every other panel on this page is a
+ * *model* movement -- the rank, the rating, the score changed -- and needs a
+ * previous run to exist. This one is a market movement within one run, so it
+ * renders on a first-ever publication where the model buckets are all empty.
+ */
+function PriceMoverList({
+  title,
+  description,
+  icon: Icon,
+  rows,
+}: {
+  title: string;
+  description: string;
+  icon: typeof TrendingUp;
+  rows: PriceMoverRow[];
+}) {
+  return (
+    <section data-mover className="panel overflow-hidden">
+      <div className="border-b px-4 py-3">
+        <h2 className="flex items-center gap-2 text-base font-semibold tracking-[-0.011em]">
+          <Icon className="size-4 text-muted-foreground" aria-hidden />
+          {title}
+          <span className="tabular ml-auto font-mono text-xs font-normal text-muted-foreground">
+            {rows.length}
+          </span>
+        </h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </div>
+
+      {rows.length ? (
+        <ul className="divide-y">
+          {rows.map((row) => (
+            <li key={row.symbol}>
+              <Link
+                href={`/stocks/${row.symbol}`}
+                className="group flex items-center gap-3 px-4 py-2 transition-colors duration-(--duration-fast) ease-(--ease-standard) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              >
+                <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">
+                  {row.investment_rank ?? MISSING}
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
+                    {row.symbol}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    {row.company ?? MISSING}
+                  </span>
+                </span>
+
+                <span className="tabular hidden font-mono text-[11px] text-muted-foreground sm:inline">
+                  {formatINR(row.current_price, 0)}
+                </span>
+                {/* Two decimals, matching the grid's 1D column and the stock
+                    page's 1D tile. One decimal collapses most of a session's
+                    moves onto the same two or three values. */}
+                <span
+                  className={cn(
+                    "tabular w-16 shrink-0 text-right font-mono text-xs",
+                    (row.pct_change_1d ?? 0) >= 0
+                      ? "text-positive"
+                      : "text-negative",
+                  )}
+                >
+                  {formatPercent(row.pct_change_1d, 2, true)}
+                </span>
+                <RatingBadge rating={row.rating} />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+          Nothing in this bucket for this run.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export default async function MoversPage() {
   const run = await getLatestRun();
 
@@ -136,9 +227,20 @@ export default async function MoversPage() {
     );
   }
 
-  const movers = await getMovers(run.run_date);
+  // Independent reads, so they go out together. The price side needs no previous
+  // run and the model side needs no price field, and neither should wait.
+  const [movers, priceMovers] = await Promise.all([
+    getMovers(run.run_date),
+    getPriceMovers(run.run_date),
+  ]);
 
   const hasComparison = Boolean(movers.previousOn);
+  // Runs published before the screener emitted Pct_Change_1D have no session
+  // move at all. Rendering two empty panels would read as "nothing moved
+  // today", which is a claim about the market rather than about the run.
+  const hasPriceMoves = Boolean(
+    priceMovers.gainers.length || priceMovers.losers.length,
+  );
 
   return (
     <div className="space-y-4 px-4 py-5 sm:px-6">
@@ -161,6 +263,27 @@ export default async function MoversPage() {
             )}
           </p>
         </div>
+
+        {/* Above the model buckets on purpose. "What moved today" is the
+            question a reader arrives with, and it is the only one answerable
+            from a single run; the rank and rating panels below are the model's
+            own movement, which is a slower and more considered thing. */}
+        {hasPriceMoves ? (
+          <Reveal selector="[data-mover]" bounce className="grid gap-4 lg:grid-cols-2">
+            <PriceMoverList
+              title="Biggest daily gains"
+              description="Largest moves on the last completed session, on adjusted closes."
+              icon={TrendingUp}
+              rows={priceMovers.gainers}
+            />
+            <PriceMoverList
+              title="Biggest daily falls"
+              description="Largest declines on the last completed session, on adjusted closes."
+              icon={TrendingDown}
+              rows={priceMovers.losers}
+            />
+          </Reveal>
+        ) : null}
 
         {/* The comparison is against the previous *available* run, not
             yesterday's calendar date, so a weekend or exchange holiday does not
