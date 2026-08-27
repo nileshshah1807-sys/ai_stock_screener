@@ -66,6 +66,10 @@ export default async function ScreenerPage({ searchParams }: PageProps<"/">) {
             ? "asc"
             : "desc")
         }
+        // The same set already narrowed the projection above, so the grid
+        // renders exactly the columns it received data for.
+        hiddenColumns={filters.hiddenColumns}
+        density={filters.density}
       />
 
       <Pagination

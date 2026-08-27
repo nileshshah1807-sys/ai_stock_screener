@@ -717,6 +717,12 @@ class StockDataCollector:
                             (signal_current_price - float(bb_lower.iloc[-1])) / bb_range
                             if bb_range and bb_range > 0 else 0.5
                         )
+                        # Last completed session's move. On adjusted closes like
+                        # every other return here, so an ex-dividend or split
+                        # session reports the holder's return rather than the
+                        # mechanical price cut. Display evidence only: no score,
+                        # gate or rank reads it.
+                        pct_1d = TechnicalEnhancer.calculate_pct_return(closes, 1)
                         pct_1m = TechnicalEnhancer.calculate_pct_return(closes, 21)
                         pct_3m = TechnicalEnhancer.calculate_pct_return(closes, 65)
                         pct_6m_lookback = (
@@ -836,6 +842,7 @@ class StockDataCollector:
                                 ),
                                 2,
                             ),
+                            "Pct_Change_1D": round(pct_1d, 2),
                             "Pct_Change_1M": round(pct_1m, 2),
                             "Pct_Change_3M": round(pct_3m, 2),
                             "Pct_Change_6M": round(pct_6m, 2),

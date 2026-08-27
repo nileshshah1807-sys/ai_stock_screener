@@ -161,16 +161,20 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
 
   if (!row) notFound();
 
-  // Last completed session's move, from the same merged series the chart
-  // draws. There is no Pct_Change_1D in the model output, and deriving it here
-  // rather than adding a column keeps the tile and the chart on one source:
-  // if the chart shows a gap, the tile shows nothing rather than a number the
-  // chart contradicts.
+  // Last completed session's move. Now that the model publishes it, the row is
+  // the source: it puts this tile on the same number the screener grid's 1D
+  // column shows, and on the same adjusted-close basis as the 1M and 3M tiles
+  // beside it -- the derivation below reads the chart tail, which carries raw
+  // closes, so the two disagreed on any ex-dividend or split session.
+  //
+  // The chart derivation is kept as a fallback for runs published before the
+  // column existed. It is second, not first, so a corporate action cannot make
+  // the tile contradict the grid.
   const chartPoints = withTail(
     decodeSeries(priceSeries, sessions ?? []).points,
     priceTail,
   );
-  const change1d =
+  const derivedChange1d =
     chartPoints.length >= 2
       ? (() => {
           const previous = chartPoints[chartPoints.length - 2].close;
@@ -178,6 +182,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
           return previous > 0 ? (latest / previous - 1) * 100 : null;
         })()
       : null;
+  const change1d = row.pct_change_1d ?? derivedChange1d;
 
   const payload = row.payload ?? {};
   const valueAudit = valueInputAudit(pick(payload, "Value_Input_Audit"));

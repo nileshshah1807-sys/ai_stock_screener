@@ -61,7 +61,7 @@ schedule the same entry point with `python scheduler.py`.
 The scheduled production workflow selects **Model 5.1** with
 `FACTOR_MODEL_ENABLED=true`, `MODEL_VERSION=5.1.0`, and
 `RECOMMENDATION_POLICY_VERSION=5.1.0`; its additive output contract remains
-`OUTPUT_SCHEMA_VERSION=4.1.0`. The runtime default and a manual dispatch of the
+`OUTPUT_SCHEMA_VERSION=4.2.0`. The runtime default and a manual dispatch of the
 daily workflow stay on the isolated 4.x path.
 
 Model 5.x replaces the 70/30 core score with five separable factor blocks, swaps

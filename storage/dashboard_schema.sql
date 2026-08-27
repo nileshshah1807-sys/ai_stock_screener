@@ -204,6 +204,7 @@ create table if not exists screener_snapshot (
 
     -- Price and momentum, all on the same completed bar.
     current_price numeric(14,2),
+    pct_change_1d numeric(10,2),
     pct_change_1m numeric(10,2),
     pct_change_3m numeric(10,2),
     pct_change_6m numeric(10,2),
@@ -399,6 +400,13 @@ alter table screener_snapshot
     add column if not exists max_drawdown_1y_pct numeric(10,3),
     add column if not exists downside_deviation_pct numeric(10,3),
     add column if not exists roic numeric(12,4);
+
+-- Last completed session's move, added after the Model 5.0 block because it is
+-- not factor evidence: it is display-only and applies to both models. Null on
+-- every run published before the screener emitted Pct_Change_1D, which the
+-- grid renders as a dash rather than as a flat session.
+alter table screener_snapshot
+    add column if not exists pct_change_1d numeric(10,2);
 
 -- Grid default ordering.
 create index if not exists screener_snapshot_rank_idx

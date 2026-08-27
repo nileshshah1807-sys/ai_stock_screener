@@ -97,6 +97,7 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("fundamental_anomaly", "Fundamental_Anomaly", "bool"),
 
     ("current_price", "Current_Price", "num:14,2"),
+    ("pct_change_1d", "Pct_Change_1D", "num:10,2"),
     ("pct_change_1m", "Pct_Change_1M", "num:10,2"),
     ("pct_change_3m", "Pct_Change_3M", "num:10,2"),
     ("pct_change_6m", "Pct_Change_6M", "num:10,2"),

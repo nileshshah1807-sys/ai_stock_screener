@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 
 import { CompanyLogo } from "@/components/company-logo";
@@ -8,6 +9,7 @@ import {
   RedFlagChip,
   TranscriptChip,
 } from "@/components/evidence-chips";
+import { GridKeyboard } from "@/components/screener/grid-keyboard";
 import { PlainHeader, SortHeader } from "@/components/screener/sort-header";
 import {
   Tooltip,
@@ -15,7 +17,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { dcfStatus, primaryGate } from "@/lib/labels";
+import { dcfStatus } from "@/lib/labels";
+import { visibleColumns, type ColumnId, type Density } from "@/lib/columns";
 import {
   formatINR,
   formatINRCompact,
@@ -30,8 +33,19 @@ import type { SnapshotRow } from "@/lib/types";
 /**
  * Signed change cell. Sign is carried by an explicit +/- and by position, so
  * colour is reinforcement rather than the only signal.
+ *
+ * `decimals` exists for the 1D column: a single session's move is usually
+ * inside a percent, so one decimal rounds most of the column to the same two
+ * or three values and destroys the ordering the reader is scanning for. It
+ * also keeps the grid's 1D figure identical to the stock page's 1D tile.
  */
-function ChangeCell({ value }: { value: number | null }) {
+function ChangeCell({
+  value,
+  decimals = 1,
+}: {
+  value: number | null;
+  decimals?: number;
+}) {
   if (value === null || value === undefined) {
     return <span className="text-muted-foreground">{MISSING}</span>;
   }
@@ -42,7 +56,7 @@ function ChangeCell({ value }: { value: number | null }) {
         value > 0 ? "text-positive" : value < 0 ? "text-negative" : "",
       )}
     >
-      {formatPercent(value, 1, true)}
+      {formatPercent(value, decimals, true)}
     </span>
   );
 }
@@ -84,6 +98,15 @@ function ScoreMeter({
   );
 }
 
+/** True when the row's gates imply a ceiling below its published score. */
+function scoreWasReduced(row: SnapshotRow): boolean {
+  const published = row.final_score ?? row.evidence_score;
+  const ceiling = row.decision_score;
+  return (
+    published !== null && ceiling !== null && Math.abs(published - ceiling) > 0.05
+  );
+}
+
 /**
  * The published score, uncapped. One number per row.
  *
@@ -102,15 +125,6 @@ function ScoreMeter({
  * statement about timing and so does not compete with the score for the same
  * meaning.
  */
-/** True when the row's gates imply a ceiling below its published score. */
-function scoreWasReduced(row: SnapshotRow): boolean {
-  const published = row.final_score ?? row.evidence_score;
-  const ceiling = row.decision_score;
-  return (
-    published !== null && ceiling !== null && Math.abs(published - ceiling) > 0.05
-  );
-}
-
 function ScoreCell({ row }: { row: SnapshotRow }) {
   const published = row.final_score ?? row.evidence_score;
   const ceiling = row.decision_score;
@@ -179,45 +193,170 @@ function PercentileCell({ value }: { value: number | null }) {
   );
 }
 
-/** The binding reason a row is not rated higher. */
-function GateChip({ gate }: { gate: string | null }) {
-  if (!gate || gate === "NONE") {
-    return <span className="text-muted-foreground">{MISSING}</span>;
+function DcfCell({ row }: { row: SnapshotRow }) {
+  if (row.dcf_status && row.dcf_base_case_upside !== null) {
+    return <ChangeCell value={(row.dcf_base_case_upside ?? 0) * 100} />;
   }
-  const { label, meaning } = primaryGate(gate);
   return (
     <Tooltip>
       <TooltipTrigger
-        render={
-          <span className="cursor-help rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium" />
-        }
+        render={<span className="cursor-help text-muted-foreground" />}
       >
-        {label}
+        {MISSING}
       </TooltipTrigger>
       <TooltipContent className="max-w-72">
-        <p className="font-medium">{label}</p>
-        <p className="text-xs opacity-90">{meaning}</p>
+        <p className="font-medium">{dcfStatus(row.dcf_status).label}</p>
+        <p className="text-xs opacity-90">
+          {dcfStatus(row.dcf_status).meaning ||
+            "No usable DCF result. Treated as neutral evidence, not as a negative signal."}
+        </p>
       </TooltipContent>
     </Tooltip>
   );
 }
+
+function LiquidityCell({ row }: { row: SnapshotRow }) {
+  if (!row.liquidity_grade) {
+    return <span className="text-xs text-muted-foreground">{MISSING}</span>;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className={cn(
+              "tabular cursor-help font-mono text-xs",
+              row.portfolio_actionable ? "text-foreground" : "text-caution",
+            )}
+          />
+        }
+      >
+        {row.liquidity_grade}
+      </TooltipTrigger>
+      <TooltipContent className="max-w-64">
+        <p className="text-xs">
+          {row.portfolio_actionable
+            ? "The configured target position is executable at the assumed participation rate."
+            : "Not executable at the configured target position. This does not change the score or rating."}
+        </p>
+        <p className="mt-1 text-xs opacity-80">
+          20-day median turnover{" "}
+          {formatINRCompact(row.median_turnover_20d_inr)}
+        </p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * Cell renderers, keyed by the same ids the registry uses.
+ *
+ * Split from `lib/columns.ts` only because that file has to stay JSX-free to be
+ * importable by the server-side query builder. Keeping the keys identical is
+ * what ties a column's metadata to its rendering; TypeScript enforces that this
+ * record is exhaustive, so a registry entry cannot ship without a cell.
+ */
+const CELLS: Record<ColumnId, (row: SnapshotRow) => ReactNode> = {
+  rank: (row) => row.investment_rank ?? MISSING,
+  stock: (row) => (
+    <Link
+      href={`/stocks/${row.symbol}`}
+      // Read by GridKeyboard to find the next row to focus. A class or a tag
+      // selector would also match links inside cells, and j/k would then walk
+      // sideways through a row instead of down the column.
+      data-row-link
+      className="flex items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <CompanyLogo symbol={row.symbol} domain={row.logo_domain} />
+      {/* Explicitly capped, not just min-w-0. The cell is fixed at
+          --sticky-col-w so the second frozen column can offset by exactly that,
+          but an auto-layout table treats a td width as a hint and will still
+          widen it if a child asks to be wider. 8rem is --sticky-col-w less the
+          cell padding, the 32px logo and its gap. */}
+      <span className="min-w-0 max-w-[8rem]">
+        {/* Underline alone, no colour shift: --primary and --foreground are
+            within a hair of each other in both themes, so a colour hover would
+            be invisible. */}
+        <span className="block truncate font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
+          {row.symbol}
+        </span>
+        <span className="block truncate text-[11px] text-muted-foreground">
+          {row.company ?? MISSING}
+        </span>
+      </span>
+    </Link>
+  ),
+  score: (row) => <ScoreCell row={row} />,
+  quality: (row) => <PercentileCell value={row.quality_percentile} />,
+  momentum: (row) => <PercentileCell value={row.momentum_percentile} />,
+  growth: (row) => <PercentileCell value={row.growth_percentile} />,
+  fundamental: (row) => formatScore(row.fundamental_score),
+  technical: (row) => formatScore(row.technical_score),
+  rating: (row) => <EntryBadge row={row} />,
+  coverage: (row) => (
+    <CoverageCell
+      fundamental={row.fundamental_coverage}
+      technical={row.technical_coverage}
+    />
+  ),
+  dcf: (row) => <DcfCell row={row} />,
+  evidence: (row) => (
+    <span className="flex items-center gap-1.5">
+      <TranscriptChip
+        status={row.transcript_status}
+        eligible={row.transcript_scoring_eligible}
+        guidance={row.transcript_guidance}
+      />
+      <RedFlagChip
+        status={row.red_flag_status}
+        severity={row.red_flag_severity}
+        wouldChange={row.shadow_red_flag_would_change}
+      />
+      <CappedChip
+        capped={row.rating_capped}
+        reason={row.rating_cap_reason ?? row.decision_cap_reason}
+        enforced={scoreWasReduced(row)}
+      />
+    </span>
+  ),
+  price: (row) => formatINR(row.current_price, 0),
+  change1d: (row) => <ChangeCell value={row.pct_change_1d} decimals={2} />,
+  change1m: (row) => <ChangeCell value={row.pct_change_1m} />,
+  marketCap: (row) => formatINRCompact(row.market_cap),
+  pe: (row) => formatNumber(row.pe_ratio, 1),
+  liq: (row) => <LiquidityCell row={row} />,
+};
+
+/*
+ * The standalone Gate column was removed. It restated what the RATING cell's
+ * EntryBadge already says -- that badge reads the same `primary_gate` and adds
+ * the distance still to clear ("2.3% below 200DMA"), which the bare chip could
+ * not -- so the two columns competed to answer one question while costing the
+ * grid its widest non-numeric column. The full binding-gate detail, including
+ * simultaneous-failure count, stays on the stock page's Decision audit.
+ */
 
 export function ScreenerTable({
   rows,
   params,
   sort,
   dir,
+  hiddenColumns = [],
+  density = "compact",
 }: {
   rows: SnapshotRow[];
   params: URLSearchParams;
   sort: string;
   dir: "asc" | "desc";
+  hiddenColumns?: ColumnId[];
+  density?: Density;
 }) {
   const headerProps = { currentSort: sort, currentDir: dir, params };
   // A run is either 4.x or Model 5.0 for its whole cross-section, so one row
   // settles it. Showing both column sets would double the grid width and leave
   // whichever model did not run as a full column of dashes.
   const factorModel = rows.some((row) => row.factor_model_applied === true);
+  const columns = visibleColumns(hiddenColumns, factorModel);
 
   if (!rows.length) {
     return (
@@ -238,125 +377,49 @@ export function ScreenerTable({
      * for. One 180ms fade on the whole panel, then the numbers are readable.
      */
     <div className="panel animate-fade overflow-hidden">
+      <GridKeyboard />
       {/* The grid is wider than a phone and legitimately so: it is a
-          cross-sectional comparison. It scrolls inside its own container so
-          the page body never scrolls sideways. */}
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
+          cross-sectional comparison. It scrolls inside its own container so the
+          page body never scrolls sideways -- and, now that the container has a
+          bounded height, so the header row stays put on the way down. See
+          `.grid-scroll` for why the bound is what makes that work. */}
+      <div className="grid-scroll">
+        <table
+          className={cn(
+            "w-full border-collapse text-sm",
+            density === "comfortable"
+              ? "grid-density-comfortable"
+              : "grid-density-compact",
+          )}
+        >
           <caption className="sr-only">
             Screened NSE stocks ordered by {sort.replace(/_/g, " ")}, showing
             model decision score, evidence coverage, and execution suitability.
           </caption>
           <thead className="sticky-head">
             <tr>
-              <SortHeader
-                {...headerProps}
-                label="#"
-                column="investment_rank"
-                numeric
-                defaultDir="asc"
-                className="w-12"
-                title="Investment Rank: decision score first, then evidence. The primary rank."
-              />
-              <PlainHeader label="Stock" className="sticky-col min-w-44" />
-              <SortHeader
-                {...headerProps}
-                label="Score"
-                column="final_score"
-                numeric
-                title="Published score: the uncapped research evidence. Policy gates limit the rating, not this number."
-              />
-              {factorModel ? (
-                <>
+              {columns.map((column) =>
+                column.sort ? (
                   <SortHeader
+                    key={column.id}
                     {...headerProps}
-                    label="Qual"
-                    column="quality_percentile"
-                    numeric
-                    title="Quality percentile: ROIC, cash generation, accruals, leverage and stability, ranked within sector. BUY needs 40, STRONG BUY 70."
+                    label={column.label}
+                    column={column.sort}
+                    numeric={column.numeric}
+                    defaultDir={column.defaultDir}
+                    className={column.headerClassName}
+                    title={column.title}
                   />
-                  <SortHeader
-                    {...headerProps}
-                    label="Mom"
-                    column="momentum_percentile"
-                    numeric
-                    title="Momentum percentile: risk-adjusted 12-1 and 6-1 returns plus relative strength. STRONG BUY needs 70."
+                ) : (
+                  <PlainHeader
+                    key={column.id}
+                    label={column.label}
+                    numeric={column.numeric}
+                    className={column.headerClassName}
+                    title={column.title}
                   />
-                  <SortHeader
-                    {...headerProps}
-                    label="Grow"
-                    column="growth_percentile"
-                    numeric
-                    title="Growth percentile: multi-year CAGR, acceleration, margin direction and cash confirmation. STRONG BUY needs 60."
-                  />
-                </>
-              ) : (
-                <>
-                  <SortHeader
-                    {...headerProps}
-                    label="Fund"
-                    column="fundamental_score"
-                    numeric
-                  />
-                  <SortHeader
-                    {...headerProps}
-                    label="Tech"
-                    column="technical_score"
-                    numeric
-                  />
-                </>
+                ),
               )}
-              {/* After the factor block, not before the score. The score and
-                  its three block percentiles answer "how strong is this?" and
-                  belong together; the rating answers the separate question of
-                  whether policy will act on it, and reads as a conclusion drawn
-                  from the columns to its left. */}
-              <PlainHeader label="Rating" />
-              <PlainHeader
-                label="Cov F/T"
-                numeric
-                title="Fundamental coverage as a share of the fields the selected sector model expects, and technical score coverage."
-              />
-              <SortHeader
-                {...headerProps}
-                label="DCF"
-                column="dcf_base_case_upside"
-                numeric
-                title="Reverse-DCF base-case upside. Evidence only; not a target price."
-              />
-              {factorModel && (
-                <SortHeader
-                  {...headerProps}
-                  label="Gate"
-                  column="gate_severity"
-                  defaultDir="asc"
-                  title="The most severe reason this row is not rated higher. A BUY-eligible row can still show a STRONG BUY gate here."
-                />
-              )}
-              <PlainHeader label="Evidence" title="Transcript, red-flag, and rating-cap indicators" />
-              <SortHeader
-                {...headerProps}
-                label="Price"
-                column="current_price"
-                numeric
-              />
-              <SortHeader
-                {...headerProps}
-                label="1M"
-                column="pct_change_1m"
-                numeric
-              />
-              <SortHeader
-                {...headerProps}
-                label="Mkt cap"
-                column="market_cap"
-                numeric
-              />
-              <SortHeader {...headerProps} label="PE" column="pe_ratio" numeric />
-              <PlainHeader
-                label="Liq"
-                title="Execution overlay. Never changes the score or rating."
-              />
             </tr>
           </thead>
 
@@ -371,167 +434,14 @@ export function ScreenerTable({
                   "hover:bg-muted/40 focus-within:bg-muted/40",
                 )}
               >
-                <td className="tabular px-2 py-1.5 text-right font-mono text-xs text-muted-foreground">
-                  {row.investment_rank ?? MISSING}
-                </td>
-
-                <td className="sticky-col px-2 py-1.5">
-                  <Link
-                    href={`/stocks/${row.symbol}`}
-                    className="flex items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                {columns.map((column) => (
+                  <td
+                    key={column.id}
+                    className={cn("grid-cell", column.cellClassName)}
                   >
-                    <CompanyLogo symbol={row.symbol} domain={row.logo_domain} />
-                    <span className="min-w-0">
-                      {/* Underline alone, no colour shift: --primary and
-                          --foreground are within a hair of each other in both
-                          themes, so a colour hover would be invisible. */}
-                      <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
-                        {row.symbol}
-                      </span>
-                      <span className="block max-w-44 truncate text-[11px] text-muted-foreground">
-                        {row.company ?? MISSING}
-                      </span>
-                    </span>
-                  </Link>
-                </td>
-
-                <td className="px-2 py-1.5 text-right">
-                  <ScoreCell row={row} />
-                </td>
-
-                {factorModel ? (
-                  <>
-                    <td className="px-2 py-1.5 text-right">
-                      <PercentileCell value={row.quality_percentile} />
-                    </td>
-                    <td className="px-2 py-1.5 text-right">
-                      <PercentileCell value={row.momentum_percentile} />
-                    </td>
-                    <td className="px-2 py-1.5 text-right">
-                      <PercentileCell value={row.growth_percentile} />
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td className="tabular px-2 py-1.5 text-right font-mono text-xs">
-                      {formatScore(row.fundamental_score)}
-                    </td>
-                    <td className="tabular px-2 py-1.5 text-right font-mono text-xs">
-                      {formatScore(row.technical_score)}
-                    </td>
-                  </>
-                )}
-
-                <td className="px-2 py-1.5">
-                  <EntryBadge row={row} />
-                </td>
-
-                <td className="px-2 py-1.5 text-right">
-                  <CoverageCell
-                    fundamental={row.fundamental_coverage}
-                    technical={row.technical_coverage}
-                  />
-                </td>
-
-                <td className="tabular px-2 py-1.5 text-right font-mono text-xs">
-                  {row.dcf_status && row.dcf_base_case_upside !== null ? (
-                    <ChangeCell value={(row.dcf_base_case_upside ?? 0) * 100} />
-                  ) : (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <span className="cursor-help text-muted-foreground" />
-                        }
-                      >
-                        {MISSING}
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-72">
-                        <p className="font-medium">
-                          {dcfStatus(row.dcf_status).label}
-                        </p>
-                        <p className="text-xs opacity-90">
-                          {dcfStatus(row.dcf_status).meaning ||
-                            "No usable DCF result. Treated as neutral evidence, not as a negative signal."}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
-                </td>
-
-                {factorModel && (
-                  <td className="px-2 py-1.5">
-                    <GateChip gate={row.primary_gate} />
+                    {CELLS[column.id](row)}
                   </td>
-                )}
-
-                <td className="px-2 py-1.5">
-                  <span className="flex items-center gap-1.5">
-                    <TranscriptChip
-                      status={row.transcript_status}
-                      eligible={row.transcript_scoring_eligible}
-                      guidance={row.transcript_guidance}
-                    />
-                    <RedFlagChip
-                      status={row.red_flag_status}
-                      severity={row.red_flag_severity}
-                      wouldChange={row.shadow_red_flag_would_change}
-                    />
-                    <CappedChip
-                      capped={row.rating_capped}
-                      reason={row.rating_cap_reason ?? row.decision_cap_reason}
-                      enforced={scoreWasReduced(row)}
-                    />
-                  </span>
-                </td>
-
-                <td className="tabular px-2 py-1.5 text-right font-mono text-xs">
-                  {formatINR(row.current_price, 0)}
-                </td>
-                <td className="px-2 py-1.5 text-right font-mono text-xs">
-                  <ChangeCell value={row.pct_change_1m} />
-                </td>
-                <td className="tabular px-2 py-1.5 text-right font-mono text-xs">
-                  {formatINRCompact(row.market_cap)}
-                </td>
-                <td className="tabular px-2 py-1.5 text-right font-mono text-xs">
-                  {formatNumber(row.pe_ratio, 1)}
-                </td>
-
-                <td className="px-2 py-1.5">
-                  {row.liquidity_grade ? (
-                    <Tooltip>
-                      <TooltipTrigger
-                        render={
-                          <span
-                            className={cn(
-                              "tabular cursor-help font-mono text-xs",
-                              row.portfolio_actionable
-                                ? "text-foreground"
-                                : "text-caution",
-                            )}
-                          />
-                        }
-                      >
-                        {row.liquidity_grade}
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-64">
-                        <p className="text-xs">
-                          {row.portfolio_actionable
-                            ? "The configured target position is executable at the assumed participation rate."
-                            : "Not executable at the configured target position. This does not change the score or rating."}
-                        </p>
-                        <p className="mt-1 text-xs opacity-80">
-                          20-day median turnover{" "}
-                          {formatINRCompact(row.median_turnover_20d_inr)}
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">
-                      {MISSING}
-                    </span>
-                  )}
-                </td>
+                ))}
               </tr>
             ))}
           </tbody>
