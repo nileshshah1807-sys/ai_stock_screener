@@ -461,6 +461,13 @@ class PriceCache:
         "Turnover_Top5_Share_60D", "Trading_Frequency_60D", "CMF_21",
         "Price_Return_20D_Pct", "Demand_Proxy_Status", "MA50_Slope_Pct",
         "ADX_Plus_DI", "ADX_Minus_DI",
+        # Required despite being display-only. A cache written before this
+        # column existed would reuse its rows on a same-session rerun and blank
+        # the grid's whole 1D column, which reads as "the market did not move"
+        # rather than "this cache predates the field". The refresh it forces is
+        # one-off and no more expensive than the session rollover that
+        # invalidates this cache every trading day anyway.
+        "Pct_Change_1D",
         "Technical_Indicator_Version",
         "Price_Bar_As_Of", "Expected_Price_Bar_As_Of", "Price_Bar_Session_Lag",
         "Price_Bar_Complete", "Price_Session_Status", "Analysis_As_Of",
