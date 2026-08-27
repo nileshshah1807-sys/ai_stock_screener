@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
+import { AddToWatchlist } from "@/components/watchlist/add-to-watchlist";
 import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
@@ -46,6 +47,7 @@ import {
   getStock,
   getStockHistory,
 } from "@/lib/queries";
+import { getWatchlistMembership, getWatchlists } from "@/lib/watchlists";
 
 export const dynamic = "force-dynamic";
 
@@ -160,6 +162,15 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
     : [];
 
   if (!row) notFound();
+
+  // The viewer's own lists, and which of them already hold this symbol. Both are
+  // needed to render the Watch control's initial checked state, so they are
+  // fetched here rather than by the client on open -- a popover that opens empty
+  // and then fills in is worse than one that opens correct.
+  const [watchlists, watchlistMembership] = await Promise.all([
+    getWatchlists(),
+    getWatchlistMembership(symbol),
+  ]);
 
   // Last completed session's move. Now that the model publishes it, the row is
   // the source: it puts this tile on the same number the screener grid's 1D
@@ -664,6 +675,16 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
               </h1>
               <p className="text-heading text-muted-foreground">{row.company}</p>
               <EntryBadge row={row} size="md" />
+            </div>
+            {/* Right-aligned, beside the identity rather than down with the
+                numbers. Watching is a decision about this company, not a fact
+                about its current evidence. */}
+            <div className="ml-auto shrink-0 self-start">
+              <AddToWatchlist
+                symbol={row.symbol}
+                lists={watchlists}
+                memberOf={watchlistMembership}
+              />
             </div>
           </div>
 
