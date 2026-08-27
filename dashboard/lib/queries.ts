@@ -175,6 +175,48 @@ const ASCENDING_BY_DEFAULT = new Set([
 ]);
 
 /**
+ * Run manifest columns, minus `manifest` itself.
+ *
+ * That one jsonb column is 7.1 KB of an 8.2 KB row and nothing in the dashboard
+ * reads it -- it is an archival record of the run, kept for forensics against
+ * the database rather than for display. Selecting it cost 256 ms against 172 ms
+ * for the same row without it, on every page load, because this read sits on the
+ * critical path in the app layout.
+ *
+ * Listed explicitly rather than filtered client-side because PostgREST has no
+ * "everything except" syntax. A new run column must be added here to reach the
+ * dashboard, which is the cost of the 84 ms.
+ */
+const RUN_COLUMNS = [
+  "run_date",
+  "generated_at_utc",
+  "price_bar_as_of",
+  "analysis_as_of",
+  "row_count",
+  "model_version",
+  "recommendation_policy_version",
+  "output_schema_version",
+  "model_validation_status",
+  "config_sha256",
+  "git_sha",
+  "git_dirty",
+  "market_calendar_version",
+  "universe_selected_count",
+  "technical_requested_count",
+  "technical_collected_count",
+  "technical_failed_count",
+  "fundamental_missing_count",
+  "strong_buy_count",
+  "buy_count",
+  "hold_count",
+  "reduce_count",
+  "sell_count",
+  "sectors",
+  "factor_model_applied",
+  "ingested_at",
+].join(",");
+
+/**
  * Wrapped in React's cache() so the shell layout, the screener layout and the
  * page itself share one round trip rather than asking three times per render.
  */
@@ -182,7 +224,7 @@ export const getLatestRun = cache(async (): Promise<ScreenerRun | null> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_runs")
-    .select("*")
+    .select(RUN_COLUMNS)
     // The publisher reserves a run_date with row_count=0 before writing its
     // dependent rows, then replaces this with the completed manifest. Never
     // let an in-flight or abandoned reservation displace the last good run.
@@ -195,14 +237,16 @@ export const getLatestRun = cache(async (): Promise<ScreenerRun | null> => {
     console.error("getLatestRun failed", error.message);
     return null;
   }
-  return data as ScreenerRun | null;
+  return data as unknown as ScreenerRun | null;
 });
 
 export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_runs")
-    .select("*")
+    // Same exclusion as getLatestRun, and it matters more here: 30 runs of the
+    // 7.1 KB manifest is ~213 KB transferred to render a list of dates.
+    .select(RUN_COLUMNS)
     .gt("row_count", 0)
     .order("run_date", { ascending: false })
     .limit(limit);
@@ -211,7 +255,9 @@ export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
     console.error("getRecentRuns failed", error.message);
     return [];
   }
-  return (data ?? []) as ScreenerRun[];
+  // Double cast, as in getSnapshotPage: a runtime column string gives
+  // PostgREST's generic no shape to infer, so it widens to GenericStringError[].
+  return (data ?? []) as unknown as ScreenerRun[];
 }
 
 /**

@@ -265,6 +265,19 @@ const CELLS: Record<ColumnId, (row: SnapshotRow) => ReactNode> = {
       // selector would also match links inside cells, and j/k would then walk
       // sideways through a row instead of down the column.
       data-row-link
+      /*
+       * 100 rows means 100 prefetches per page view, each one a proxy
+       * invocation, to serve the at most one row the reader actually clicks.
+       * The trace showed exactly that: a wall of `/stocks/XXX` proxy lines
+       * after every grid render.
+       *
+       * Turning it off costs almost nothing here because the route has its own
+       * loading.tsx. That Suspense boundary renders the moment navigation
+       * starts, prefetched or not, and the page's data is fetched on click
+       * either way -- a dynamic route's prefetch stops at the loading boundary.
+       * So the prefetch was buying a shell that appears anyway.
+       */
+      prefetch={false}
       className="flex items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <CompanyLogo symbol={row.symbol} domain={row.logo_domain} />
