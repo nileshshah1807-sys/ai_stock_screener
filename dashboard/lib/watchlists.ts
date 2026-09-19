@@ -25,7 +25,7 @@ type WatchlistRow = {
   name: string;
   created_at: string;
   updated_at: string;
-  watchlist_items: Array<{ symbol: string }> | null;
+  watchlist_items: Array<{ symbol: string; added_at: string }> | null;
 };
 
 /**
@@ -43,7 +43,7 @@ export const getWatchlists = cache(async (): Promise<Watchlist[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("watchlists")
-    .select("id, name, created_at, updated_at, watchlist_items(symbol)")
+    .select("id, name, created_at, updated_at, watchlist_items(symbol, added_at)")
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -59,6 +59,9 @@ export const getWatchlists = cache(async (): Promise<Watchlist[]> => {
     symbols: (row.watchlist_items ?? [])
       .map((item) => item.symbol)
       .sort((a, b) => a.localeCompare(b)),
+    addedAt: Object.fromEntries(
+      (row.watchlist_items ?? []).map((item) => [item.symbol, item.added_at]),
+    ),
   }));
 });
 

@@ -157,6 +157,74 @@ def model_method_summary():
     )
 
 
+#: How far down the list, and how recently, a Stage 3/4 break is worth an email
+#: line. The P5 exit rule fires on the first session of the break; a week covers
+#: a reader who does not open every daily email.
+STAGE_BREAK_TOP_N = 50
+STAGE_BREAK_MAX_AGE_DAYS = 7
+
+
+def stage_break_rows(df, top_n=STAGE_BREAK_TOP_N, max_age_days=STAGE_BREAK_MAX_AGE_DAYS):
+    """Top-ranked names that broke into Stage 3 or 4 within ``max_age_days``.
+
+    The P5 exit signal (docs/Review/p5_stage_overlay_preregistration.md): selling
+    a holding the session after it breaks into Stage 3 or 4 raised Sharpe and cut
+    drawdowns in both halves of 2018-2026. The email does not know what the
+    reader holds, so it lists the names a reader following the ranking is most
+    likely to hold -- the top of the current list -- and leaves the decision to
+    them. Empty when the run carries no stage columns.
+    """
+    if df is None or "Breakdown_Age_Days" not in df or "Stage" not in df:
+        return []
+    # Columns are attached before filtering, never after: assigning a Series to
+    # an empty frame adopts the Series' index and resurrects the dropped rows as
+    # NaN, which is exactly what a run with no breaks produces.
+    if "Investment_Rank" in df:
+        frame = df.assign(_rank=pd.to_numeric(df["Investment_Rank"], errors="coerce"))
+    else:
+        frame = df.assign(_rank=range(1, len(df) + 1))
+    frame = frame.assign(_age=pd.to_numeric(frame["Breakdown_Age_Days"], errors="coerce"))
+    frame = frame[
+        (frame["_rank"] <= top_n) & frame["_age"].notna() & (frame["_age"] <= max_age_days)
+    ]
+    rows = []
+    for _, row in frame.sort_values(["_age", "_rank"]).iterrows():
+        rows.append({
+            "rank": int(row["_rank"]),
+            "company": company_label(row),
+            "stage": str(row.get("Stage") or "-"),
+            "since": str(row.get("Breakdown_Date") or "-"),
+            "age_days": int(row["_age"]),
+            "from": str(row.get("Breakdown_From") or "-"),
+        })
+    return rows
+
+
+def stage_break_section_html(df):
+    """The email card for :func:`stage_break_rows`, or an empty string."""
+    rows = stage_break_rows(df)
+    if not rows:
+        return ""
+    body = "".join(
+        f"<tr><td>{r['rank']}</td><td><b>{escape(r['company'])}</b></td>"
+        f"<td>{escape(r['stage'])}</td><td>{escape(r['since'])} ({r['age_days']}d)</td>"
+        f"<td>{escape(r['from'])}</td></tr>"
+        for r in rows
+    )
+    return (
+        '<div class="card"><h2>Stage 3/4 breaks in the top '
+        f"{STAGE_BREAK_TOP_N} (last {STAGE_BREAK_MAX_AGE_DAYS} days)</h2>"
+        "<p>If you hold any of these, the tested exit rule would sell at the next "
+        "close and wait in cash for the next rebalance. From 2018 to 2026 it cut "
+        "the top 20's worst drawdown from -43% to -30% and raised its Sharpe "
+        "ratio, but cost 5-7 points in steady bull years. It changes no score, "
+        "rank or rating.</p>"
+        "<table><tr><th>Investment Rank</th><th>Company</th><th>Stage</th>"
+        "<th>Broke down on</th><th>From</th></tr>"
+        f"{body}</table></div>\n"
+    )
+
+
 def red_flag_summary(row):
     status = str(row.get("Red_Flag_Status") or "Not enabled")
     if status not in {"Available", "Partial/stale"}:
@@ -434,7 +502,7 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 <span class="tag-hold">Hold: {summary['hold']}</span> |
 <span class="tag-reduce">Reduce: {summary['reduce']}</span> |
 <span class="tag-sell">Sell: {summary['sell']}</span></p></div>
-<div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks by Decision Score</h2>
+{stage_break_section_html(df)}<div class="card"><h2>Top {self.config.TOP_STOCKS_COUNT} Stocks by Decision Score</h2>
 <table><tr><th>Investment Rank</th><th>Rank Audit</th><th>Company</th><th>Price (INR)</th><th>PE</th><th>Fund</th><th>Tech</th><th>Evidence Coverage</th><th>Weights</th><th>ADX</th><th>RSI (14)</th><th>StochRSI %K (14,14,3)</th><th>ATR</th><th>Rev Gr</th><th>Earn Gr</th><th>3M</th><th>MA50 Slope</th><th>+DI / -DI</th><th>Rating Gate</th><th>Fundamental Model</th><th>Fundamental Components</th><th>Specialized Quality Gate</th><th>Data Anomalies</th><th>Core</th><th>DCF Evidence</th><th>Policy Ceiling</th><th>Score</th><th>Transcript Summary</th><th>Transcript Policy</th><th>Transcript Quality Gate</th><th>Liquidity / Execution</th><th>Demand Proxy</th><th>Red-flag Review</th><th>Rating</th></tr>
 {rows}
 </table></div>
