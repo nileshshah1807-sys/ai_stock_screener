@@ -485,6 +485,16 @@ class Config:
     # computed and published; they rate and label, they no longer rank.
     RANK_BY_ELIGIBILITY_CLASS = _env_bool("RANK_BY_ELIGIBILITY_CLASS", False)
 
+    # --- Entry timing (screener/stage.py) ------------------------------------
+    # Stage, RS rating and Entry_State are published as evidence under the
+    # factor model. Action_Rank orders on
+    #   (1 - TIMING_WEIGHT) * Research_Score + TIMING_WEIGHT * Timing_Score
+    # and is published beside Investment_Rank, which is unchanged. The weight is
+    # decided by docs/Review/p3_stage_timing_preregistration.md; at 0 the two
+    # ranks carry the same research order.
+    STAGE_TIMING_ENABLED = _env_bool("STAGE_TIMING_ENABLED", True)
+    TIMING_WEIGHT = _env_float("TIMING_WEIGHT", 0.0)
+
     # --- Financial-statement collection (Model 5.0 inputs) -------------------
     # Yahoo's quote metadata has no total assets, EBIT, gross profit, cash flow
     # history, or multi-year series, and it omits ROE/ROA outright for part of

@@ -249,6 +249,14 @@ def main(argv=None):
             "docs/Review/p2_relative_strength_gate_preregistration.md"
         ),
     )
+    parser.add_argument(
+        "--timing-grid",
+        action="store_true",
+        help=(
+            "also run the pre-registered stage/RS timing-weight grid "
+            "(T1-T5); see docs/Review/p3_stage_timing_preregistration.md"
+        ),
+    )
     parser.add_argument("--position-size", type=float, default=100_000.0)
     parser.add_argument("--half-spread", type=float, default=0.0010)
     parser.add_argument("--impact-coefficient", type=float, default=0.10)
@@ -326,6 +334,7 @@ def main(argv=None):
         PRICE_ONLY_STRATEGIES,
         gate_relaxation_strategies,
         growth_reweight_strategies,
+        timing_strategies,
     )
 
     dates = rebalance_dates(archive["calendar"], start, end, frequency=args.frequency)
@@ -364,6 +373,13 @@ def main(argv=None):
                 "read quality and growth percentiles"
             )
         strategies.extend(gate_relaxation_strategies())
+    if args.timing_grid:
+        if not args.with_fundamentals:
+            raise SystemExit(
+                "--timing-grid needs --with-fundamentals: the timing score is "
+                "blended into the Model 5 research score"
+            )
+        strategies.extend(timing_strategies())
     logger.info(
         "Strategies: %s", ", ".join(strategy.name for strategy in strategies)
     )
