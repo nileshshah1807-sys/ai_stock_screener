@@ -7,6 +7,7 @@ import {
   HistogramSeries,
   LineSeries,
   createChart,
+  createSeriesMarkers,
   type IChartApi,
   type UTCTimestamp,
 } from "lightweight-charts";
@@ -70,20 +71,36 @@ function palette(dark: boolean) {
     ma50: MA50_COLOR,
     ma200: dark ? "#94a3b8" : "#64748b",
     volume: dark ? "rgba(129,140,248,0.42)" : "rgba(79,70,229,0.30)",
+    // Stage markers. Canvas cannot read CSS variables, so these repeat the
+    // --positive and --caution tokens from globals.css.
+    positive: dark ? "#4db6ac" : "#00796b",
+    caution: dark ? "#ffb74d" : "#b45309",
   };
 }
+
+/**
+ * A dated event drawn on the price line, e.g. the session a stock entered
+ * Stage 2. `tone` picks the colour; the text is the marker's label.
+ */
+export type ChartMarker = {
+  time: string;
+  label: string;
+  tone: "positive" | "caution";
+};
 
 export function PriceChart({
   series,
   sessions,
   tail = [],
   height = 380,
+  markers = [],
 }: {
   series: EncodedSeries | null;
   sessions: string[];
   /** Sessions after the published base, from the daily run. */
   tail?: { time: string; close: number; volume: number }[];
   height?: number;
+  markers?: ChartMarker[];
 }) {
   const container = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
@@ -197,12 +214,39 @@ export function PriceChart({
       );
     }
 
+    // Snapped to the first plotted session on or after the event: the stage
+    // dates come from the model's price download, and a session missing here
+    // (an untraded day left as a gap) must not silently drop the marker.
+    // Markers before the visible range are left out rather than pinned to its
+    // left edge, where they would claim a date they do not have.
+    const from = visible[0]?.time;
+    const shown = markers
+      .filter((marker) => from !== undefined && marker.time >= from)
+      .map((marker) => {
+        const at = visible.find((point) => point.time >= marker.time);
+        return at ? { ...marker, time: at.time } : null;
+      })
+      .filter((marker): marker is ChartMarker => marker !== null)
+      .sort((a, b) => a.time.localeCompare(b.time));
+    if (shown.length) {
+      createSeriesMarkers(
+        price,
+        shown.map((marker) => ({
+          time: marker.time as unknown as UTCTimestamp,
+          position: marker.tone === "positive" ? ("belowBar" as const) : ("aboveBar" as const),
+          shape: marker.tone === "positive" ? ("arrowUp" as const) : ("arrowDown" as const),
+          color: marker.tone === "positive" ? colors.positive : colors.caution,
+          text: marker.label,
+        })),
+      );
+    }
+
     instance.timeScale().fitContent();
 
     return () => {
       instance.remove();
     };
-  }, [visible, ma50, ma200, resolvedTheme, height]);
+  }, [visible, ma50, ma200, resolvedTheme, height, markers]);
 
   if (points.length === 0) {
     return (

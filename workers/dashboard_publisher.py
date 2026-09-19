@@ -216,6 +216,16 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("breakdown_date", "Breakdown_Date", "date"),
     ("breakdown_age_days", "Breakdown_Age_Days", "int"),
     ("breakdown_from", "Breakdown_From", "text"),
+    # Stage history for the stock page. Display only.
+    ("stage_entry_date", "Stage_Entry_Date", "date"),
+    ("return_since_stage_entry_pct", "Return_Since_Stage_Entry_Pct", "num:12,2"),
+    ("stage2_entry_date", "Stage2_Entry_Date", "date"),
+    ("stage2_entry_price", "Stage2_Entry_Price", "num:14,2"),
+    ("stage2_exit_date", "Stage2_Exit_Date", "date"),
+    ("stage2_entry_censored", "Stage2_Entry_Censored", "bool"),
+    ("return_since_stage2_entry_pct", "Return_Since_Stage2_Entry_Pct", "num:12,2"),
+    ("advance_age_censored", "Advance_Age_Censored", "bool"),
+    ("pct_from_52w_high", "Pct_From_52W_High", "num:10,3"),
 ]
 
 HISTORY_COLUMNS: list[tuple[str, str, str]] = [

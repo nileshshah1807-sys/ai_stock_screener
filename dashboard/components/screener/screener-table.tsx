@@ -10,6 +10,7 @@ import {
   TranscriptChip,
 } from "@/components/evidence-chips";
 import { GridKeyboard } from "@/components/screener/grid-keyboard";
+import { GridScroll } from "@/components/screener/grid-scroll";
 import { PlainHeader, SortHeader } from "@/components/screener/sort-header";
 import {
   Tooltip,
@@ -536,7 +537,7 @@ export function ScreenerTable({
           page body never scrolls sideways -- and, now that the container has a
           bounded height, so the header row stays put on the way down. See
           `.grid-scroll` for why the bound is what makes that work. */}
-      <div className="grid-scroll">
+      <GridScroll>
         <table
           className={cn(
             "w-full border-collapse text-sm",
@@ -610,7 +611,7 @@ export function ScreenerTable({
             ))}
           </tbody>
         </table>
-      </div>
+      </GridScroll>
     </div>
   );
 }

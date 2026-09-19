@@ -124,6 +124,12 @@ STAGE_FEATURE_COLUMNS = (
     "Breakdown_Date",
     "Breakdown_Age_Days",
     "Breakdown_From",
+    "Return_Since_Stage_Entry_Pct",
+    "Stage2_Entry_Date",
+    "Stage2_Entry_Price",
+    "Stage2_Exit_Date",
+    "Stage2_Entry_Censored",
+    "Return_Since_Stage2_Entry_Pct",
     "MA150",
     "MA150_Slope_Pct",
     "Price_To_MA150_Pct",
@@ -142,6 +148,9 @@ def _empty_features():
     out["Advance_Age_Censored"] = None
     out["Breakdown_Date"] = None
     out["Breakdown_From"] = None
+    out["Stage2_Entry_Date"] = None
+    out["Stage2_Exit_Date"] = None
+    out["Stage2_Entry_Censored"] = None
     return out
 
 
@@ -197,6 +206,28 @@ def _run_start(labels, members):
         return None
     outside = np.flatnonzero(~inside)
     return int(outside[-1] + 1) if len(outside) else 0
+
+
+def _latest_stage_2_entry(labels):
+    """The most recent advance that reached Stage 2: where it entered Stage 2,
+    and where the advance ended (``None`` while it is still running).
+
+    An advance is an unbroken run inside ``ADVANCING_STAGES``, so a pullback to
+    S2 Candidate does not end it -- the same definition ``Advance_Age_Days``
+    uses. Returns ``(run_start, stage_2_entry, run_end)`` as index positions, or
+    ``None`` if the history holds no Stage 2 session at all.
+    """
+    stage_2 = np.flatnonzero((labels == STAGE_2).to_numpy())
+    if not len(stage_2):
+        return None
+    last_stage_2 = int(stage_2[-1])
+    advancing = labels.isin(ADVANCING_STAGES).to_numpy()
+    before = np.flatnonzero(~advancing[:last_stage_2])
+    run_start = int(before[-1] + 1) if len(before) else 0
+    after = np.flatnonzero(~advancing[last_stage_2:])
+    run_end = last_stage_2 + int(after[0]) if len(after) else None
+    entry = run_start + int(np.flatnonzero((labels.iloc[run_start:] == STAGE_2).to_numpy())[0])
+    return run_start, entry, run_end
 
 
 def _calendar_days(index, start_position):
@@ -270,6 +301,26 @@ def stage_features(closes, dates=None):
     # A run that began on the first classifiable session may have begun
     # earlier: the count is a floor, not a measurement.
     out["Stage_Run_Censored"] = bool(start <= first_defined)
+    out["Return_Since_Stage_Entry_Pct"] = round(
+        (price / float(values.iloc[start]) - 1.0) * 100.0, 2
+    )
+
+    # "When did it enter Stage 2, and what has it done since?" -- answered for
+    # the latest advance whether or not it is still running, so a stock that
+    # has since broken down still shows where its last advance began and ended.
+    latest = _latest_stage_2_entry(labels)
+    if latest is not None:
+        run_start, entry, run_end = latest
+        entry_price = float(values.iloc[entry])
+        out["Stage2_Entry_Price"] = round(entry_price, 2)
+        out["Return_Since_Stage2_Entry_Pct"] = round((price / entry_price - 1.0) * 100.0, 2)
+        # An advance already under way when the data begins may have entered
+        # Stage 2 earlier than we can see: the date is then an upper bound.
+        out["Stage2_Entry_Censored"] = bool(run_start <= first_defined)
+        if isinstance(values.index, pd.DatetimeIndex):
+            out["Stage2_Entry_Date"] = values.index[entry].date().isoformat()
+            if run_end is not None:
+                out["Stage2_Exit_Date"] = values.index[run_end].date().isoformat()
 
     if current in ADVANCING_STAGES:
         advance_start = _run_start(labels, ADVANCING_STAGES)
@@ -344,7 +395,10 @@ def attach_timing(frame, *, timing_weight=0.0, research_column="Research_Score")
         if column not in working:
             working[column] = (
                 None
-                if column in ("Stage", "Stage_Entry_Date", "Breakdown_Date", "Breakdown_From")
+                if column in (
+                    "Stage", "Stage_Entry_Date", "Breakdown_Date", "Breakdown_From",
+                    "Stage2_Entry_Date", "Stage2_Exit_Date",
+                )
                 else np.nan
             )
 

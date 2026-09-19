@@ -194,6 +194,22 @@ export type SnapshotRow = {
   breakdown_date: string | null;
   breakdown_age_days: number | null;
   breakdown_from: string | null;
+  /**
+   * Stage history for the stock page: when the current stage began, when the
+   * latest advance entered Stage 2 (and ended, if it has), and the adjusted
+   * return since each. `stage2_entry_censored` means the advance was already
+   * under way when the price history begins, so the date is a lower bound on
+   * how long it has run.
+   */
+  stage_entry_date: string | null;
+  return_since_stage_entry_pct: number | null;
+  stage2_entry_date: string | null;
+  stage2_entry_price: number | null;
+  stage2_exit_date: string | null;
+  stage2_entry_censored: boolean | null;
+  return_since_stage2_entry_pct: number | null;
+  advance_age_censored: boolean | null;
+  pct_from_52w_high: number | null;
 };
 
 /** Model 5.0 eligibility classes, in the order they rank. */

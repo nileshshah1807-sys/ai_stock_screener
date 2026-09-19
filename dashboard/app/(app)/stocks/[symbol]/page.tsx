@@ -15,6 +15,7 @@ import { HistoryChart } from "@/components/stock/history-chart";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { PriceChart } from "@/components/stock/price-chart";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
+import { StageSummary, stageMarkers } from "@/components/stock/stage-summary";
 import {
   Tabs,
   TabsContent,
@@ -745,6 +746,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
               sessions={sessions ?? []}
               tail={priceTail}
               height={300}
+              markers={stageMarkers(row)}
             />
           </div>
         </div>
@@ -755,6 +757,20 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
           that argues with them, and burying it below the factor panels would
           make the disagreement something you have to go looking for.
         */}
+        {/*
+          Directly under the chart it annotates: the chart's Stage 2 and S3/S4
+          markers are these dates, and the returns here are measured on the
+          same adjusted closes.
+        */}
+        {factorModel ? (
+          <Panel
+            title="Stage"
+            description="Where the stock is in its cycle, from the 50/150/200-day averages, and what it has done since."
+          >
+            <StageSummary row={row} asOf={row.price_bar_as_of ?? run.price_bar_as_of} />
+          </Panel>
+        ) : null}
+
         <ExpectationsGap data={expectations} />
 
         {/*
