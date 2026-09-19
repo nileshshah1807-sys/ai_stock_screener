@@ -87,67 +87,103 @@ Run: `tools.stage_overlay_study`, report in
 `reports_advanced/backtest/p5_overlay.json`. Quarterly figures are the mean of
 the three phase offsets.
 
-## Verdict: NOT PROMOTED. No variant clears the rule in both windows.
+**Correction before this was read.** The first run had a window-boundary bug: a
+window's final holding period ran to the end of the archive instead of to the
+next rebalance, so DISCOVERY silently held its December 2022 portfolio through
+2023-2026. A year-by-year check exposed it (DISCOVERY showed 2023-2026 returns).
+`simulate` now takes the schedule's next rebalance as `closing`. CONFIRM ended
+at the end of the data and was unaffected; its numbers are identical in both
+runs. The first run's verdict (X34 failing on DISCOVERY return) came from the
+bug and is withdrawn; the tables below are the corrected run.
 
-The Stage 3/4 exit (X34) is a clear **risk** improvement in both windows and a
-return cost in DISCOVERY; it fails criterion 3 there and is recorded as a
-trade-off, not an improvement.
+## Verdict: X34 (sell on a break into Stage 3 or 4) PASSES, on both schedules.
+
+X4 (Stage 4 only) and every breadth cash switch fail.
 
 ## Monthly rebalance
 
 | | DISCOVERY CAGR | Sharpe | Max DD | CONFIRM CAGR | Sharpe | Max DD | exits |
 |---|---|---|---|---|---|---|---|
-| **B0** baseline | 36.42 | 1.171 | −42.99 | 39.08 | 1.376 | −26.94 | 0 |
-| X4 Stage 4 exit | 32.68 | 1.213 | −42.36 | 38.27 | 1.352 | −26.94 | 36 / 14 |
-| **X34 Stage 3/4 exit** | 32.37 | **1.441** | **−29.63** | 39.35 | **1.469** | **−21.87** | 161 / 124 |
-| C10-50 | 35.38 | 1.152 | −42.99 | 35.02 | 1.286 | −26.94 | |
-| C10-100 | 34.16 | 1.118 | −42.99 | 30.87 | 1.148 | −31.41 | |
-| C20-50 | 32.97 | 1.085 | −42.99 | 36.69 | 1.379 | −21.92 | |
-| C20-100 | 29.31 | 0.971 | −42.99 | 33.92 | 1.305 | −25.49 | |
+| **B0** baseline | 40.96 | 1.323 | −42.99 | 39.08 | 1.376 | −26.94 | 0 |
+| X4 Stage 4 exit | 40.37 | 1.320 | −42.36 | 38.27 | 1.352 | −26.94 | 17 / 14 |
+| **X34 Stage 3/4 exit** | **43.23** | **1.577** | **−29.63** | **39.35** | **1.469** | **−21.87** | 144 / 124 |
+| C10-50 | 38.94 | 1.291 | −42.99 | 35.02 | 1.286 | −26.94 | |
+| C10-100 | 36.61 | 1.226 | −42.99 | 30.87 | 1.148 | −31.41 | |
+| C20-50 | 34.34 | 1.163 | −42.99 | 36.69 | 1.379 | −21.92 | |
+| C20-100 | 27.47 | 0.942 | −42.99 | 33.92 | 1.305 | −25.49 | |
 
 ## Quarterly rebalance (3-month hold)
 
 | | DISCOVERY CAGR | Sharpe | Max DD | CONFIRM CAGR | Sharpe | Max DD |
 |---|---|---|---|---|---|---|
-| **B0** | 38.59 | 1.260 | −41.99 | 39.39 | 1.380 | −28.84 |
-| X4 | 33.32 | 1.253 | −40.11 | 37.68 | 1.336 | −29.17 |
-| **X34** | 28.29 | **1.383** | **−23.52** | 39.49 | **1.609** | **−20.15** |
+| **B0** | 40.04 | 1.302 | −40.34 | 39.39 | 1.380 | −28.84 |
+| X4 | 38.52 | 1.274 | −40.11 | 37.68 | 1.336 | −29.17 |
+| **X34** | 38.60 | **1.545** | **−23.52** | 39.49 | **1.609** | **−20.15** |
 
 ## Against the rule
 
 | | Sharpe +0.05, both | Drawdown not worse by >2, both | CAGR not lower by >2, both | Result |
 |---|---|---|---|---|
-| X4 monthly | FAIL (+0.04, −0.02) | pass | FAIL (−3.7) | not promoted |
-| X4 quarterly | FAIL | pass | FAIL (−5.3) | not promoted |
-| X34 monthly | pass (+0.27, +0.09) | pass (+13.4, +5.1 better) | **FAIL (−4.1 in DISCOVERY)**; +0.3 in CONFIRM | not promoted |
-| X34 quarterly | pass (+0.12, +0.23) | pass (+18.5, +8.7 better) | **FAIL (−10.3 in DISCOVERY)**; +0.1 in CONFIRM | not promoted |
-| C10/C20 (all four) | FAIL (lower Sharpe in DISCOVERY) | FAIL or unchanged | FAIL | not promoted |
+| X4 monthly | FAIL (−0.003, −0.024) | pass | pass | not promoted |
+| X4 quarterly | FAIL | pass | pass | not promoted |
+| **X34 monthly** | pass (+0.254, +0.093) | pass (13.4 and 5.1 shallower) | pass (+2.27, +0.27) | **PASS** |
+| **X34 quarterly** | pass (+0.243, +0.229) | pass (16.8 and 8.7 shallower) | pass (−1.44, +0.10) | **PASS** |
+| C10/C20 (all four) | FAIL (lower Sharpe in DISCOVERY) | unchanged or worse | FAIL for three | not promoted |
 
-## Reading
+## Where X34's edge comes from (monthly, one continuous run)
 
-**Selling on a break into Stage 4 alone does nothing useful.** By the time a
-holding from the research top 20 reaches Stage 4 most of the damage is done; X4
-cut return in both windows without improving Sharpe.
+| year | B0 | X34 | difference | B0 worst DD | X34 worst DD |
+|---|---|---|---|---|---|
+| 2019 | −3.1 | −0.5 | +2.6 | −17.9 | −14.5 |
+| **2020** | 66.4 | 87.2 | **+20.8** | **−43.0** | **−29.6** |
+| 2021 | 136.1 | 134.4 | −1.7 | −15.0 | −14.8 |
+| 2022 | 7.5 | 0.6 | −6.9 | −22.3 | −21.6 |
+| 2023 | 80.5 | 79.7 | −0.8 | −17.1 | −17.0 |
+| 2024 | 68.3 | 63.1 | −5.2 | −12.2 | −12.1 |
+| 2025 | −8.3 | −4.7 | +3.6 | −26.9 | −21.9 |
+| 2026 (to Sep) | 10.4 | 12.5 | +2.1 | −20.0 | −15.2 |
 
-**Selling on a break into Stage 3 or 4 is a real risk control.** Volatility fell
-by a quarter to a third, and the worst drawdown by 13-18 points in DISCOVERY and
-5-9 in CONFIRM, with Sharpe higher in every window and schedule. It cost return
-in DISCOVERY -- 4 points a year monthly, 10 quarterly -- almost all of it in the
-2020-21 recovery, when names that broke down in the crash rebounded after being
-sold. In CONFIRM it cost nothing. It trades heavily: about 3 exits a month out
-of 20 holdings, all charged at 0.30% a side.
+February-April 2020: B0 −19.0%, X34 −7.3%.
 
-**The breadth cash switch does not work.** It missed the 2020 crash entirely --
-breadth was normal in February 2020 and the fall came inside one month -- and
-it held cash through recoveries. Every variant lowered Sharpe in DISCOVERY.
+It is insurance, and it behaves like insurance: it pays in the declines (2020,
+2025, 2026), costs a few points in steady advances (2022, 2024), and roughly
+breaks even in between. **Much of the DISCOVERY return edge is one episode --
+the 2020 crash.** The drawdown and Sharpe improvement is broader: the worst
+drawdown is shallower or equal in every year.
+
+## Cost sensitivity (not part of the rule; recorded as a robustness check)
+
+X34 trades about 3 exits a month out of 20 holdings.
+
+| cost per side | DISCOVERY CAGR / Sharpe / MaxDD vs B0 | CONFIRM CAGR / Sharpe / MaxDD vs B0 |
+|---|---|---|
+| 0.30% (declared) | +2.27 / +0.254 / +13.4 | +0.27 / +0.093 / +5.1 |
+| 0.60% | +1.62 / +0.215 / +13.1 | −0.35 / +0.061 / +4.8 |
+
+It still passes the rule at double the declared cost.
+
+## Why X4 fails and X34 does not
+
+By the time a top-20 holding reaches Stage 4 -- below a falling 200-day average
+-- most of the fall has happened; selling there locks it in. Stage 3 fires
+earlier: the close breaks the 150-day average while the long averages still
+rise. That is the point at which an exit still saves something.
+
+## The breadth cash switch does not work
+
+It missed the 2020 crash: breadth was 17.9% at end-February 2020, above the
+DISCOVERY median of 16.7%, and fell to 2.2% only after the crash, by end-March.
+It then held cash into the recovery. Every variant lowered Sharpe in DISCOVERY.
 
 ## What this means in practice
 
-Nothing in the model changes: the ranking and the published ratings stay as
-they are. X34 is a legitimate choice for a holder who prefers a shallower
-drawdown to the last few points of return in a V-shaped recovery, and it is
-made per portfolio, not per model. If it is wanted, the useful product is a
-watchlist alert -- "a holding broke into Stage 3 or 4" -- not a rank change.
+The model -- ranking and published ratings -- does not change: this is a rule
+about **holdings between rebalances**, and the screener does not know what the
+reader holds. It belongs where holdings live: a watchlist alert when a held name
+breaks into Stage 3 or 4 (the P5 rule would sell it at the next close), and
+optionally a line in the daily email for the current top 20.
 
 Caveats as declared: delisted names are carried at their last price, costs are
-a flat rate, and the CONFIRM window overlaps data seen in P4.
+a flat rate, the CONFIRM window overlaps data seen in P4, and the DISCOVERY
+return edge rests heavily on 2020. This is evidence for the rule, not proof;
+the live runs from 2026-09 are its first unseen data.

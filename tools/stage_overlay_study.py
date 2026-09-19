@@ -93,9 +93,14 @@ def next_session(index, day):
 
 
 def simulate(panel, closes, stages, width, rebalances, *, exit_codes=None,
-             cash_fraction_for=None):
+             cash_fraction_for=None, closing=None):
     """Daily equity curve for one variant over one rebalance schedule.
 
+    ``closing``: the signal date whose next session ends the final period --
+    the next rebalance on the schedule after the window. Without it the final
+    period would run to the end of the archive, and a DISCOVERY window would
+    silently hold its last portfolio through every later year. ``None`` is only
+    correct when the window genuinely ends at the end of the data.
     ``exit_codes``: stage codes that trigger an exit, counted only as a break
     *into* them after entry, so a name bought in Stage 4 is not sold for being
     in Stage 4 (the rule is about deterioration, not the entry decision).
@@ -113,11 +118,12 @@ def simulate(panel, closes, stages, width, rebalances, *, exit_codes=None,
         entry = next_session(sessions, signal)
         if entry is None:
             break
-        stop = (
-            next_session(sessions, rebalances[i + 1])
-            if i + 1 < len(rebalances)
-            else sessions[-1]
-        )
+        if i + 1 < len(rebalances):
+            stop = next_session(sessions, rebalances[i + 1])
+        elif closing is not None:
+            stop = next_session(sessions, closing)
+        else:
+            stop = sessions[-1]
         if stop is None or stop <= entry:
             break
         cross = panel[panel["Signal_Date"] == signal]
@@ -263,9 +269,15 @@ def main(argv=None):
                     continue  # the breadth rule is declared on the monthly schedule only
                 rows = []
                 for offset in offsets:
+                    step = 1 if schedule == "monthly" else 3
                     schedule_dates = dates if schedule == "monthly" else dates[offset::3]
+                    if not schedule_dates:
+                        continue
+                    following = all_dates.index(schedule_dates[-1]) + step
+                    closing = all_dates[following] if following < len(all_dates) else None
                     curve, exits, invested = simulate(
-                        panel, closes, stages, width, schedule_dates, **options
+                        panel, closes, stages, width, schedule_dates,
+                        closing=closing, **options
                     )
                     rows.append({**metrics(curve), "exits": exits, "invested": invested})
                 averaged = {k: round(float(np.mean([r[k] for r in rows])), 3) for k in rows[0]}
