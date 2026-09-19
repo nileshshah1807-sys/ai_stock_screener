@@ -28,6 +28,7 @@ screener/
    statements.py       Annual-statement collection and factor derivation (Model 5.x)
    benchmark.py        Benchmark index, relative strength, market regime (Model 5.x)
    factors.py          Quality/growth/value/momentum/risk blocks (Model 5.x)
+   stage.py            Stage analysis, RS rating, timing score and Action_Rank
 ```
 
 Point-in-time backtesting lives in its own package, deliberately separate from
@@ -158,6 +159,39 @@ unreproducible against the archive.
 of rows) because `DCF_Assumed_Growth` is a sector template, not a company
 forecast; wired to the warning it fired on 22.6% of rows. The warning fires only
 on an expected earnings decline or a guidance downgrade -- 7.3% of the universe.
+
+### Entry timing: stage and relative strength
+
+`Research_Score` says how strong the evidence is. It cannot say where a stock is
+in its cycle: every trend input it reads looks back six to twelve months, so a
+name that has already made its move keeps scoring 100 while it tops out.
+VENUSREM on 2026-08-24 is the case: rank 1 at 100.0, +251% over twelve months,
+56% above its 200-day average, advance 451 days old -- and down 13% the next
+month. `screener/stage.py` adds the missing axis, under the factor model only:
+
+| Column | Meaning |
+|---|---|
+| `Stage` | Stage 1 / Stage 2 / S2 Candidate / Stage 3 / Stage 4, from the daily 50/150/200-session averages |
+| `Days_In_Stage`, `Stage_Entry_Date` | Calendar days since the current stage began (`Stage_Run_Censored` when it began before the data) |
+| `Advance_Age_Days` | Unbroken days in Stage 2 or S2 Candidate; a pullback restarts `Days_In_Stage`, not this |
+| `RS_Rating`, `RS_Rating_Change_1M` | IBD-style 3/6/9/12-month return weighted 40/20/20/20, percentile 1-99, and its one-month change |
+| `Timing_Score` | Stage 40%, RS rating 20%, RS trend 20%, extension above MA150 20% |
+| `Action_Score`, `Action_Rank` | `(1 - TIMING_WEIGHT) * Research_Score + TIMING_WEIGHT * Timing_Score`, ranked |
+| `Entry_State` | ENTER · Stage 2 / WAIT · extended / WATCH · S2 pullback / WAIT · Stage 3 / AVOID · Stage 4 |
+
+The stage and RS definitions were calibrated against a third-party stage
+screener's labels for 2026-09-18: 90.8% stage agreement across 1,417 names, and
+RS rating Spearman 0.976 against its RS percentile. Agreement says our stage
+resembles theirs, not that either predicts a return.
+
+**`Investment_Rank` is unchanged, and so is every rating and gate.**
+`Action_Rank` is published beside it. `TIMING_WEIGHT` is decided by the
+pre-registered grid in
+[`docs/Review/p3_stage_timing_preregistration.md`](docs/Review/p3_stage_timing_preregistration.md);
+at 0 the two ranks carry the same research order. The weight matters more than
+it looks: the top of the research ranking is packed between 97 and 100, so on
+the 2026-08-24 cross-section a 0.3 weight replaces 13 of the top 20.
+`STAGE_TIMING_ENABLED=false` removes the columns entirely.
 
 ### Point-in-time validation
 
