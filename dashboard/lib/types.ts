@@ -187,6 +187,13 @@ export type SnapshotRow = {
   action_score: number | null;
   action_rank: number | null;
   entry_state: string | null;
+  /**
+   * When the current Stage 3/4 run began and the stage it left -- the exit
+   * signal tested in P5. Null unless the break was observed in the data.
+   */
+  breakdown_date: string | null;
+  breakdown_age_days: number | null;
+  breakdown_from: string | null;
 };
 
 /** Model 5.0 eligibility classes, in the order they rank. */
@@ -333,6 +340,19 @@ export type Watchlist = {
   updated_at: string;
   /** Symbols on the list, ordered as stored. */
   symbols: string[];
+  /** When each symbol was added (ISO timestamp), keyed by symbol. */
+  addedAt: Record<string, string>;
+};
+
+/** A watched stock that broke into Stage 3 or 4 after it was added. */
+export type StageBreak = {
+  symbol: string;
+  company: string | null;
+  stage: string;
+  breakdown_date: string;
+  breakdown_age_days: number | null;
+  breakdown_from: string | null;
+  added_at: string;
 };
 
 /**

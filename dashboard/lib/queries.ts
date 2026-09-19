@@ -9,6 +9,7 @@ import type {
   MoverRow,
   ScreenerFilters,
   ScreenerRun,
+  StageBreak,
   SearchEntry,
   SnapshotRow,
   SnapshotRowWithPayload,
@@ -868,6 +869,54 @@ export async function getPriceMovers(
  * Selects EXPORT_COLUMNS rather than the grid's leaner set: a download is not
  * latency-sensitive and is expected to carry every field the CSV declares.
  */
+/**
+ * Watched stocks that broke into Stage 3 or 4 after they were added.
+ *
+ * The P5 exit rule, as a reader-facing alert: in 2018-2026 selling a holding
+ * the session after it broke into Stage 3 or 4 raised Sharpe and cut the worst
+ * drawdown in both halves of the data (docs/Review/p5_stage_overlay_preregistration.md).
+ * A symbol added while it was already in Stage 3/4 is not reported -- the rule
+ * is about deterioration after the decision, not about the decision itself.
+ *
+ * One read for the whole list, restricted server-side to rows with a dated
+ * breakdown, so the comparison with `added_at` runs on a handful of rows.
+ */
+export async function getStageBreaks(
+  runDate: string,
+  addedAt: Record<string, string>,
+): Promise<StageBreak[]> {
+  const symbols = Object.keys(addedAt);
+  if (!runDate || !symbols.length) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("screener_snapshot")
+    .select("symbol, company, stage, breakdown_date, breakdown_age_days, breakdown_from")
+    .eq("run_date", runDate)
+    .in("symbol", symbols)
+    .not("breakdown_date", "is", null);
+
+  if (error) {
+    // A failed read must not look like "nothing broke down"; it is logged and
+    // the page shows no alert rather than a false all-clear message.
+    console.error("getStageBreaks failed", error.message);
+    return [];
+  }
+  type Row = Omit<StageBreak, "added_at">;
+  return ((data ?? []) as Row[])
+    .filter((row) => {
+      const added = addedAt[row.symbol];
+      // Compare calendar dates in IST: added_at is a timestamp, the breakdown
+      // is an exchange session date. A break on the day of adding counts,
+      // because the session that closed below the line had not been seen yet.
+      const addedDay = new Date(added).toLocaleDateString("en-CA", {
+        timeZone: "Asia/Kolkata",
+      });
+      return row.breakdown_date >= addedDay;
+    })
+    .map((row) => ({ ...row, added_at: addedAt[row.symbol] }))
+    .sort((a, b) => b.breakdown_date.localeCompare(a.breakdown_date));
+}
+
 export async function getExportRows(
   runDate: string,
   filters: ScreenerFilters,

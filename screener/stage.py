@@ -63,6 +63,14 @@ STAGE_LABELS = (STAGE_1, STAGE_2, S2_CANDIDATE, STAGE_3, STAGE_4)
 #: way it restarts ``Days_In_Stage``.
 ADVANCING_STAGES = frozenset({STAGE_2, S2_CANDIDATE})
 
+#: Stages whose onset is the exit signal tested in P5
+#: (`docs/Review/p5_stage_overlay_preregistration.md`): selling a holding the
+#: session after it breaks into Stage 3 or 4 raised Sharpe and cut drawdowns in
+#: both halves of 2018-2026. ``Breakdown_*`` describes the current unbroken run
+#: inside this set, so a Stage 3 that deteriorates into Stage 4 keeps the date it
+#: first broke down rather than looking like a fresh signal.
+BREAKDOWN_STAGES = frozenset({STAGE_3, STAGE_4})
+
 SLOPE_SESSIONS = 21
 #: MA200 plus its slope lookback: below this the stage is undefined, not Stage 1.
 MIN_STAGE_SESSIONS = 200 + SLOPE_SESSIONS
@@ -113,6 +121,9 @@ STAGE_FEATURE_COLUMNS = (
     "Stage_Run_Censored",
     "Advance_Age_Days",
     "Advance_Age_Censored",
+    "Breakdown_Date",
+    "Breakdown_Age_Days",
+    "Breakdown_From",
     "MA150",
     "MA150_Slope_Pct",
     "Price_To_MA150_Pct",
@@ -129,6 +140,8 @@ def _empty_features():
     out["Stage_Entry_Date"] = None
     out["Stage_Run_Censored"] = None
     out["Advance_Age_Censored"] = None
+    out["Breakdown_Date"] = None
+    out["Breakdown_From"] = None
     return out
 
 
@@ -266,6 +279,17 @@ def stage_features(closes, dates=None):
         # VENUSREM, which reads 406 days from a two-year download and 476 from
         # the archive.
         out["Advance_Age_Censored"] = bool(advance_start <= first_defined)
+
+    if current in BREAKDOWN_STAGES:
+        breakdown_start = _run_start(labels, BREAKDOWN_STAGES)
+        # Only a break that happened inside the data is reported. A breakdown
+        # older than the download has no knowable date, and an alert must fire
+        # on a transition that was actually observed, never on a guess.
+        if breakdown_start > first_defined:
+            out["Breakdown_Age_Days"] = _calendar_days(values.index, breakdown_start)
+            out["Breakdown_From"] = labels.iloc[breakdown_start - 1]
+            if isinstance(values.index, pd.DatetimeIndex):
+                out["Breakdown_Date"] = values.index[breakdown_start].date().isoformat()
     return out
 
 
@@ -318,7 +342,11 @@ def attach_timing(frame, *, timing_weight=0.0, research_column="Research_Score")
     working = frame.copy()
     for column in STAGE_FEATURE_COLUMNS:
         if column not in working:
-            working[column] = None if column in ("Stage", "Stage_Entry_Date") else np.nan
+            working[column] = (
+                None
+                if column in ("Stage", "Stage_Entry_Date", "Breakdown_Date", "Breakdown_From")
+                else np.nan
+            )
 
     working["RS_Rating"] = _percentile_rating(working["RS_Raw_Pct"]).round(1)
     prior_rating = _percentile_rating(working["RS_Raw_1M_Ago_Pct"])

@@ -3,12 +3,18 @@ import { BookmarkPlus, ListPlus } from "lucide-react";
 
 import { Pagination } from "@/components/screener/pagination";
 import { ScreenerTable } from "@/components/screener/screener-table";
+import { StageBreakAlert } from "@/components/watchlist/stage-break-alert";
 import { WatchlistRowAction } from "@/components/watchlist/watchlist-row-action";
 import { WatchlistSearch } from "@/components/watchlist/watchlist-search";
 import { WatchlistSelector } from "@/components/watchlist/watchlist-selector";
 import { parseFilters, toSearchParams } from "@/lib/filters";
 import { formatDate } from "@/lib/format";
-import { getLatestRun, getSnapshotPage, PAGE_SIZE } from "@/lib/queries";
+import {
+  getLatestRun,
+  getSnapshotPage,
+  getStageBreaks,
+  PAGE_SIZE,
+} from "@/lib/queries";
 import { getWatchlists, resolveWatchlist } from "@/lib/watchlists";
 
 export const metadata: Metadata = { title: "Watchlists" };
@@ -63,11 +69,16 @@ export default async function WatchlistsPage({
   const requested = Array.isArray(params.list) ? params.list[0] : params.list;
   const selected = resolveWatchlist(lists, requested);
 
-  const { rows, total } = selected?.symbols.length
-    ? await getSnapshotPage(run?.run_date ?? "", filters, {
-        symbols: selected.symbols,
-      })
-    : { rows: [], total: 0 };
+  // Independent reads again: the alert covers the whole list regardless of the
+  // grid's filters and page, so it is not derived from the grid's rows.
+  const [{ rows, total }, breaks] = selected?.symbols.length
+    ? await Promise.all([
+        getSnapshotPage(run?.run_date ?? "", filters, {
+          symbols: selected.symbols,
+        }),
+        getStageBreaks(run?.run_date ?? "", selected.addedAt),
+      ])
+    : [{ rows: [], total: 0 }, []];
 
   // Symbols on the list that the current run did not score: delisted, or simply
   // not selected this time. Named explicitly rather than silently dropped, so a
@@ -134,6 +145,8 @@ export default async function WatchlistsPage({
         />
       ) : (
         <>
+          <StageBreakAlert breaks={breaks} />
+
           <ScreenerTable
             rows={rows}
             params={urlParams}

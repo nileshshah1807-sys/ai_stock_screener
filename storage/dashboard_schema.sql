@@ -338,6 +338,9 @@ create table if not exists screener_snapshot (
     action_score numeric(6,2),
     action_rank integer,
     entry_state text,
+    breakdown_date date,
+    breakdown_age_days integer,
+    breakdown_from text,
 
     -- Complete source row. Every column above also appears here; the typed
     -- copies exist for indexing, not as the record of truth.
@@ -437,6 +440,14 @@ alter table screener_snapshot
     add column if not exists action_score numeric(6,2),
     add column if not exists action_rank integer,
     add column if not exists entry_state text;
+
+-- The P5 exit signal (docs/Review/p5_stage_overlay_preregistration.md): the
+-- date the current Stage 3/4 run began and the stage it left. Null unless the
+-- break was observed inside the downloaded history.
+alter table screener_snapshot
+    add column if not exists breakdown_date date,
+    add column if not exists breakdown_age_days integer,
+    add column if not exists breakdown_from text;
 
 -- Grid default ordering.
 create index if not exists screener_snapshot_rank_idx

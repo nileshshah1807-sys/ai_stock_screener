@@ -105,6 +105,40 @@ class StageRunTests(unittest.TestCase):
         self.assertEqual(len(result["Stage_Entry_Date"]), 10)
 
 
+class BreakdownTests(unittest.TestCase):
+    """The P5 exit signal: the first observed session in Stage 3 or 4."""
+
+    def test_break_below_ma150_is_dated_and_names_the_stage_it_left(self):
+        closes = dated(path((380, 0.003), (35, -0.012)))
+        result = stage_features(closes)
+        self.assertEqual(result["Stage"], STAGE_3)
+        self.assertIn(result["Breakdown_From"], (STAGE_2, S2_CANDIDATE))
+        broke = pd.Timestamp(result["Breakdown_Date"])
+        self.assertEqual(result["Breakdown_Age_Days"], (closes.index[-1] - broke).days)
+
+    def test_deterioration_into_stage_4_keeps_the_first_breakdown_date(self):
+        closes = dated(path((380, 0.003), (200, -0.006)))
+        result = stage_features(closes)
+        self.assertEqual(result["Stage"], STAGE_4)
+        labels = classify_stages(closes.reset_index(drop=True))
+        labels.index = closes.index
+        in_breakdown = labels.isin([STAGE_3, STAGE_4])
+        first = in_breakdown[in_breakdown & ~in_breakdown.shift(fill_value=False)].index[-1]
+        self.assertEqual(result["Breakdown_Date"], first.date().isoformat())
+        self.assertIn(result["Breakdown_From"], (STAGE_2, S2_CANDIDATE, "Stage 1"))
+
+    def test_a_decline_older_than_the_data_has_no_breakdown_date(self):
+        result = stage_features(dated(path((400, -0.002))))
+        self.assertEqual(result["Stage"], STAGE_4)
+        self.assertIsNone(result["Breakdown_Date"])
+        self.assertTrue(np.isnan(result["Breakdown_Age_Days"]))
+
+    def test_no_breakdown_fields_in_an_advance(self):
+        result = stage_features(dated(path((400, 0.002))))
+        self.assertIsNone(result["Breakdown_Date"])
+        self.assertIsNone(result["Breakdown_From"])
+
+
 class RelativeStrengthInputTests(unittest.TestCase):
     def test_weighted_return_uses_the_ibd_quarter_weights(self):
         closes = path((300, 0.001))

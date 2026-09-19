@@ -211,6 +211,11 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("action_score", "Action_Score", "num:6,2"),
     ("action_rank", "Action_Rank", "int"),
     ("entry_state", "Entry_State", "text"),
+    # When the current Stage 3/4 run began, and from which stage. The P5 exit
+    # signal; the watchlist alert compares it with each item's added_at.
+    ("breakdown_date", "Breakdown_Date", "date"),
+    ("breakdown_age_days", "Breakdown_Age_Days", "int"),
+    ("breakdown_from", "Breakdown_From", "text"),
 ]
 
 HISTORY_COLUMNS: list[tuple[str, str, str]] = [

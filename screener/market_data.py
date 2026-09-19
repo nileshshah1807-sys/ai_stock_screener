@@ -487,6 +487,8 @@ class PriceCache:
         # otherwise publish every row with no stage and a neutral timing score.
         "Stage", "Days_In_Stage", "Price_To_MA150_Pct",
         "RS_Raw_Pct", "RS_Raw_1M_Ago_Pct",
+        # The P5 exit signal: when a holding broke into Stage 3 or 4.
+        "Breakdown_Date", "Breakdown_Age_Days",
     )
 
     @staticmethod
