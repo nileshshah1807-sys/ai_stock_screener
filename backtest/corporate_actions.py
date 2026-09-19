@@ -284,7 +284,13 @@ class ActionStore:
             return pd.DataFrame(columns=list(ACTION_COLUMNS))
 
     def fetch(self, start, end):
-        """Fetch, normalise, cache and return actions for ``[start, end]``."""
+        """Fetch and normalise actions for ``[start, end]``, merging them into the cache.
+
+        Returns only the fetched window. The cache keeps every cached action
+        outside the window: writing the window alone meant an incremental
+        backfill (``--start`` a month back) deleted the whole history before
+        it, and every earlier split then read as a fabricated ~50% loss.
+        """
         from tempfile import TemporaryDirectory
 
         start, end = _as_date(start), _as_date(end)
@@ -296,8 +302,21 @@ class ActionStore:
                     to_date=datetime.combine(end, datetime.max.time()),
                 )
         frame = normalise_actions(records)
+
+        existing = self.load()
+        if not existing.empty:
+            ex_dates = pd.to_datetime(existing["Ex_Date"], errors="coerce").dt.date
+            # The window is re-fetched in full, so it replaces its cached rows
+            # outright; a corrected or withdrawn action must not survive.
+            outside = existing[~ex_dates.between(start, end)]
+            merged = pd.concat([outside, frame], ignore_index=True)
+            merged = merged.drop_duplicates(
+                subset=["ISIN", "Ex_Date", "Action_Type", "Subject"]
+            ).sort_values(["ISIN", "Ex_Date"]).reset_index(drop=True)
+        else:
+            merged = frame
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        frame.to_csv(self.path, index=False)
+        merged.to_csv(self.path, index=False)
         return frame
 
 
