@@ -84,8 +84,8 @@ export function ViewOptions({ factorModel = false }: { factorModel?: boolean }) 
     else next.add(id);
     push((params) => {
       const value = serializeHiddenColumns(next);
-      if (value) params.set("cols", value);
-      else params.delete("cols");
+      if (value === null) params.delete("cols");
+      else params.set("cols", value);
     });
   };
 
@@ -111,7 +111,9 @@ export function ViewOptions({ factorModel = false }: { factorModel?: boolean }) 
       <PopoverTrigger render={<Button variant="outline" className="gap-1.5" />}>
         <Columns3 className="size-3.5" aria-hidden />
         <span className="hidden sm:inline">Columns</span>
-        {hiddenCount ? (
+        {/* Only once the reader has changed the columns: the default view hides
+            four audit columns, and a permanent "4" would read as a problem. */}
+        {searchParams.has("cols") && hiddenCount ? (
           <span className="tabular ml-0.5 rounded bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
             {hiddenCount}
           </span>
@@ -177,7 +179,7 @@ export function ViewOptions({ factorModel = false }: { factorModel?: boolean }) 
             </div>
           </fieldset>
 
-          {hiddenCount || density !== "compact" ? (
+          {searchParams.has("cols") || density !== "compact" ? (
             <Button variant="ghost" className="h-8 w-full gap-1.5 text-xs" onClick={reset}>
               <RotateCcw className="size-3" aria-hidden />
               Reset to defaults

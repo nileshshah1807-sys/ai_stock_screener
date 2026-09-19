@@ -341,6 +341,15 @@ create table if not exists screener_snapshot (
     breakdown_date date,
     breakdown_age_days integer,
     breakdown_from text,
+    stage_entry_date date,
+    return_since_stage_entry_pct numeric(12,2),
+    stage2_entry_date date,
+    stage2_entry_price numeric(14,2),
+    stage2_exit_date date,
+    stage2_entry_censored boolean,
+    return_since_stage2_entry_pct numeric(12,2),
+    advance_age_censored boolean,
+    pct_from_52w_high numeric(10,3),
 
     -- Complete source row. Every column above also appears here; the typed
     -- copies exist for indexing, not as the record of truth.
@@ -448,6 +457,20 @@ alter table screener_snapshot
     add column if not exists breakdown_date date,
     add column if not exists breakdown_age_days integer,
     add column if not exists breakdown_from text;
+
+-- Stage history for the stock page: when the current stage began, when the
+-- latest advance entered Stage 2 (and ended, if it has), and the return since
+-- each. Display only.
+alter table screener_snapshot
+    add column if not exists stage_entry_date date,
+    add column if not exists return_since_stage_entry_pct numeric(12,2),
+    add column if not exists stage2_entry_date date,
+    add column if not exists stage2_entry_price numeric(14,2),
+    add column if not exists stage2_exit_date date,
+    add column if not exists stage2_entry_censored boolean,
+    add column if not exists return_since_stage2_entry_pct numeric(12,2),
+    add column if not exists advance_age_censored boolean,
+    add column if not exists pct_from_52w_high numeric(10,3);
 
 -- Grid default ordering.
 create index if not exists screener_snapshot_rank_idx

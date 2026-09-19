@@ -489,6 +489,7 @@ class PriceCache:
         "RS_Raw_Pct", "RS_Raw_1M_Ago_Pct",
         # The P5 exit signal: when a holding broke into Stage 3 or 4.
         "Breakdown_Date", "Breakdown_Age_Days",
+        "Stage2_Entry_Date", "Return_Since_Stage2_Entry_Pct",
     )
 
     @staticmethod

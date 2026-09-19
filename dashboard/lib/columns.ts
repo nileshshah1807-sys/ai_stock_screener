@@ -339,8 +339,31 @@ export type Density = "compact" | "comfortable";
  * columns are dropped too, so a hand-edited URL cannot produce a grid with no
  * ticker in it.
  */
+/**
+ * Columns hidden when the URL says nothing about columns.
+ *
+ * The default view is the one people read every morning: score, the three
+ * factor percentiles, rating, stage, RS, price, returns, size and PE. Coverage,
+ * DCF, the evidence chips and liquidity are audit detail -- still one click
+ * away in the Columns menu, and on every stock page.
+ */
+export const DEFAULT_HIDDEN_COLUMNS: readonly ColumnId[] = [
+  "coverage",
+  "dcf",
+  "evidence",
+  "liq",
+];
+
+/**
+ * `cols` value meaning "hide nothing". Needed because an absent parameter now
+ * means the default hidden set, and an empty parameter does not survive the
+ * URL round trip -- the filter parser treats a blank value as absent.
+ */
+export const SHOW_ALL_COLUMNS = "none";
+
 export function parseHiddenColumns(raw: string | undefined): ColumnId[] {
-  if (!raw) return [];
+  if (raw === undefined) return [...DEFAULT_HIDDEN_COLUMNS];
+  if (!raw || raw.trim() === SHOW_ALL_COLUMNS) return [];
   const seen = new Set<ColumnId>();
   for (const token of raw.split(",")) {
     const id = token.trim() as ColumnId;
@@ -350,13 +373,22 @@ export function parseHiddenColumns(raw: string | undefined): ColumnId[] {
   return [...seen];
 }
 
-export function serializeHiddenColumns(hidden: Iterable<ColumnId>): string {
+/**
+ * The `cols` value for a hidden set, or null when it is the default set -- the
+ * caller then drops the parameter, so the default view keeps a clean URL.
+ */
+export function serializeHiddenColumns(hidden: Iterable<ColumnId>): string | null {
   // Registry order rather than click order, so two people who hid the same
   // columns produce the same URL and the same cache key.
   const set = new Set(hidden);
-  return COLUMNS.filter((column) => set.has(column.id))
-    .map((column) => column.id)
-    .join(",");
+  const ordered = COLUMNS.filter((column) => set.has(column.id)).map(
+    (column) => column.id,
+  );
+  const defaults = new Set<ColumnId>(DEFAULT_HIDDEN_COLUMNS);
+  if (ordered.length === defaults.size && ordered.every((id) => defaults.has(id))) {
+    return null;
+  }
+  return ordered.length ? ordered.join(",") : SHOW_ALL_COLUMNS;
 }
 
 export function parseDensity(raw: string | undefined): Density {

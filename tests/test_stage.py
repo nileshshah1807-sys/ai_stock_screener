@@ -139,6 +139,52 @@ class BreakdownTests(unittest.TestCase):
         self.assertIsNone(result["Breakdown_From"])
 
 
+class Stage2EntryTests(unittest.TestCase):
+    """When the latest advance entered Stage 2, and the return since."""
+
+    def test_running_advance_reports_entry_and_return(self):
+        closes = dated(path((300, -0.002), (260, 0.004)))
+        result = stage_features(closes)
+        self.assertEqual(result["Stage"], STAGE_2)
+        entry = pd.Timestamp(result["Stage2_Entry_Date"])
+        self.assertIsNone(result["Stage2_Exit_Date"])
+        self.assertFalse(result["Stage2_Entry_Censored"])
+        expected = (closes.iloc[-1] / closes.loc[entry] - 1.0) * 100.0
+        self.assertAlmostEqual(result["Return_Since_Stage2_Entry_Pct"], round(expected, 2))
+        self.assertAlmostEqual(result["Stage2_Entry_Price"], round(float(closes.loc[entry]), 2))
+
+    def test_a_pullback_keeps_the_original_stage_2_entry(self):
+        closes = dated(path((300, -0.002), (260, 0.004), (12, -0.008)))
+        result = stage_features(closes)
+        self.assertEqual(result["Stage"], S2_CANDIDATE)
+        before_pullback = stage_features(closes.iloc[:-12])
+        self.assertEqual(result["Stage2_Entry_Date"], before_pullback["Stage2_Entry_Date"])
+
+    def test_an_ended_advance_keeps_its_entry_and_dates_its_exit(self):
+        closes = dated(path((300, -0.002), (260, 0.004), (60, -0.012)))
+        result = stage_features(closes)
+        self.assertIn(result["Stage"], (STAGE_3, STAGE_4))
+        self.assertIsNotNone(result["Stage2_Entry_Date"])
+        self.assertGreater(result["Stage2_Exit_Date"], result["Stage2_Entry_Date"])
+        self.assertLess(result["Return_Since_Stage2_Entry_Pct"], 50.0)
+
+    def test_advance_older_than_the_data_marks_the_entry_censored(self):
+        result = stage_features(dated(path((400, 0.002))))
+        self.assertTrue(result["Stage2_Entry_Censored"])
+
+    def test_no_stage_2_ever_leaves_the_fields_empty(self):
+        result = stage_features(dated(path((400, -0.002))))
+        self.assertIsNone(result["Stage2_Entry_Date"])
+        self.assertTrue(np.isnan(result["Return_Since_Stage2_Entry_Pct"]))
+
+    def test_return_since_current_stage_entry(self):
+        closes = dated(path((380, 0.003), (12, -0.008)))
+        result = stage_features(closes)
+        entry = pd.Timestamp(result["Stage_Entry_Date"])
+        expected = (closes.iloc[-1] / closes.loc[entry] - 1.0) * 100.0
+        self.assertAlmostEqual(result["Return_Since_Stage_Entry_Pct"], round(expected, 2))
+
+
 class RelativeStrengthInputTests(unittest.TestCase):
     def test_weighted_return_uses_the_ibd_quarter_weights(self):
         closes = path((300, 0.001))
