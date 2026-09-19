@@ -17,6 +17,7 @@ from backtest.corporate_actions import (
     ACTION_INTEREST,
     ACTION_RIGHTS,
     ACTION_SPLIT,
+    ActionStore,
     AdjustmentTable,
     adjust_panel,
     normalise_actions,
@@ -513,6 +514,74 @@ class AdjustPanelTests(unittest.TestCase):
     def test_empty_panel_passes_through(self):
         table = AdjustmentTable(actions_frame([]))
         self.assertTrue(adjust_panel(pd.DataFrame(), table).empty)
+
+
+class FakeNSE:
+    """Serves canned ``nse.actions()`` records filtered to the requested window."""
+
+    def __init__(self, records):
+        self.records = records
+
+    def __call__(self, _folder):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def actions(self, segment, from_date, to_date):
+        def ex(record):
+            return pd.Timestamp(record["exDate"]).to_pydatetime()
+
+        return [r for r in self.records if from_date <= ex(r) <= to_date]
+
+
+def action(isin, ex_date, subject):
+    return {"isin": isin, "symbol": isin, "exDate": ex_date, "subject": subject}
+
+
+class ActionStoreTests(unittest.TestCase):
+    SPLIT = "Face Value Split (Sub-Division) - From Rs 10/- Per Share To Rs 5/- Per Share"
+    DIVIDEND = "Dividend - Rs 2 Per Share"
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self._tmp.name) / "corporate_actions.csv"
+        self.feed = FakeNSE([
+            action("INE000A01011", "15-Mar-2022", self.SPLIT),
+            action("INE000A01011", "20-Aug-2026", self.DIVIDEND),
+        ])
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def store(self):
+        return ActionStore(self.path, nse_factory=self.feed)
+
+    def test_incremental_fetch_keeps_history_outside_the_window(self):
+        self.store().fetch(date(2018, 1, 1), date(2026, 8, 18))
+        window = self.store().fetch(date(2026, 8, 19), date(2026, 9, 18))
+
+        self.assertEqual(len(window), 1)
+        cached = self.store().load()
+        self.assertEqual(sorted(cached["Ex_Date"]), ["2022-03-15", "2026-08-20"])
+
+    def test_refetching_a_window_replaces_its_rows(self):
+        self.store().fetch(date(2018, 1, 1), date(2026, 9, 18))
+        self.feed.records = [self.feed.records[0]]  # the dividend was withdrawn
+        self.store().fetch(date(2026, 8, 1), date(2026, 9, 18))
+
+        self.assertEqual(list(self.store().load()["Ex_Date"]), ["2022-03-15"])
+
+    def test_repeated_fetch_does_not_duplicate(self):
+        for _ in range(2):
+            self.store().fetch(date(2018, 1, 1), date(2026, 9, 18))
+        self.assertEqual(len(self.store().load()), 2)
 
 
 if __name__ == "__main__":
