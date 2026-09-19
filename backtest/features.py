@@ -60,6 +60,14 @@ PRICE_FEATURE_COLUMNS = (
     "Trading_Frequency",
     "RiskAdj_Momentum_12_1",
     "RiskAdj_Momentum_6_1",
+    # Stage and relative-strength inputs for the entry-timing score. Computed by
+    # screener.stage.stage_features, the function production calls.
+    "Stage",
+    "Days_In_Stage",
+    "Advance_Age_Days",
+    "Price_To_MA150_Pct",
+    "RS_Raw_Pct",
+    "RS_Raw_1M_Ago_Pct",
 )
 
 
@@ -199,6 +207,26 @@ def price_features(history, signal_date, *, min_history=MIN_HISTORY_SESSIONS):
         "Below_MA200_Streak",
     ):
         record[column] = features.get(column)
+
+    # Dated, so "days in stage" is counted in calendar days exactly as production
+    # counts it. Built from the undropped lists: dropping NaN closes first would
+    # shift every close onto the wrong date.
+    from screener.stage import stage_features
+
+    dated = pd.Series(
+        pd.to_numeric(pd.Series(history["close"]), errors="coerce").to_numpy(),
+        index=pd.to_datetime(history["dates"]),
+    )
+    stage = stage_features(dated)
+    for column in (
+        "Stage",
+        "Days_In_Stage",
+        "Advance_Age_Days",
+        "Price_To_MA150_Pct",
+        "RS_Raw_Pct",
+        "RS_Raw_1M_Ago_Pct",
+    ):
+        record[column] = stage.get(column)
 
     for horizon in ("12_1", "6_1"):
         raw = features.get(f"Momentum_{horizon}_Pct")

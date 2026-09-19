@@ -1318,6 +1318,18 @@ class RecommendationPolicy:
                 ["Decision_Score", "Evidence_Score", "_Symbol_Sort"],
                 [False, False, True],
             )
+        if factor_model_run and "Action_Score" in ranked:
+            # Beside Investment_Rank, never in place of it: the research order
+            # stays the published default until the P3 grid and live evidence
+            # say otherwise.
+            research = (
+                "Research_Score" if "Research_Score" in ranked else "Evidence_Score"
+            )
+            assign(
+                "Action_Rank",
+                ["Action_Score", research, "_Symbol_Sort"],
+                [False, False, True],
+            )
         ranked["Rank"] = ranked["Investment_Rank"]
         ranked = ranked.sort_values("Investment_Rank", kind="mergesort").reset_index(
             drop=True
@@ -1335,7 +1347,34 @@ class RecommendationPolicy:
         frame = self._blend_evidence(frame)
         frame = self._apply_decision_policy(frame)
         frame = self._add_stability_diagnostics(frame)
+        frame = self._attach_timing(frame)
         return self._assign_ranks(frame)
+
+    def _attach_timing(self, frame):
+        """Stage/RS timing evidence and Action_Score, factor-model runs only.
+
+        Needs the cross-section, so it runs here rather than per security. It
+        adds columns and changes no rating, gate or research score.
+        """
+        if not _as_bool(getattr(self.config, "STAGE_TIMING_ENABLED", False)):
+            return frame
+        if not (
+            "Research_Score" in frame
+            and "Factor_Model_Applied" in frame
+            and bool(_bool_series(frame, "Factor_Model_Applied", False).all())
+        ):
+            return frame
+        from .stage import attach_timing
+
+        weight = float(getattr(self.config, "TIMING_WEIGHT", 0.0) or 0.0)
+        timed = attach_timing(frame, timing_weight=weight)
+        if weight == 0.0:
+            # P3 refuted every non-zero weight. At zero, Action_Score is the
+            # research score and Action_Rank a copy of Investment_Rank, so
+            # publishing them would add a second rank column that says nothing.
+            # Dropping the score here is what keeps _assign_ranks from ranking it.
+            timed = timed.drop(columns=["Action_Score", "Timing_Weight"])
+        return timed
 
 
 def finalize_recommendations(scored_df, config):

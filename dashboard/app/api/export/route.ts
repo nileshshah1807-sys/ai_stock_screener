@@ -43,6 +43,12 @@ const COLUMNS: Array<[keyof SnapshotRow, string]> = [
   ["liquidity_grade", "Liquidity_Grade"],
   ["portfolio_actionable", "Portfolio_Actionable"],
   ["median_turnover_20d_inr", "Median_Turnover_20D_INR"],
+  ["stage", "Stage"],
+  ["days_in_stage", "Days_In_Stage"],
+  ["advance_age_days", "Advance_Age_Days"],
+  ["rs_rating", "RS_Rating"],
+  ["rs_rating_change_1m", "RS_Rating_Change_1M"],
+  ["entry_state", "Entry_State"],
 ];
 
 /**
@@ -80,6 +86,8 @@ export async function GET(request: NextRequest) {
   // Multi-valued filters need every occurrence, which Object.fromEntries drops.
   filters.rating = request.nextUrl.searchParams.getAll("rating");
   filters.sector = request.nextUrl.searchParams.getAll("sector");
+  filters.eligibility = request.nextUrl.searchParams.getAll("eligibility");
+  filters.stage = request.nextUrl.searchParams.getAll("stage");
 
   const rows = await getExportRows(run.run_date, filters);
 

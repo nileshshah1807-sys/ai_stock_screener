@@ -21,6 +21,8 @@ export type ColumnId =
   | "fundamental"
   | "technical"
   | "rating"
+  | "stage"
+  | "rs"
   | "coverage"
   | "dcf"
   | "evidence"
@@ -191,6 +193,37 @@ export const COLUMNS: readonly ColumnSpec[] = [
       // says what would have to change, where a bare gate name does not.
       "price_to_ma200_pct",
     ],
+  },
+  {
+    // Beside the rating on purpose: the rating says whether policy will act
+    // on the evidence, the stage says where the stock is in its cycle. The
+    // score column cannot say the second -- a name that has already run 250%
+    // and is rolling over scores the same 100 as one that broke out last week.
+    id: "stage",
+    label: "Stage",
+    sort: "days_in_stage",
+    defaultDir: "asc",
+    title:
+      "Stage from the 50/150/200-day averages, and calendar days since it began. Sorts freshest first. Display only: no score, gate or rating reads it.",
+    fields: [
+      "stage",
+      "days_in_stage",
+      "advance_age_days",
+      "price_to_ma150_pct",
+      "entry_state",
+    ],
+    availability: "factor",
+  },
+  {
+    id: "rs",
+    label: "RS",
+    sort: "rs_rating",
+    numeric: true,
+    cellClassName: "text-right",
+    title:
+      "Relative-strength rating, 1-99: 3/6/9/12-month returns weighted 40/20/20/20 and ranked across the universe. The arrow is its change over the last month.",
+    fields: ["rs_rating", "rs_rating_change_1m"],
+    availability: "factor",
   },
   {
     id: "coverage",

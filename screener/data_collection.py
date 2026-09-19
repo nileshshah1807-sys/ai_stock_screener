@@ -22,6 +22,7 @@ from .market_data import (
     latest_expected_completed_nse_session,
     normalize_market_holidays,
 )
+from .stage import stage_features
 
 logger = logging.getLogger(__name__)
 
@@ -751,6 +752,9 @@ class StockDataCollector:
                             trend_risk = calculate_trend_risk_features(
                                 closes, opens=adjusted_open
                             )
+                            # Stage and raw RS inputs for the entry-timing
+                            # score; the same function the backtest validates.
+                            trend_risk.update(stage_features(closes))
                         else:
                             trend_risk = {}
                         directional_prices = pd.DataFrame({

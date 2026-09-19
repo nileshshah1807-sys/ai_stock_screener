@@ -28,7 +28,7 @@ import {
   ratingToken,
   MISSING,
 } from "@/lib/format";
-import type { SnapshotRow } from "@/lib/types";
+import { STAGES, type SnapshotRow } from "@/lib/types";
 
 /**
  * Signed change cell. Sign is carried by an explicit +/- and by position, so
@@ -248,6 +248,115 @@ function LiquidityCell({ row }: { row: SnapshotRow }) {
   );
 }
 
+const STAGE_TONE: Record<string, string> = {
+  positive: "text-positive",
+  negative: "text-negative",
+  caution: "text-caution",
+  neutral: "text-foreground",
+  muted: "text-muted-foreground",
+};
+
+/**
+ * Stage and days in it, e.g. `S2 23d`.
+ *
+ * Deliberately not a pill. The Rating column's `EntryBadge` already speaks in
+ * WAIT/BUY chips, and a second chip vocabulary one column over would read as
+ * a competing verdict. This is an observation -- which side of which average
+ * the price is on, and since when -- so it is set as plain coloured text, with
+ * the entry reading and the advance's age in the tooltip.
+ */
+function StageCell({ row }: { row: SnapshotRow }) {
+  const stage = STAGES.find((item) => item.value === row.stage);
+  if (!stage) {
+    return <span className="text-xs text-muted-foreground">{MISSING}</span>;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex cursor-help items-baseline gap-1 whitespace-nowrap" />
+        }
+      >
+        <span
+          className={cn(
+            "font-mono text-xs font-semibold",
+            STAGE_TONE[stage.tone],
+          )}
+        >
+          {stage.short}
+        </span>
+        {row.days_in_stage !== null && row.days_in_stage !== undefined ? (
+          <span className="tabular font-mono text-[11px] text-muted-foreground">
+            {row.days_in_stage}d
+          </span>
+        ) : null}
+      </TooltipTrigger>
+      <TooltipContent className="max-w-72">
+        <p className="font-medium">{stage.value}</p>
+        <p className="text-xs opacity-90">{stage.meaning}</p>
+        <ul className="mt-1 space-y-0.5 text-xs opacity-90">
+          {row.days_in_stage !== null && row.days_in_stage !== undefined ? (
+            <li>In this stage for {row.days_in_stage} days.</li>
+          ) : null}
+          {row.advance_age_days !== null && row.advance_age_days !== undefined ? (
+            <li>
+              Advance running {row.advance_age_days} days (Stage 2 and its
+              pullbacks, unbroken).
+            </li>
+          ) : null}
+          {row.price_to_ma150_pct !== null &&
+          row.price_to_ma150_pct !== undefined ? (
+            <li>
+              {formatPercent(row.price_to_ma150_pct, 1, true)} versus the
+              150-day average.
+            </li>
+          ) : null}
+        </ul>
+        {row.entry_state ? (
+          <p className="mt-1 text-xs font-medium">{row.entry_state}</p>
+        ) : null}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * RS rating with its one-month change. A change inside five points is left
+ * unmarked: percentile ranks jitter by that much between ordinary sessions.
+ */
+function RsCell({ row }: { row: SnapshotRow }) {
+  const rating = row.rs_rating;
+  if (rating === null || rating === undefined) {
+    return <span className="text-muted-foreground">{MISSING}</span>;
+  }
+  const change = row.rs_rating_change_1m;
+  const moved =
+    change !== null && change !== undefined && Math.abs(change) >= 5;
+  return (
+    <span className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap">
+      <span
+        className={cn(
+          "tabular font-mono text-xs",
+          rating >= 80 ? "text-positive" : rating < 30 ? "text-negative" : "",
+        )}
+      >
+        {Math.round(rating)}
+      </span>
+      {moved ? (
+        <span
+          className={cn(
+            "tabular font-mono text-[10px]",
+            change > 0 ? "text-positive" : "text-negative",
+          )}
+        >
+          {change > 0 ? "↑" : "↓"}
+          {Math.abs(Math.round(change))}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 /**
  * Cell renderers, keyed by the same ids the registry uses.
  *
@@ -306,6 +415,8 @@ const CELLS: Record<ColumnId, (row: SnapshotRow) => ReactNode> = {
   fundamental: (row) => formatScore(row.fundamental_score),
   technical: (row) => formatScore(row.technical_score),
   rating: (row) => <EntryBadge row={row} />,
+  stage: (row) => <StageCell row={row} />,
+  rs: (row) => <RsCell row={row} />,
   coverage: (row) => (
     <CoverageCell
       fundamental={row.fundamental_coverage}

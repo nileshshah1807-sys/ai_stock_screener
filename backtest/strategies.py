@@ -612,6 +612,61 @@ def gate_relaxation_strategies():
     )
 
 
+class Model5Timing(Strategy):
+    """Model 5.1 research score blended with the stage/RS entry-timing score.
+
+    ``Score = (1 - w) * Research_Score + w * Timing_Score``, via
+    `screener.stage.attach_timing` -- the function production publishes
+    ``Action_Score`` with -- so the ranking measured here is the ranking that
+    would ship. ``demote_stage_4`` pushes every Stage 4 name below every other
+    name, the one hard rule declared alongside the weight grid.
+
+    For the pre-registered grid in
+    `docs/Review/p3_stage_timing_preregistration.md`.
+    """
+
+    needs_model5 = True
+
+    #: Larger than any Action_Score difference, as in `Model5Gated`.
+    DEMOTION_OFFSET = 1000.0
+
+    def __init__(self, name, timing_weight, *, demote_stage_4=False):
+        self.name = name
+        self.timing_weight = float(timing_weight)
+        self.demote_stage_4 = bool(demote_stage_4)
+
+    def score(self, frame, shared=None):
+        from screener.stage import STAGE_4, attach_timing
+
+        scored = _model5_result(frame, shared)
+        timed = attach_timing(scored, timing_weight=self.timing_weight)
+        score = pd.to_numeric(timed["Action_Score"], errors="coerce")
+        if self.demote_stage_4:
+            score = score - self.DEMOTION_OFFSET * timed["Stage"].eq(STAGE_4).astype(float)
+        timed["Score"] = score
+        return timed
+
+
+# The pre-registered grid: timing weight from 10% to 40%, then Stage 4 demotion
+# alone at zero weight so its contribution can be separated from the blend's.
+# w = 0 without demotion is `model_5` itself and is not duplicated.
+TIMING_WEIGHT_GRID = {
+    "t1_w10": (0.10, False),
+    "t2_w20": (0.20, False),
+    "t3_w30": (0.30, False),
+    "t4_w40": (0.40, False),
+    "t5_stage4_demotion_only": (0.0, True),
+}
+
+
+def timing_strategies():
+    """The declared timing grid as strategy objects, in declared order."""
+    return tuple(
+        Model5Timing(f"model_5_{name}", weight, demote_stage_4=demote)
+        for name, (weight, demote) in TIMING_WEIGHT_GRID.items()
+    )
+
+
 # Price-only strategies. Runnable without any fundamental data.
 PRICE_ONLY_STRATEGIES = (
     MomentumOnly(),

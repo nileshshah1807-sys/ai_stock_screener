@@ -259,6 +259,41 @@ class FactorModelMappingTests(unittest.TestCase):
         self.assertEqual(mapped["eligibility_class"], 2)
         self.assertEqual(mapped["primary_gate"], "ILLIQUID")
 
+    def test_entry_timing_columns_are_mapped(self):
+        mapped = self.mapped(
+            {
+                "Symbol": "VENUSREM",
+                "Stage": "S2 Candidate",
+                "Days_In_Stage": 11.0,
+                "Advance_Age_Days": 476.0,
+                "Price_To_MA150_Pct": 21.265,
+                "RS_Rating": 95.3,
+                "RS_Rating_Change_1M": -3.1,
+                "Timing_Score": 74.76,
+                "Timing_Weight": 0.2,
+                "Action_Score": 94.95,
+                "Action_Rank": 47,
+                "Entry_State": "Stage 2 · pullback",
+            }
+        )
+        self.assertEqual(mapped["stage"], "S2 Candidate")
+        self.assertEqual(mapped["days_in_stage"], 11)
+        self.assertEqual(mapped["advance_age_days"], 476)
+        self.assertEqual(mapped["rs_rating"], 95.3)
+        self.assertEqual(mapped["rs_rating_change_1m"], -3.1)
+        self.assertEqual(mapped["action_rank"], 47)
+        self.assertEqual(mapped["entry_state"], "Stage 2 · pullback")
+
+    def test_history_carries_the_stage_and_action_rank(self):
+        mapped = map_row(
+            {"Symbol": "INFY", "Stage": "Stage 2", "RS_Rating": 88.0, "Action_Rank": 4},
+            HISTORY_COLUMNS,
+            CoercionReport(),
+        )
+        self.assertEqual(mapped["stage"], "Stage 2")
+        self.assertEqual(mapped["rs_rating"], 88.0)
+        self.assertEqual(mapped["action_rank"], 4)
+
     def test_snapshot_and_schema_column_names_agree(self):
         # A typo here writes a column PostgREST does not have and fails the
         # whole batch, so the mapping is checked against the DDL itself.

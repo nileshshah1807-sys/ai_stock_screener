@@ -33,6 +33,7 @@ const NUMERIC_LABELS: Record<string, (value: string) => string> = {
   maxScore: (value) => `Score ≤ ${value}`,
   minQuality: (value) => `Quality ≥ P${value}`,
   minMomentum: (value) => `Momentum ≥ P${value}`,
+  minRs: (value) => `RS ≥ ${value}`,
 };
 
 type Chip = { key: string; value?: string; label: string };
@@ -90,6 +91,9 @@ export function ActiveFilters() {
       value,
       label: eligibilityLabel(value),
     });
+  }
+  for (const stage of searchParams.getAll("stage")) {
+    chips.push({ key: "stage", value: stage, label: stage });
   }
   for (const [key, label] of Object.entries(TOGGLE_LABELS)) {
     if (searchParams.get(key) === "1") chips.push({ key, label });

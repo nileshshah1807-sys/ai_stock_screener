@@ -485,6 +485,18 @@ class Config:
     # computed and published; they rate and label, they no longer rank.
     RANK_BY_ELIGIBILITY_CLASS = _env_bool("RANK_BY_ELIGIBILITY_CLASS", False)
 
+    # --- Entry timing (screener/stage.py) ------------------------------------
+    # Stage, RS rating and Entry_State are published as display-only evidence
+    # under the factor model. A non-zero TIMING_WEIGHT additionally publishes
+    #   Action_Rank on (1 - w) * Research_Score + w * Timing_Score
+    # beside Investment_Rank, which it never replaces. It stays 0: the
+    # pre-registered grid in docs/Review/p3_stage_timing_preregistration.md
+    # refuted every weight from 0.10 to 0.40 (net CAGR lower in every main
+    # window, monotonically worse with weight, turnover up to double). The knob
+    # remains so the result can be re-tested, not so it can be tuned.
+    STAGE_TIMING_ENABLED = _env_bool("STAGE_TIMING_ENABLED", True)
+    TIMING_WEIGHT = _env_float("TIMING_WEIGHT", 0.0)
+
     # --- Financial-statement collection (Model 5.0 inputs) -------------------
     # Yahoo's quote metadata has no total assets, EBIT, gross profit, cash flow
     # history, or multi-year series, and it omits ROE/ROA outright for part of

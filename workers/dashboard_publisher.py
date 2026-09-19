@@ -197,6 +197,20 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("max_drawdown_1y_pct", "Max_Drawdown_1Y_Pct", "num:10,3"),
     ("downside_deviation_pct", "Downside_Deviation_Pct", "num:10,3"),
     ("roic", "ROIC", "num:12,4"),
+
+    # Entry timing (screener/stage.py). Display and ordering only: no rating,
+    # gate or research score reads these.
+    ("stage", "Stage", "text"),
+    ("days_in_stage", "Days_In_Stage", "int"),
+    ("advance_age_days", "Advance_Age_Days", "int"),
+    ("price_to_ma150_pct", "Price_To_MA150_Pct", "num:10,3"),
+    ("rs_rating", "RS_Rating", "num:5,1"),
+    ("rs_rating_change_1m", "RS_Rating_Change_1M", "num:6,1"),
+    ("timing_score", "Timing_Score", "num:6,2"),
+    ("timing_weight", "Timing_Weight", "num:4,3"),
+    ("action_score", "Action_Score", "num:6,2"),
+    ("action_rank", "Action_Rank", "int"),
+    ("entry_state", "Entry_State", "text"),
 ]
 
 HISTORY_COLUMNS: list[tuple[str, str, str]] = [
@@ -225,6 +239,11 @@ HISTORY_COLUMNS: list[tuple[str, str, str]] = [
     ("research_score", "Research_Score", "num:6,2"),
     ("eligibility_class", "Eligibility_Class", "int"),
     ("primary_gate", "Primary_Gate", "text"),
+    # Entry timing: the stage a name was in on each day, and where the timing
+    # blend ranked it, survive snapshot pruning.
+    ("stage", "Stage", "text"),
+    ("rs_rating", "RS_Rating", "num:5,1"),
+    ("action_rank", "Action_Rank", "int"),
 ]
 
 
