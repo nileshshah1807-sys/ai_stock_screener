@@ -58,6 +58,14 @@ export const PRESETS: readonly Preset[] = [
       "Score of 60 or better with no policy ceiling applied, so the score and the rating agree with each other.",
     query: "minScore=60&excludeCapped=1&sort=final_score&dir=desc",
   },
+  {
+    id: "fresh-stage-2",
+    label: "Fresh Stage 2 leaders",
+    description:
+      "Score 70+, in Stage 2 with an RS rating of 70+, most recent stage entry first. Entry timing on top of the evidence -- not a separately validated signal.",
+    query: "minScore=70&stage=Stage+2&minRs=70&sort=days_in_stage&dir=asc",
+    factorOnly: true,
+  },
 ];
 
 /** Keys a view owns. Anything else in the URL is left alone when one is applied. */
@@ -76,6 +84,8 @@ const VIEW_KEYS = [
   "minMomentum",
   "eligibility",
   "aboveMa200",
+  "stage",
+  "minRs",
   "sort",
   "dir",
   "cols",

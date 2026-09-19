@@ -131,6 +131,15 @@ const EXPORT_COLUMNS = [
   "momentum_12_1_pct",
   "rs_market_6m_pct",
   "roic",
+  // Entry timing. Null on 4.x runs and on runs published before stages existed.
+  "stage",
+  "days_in_stage",
+  "advance_age_days",
+  "rs_rating",
+  "rs_rating_change_1m",
+  "timing_score",
+  "action_rank",
+  "entry_state",
 ].join(",");
 
 const SORTABLE = new Set([
@@ -166,12 +175,22 @@ const SORTABLE = new Set([
   "momentum_12_1_pct",
   "rs_market_6m_pct",
   "roic",
+  // Entry timing. action_rank ascends by default through the `rank` suffix.
+  "action_rank",
+  "rs_rating",
+  "rs_rating_change_1m",
+  "days_in_stage",
+  "advance_age_days",
+  "timing_score",
 ]);
 
 /** Sort keys where a LOWER value is better, so they default to ascending. */
 const ASCENDING_BY_DEFAULT = new Set([
   "eligibility_class",
   "gate_severity",
+  // Fewest days first: the freshest stage transitions are what a stage column
+  // is sorted to find.
+  "days_in_stage",
 ]);
 
 /**
@@ -362,6 +381,14 @@ export async function getSnapshotPage(
   }
   if (filters.aboveMa200) {
     query = query.gte("price_to_ma200_pct", 0);
+  }
+  // Entry timing. Null on runs without stages, so these empty the grid there
+  // for the same reason the factor filters do; the filter bar hides them.
+  if (filters.stage?.length) {
+    query = query.in("stage", filters.stage);
+  }
+  if (typeof filters.minRs === "number") {
+    query = query.gte("rs_rating", filters.minRs);
   }
 
   const sortColumn =

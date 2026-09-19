@@ -324,6 +324,21 @@ create table if not exists screener_snapshot (
     downside_deviation_pct numeric(10,3),
     roic numeric(12,4),
 
+    -- Entry timing (screener/stage.py): where the stock is in its cycle, which
+    -- the research score does not measure. action_rank is published beside
+    -- investment_rank and never replaces it.
+    stage text,
+    days_in_stage integer,
+    advance_age_days integer,
+    price_to_ma150_pct numeric(10,3),
+    rs_rating numeric(5,1),
+    rs_rating_change_1m numeric(6,1),
+    timing_score numeric(6,2),
+    timing_weight numeric(4,3),
+    action_score numeric(6,2),
+    action_rank integer,
+    entry_state text,
+
     -- Complete source row. Every column above also appears here; the typed
     -- copies exist for indexing, not as the record of truth.
     payload jsonb not null,
@@ -408,6 +423,21 @@ alter table screener_snapshot
 alter table screener_snapshot
     add column if not exists pct_change_1d numeric(10,2);
 
+-- Entry timing (screener/stage.py). Null on every run published before the
+-- screener computed stages, and on 4.x runs, which never do.
+alter table screener_snapshot
+    add column if not exists stage text,
+    add column if not exists days_in_stage integer,
+    add column if not exists advance_age_days integer,
+    add column if not exists price_to_ma150_pct numeric(10,3),
+    add column if not exists rs_rating numeric(5,1),
+    add column if not exists rs_rating_change_1m numeric(6,1),
+    add column if not exists timing_score numeric(6,2),
+    add column if not exists timing_weight numeric(4,3),
+    add column if not exists action_score numeric(6,2),
+    add column if not exists action_rank integer,
+    add column if not exists entry_state text;
+
 -- Grid default ordering.
 create index if not exists screener_snapshot_rank_idx
     on screener_snapshot (run_date, investment_rank);
@@ -433,6 +463,15 @@ create index if not exists screener_snapshot_quality_pct_idx
     on screener_snapshot (run_date, quality_percentile desc);
 create index if not exists screener_snapshot_momentum_pct_idx
     on screener_snapshot (run_date, momentum_percentile desc);
+
+-- Entry-timing ordering and filters: the Action rank sort, the stage filter
+-- and the minimum-RS filter.
+create index if not exists screener_snapshot_action_rank_idx
+    on screener_snapshot (run_date, action_rank);
+create index if not exists screener_snapshot_stage_idx
+    on screener_snapshot (run_date, stage);
+create index if not exists screener_snapshot_rs_rating_idx
+    on screener_snapshot (run_date, rs_rating desc);
 
 -- Symbol lookup for drill-down by URL.
 create index if not exists screener_snapshot_symbol_idx
@@ -487,6 +526,13 @@ alter table screener_history
 -- this column existed stay valid and simply have no bar.
 alter table screener_history
     add column if not exists volume bigint;
+
+-- Entry timing, so "when did it enter Stage 2" and "how did its action rank
+-- move" can be answered from history after the snapshot is pruned.
+alter table screener_history
+    add column if not exists stage text,
+    add column if not exists rs_rating numeric(5,1),
+    add column if not exists action_rank integer;
 
 create index if not exists screener_history_symbol_date_idx
     on screener_history (symbol, observed_on desc);

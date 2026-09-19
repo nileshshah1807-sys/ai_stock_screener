@@ -170,6 +170,23 @@ export type SnapshotRow = {
   max_drawdown_1y_pct: number | null;
   downside_deviation_pct: number | null;
   roic: number | null;
+
+  /**
+   * Entry timing (screener/stage.py): where the stock is in its cycle. Null on
+   * 4.x runs and on runs published before stages were computed. Display and
+   * ordering only -- no rating, gate or research score reads these.
+   */
+  stage: string | null;
+  days_in_stage: number | null;
+  advance_age_days: number | null;
+  price_to_ma150_pct: number | null;
+  rs_rating: number | null;
+  rs_rating_change_1m: number | null;
+  timing_score: number | null;
+  timing_weight: number | null;
+  action_score: number | null;
+  action_rank: number | null;
+  entry_state: string | null;
 };
 
 /** Model 5.0 eligibility classes, in the order they rank. */
@@ -178,6 +195,45 @@ export const ELIGIBILITY_CLASSES = [
   { value: 1, label: "BUY eligible" },
   { value: 2, label: "Policy capped" },
   { value: 3, label: "Unscorable" },
+] as const;
+
+/**
+ * Stage labels exactly as the screener publishes them, in cycle order.
+ * `short` is the grid's compact form; `tone` picks the text colour.
+ */
+export const STAGES = [
+  {
+    value: "Stage 1",
+    short: "S1",
+    tone: "muted",
+    meaning: "Basing: no established trend in either direction.",
+  },
+  {
+    value: "Stage 2",
+    short: "S2",
+    tone: "positive",
+    meaning: "Advancing: price above a rising 50 > 150 > 200-day stack.",
+  },
+  {
+    value: "S2 Candidate",
+    short: "S2c",
+    tone: "neutral",
+    meaning:
+      "Stage 2 structure without the full stack -- usually a pullback under the 50-day average.",
+  },
+  {
+    value: "Stage 3",
+    short: "S3",
+    tone: "caution",
+    meaning:
+      "Topping: price has broken below its 150-day average while the long averages still rise.",
+  },
+  {
+    value: "Stage 4",
+    short: "S4",
+    tone: "negative",
+    meaning: "Declining: below a falling 200-day average.",
+  },
 ] as const;
 
 /**
@@ -318,6 +374,9 @@ export type ScreenerFilters = {
   minMomentum?: number;
   eligibility?: string[];
   aboveMa200?: boolean;
+  /** Entry timing. Stage labels as published; RS rating on 1-99. */
+  stage?: string[];
+  minRs?: number;
   sort?: string;
   dir?: "asc" | "desc";
   page?: number;
