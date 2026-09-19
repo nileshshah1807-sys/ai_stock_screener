@@ -78,3 +78,76 @@ than one passes, the simplest (fewest trades) is preferred.
 * Carrying delisted names at their last price flatters any variant that holds
   them and understates what an exit saves.
 * Costs are a flat rate, not the runner's liquidity-scaled impact model.
+
+---
+
+# Result, recorded 2026-09-19
+
+Run: `tools.stage_overlay_study`, report in
+`reports_advanced/backtest/p5_overlay.json`. Quarterly figures are the mean of
+the three phase offsets.
+
+## Verdict: NOT PROMOTED. No variant clears the rule in both windows.
+
+The Stage 3/4 exit (X34) is a clear **risk** improvement in both windows and a
+return cost in DISCOVERY; it fails criterion 3 there and is recorded as a
+trade-off, not an improvement.
+
+## Monthly rebalance
+
+| | DISCOVERY CAGR | Sharpe | Max DD | CONFIRM CAGR | Sharpe | Max DD | exits |
+|---|---|---|---|---|---|---|---|
+| **B0** baseline | 36.42 | 1.171 | −42.99 | 39.08 | 1.376 | −26.94 | 0 |
+| X4 Stage 4 exit | 32.68 | 1.213 | −42.36 | 38.27 | 1.352 | −26.94 | 36 / 14 |
+| **X34 Stage 3/4 exit** | 32.37 | **1.441** | **−29.63** | 39.35 | **1.469** | **−21.87** | 161 / 124 |
+| C10-50 | 35.38 | 1.152 | −42.99 | 35.02 | 1.286 | −26.94 | |
+| C10-100 | 34.16 | 1.118 | −42.99 | 30.87 | 1.148 | −31.41 | |
+| C20-50 | 32.97 | 1.085 | −42.99 | 36.69 | 1.379 | −21.92 | |
+| C20-100 | 29.31 | 0.971 | −42.99 | 33.92 | 1.305 | −25.49 | |
+
+## Quarterly rebalance (3-month hold)
+
+| | DISCOVERY CAGR | Sharpe | Max DD | CONFIRM CAGR | Sharpe | Max DD |
+|---|---|---|---|---|---|---|
+| **B0** | 38.59 | 1.260 | −41.99 | 39.39 | 1.380 | −28.84 |
+| X4 | 33.32 | 1.253 | −40.11 | 37.68 | 1.336 | −29.17 |
+| **X34** | 28.29 | **1.383** | **−23.52** | 39.49 | **1.609** | **−20.15** |
+
+## Against the rule
+
+| | Sharpe +0.05, both | Drawdown not worse by >2, both | CAGR not lower by >2, both | Result |
+|---|---|---|---|---|
+| X4 monthly | FAIL (+0.04, −0.02) | pass | FAIL (−3.7) | not promoted |
+| X4 quarterly | FAIL | pass | FAIL (−5.3) | not promoted |
+| X34 monthly | pass (+0.27, +0.09) | pass (+13.4, +5.1 better) | **FAIL (−4.1 in DISCOVERY)**; +0.3 in CONFIRM | not promoted |
+| X34 quarterly | pass (+0.12, +0.23) | pass (+18.5, +8.7 better) | **FAIL (−10.3 in DISCOVERY)**; +0.1 in CONFIRM | not promoted |
+| C10/C20 (all four) | FAIL (lower Sharpe in DISCOVERY) | FAIL or unchanged | FAIL | not promoted |
+
+## Reading
+
+**Selling on a break into Stage 4 alone does nothing useful.** By the time a
+holding from the research top 20 reaches Stage 4 most of the damage is done; X4
+cut return in both windows without improving Sharpe.
+
+**Selling on a break into Stage 3 or 4 is a real risk control.** Volatility fell
+by a quarter to a third, and the worst drawdown by 13-18 points in DISCOVERY and
+5-9 in CONFIRM, with Sharpe higher in every window and schedule. It cost return
+in DISCOVERY -- 4 points a year monthly, 10 quarterly -- almost all of it in the
+2020-21 recovery, when names that broke down in the crash rebounded after being
+sold. In CONFIRM it cost nothing. It trades heavily: about 3 exits a month out
+of 20 holdings, all charged at 0.30% a side.
+
+**The breadth cash switch does not work.** It missed the 2020 crash entirely --
+breadth was normal in February 2020 and the fall came inside one month -- and
+it held cash through recoveries. Every variant lowered Sharpe in DISCOVERY.
+
+## What this means in practice
+
+Nothing in the model changes: the ranking and the published ratings stay as
+they are. X34 is a legitimate choice for a holder who prefers a shallower
+drawdown to the last few points of return in a V-shaped recovery, and it is
+made per portfolio, not per model. If it is wanted, the useful product is a
+watchlist alert -- "a holding broke into Stage 3 or 4" -- not a rank change.
+
+Caveats as declared: delisted names are carried at their last price, costs are
+a flat rate, and the CONFIRM window overlaps data seen in P4.
