@@ -231,5 +231,60 @@ class TimingStrategyTests(unittest.TestCase):
         )
 
 
+class ActionRankPolicyTests(unittest.TestCase):
+    """Action_Rank is published beside Investment_Rank, never in its place."""
+
+    def rows(self):
+        from tests.test_factor_policy import clean_row
+
+        return [
+            clean_row(
+                "TOPPING", score=95.0, Stage=STAGE_4, Price_To_MA150_Pct=-8.0,
+                RS_Raw_Pct=10.0, RS_Raw_1M_Ago_Pct=40.0,
+            ),
+            clean_row(
+                "FRESH", score=85.0, Stage=STAGE_2, Price_To_MA150_Pct=12.0,
+                RS_Raw_Pct=60.0, RS_Raw_1M_Ago_Pct=30.0,
+            ),
+            clean_row(
+                "MIDDLE", score=80.0, Stage=S2_CANDIDATE, Price_To_MA150_Pct=5.0,
+                RS_Raw_Pct=20.0, RS_Raw_1M_Ago_Pct=20.0,
+            ),
+        ]
+
+    def finalize(self, **settings):
+        from screener.recommendation import finalize_recommendations
+        from tests.test_factor_policy import ResearchRankConfig
+
+        config = type("TimingConfig", (ResearchRankConfig,), settings)
+        return finalize_recommendations(pd.DataFrame(self.rows()), config).set_index(
+            "Symbol"
+        )
+
+    def test_timing_weight_reorders_action_rank_only(self):
+        result = self.finalize(STAGE_TIMING_ENABLED=True, TIMING_WEIGHT=0.4)
+        self.assertEqual(result.loc["TOPPING", "Investment_Rank"], 1)
+        self.assertEqual(result.loc["FRESH", "Action_Rank"], 1)
+        self.assertEqual(result.loc["TOPPING", "Action_Rank"], 3)
+        self.assertEqual(result.loc["TOPPING", "Entry_State"], ENTRY_STAGE_4)
+
+    def test_zero_weight_action_rank_follows_research(self):
+        result = self.finalize(STAGE_TIMING_ENABLED=True, TIMING_WEIGHT=0.0)
+        self.assertEqual(
+            list(result.sort_values("Action_Rank").index),
+            list(result.sort_values("Investment_Rank").index),
+        )
+
+    def test_disabled_publishes_no_timing_columns(self):
+        result = self.finalize(STAGE_TIMING_ENABLED=False, TIMING_WEIGHT=0.4)
+        self.assertNotIn("Action_Rank", result.columns)
+        self.assertNotIn("Timing_Score", result.columns)
+
+    def test_ratings_are_unchanged_by_the_timing_weight(self):
+        off = self.finalize(STAGE_TIMING_ENABLED=False)
+        on = self.finalize(STAGE_TIMING_ENABLED=True, TIMING_WEIGHT=0.4)
+        pd.testing.assert_series_equal(off["Rating"], on["Rating"].loc[off.index])
+
+
 if __name__ == "__main__":
     unittest.main()

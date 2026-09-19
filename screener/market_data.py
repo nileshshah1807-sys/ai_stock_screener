@@ -476,6 +476,10 @@ class PriceCache:
         "Volatility_Ann_Pct", "Downside_Deviation_Pct", "Max_Drawdown_1Y_Pct",
         "Gap_Risk_Pct", "Return_Concentration_1Y", "Trend_Quality_R2",
         "Price_History_Sessions",
+        # screener.stage inputs. A cache written before they existed would
+        # otherwise publish every row with no stage and a neutral timing score.
+        "Stage", "Days_In_Stage", "Price_To_MA150_Pct",
+        "RS_Raw_Pct", "RS_Raw_1M_Ago_Pct",
     )
 
     @staticmethod
