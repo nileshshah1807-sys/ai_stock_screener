@@ -1366,9 +1366,15 @@ class RecommendationPolicy:
             return frame
         from .stage import attach_timing
 
-        return attach_timing(
-            frame, timing_weight=float(getattr(self.config, "TIMING_WEIGHT", 0.0) or 0.0)
-        )
+        weight = float(getattr(self.config, "TIMING_WEIGHT", 0.0) or 0.0)
+        timed = attach_timing(frame, timing_weight=weight)
+        if weight == 0.0:
+            # P3 refuted every non-zero weight. At zero, Action_Score is the
+            # research score and Action_Rank a copy of Investment_Rank, so
+            # publishing them would add a second rank column that says nothing.
+            # Dropping the score here is what keeps _assign_ranks from ranking it.
+            timed = timed.drop(columns=["Action_Score", "Timing_Weight"])
+        return timed
 
 
 def finalize_recommendations(scored_df, config):

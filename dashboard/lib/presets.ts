@@ -62,7 +62,7 @@ export const PRESETS: readonly Preset[] = [
     id: "fresh-stage-2",
     label: "Fresh Stage 2 leaders",
     description:
-      "Score 70+, in Stage 2 with an RS rating of 70+, most recent stage entry first. Entry timing on top of the evidence -- not a separately validated signal.",
+      "Score 70+, in Stage 2 with an RS rating of 70+, most recent stage entry first. Context, not a signal: blending stage into the rank lowered returns in every validation window (P3), so this narrows the list without evidence that it improves it.",
     query: "minScore=70&stage=Stage+2&minRs=70&sort=days_in_stage&dir=asc",
     factorOnly: true,
   },

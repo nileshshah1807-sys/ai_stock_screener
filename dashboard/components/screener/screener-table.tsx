@@ -315,9 +315,6 @@ function StageCell({ row }: { row: SnapshotRow }) {
               150-day average.
             </li>
           ) : null}
-          {row.timing_score !== null && row.timing_score !== undefined ? (
-            <li>Timing score {formatScore(row.timing_score)}.</li>
-          ) : null}
         </ul>
         {row.entry_state ? (
           <p className="mt-1 text-xs font-medium">{row.entry_state}</p>
@@ -361,30 +358,6 @@ function RsCell({ row }: { row: SnapshotRow }) {
         </span>
       ) : null}
     </span>
-  );
-}
-
-function ActionRankCell({ row }: { row: SnapshotRow }) {
-  if (row.action_rank === null || row.action_rank === undefined) {
-    return <span className="text-muted-foreground">{MISSING}</span>;
-  }
-  const weight = row.timing_weight ?? 0;
-  return (
-    <Tooltip>
-      <TooltipTrigger render={<span className="cursor-help" />}>
-        {row.action_rank}
-      </TooltipTrigger>
-      <TooltipContent className="max-w-72">
-        <p className="font-medium">
-          Action score {formatScore(row.action_score)}
-        </p>
-        <p className="text-xs opacity-90">
-          {weight > 0
-            ? `${Math.round((1 - weight) * 100)}% research score, ${Math.round(weight * 100)}% timing score (${formatScore(row.timing_score)}).`
-            : "Timing weight is 0 for this run, so this follows the research order."}
-        </p>
-      </TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -448,7 +421,6 @@ const CELLS: Record<ColumnId, (row: SnapshotRow) => ReactNode> = {
   rating: (row) => <EntryBadge row={row} />,
   stage: (row) => <StageCell row={row} />,
   rs: (row) => <RsCell row={row} />,
-  actionRank: (row) => <ActionRankCell row={row} />,
   coverage: (row) => (
     <CoverageCell
       fundamental={row.fundamental_coverage}

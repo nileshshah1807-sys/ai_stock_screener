@@ -176,7 +176,7 @@ month. `screener/stage.py` adds the missing axis, under the factor model only:
 | `Advance_Age_Days` | Unbroken days in Stage 2 or S2 Candidate; a pullback restarts `Days_In_Stage`, not this |
 | `RS_Rating`, `RS_Rating_Change_1M` | IBD-style 3/6/9/12-month return weighted 40/20/20/20, percentile 1-99, and its one-month change |
 | `Timing_Score` | Stage 40%, RS rating 20%, RS trend 20%, extension above MA150 20% |
-| `Action_Score`, `Action_Rank` | `(1 - TIMING_WEIGHT) * Research_Score + TIMING_WEIGHT * Timing_Score`, ranked |
+| `Action_Score`, `Action_Rank` | Published only when `TIMING_WEIGHT` > 0; see below |
 | `Entry_State` | ENTER · Stage 2 / WAIT · extended / WATCH · S2 pullback / WAIT · Stage 3 / AVOID · Stage 4 |
 
 The stage and RS definitions were calibrated against a third-party stage
@@ -184,13 +184,16 @@ screener's labels for 2026-09-18: 90.8% stage agreement across 1,417 names, and
 RS rating Spearman 0.976 against its RS percentile. Agreement says our stage
 resembles theirs, not that either predicts a return.
 
-**`Investment_Rank` is unchanged, and so is every rating and gate.**
-`Action_Rank` is published beside it. `TIMING_WEIGHT` is decided by the
-pre-registered grid in
-[`docs/Review/p3_stage_timing_preregistration.md`](docs/Review/p3_stage_timing_preregistration.md);
-at 0 the two ranks carry the same research order. The weight matters more than
-it looks: the top of the research ranking is packed between 97 and 100, so on
-the 2026-08-24 cross-section a 0.3 weight replaces 13 of the top 20.
+**These columns are display-only. `Investment_Rank`, every rating and every
+gate are unchanged.** Blending the timing score into the rank was tested before
+shipping, in the pre-registered grid in
+[`docs/Review/p3_stage_timing_preregistration.md`](docs/Review/p3_stage_timing_preregistration.md),
+and refuted: every weight from 0.10 to 0.40 lowered net CAGR in the main
+windows, monotonically with the weight (−2.9 to −16.8 points in MAIN), and up
+to doubled turnover. The top of the research ranking is packed between 97 and
+100, so even a small weight lets timing decide the top 20. `TIMING_WEIGHT`
+therefore stays 0, and at 0 no `Action_Rank` is published. The stage says where
+a stock is in its cycle; the evidence says it should not decide the order.
 `STAGE_TIMING_ENABLED=false` removes the columns entirely.
 
 ### Point-in-time validation

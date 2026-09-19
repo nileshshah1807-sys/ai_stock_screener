@@ -23,7 +23,6 @@ export type ColumnId =
   | "rating"
   | "stage"
   | "rs"
-  | "actionRank"
   | "coverage"
   | "dcf"
   | "evidence"
@@ -212,7 +211,6 @@ export const COLUMNS: readonly ColumnSpec[] = [
       "advance_age_days",
       "price_to_ma150_pct",
       "entry_state",
-      "timing_score",
     ],
     availability: "factor",
   },
@@ -225,18 +223,6 @@ export const COLUMNS: readonly ColumnSpec[] = [
     title:
       "Relative-strength rating, 1-99: 3/6/9/12-month returns weighted 40/20/20/20 and ranked across the universe. The arrow is its change over the last month.",
     fields: ["rs_rating", "rs_rating_change_1m"],
-    availability: "factor",
-  },
-  {
-    id: "actionRank",
-    label: "Act #",
-    sort: "action_rank",
-    defaultDir: "asc",
-    numeric: true,
-    cellClassName: "tabular text-right font-mono text-xs",
-    title:
-      "Action rank: research score blended with the entry-timing score. Published beside the investment rank (#), which it never replaces.",
-    fields: ["action_rank", "action_score", "timing_score", "timing_weight"],
     availability: "factor",
   },
   {

@@ -137,8 +137,6 @@ const EXPORT_COLUMNS = [
   "advance_age_days",
   "rs_rating",
   "rs_rating_change_1m",
-  "timing_score",
-  "action_rank",
   "entry_state",
 ].join(",");
 
@@ -175,13 +173,11 @@ const SORTABLE = new Set([
   "momentum_12_1_pct",
   "rs_market_6m_pct",
   "roic",
-  // Entry timing. action_rank ascends by default through the `rank` suffix.
-  "action_rank",
+  // Entry timing.
   "rs_rating",
   "rs_rating_change_1m",
   "days_in_stage",
   "advance_age_days",
-  "timing_score",
 ]);
 
 /** Sort keys where a LOWER value is better, so they default to ascending. */

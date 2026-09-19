@@ -279,12 +279,14 @@ class ActionRankPolicyTests(unittest.TestCase):
         self.assertEqual(result.loc["TOPPING", "Action_Rank"], 3)
         self.assertEqual(result.loc["TOPPING", "Entry_State"], ENTRY_STAGE_4)
 
-    def test_zero_weight_action_rank_follows_research(self):
+    def test_zero_weight_publishes_evidence_but_no_second_rank(self):
+        # P3 refuted every non-zero weight; at zero an Action_Rank would only
+        # duplicate Investment_Rank.
         result = self.finalize(STAGE_TIMING_ENABLED=True, TIMING_WEIGHT=0.0)
-        self.assertEqual(
-            list(result.sort_values("Action_Rank").index),
-            list(result.sort_values("Investment_Rank").index),
-        )
+        self.assertNotIn("Action_Rank", result.columns)
+        self.assertNotIn("Action_Score", result.columns)
+        self.assertEqual(result.loc["TOPPING", "Entry_State"], ENTRY_STAGE_4)
+        self.assertIn("RS_Rating", result.columns)
 
     def test_disabled_publishes_no_timing_columns(self):
         result = self.finalize(STAGE_TIMING_ENABLED=False, TIMING_WEIGHT=0.4)

@@ -48,8 +48,6 @@ const COLUMNS: Array<[keyof SnapshotRow, string]> = [
   ["advance_age_days", "Advance_Age_Days"],
   ["rs_rating", "RS_Rating"],
   ["rs_rating_change_1m", "RS_Rating_Change_1M"],
-  ["timing_score", "Timing_Score"],
-  ["action_rank", "Action_Rank"],
   ["entry_state", "Entry_State"],
 ];
 
