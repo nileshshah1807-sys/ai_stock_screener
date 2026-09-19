@@ -93,12 +93,17 @@ TIMING_COMPONENT_WEIGHTS = {
 EXTENSION_FULL_PCT = 25.0
 EXTENSION_ZERO_PCT = 75.0
 
-ENTRY_ENTER = "ENTER · Stage 2"
-ENTRY_EXTENDED = "WAIT · extended"
-ENTRY_PULLBACK = "WATCH · S2 pullback"
-ENTRY_STAGE_1 = "WATCH · Stage 1"
-ENTRY_STAGE_3 = "WAIT · Stage 3"
-ENTRY_STAGE_4 = "AVOID · Stage 4"
+# Descriptions of the chart, not instructions. The first version said ENTER /
+# WAIT · extended / AVOID, and the P4 diagnostics contradicted the advice:
+# inside the research top 50, names >50% above MA150 returned the MOST over the
+# next 3-6 months (+13.4 points over 6M), and excluding Stage 3/4 from a
+# quarterly top 20 cost 3.9 points a year in 2023-2026. A label that tells the
+# reader to wait on the best-performing group is worse than no label.
+ENTRY_UPTREND = "Stage 2 · uptrend"
+ENTRY_PULLBACK = "Stage 2 · pullback"
+ENTRY_STAGE_1 = "Stage 1 · basing"
+ENTRY_STAGE_3 = "Stage 3 · topping"
+ENTRY_STAGE_4 = "Stage 4 · downtrend"
 
 STAGE_FEATURE_COLUMNS = (
     "Stage",
@@ -285,20 +290,21 @@ def extension_score(price_to_ma150_pct):
     return score.where(x.notna())
 
 
-def entry_state(stage, extension, rs_change):
-    if stage == STAGE_4:
-        return ENTRY_STAGE_4
-    if stage == STAGE_3:
-        return ENTRY_STAGE_3
-    if stage == STAGE_1:
-        return ENTRY_STAGE_1
-    if stage == S2_CANDIDATE:
-        return ENTRY_PULLBACK
-    if stage == STAGE_2:
-        extended = extension is not None and not pd.isna(extension) and extension < 50.0
-        fading = rs_change is not None and not pd.isna(rs_change) and rs_change <= -10.0
-        return ENTRY_EXTENDED if extended or fading else ENTRY_ENTER
-    return None
+_ENTRY_BY_STAGE = {
+    STAGE_2: ENTRY_UPTREND,
+    S2_CANDIDATE: ENTRY_PULLBACK,
+    STAGE_1: ENTRY_STAGE_1,
+    STAGE_3: ENTRY_STAGE_3,
+    STAGE_4: ENTRY_STAGE_4,
+}
+
+
+def entry_state(stage):
+    """The stage in words. Extension and RS change no longer qualify it: both
+    were tested in P4 and neither pointed the way the old labels assumed."""
+    if stage is None or (isinstance(stage, float) and pd.isna(stage)):
+        return None
+    return _ENTRY_BY_STAGE.get(stage)
 
 
 def attach_timing(frame, *, timing_weight=0.0, research_column="Research_Score"):
@@ -347,10 +353,5 @@ def attach_timing(frame, *, timing_weight=0.0, research_column="Research_Score")
     else:
         working["Action_Score"] = np.nan
 
-    working["Entry_State"] = [
-        entry_state(stage, extension, change)
-        for stage, extension, change in zip(
-            working["Stage"], working["Extension_Score"], working["RS_Rating_Change_1M"]
-        )
-    ]
+    working["Entry_State"] = [entry_state(stage) for stage in working["Stage"]]
     return working

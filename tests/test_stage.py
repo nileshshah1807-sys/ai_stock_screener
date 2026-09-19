@@ -6,11 +6,10 @@ import numpy as np
 import pandas as pd
 
 from screener.stage import (
-    ENTRY_ENTER,
-    ENTRY_EXTENDED,
     ENTRY_PULLBACK,
     ENTRY_STAGE_3,
     ENTRY_STAGE_4,
+    ENTRY_UPTREND,
     S2_CANDIDATE,
     STAGE_2,
     STAGE_3,
@@ -188,9 +187,11 @@ class AttachTimingTests(unittest.TestCase):
         frame.loc[len(frame)] = ["F", 80.0, STAGE_3, -3.0, 0.0, 0.0]
         result = attach_timing(frame).set_index("Symbol")
         self.assertEqual(result.loc["A", "Entry_State"], ENTRY_PULLBACK)
-        self.assertEqual(result.loc["B", "Entry_State"], ENTRY_ENTER)
+        self.assertEqual(result.loc["B", "Entry_State"], ENTRY_UPTREND)
         self.assertEqual(result.loc["C", "Entry_State"], ENTRY_STAGE_4)
-        self.assertEqual(result.loc["E", "Entry_State"], ENTRY_EXTENDED)
+        # Extension no longer qualifies the label: P4 found the most extended
+        # names inside the research top 50 returned the most, not the least.
+        self.assertEqual(result.loc["E", "Entry_State"], ENTRY_UPTREND)
         self.assertEqual(result.loc["F", "Entry_State"], ENTRY_STAGE_3)
         self.assertTrue(pd.isna(result.loc["D", "Entry_State"]))
 

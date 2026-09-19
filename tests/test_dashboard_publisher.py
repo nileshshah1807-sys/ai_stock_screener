@@ -273,7 +273,7 @@ class FactorModelMappingTests(unittest.TestCase):
                 "Timing_Weight": 0.2,
                 "Action_Score": 94.95,
                 "Action_Rank": 47,
-                "Entry_State": "WATCH · S2 pullback",
+                "Entry_State": "Stage 2 · pullback",
             }
         )
         self.assertEqual(mapped["stage"], "S2 Candidate")
@@ -282,7 +282,7 @@ class FactorModelMappingTests(unittest.TestCase):
         self.assertEqual(mapped["rs_rating"], 95.3)
         self.assertEqual(mapped["rs_rating_change_1m"], -3.1)
         self.assertEqual(mapped["action_rank"], 47)
-        self.assertEqual(mapped["entry_state"], "WATCH · S2 pullback")
+        self.assertEqual(mapped["entry_state"], "Stage 2 · pullback")
 
     def test_history_carries_the_stage_and_action_rank(self):
         mapped = map_row(

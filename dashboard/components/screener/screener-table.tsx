@@ -270,7 +270,6 @@ function StageCell({ row }: { row: SnapshotRow }) {
   if (!stage) {
     return <span className="text-xs text-muted-foreground">{MISSING}</span>;
   }
-  const extended = row.entry_state?.startsWith("WAIT · extended") ?? false;
   return (
     <Tooltip>
       <TooltipTrigger
@@ -290,9 +289,6 @@ function StageCell({ row }: { row: SnapshotRow }) {
           <span className="tabular font-mono text-[11px] text-muted-foreground">
             {row.days_in_stage}d
           </span>
-        ) : null}
-        {extended ? (
-          <span className="text-[11px] text-caution">· ext</span>
         ) : null}
       </TooltipTrigger>
       <TooltipContent className="max-w-72">

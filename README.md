@@ -177,7 +177,7 @@ month. `screener/stage.py` adds the missing axis, under the factor model only:
 | `RS_Rating`, `RS_Rating_Change_1M` | IBD-style 3/6/9/12-month return weighted 40/20/20/20, percentile 1-99, and its one-month change |
 | `Timing_Score` | Stage 40%, RS rating 20%, RS trend 20%, extension above MA150 20% |
 | `Action_Score`, `Action_Rank` | Published only when `TIMING_WEIGHT` > 0; see below |
-| `Entry_State` | ENTER · Stage 2 / WAIT · extended / WATCH · S2 pullback / WAIT · Stage 3 / AVOID · Stage 4 |
+| `Entry_State` | The stage in words: Stage 2 · uptrend / Stage 2 · pullback / Stage 1 · basing / Stage 3 · topping / Stage 4 · downtrend. Descriptive, not advice; see P4 |
 
 The stage and RS definitions were calibrated against a third-party stage
 screener's labels for 2026-09-18: 90.8% stage agreement across 1,417 names, and
@@ -194,6 +194,11 @@ to doubled turnover. The top of the research ranking is packed between 97 and
 100, so even a small weight lets timing decide the top 20. `TIMING_WEIGHT`
 therefore stays 0, and at 0 no `Action_Rank` is published. The stage says where
 a stock is in its cycle; the evidence says it should not decide the order.
+A follow-up, [`docs/Review/p4_stage_diagnostics.md`](docs/Review/p4_stage_diagnostics.md),
+found why: the blend swapped cheap, high-quality pullbacks for dearer Stage 2
+names, and its extension penalty pointed at the group that earned the most. It
+also tested a bonus for entering Stage 2 (negative in both halves of the data)
+and quarterly-hold stage rules (none distinguishable from noise).
 `STAGE_TIMING_ENABLED=false` removes the columns entirely.
 
 ### Point-in-time validation
