@@ -83,6 +83,17 @@ class StageRunTests(unittest.TestCase):
         result = stage_features(path((400, 0.002)))
         self.assertTrue(result["Stage_Run_Censored"])
 
+    def test_advance_older_than_the_data_is_marked_censored(self):
+        result = stage_features(dated(path((400, 0.002))))
+        self.assertTrue(result["Advance_Age_Censored"])
+
+    def test_advance_that_began_inside_the_data_is_not_censored(self):
+        # Decline long enough to be classified Stage 4, then a fresh advance.
+        result = stage_features(dated(path((300, -0.002), (260, 0.004))))
+        self.assertEqual(result["Stage"], STAGE_2)
+        self.assertFalse(result["Advance_Age_Censored"])
+        self.assertLess(result["Advance_Age_Days"], 380)
+
     def test_advance_age_is_absent_outside_an_advance(self):
         result = stage_features(path((400, -0.002)))
         self.assertTrue(np.isnan(result["Advance_Age_Days"]))

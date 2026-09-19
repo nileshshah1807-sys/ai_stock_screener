@@ -107,6 +107,7 @@ STAGE_FEATURE_COLUMNS = (
     "Stage_Entry_Price",
     "Stage_Run_Censored",
     "Advance_Age_Days",
+    "Advance_Age_Censored",
     "MA150",
     "MA150_Slope_Pct",
     "Price_To_MA150_Pct",
@@ -122,6 +123,7 @@ def _empty_features():
     out["Stage"] = None
     out["Stage_Entry_Date"] = None
     out["Stage_Run_Censored"] = None
+    out["Advance_Age_Censored"] = None
     return out
 
 
@@ -254,6 +256,11 @@ def stage_features(closes, dates=None):
     if current in ADVANCING_STAGES:
         advance_start = _run_start(labels, ADVANCING_STAGES)
         out["Advance_Age_Days"] = _calendar_days(values.index, advance_start)
+        # Production downloads two years, so a long advance can predate the
+        # first classifiable session: the age is then a floor. Found on
+        # VENUSREM, which reads 406 days from a two-year download and 476 from
+        # the archive.
+        out["Advance_Age_Censored"] = bool(advance_start <= first_defined)
     return out
 
 
