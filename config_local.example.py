@@ -38,6 +38,13 @@ REQUIRE_UPTREND_FOR_BUY = True
 BUY_MIN_MA50_SLOPE = 0.0
 BUY_MIN_3M_RETURN = 0.0
 
+# Which market this run screens: "NSE" (default) or "US". The timezone,
+# benchmark index, yfinance ticker suffix and universe source all follow from
+# it -- see screener/markets.py -- so this one setting switches them together.
+MARKET = "NSE"
+# US only: "sp1500" (default), "sp500" or "all_listed". Ignored for NSE.
+US_UNIVERSE_SOURCE = ""
+
 SCAN_ALL_NSE = False
 CUSTOM_WATCHLIST = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK"]
 

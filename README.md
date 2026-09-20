@@ -1,9 +1,32 @@
-# AI Stock Screener
+# Winnow
 
-Daily NSE research screener with auditable fundamental, technical, reverse-DCF,
-and management-transcript evidence. Scheduled production runs use the Model 5.1
-factor architecture; local runs and manual dispatches of the daily workflow
-retain the isolated 4.x path unless a factor run is selected explicitly.
+Daily equity research screener with auditable fundamental, technical,
+reverse-DCF, and management-transcript evidence. Scheduled production runs use
+the Model 5.1 factor architecture; local runs and manual dispatches of the
+daily workflow retain the isolated 4.x path unless a factor run is selected
+explicitly.
+
+## Markets
+
+Winnow screens two markets from one pipeline. `MARKET=NSE` (the default) runs
+the Indian universe; `MARKET=US` runs the S&P Composite 1500. The scoring,
+stage analysis, relative strength and gating are identical — they are
+cross-sectional within a run, so each market is ranked against itself — and
+what differs is a short list of per-market facts held in
+[`screener/markets.py`](screener/markets.py): the yfinance ticker suffix, the
+session timezone and close, the benchmark index, the universe source and the
+currency.
+
+```bash
+python app.py                # NSE, the default
+MARKET=US python app.py      # the same pipeline, US universe
+```
+
+Each market has its own scheduled workflow, its own caches and its own rows in
+the read model, keyed by `market`. Three evidence sources are NSE-only and have
+no free US equivalent — the exchange impact-cost file, earnings-call transcript
+sentiment, and the VIGIL red-flag feed — so a US run switches them off and the
+affected columns read "Unavailable" rather than scoring as zero.
 
 The score is a transparent research heuristic, not a validated return forecast.
 The evidence, assumptions, known limitations, and validation requirements for

@@ -1,0 +1,226 @@
+name: Daily US screener
+run-name: Daily US screener (${{ github.event_name }})
+
+# The NSE workflow's twin. Every step is the same because the pipeline is the
+# same -- `python app.py` reads MARKET and takes its universe, ticker suffix,
+# session calendar and benchmark from screener/markets.py. What differs is the
+# env block below and the schedule.
+#
+# Kept as a separate workflow rather than a matrix on the NSE one. The two runs
+# have independent caches, independent schedules eleven hours apart, and
+# independent failure consequences; a matrix would couple their concurrency
+# groups and let an NSE failure cancel a US run that was fine.
+
+on:
+  schedule:
+    # Primary at 17:30 ET, fallback at 19:30 ET, both after the 16:00 close.
+    # Cron is UTC and does not observe US daylight saving, so these fire an
+    # hour later in local terms over winter -- which is harmless here, because
+    # both slots are already well clear of the close, and the completed-session
+    # guard refuses a duplicate rebuild either way.
+    - cron: "30 21,23 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: daily-us-screener-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  run-screener:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MARKET: "US"
+      # S&P Composite 1500. Widen to all_listed only after a real run has been
+      # measured against the 360-minute timeout; ~6,000 symbols is four times
+      # this universe.
+      US_UNIVERSE_SOURCE: "sp1500"
+      # Wikipedia's robot policy rejects a generic User-Agent, and the S&P 400
+      # and 600 constituent lists come from its API.
+      WIKIPEDIA_USER_AGENT: "winnow-screener/1.0 (+https://github.com/${{ github.repository }})"
+
+      OUTPUT_DIR: ${{ github.event_name == 'workflow_dispatch' && format('.validation-output/us-{0}', github.run_id) || 'reports_advanced/us' }}
+      YFINANCE_CACHE_DIR: ${{ github.event_name == 'workflow_dispatch' && format('.validation-output/us-{0}/yfinance_cache', github.run_id) || 'reports_advanced/us/yfinance_cache' }}
+      RUN_MANIFEST_ENABLED: "True"
+
+      FACTOR_MODEL_ENABLED: ${{ github.event_name == 'schedule' && 'True' || 'False' }}
+      MODEL_VERSION: ${{ github.event_name == 'schedule' && '5.1.0' || '4.0.0-candidate' }}
+      RECOMMENDATION_POLICY_VERSION: ${{ github.event_name == 'schedule' && '5.2.0' || '4.0.0-candidate' }}
+      OUTPUT_SCHEMA_VERSION: "4.2.0"
+      # Deliberately not the NSE line. The model's point-in-time validation was
+      # run on NSE data; nothing has yet been validated out of sample on US
+      # names, and the dashboard footer repeats this verbatim.
+      MODEL_VALIDATION_STATUS: "Research model; validated on NSE data only, US out-of-sample validation pending"
+
+      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ github.event_name == 'schedule' && '1600' || '400' }}
+      FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0.95"
+
+      # --- Session calendar -------------------------------------------------
+      # Named *_IST for compatibility with the shared config; read as market
+      # local time, which is ET here. The US close is 16:00 with no equivalent
+      # of NSE's trade-modification window.
+      ANALYSIS_TIMEZONE: "America/New_York"
+      MARKET_BAR_COMPLETE_AFTER_IST: "16:00"
+      ALLOW_PROVISIONAL_MARKET_BARS: "False"
+      # NYSE/Nasdaq full-day weekday holidays for 2026. Update annually from
+      # the exchange calendar; it is config-hashed, so a change is recorded in
+      # the run manifest.
+      NSE_MARKET_HOLIDAYS: "2026-01-01,2026-01-19,2026-02-16,2026-04-03,2026-05-25,2026-06-19,2026-07-03,2026-09-07,2026-11-26,2026-12-25"
+      NSE_MARKET_CALENDAR_VERSION: "NYSE-2026-full-day-holidays"
+
+      # --- Benchmark --------------------------------------------------------
+      BENCHMARK_INDEX_SYMBOL: "^GSPC"
+      BENCHMARK_INDEX_FALLBACK: "^DJI"
+
+      # --- Evidence sources without a US equivalent -------------------------
+      # NSE publishes a monthly security-category and impact-cost file; there
+      # is no free US counterpart, so the execution overlay reads "Unavailable"
+      # rather than inventing a number.
+      NSE_LIQUIDITY_ENABLED: "False"
+      # Transcript sentiment is NSE-only for now: the collector discovers
+      # announcement PDFs from NSE and OCRs them. Absent evidence is neutral in
+      # this model, not zero, so US rows score correctly without it.
+      TRANSCRIPT_SENTIMENT_ENABLED: "False"
+      # VIGIL republishes NSE/SEBI records and has no US counterpart.
+      RED_FLAG_ENRICHMENT_ENABLED: "False"
+      # backtest/ is a point-in-time NSE bhavcopy simulation. It does not model
+      # US corporate actions or settlement, so it must not accumulate US rows.
+      BACKTEST_WRITES_ENABLED: "False"
+
+      # --- Execution overlay ------------------------------------------------
+      # Named *_INR for compatibility; read as market currency, so these are
+      # dollars here. A $50k median daily turnover floor is roughly the same
+      # liquidity bar as the Rs 50 lakh used on NSE.
+      MIN_MEDIAN_TURNOVER_20D_INR: "50000"
+      MIN_AVG_TURNOVER_INR: "50000"
+      PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY: "False"
+      PORTFOLIO_TARGET_POSITION_INR: ${{ vars.US_PORTFOLIO_TARGET_POSITION || '10000' }}
+      LIQUIDITY_POSITION_PARTICIPATION_RATE: ${{ vars.LIQUIDITY_POSITION_PARTICIPATION_RATE || '0.01' }}
+
+      # Email goes out for the NSE run only; a second daily report is noise.
+      EMAIL_ENABLED: "False"
+
+      SUPABASE_URL: ${{ github.event_name == 'schedule' && secrets.SUPABASE_URL || '' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
+    steps:
+      - name: Skip successful scheduled duplicate
+        id: schedule-dedupe
+        if: github.event_name == 'schedule'
+        shell: bash
+        run: |
+          today="$(date -u +%F)"
+          successful_runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow daily-us-screener.yml --event schedule --status success --limit 20 --json createdAt --jq '.[].createdAt')"
+          if grep -q "^${today}T" <<< "${successful_runs}"; then
+            echo "skip=true" >> "${GITHUB_OUTPUT}"
+            echo "A scheduled US screener run already succeeded on ${today}; skipping fallback."
+          else
+            echo "skip=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - uses: actions/checkout@v6
+        if: steps.schedule-dedupe.outputs.skip != 'true'
+
+      - uses: actions/setup-python@v6
+        if: steps.schedule-dedupe.outputs.skip != 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # Cache keys carry `us-` so the two markets never restore each other's
+      # price, fundamental or statement caches. Sharing them would have each
+      # run evict the other's warm data every day.
+      - name: Restore market-data cache
+        if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        id: market-data-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            reports_advanced/us/price_cache.csv
+            reports_advanced/us/fundamental_cache.csv
+            reports_advanced/us/backtest_history.csv
+            reports_advanced/us/yfinance_cache
+          key: us-screener-data-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            us-screener-data-v1-${{ runner.os }}-
+
+      - name: Restore production statement cache
+        if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        id: production-statement-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: reports_advanced/us/statement_cache.csv
+          key: us-screener-statements-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            us-screener-statements-v1-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.schedule-dedupe.outputs.skip != 'true'
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Run regression tests
+        if: steps.schedule-dedupe.outputs.skip != 'true'
+        env:
+          TRANSCRIPT_ENABLE_FINBERT: "false"
+          # The suite asserts NSE defaults, so it runs without a market
+          # override. This is the same gate the NSE workflow applies.
+          MARKET: "NSE"
+        run: python -m unittest discover -s tests
+
+      - name: Check whether completed US session is already published
+        id: session-guard
+        if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        run: python -m workers.scheduled_session_guard
+
+      - name: Run stock screener
+        if: steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true'
+        run: python app.py
+
+      - name: Publish report artifact
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: us-screener-report-${{ github.run_id }}
+          path: |
+            ${{ env.OUTPUT_DIR }}/advanced_analysis_*.csv
+            ${{ env.OUTPUT_DIR }}/advanced_analysis_*.manifest.json
+            ${{ env.OUTPUT_DIR }}/dashboard_*.html
+            ${{ env.OUTPUT_DIR }}/stock_report_*.pdf
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Save refreshed market-data cache
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            reports_advanced/us/price_cache.csv
+            reports_advanced/us/fundamental_cache.csv
+            reports_advanced/us/backtest_history.csv
+            reports_advanced/us/yfinance_cache
+          key: ${{ steps.market-data-cache.outputs.cache-primary-key }}
+
+      - name: Save refreshed production statement cache
+        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule' && hashFiles('reports_advanced/us/statement_cache.csv') != ''
+        uses: actions/cache/save@v6
+        with:
+          path: reports_advanced/us/statement_cache.csv
+          key: ${{ steps.production-statement-cache.outputs.cache-primary-key }}
+
+      - name: Publish dashboard read model
+        # Last, for the same reason as the NSE workflow: a Supabase outage must
+        # cost only the dashboard refresh, never the day's report or the warm
+        # cache that a cold rebuild would take about an hour to recreate.
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          csv="$(ls -1 "${OUTPUT_DIR}"/advanced_analysis_*.csv | sort | tail -n 1)"
+          echo "Publishing ${csv} to the dashboard read model as US"
+          python -m workers.dashboard_publisher --csv "${csv}" --market US --if-exists skip
