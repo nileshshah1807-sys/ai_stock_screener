@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import type { MarketCode } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/server";
 import type { Watchlist } from "@/lib/types";
 
@@ -39,11 +40,15 @@ type WatchlistRow = {
  * Wrapped in cache() because the layout renders the selector and the page
  * renders the grid from the same data.
  */
-export const getWatchlists = cache(async (): Promise<Watchlist[]> => {
+export const getWatchlists = cache(
+  async (market: MarketCode): Promise<Watchlist[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("watchlists")
     .select("id, name, created_at, updated_at, watchlist_items(symbol, added_at)")
+    // Lists are scoped to one market: a US list has no meaning on the NSE tab,
+    // where its symbols would resolve to different companies or to nothing.
+    .eq("market", market)
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -63,7 +68,8 @@ export const getWatchlists = cache(async (): Promise<Watchlist[]> => {
       (row.watchlist_items ?? []).map((item) => [item.symbol, item.added_at]),
     ),
   }));
-});
+  },
+);
 
 /**
  * Pick the list a request is about.
@@ -92,11 +98,15 @@ export function resolveWatchlist(
  * `watchlist_items` directly so the ownership policy applies to the parent row.
  */
 export const getWatchlistMembership = cache(
-  async (symbol: string): Promise<string[]> => {
+  async (market: MarketCode, symbol: string): Promise<string[]> => {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("watchlist_items")
-      .select("watchlist_id")
+      // The embedded filter narrows to lists in this market. Without it the
+      // Watch control on the US TCS page would show it already checked on an
+      // NSE list holding a different company that shares the ticker.
+      .select("watchlist_id, watchlists!inner(market)")
+      .eq("watchlists.market", market)
       .eq("symbol", symbol.trim().toUpperCase());
 
     if (error) {

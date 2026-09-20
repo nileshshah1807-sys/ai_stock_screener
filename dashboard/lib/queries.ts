@@ -4,6 +4,7 @@ import { cache } from "react";
 
 import { gridProjection } from "@/lib/columns";
 import { createClient } from "@/lib/supabase/server";
+import type { MarketCode } from "@/lib/markets";
 import type {
   HistoryRow,
   MoverRow,
@@ -238,11 +239,13 @@ const RUN_COLUMNS = [
  * Wrapped in React's cache() so the shell layout, the screener layout and the
  * page itself share one round trip rather than asking three times per render.
  */
-export const getLatestRun = cache(async (): Promise<ScreenerRun | null> => {
+export const getLatestRun = cache(
+  async (market: MarketCode): Promise<ScreenerRun | null> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_runs")
     .select(RUN_COLUMNS)
+    .eq("market", market)
     // The publisher reserves a run_date with row_count=0 before writing its
     // dependent rows, then replaces this with the completed manifest. Never
     // let an in-flight or abandoned reservation displace the last good run.
@@ -256,15 +259,20 @@ export const getLatestRun = cache(async (): Promise<ScreenerRun | null> => {
     return null;
   }
   return data as unknown as ScreenerRun | null;
-});
+  },
+);
 
-export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
+export async function getRecentRuns(
+  market: MarketCode,
+  limit = 30,
+): Promise<ScreenerRun[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_runs")
     // Same exclusion as getLatestRun, and it matters more here: 30 runs of the
     // 7.1 KB manifest is ~213 KB transferred to render a list of dates.
     .select(RUN_COLUMNS)
+    .eq("market", market)
     .gt("row_count", 0)
     .order("run_date", { ascending: false })
     .limit(limit);
@@ -296,6 +304,7 @@ export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
  * fourteen filters and the pagination -- and then drift from them.
  */
 export async function getSnapshotPage(
+  market: MarketCode,
   runDate: string,
   filters: ScreenerFilters,
   options: { columns?: string; symbols?: readonly string[] } = {},
@@ -310,6 +319,7 @@ export async function getSnapshotPage(
   let query = supabase
     .from("screener_snapshot")
     .select(projection, { count: "exact" })
+    .eq("market", market)
     .eq("run_date", runDate);
 
   if (options.symbols) {
@@ -427,7 +437,11 @@ export async function getSnapshotPage(
  * grid still filters server-side; this only powers "jump to a stock".
  */
 export const getSearchIndex = cache(
-  async (runDate: string, rowCount?: number): Promise<SearchEntry[]> => {
+  async (
+    market: MarketCode,
+    runDate: string,
+    rowCount?: number,
+  ): Promise<SearchEntry[]> => {
     const supabase = await createClient();
     const select = "symbol, company, investment_rank, rating, final_score";
     const toEntry = (row: Record<string, unknown>): SearchEntry => ({
@@ -442,6 +456,7 @@ export const getSearchIndex = cache(
       supabase
         .from("screener_snapshot")
         .select(select)
+        .eq("market", market)
         .eq("run_date", runDate)
         .order("investment_rank", { ascending: true, nullsFirst: false })
         .range(offset, offset + FETCH_CHUNK - 1);
@@ -482,11 +497,13 @@ export const getSearchIndex = cache(
  * factor columns and controls exactly when the user is trying to adjust them.
  * A run is entirely one model or the other, so one row settles it.
  */
-export const runUsesFactorModel = cache(async (runDate: string): Promise<boolean> => {
+export const runUsesFactorModel = cache(
+  async (market: MarketCode, runDate: string): Promise<boolean> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_snapshot")
     .select("symbol")
+    .eq("market", market)
     .eq("run_date", runDate)
     .eq("factor_model_applied", true)
     .limit(1);
@@ -501,6 +518,7 @@ export const runUsesFactorModel = cache(async (runDate: string): Promise<boolean
 });
 
 export async function getStock(
+  market: MarketCode,
   runDate: string,
   symbol: string,
 ): Promise<SnapshotRowWithPayload | null> {
@@ -508,6 +526,7 @@ export async function getStock(
   const { data, error } = await supabase
     .from("screener_snapshot")
     .select("*")
+    .eq("market", market)
     .eq("run_date", runDate)
     .eq("symbol", symbol.toUpperCase())
     .maybeSingle();
@@ -531,12 +550,15 @@ export async function getStock(
  * deployment that has not run the price-series migration renders the rest of
  * the stock page normally.
  */
-export const getPriceCalendar = cache(async (): Promise<string[] | null> => {
+export const getPriceCalendar = cache(
+  async (market: MarketCode): Promise<string[] | null> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("price_calendar")
     .select("sessions")
-    .eq("id", 1)
+    // One calendar row per market: NSE and NYSE sessions do not line up, so a
+    // shared calendar would misindex every series on one of them.
+    .eq("market", market)
     .maybeSingle();
 
   if (error) {
@@ -562,12 +584,14 @@ export type PriceSeriesRow = {
 };
 
 export async function getPriceSeries(
+  market: MarketCode,
   symbol: string,
 ): Promise<PriceSeriesRow | null> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("price_series")
     .select("session_deltas, closes, volumes, points, first_session, last_session")
+    .eq("market", market)
     .eq("symbol", symbol.toUpperCase())
     .maybeSingle();
 
@@ -592,6 +616,7 @@ export async function getPriceSeries(
  * moment a split happens, after which a rebuild restates both.
  */
 export async function getPriceTail(
+  market: MarketCode,
   symbol: string,
   after: string,
 ): Promise<{ time: string; close: number; volume: number }[]> {
@@ -599,6 +624,7 @@ export async function getPriceTail(
   const { data, error } = await supabase
     .from("screener_history")
     .select("observed_on, current_price, volume")
+    .eq("market", market)
     .eq("symbol", symbol.toUpperCase())
     .gt("observed_on", after)
     .order("observed_on", { ascending: true });
@@ -618,6 +644,7 @@ export async function getPriceTail(
 }
 
 export async function getStockHistory(
+  market: MarketCode,
   symbol: string,
   limit = 180,
 ): Promise<HistoryRow[]> {
@@ -627,6 +654,7 @@ export async function getStockHistory(
     .select(
       "observed_on, symbol, investment_rank, decision_score, final_score, fundamental_score, technical_score, rating, current_price",
     )
+    .eq("market", market)
     .eq("symbol", symbol.toUpperCase())
     .order("observed_on", { ascending: false })
     .limit(limit);
@@ -648,7 +676,11 @@ export async function getStockHistory(
  * per run, so the screener layout fetches it once rather than once per sort.
  */
 export const getSectors = cache(
-  async (runDate: string, rowCount?: number): Promise<string[]> => {
+  async (
+    market: MarketCode,
+    runDate: string,
+    rowCount?: number,
+  ): Promise<string[]> => {
     const supabase = await createClient();
     const sectors = new Set<string>();
 
@@ -656,6 +688,7 @@ export const getSectors = cache(
       supabase
         .from("screener_snapshot")
         .select("sector")
+        .eq("market", market)
         .eq("run_date", runDate)
         .range(offset, offset + FETCH_CHUNK - 1);
 
@@ -718,6 +751,7 @@ function ratingRank(rating: string | null): number | null {
  * of reporting the whole universe as new after every weekend.
  */
 export async function getMovers(
+  market: MarketCode,
   runDate: string,
   limit = 25,
 ): Promise<MoverBuckets> {
@@ -725,6 +759,7 @@ export async function getMovers(
   const { data, error } = await supabase
     .from("screener_movers")
     .select("*")
+    .eq("market", market)
     .eq("observed_on", runDate);
 
   if (error) {
@@ -824,6 +859,7 @@ const PRICE_MOVER_COLUMNS =
  * transfer off the wire for the 15 rows actually rendered.
  */
 export async function getPriceMovers(
+  market: MarketCode,
   runDate: string,
   limit = 15,
 ): Promise<{ gainers: PriceMoverRow[]; losers: PriceMoverRow[] }> {
@@ -833,6 +869,7 @@ export async function getPriceMovers(
     supabase
       .from("screener_snapshot")
       .select(PRICE_MOVER_COLUMNS)
+      .eq("market", market)
       .eq("run_date", runDate)
       // Runs published before Pct_Change_1D existed carry null for every row.
       // Excluding them here is what lets the page decide to render nothing at
@@ -884,6 +921,7 @@ export async function getPriceMovers(
  * breakdown, so the comparison with `added_at` runs on a handful of rows.
  */
 export async function getStageBreaks(
+  market: MarketCode,
   runDate: string,
   addedAt: Record<string, string>,
 ): Promise<StageBreak[]> {
@@ -893,6 +931,7 @@ export async function getStageBreaks(
   const { data, error } = await supabase
     .from("screener_snapshot")
     .select("symbol, company, stage, breakdown_date, breakdown_age_days, breakdown_from")
+    .eq("market", market)
     .eq("run_date", runDate)
     .in("symbol", symbols)
     .not("breakdown_date", "is", null);
@@ -920,6 +959,7 @@ export async function getStageBreaks(
 }
 
 export async function getExportRows(
+  market: MarketCode,
   runDate: string,
   filters: ScreenerFilters,
   maxRows = 5000,
@@ -927,6 +967,7 @@ export async function getExportRows(
   const rows: SnapshotRow[] = [];
   for (let page = 1; rows.length < maxRows; page += 1) {
     const { rows: chunk, total } = await getSnapshotPage(
+      market,
       runDate,
       { ...filters, page },
       { columns: EXPORT_COLUMNS },

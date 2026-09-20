@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+
+import { useMarket } from "@/components/market-provider";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Check, ListPlus, Pencil, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -11,7 +13,7 @@ import {
   createWatchlist,
   deleteWatchlist,
   renameWatchlist,
-} from "@/app/(app)/watchlists/actions";
+} from "@/app/(app)/[market]/watchlists/actions";
 import { WATCHLIST_MAX_LISTS, type Watchlist } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +44,7 @@ export function WatchlistSelector({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const market = useMarket();
   const [pending, startTransition] = useTransition();
 
   const [creating, setCreating] = useState(false);
@@ -87,6 +90,9 @@ export function WatchlistSelector({
     if (!name) return;
     const formData = new FormData();
     formData.set("name", name);
+    // A list belongs to one market and shows only on that market's tab, so the
+    // action needs to be told which rather than guessing.
+    formData.set("market", market.slug);
     run(createWatchlist, formData, () => {
       setDraft("");
       setCreating(false);

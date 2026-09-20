@@ -235,7 +235,8 @@ def run_daily_analysis():
         tech_df = filter_execution_universe(tech_df, config)
         logger.info(
             f"Liquidity filter: kept {len(tech_df)}/{before} "
-            f"(dropped {before - len(tech_df)} names below Rs{config.MIN_PRICE_INR:.0f}, "
+            f"(dropped {before - len(tech_df)} names below "
+            f"{getattr(config, 'MARKET_CURRENCY', 'INR')} {config.MIN_PRICE_INR:.0f}, "
             "in NSE Group II/III, or below the turnover fallback when official "
             f"evidence was unavailable; Group I kept {int(official_liquid.sum())})"
         )
@@ -335,10 +336,13 @@ def run_daily_analysis():
     # both models and leaves Actionable_Rank downstream of the final ordering.
     scored_df = LiquidityQualityEnricher(config).enrich(scored_df)
     actionable_count = int(scored_df["Portfolio_Actionable"].sum())
+    # The *_INR settings are read as market currency -- rupees on NSE, dollars
+    # on US -- so the log names the currency rather than assuming rupees.
     logger.info(
-        "Portfolio actionability: %s/%s stock(s) fit the configured Rs%0.f target",
+        "Portfolio actionability: %s/%s stock(s) fit the configured %s %0.f target",
         actionable_count,
         len(scored_df),
+        getattr(config, "MARKET_CURRENCY", "INR"),
         config.PORTFOLIO_TARGET_POSITION_INR,
     )
 

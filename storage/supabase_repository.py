@@ -8,6 +8,9 @@ from typing import Any
 
 import requests
 
+from screener.markets import DEFAULT_MARKET
+from screener.markets import resolve as resolve_market
+
 READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -22,10 +25,12 @@ class SupabaseRepository:
         service_role_key: str,
         timeout_seconds: int = 30,
         read_only: bool = False,
+        market: str = DEFAULT_MARKET,
     ):
         if not url or not service_role_key:
             raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
         self.base_url = f"{url.rstrip('/')}/rest/v1"
+        self.market = resolve_market(market).code
         self.timeout_seconds = timeout_seconds
         # A validation run needs the cached transcript sentiment to produce a
         # comparable ranking, but must not be able to alter shared state. This
@@ -39,13 +44,14 @@ class SupabaseRepository:
         }
 
     @classmethod
-    def from_environment(cls) -> SupabaseRepository:
+    def from_environment(cls, market: str | None = None) -> SupabaseRepository:
         return cls(
             os.getenv("SUPABASE_URL", ""),
             os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
             int(os.getenv("SUPABASE_TIMEOUT_SECONDS", "30")),
             read_only=str(os.getenv("SUPABASE_READ_ONLY", "")).strip().lower()
             in {"1", "true", "yes", "y"},
+            market=market or os.getenv("MARKET", DEFAULT_MARKET),
         )
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
@@ -113,10 +119,13 @@ class SupabaseRepository:
         )
 
     def upsert_transcript(self, transcript: dict[str, Any]) -> dict[str, Any]:
+        # Stamped rather than taken from the caller, for the same reason the
+        # read above is filtered: the symbol on its own does not say which
+        # market's company this call belongs to.
         rows = self._request(
             "POST",
             "transcripts?on_conflict=document_id",
-            json=transcript,
+            json={"market": self.market, **transcript},
             headers={"Prefer": "resolution=merge-duplicates,return=representation"},
         )
         return rows[0]
@@ -221,6 +230,11 @@ class SupabaseRepository:
         for start in range(0, len(normalized), safe_batch_size):
             batch = normalized[start:start + safe_batch_size]
             params = {
+                # Symbol alone is not a company across two markets: TCS is
+                # Tata Consultancy on the NSE and The Container Store in the
+                # US. Without this filter one market's call would score the
+                # other market's stock.
+                "market": f"eq.{self.market}",
                 "symbol": f"in.({','.join(batch)})",
                 "select": (
                     f"{base_select},structured_output"

@@ -1,7 +1,12 @@
-"""NSE universe, price history, and fundamentals collection."""
+"""Market universe, price history, and fundamentals collection.
 
-import hashlib
-import io
+Exchange-specific facts -- the yfinance ticker suffix, the session
+timezone, the bar-completion cutoff and which universe source to read --
+come from the run's :class:`~screener.markets.MarketProfile` rather than
+from literals here. With ``MARKET`` unset the profile is NSE and every
+value resolves to what this module used before it was market-aware.
+"""
+
 import logging
 import os
 import time
@@ -10,9 +15,9 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-import requests
 import yfinance as yf
 
+from . import universe as universe_sources
 from .market_data import (
     PriceCache,
     TechnicalEnhancer,
@@ -22,6 +27,7 @@ from .market_data import (
     latest_expected_completed_nse_session,
     normalize_market_holidays,
 )
+from .markets import active_profile, bare_symbol, ticker_for
 from .stage import stage_features
 
 logger = logging.getLogger(__name__)
@@ -253,11 +259,16 @@ class StockDataCollector:
         market_timezone=None,
     ):
         self.config = config
+        self.market_profile = active_profile(config)
         self.collection_diagnostics = {
             "schema_version": 1,
-            "universe_source_url": (
-                "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+            "market": self.market_profile.code,
+            "universe_source": universe_sources.resolve_source(
+                self.market_profile, config
             ),
+            "universe_source_url": universe_sources.SOURCE_URLS[
+                universe_sources.resolve_source(self.market_profile, config)
+            ],
             "universe_fetch_status": "not_started",
             "universe_source_sha256": None,
             "universe_source_symbol_count": 0,
@@ -277,7 +288,7 @@ class StockDataCollector:
             or getattr(config, "ANALYSIS_TIMEZONE", None)
             or getattr(config, "NSE_MARKET_TIMEZONE", None)
             or os.getenv("NSE_MARKET_TIMEZONE")
-            or self.DEFAULT_MARKET_TIMEZONE
+            or self.market_profile.timezone
         )
         self.market_timezone = ZoneInfo(str(timezone_name))
         cutoff_value = (
@@ -286,7 +297,7 @@ class StockDataCollector:
             or getattr(config, "NSE_PRICE_BAR_COMPLETION_CUTOFF", None)
             or os.getenv("MARKET_BAR_COMPLETE_AFTER_IST")
             or os.getenv("NSE_PRICE_BAR_COMPLETION_CUTOFF")
-            or self.DEFAULT_PRICE_BAR_COMPLETION_CUTOFF
+            or self.market_profile.bar_complete_after
         )
         try:
             self.price_bar_completion_cutoff = self._parse_completion_cutoff(cutoff_value)
@@ -408,51 +419,30 @@ class StockDataCollector:
         return selected, latest_date, latest_complete
 
     def get_comprehensive_stock_list(self):
-        logger.info("Fetching comprehensive NSE stock list...")
-        all_symbols = set()
-        try:
-            url = self.collection_diagnostics["universe_source_url"]
-            resp = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
-            if resp.status_code == 200:
-                self.collection_diagnostics["universe_fetch_status"] = "ok"
-                self.collection_diagnostics["universe_fetched_at"] = (
-                    self._now_market().to_pydatetime().isoformat(timespec="seconds")
-                )
-                self.collection_diagnostics["universe_source_sha256"] = (
-                    hashlib.sha256(resp.content).hexdigest()
-                )
-                df = pd.read_csv(io.StringIO(resp.text))
-                all_symbols.update(df["SYMBOL"].dropna().str.strip().tolist())
-                self.collection_diagnostics["universe_source_symbol_count"] = len(
-                    all_symbols
-                )
-                logger.info(f"NSE Master: {len(all_symbols)} symbols")
-            else:
-                self.collection_diagnostics["universe_fetch_status"] = (
-                    f"http_{resp.status_code}"
-                )
-                logger.error(
-                    f"NSE master list returned HTTP {resp.status_code} - "
-                    "falling back to built-in watchlist only!"
-                )
-        except Exception as e:
-            self.collection_diagnostics["universe_fetch_status"] = (
-                f"error:{type(e).__name__}"
-            )
-            logger.error(f"NSE Master fetch failed ({e}) - falling back to built-in watchlist only!")
+        """Return the sorted research universe for this run's market.
 
-        # Well-known liquid names as a safety net
-        additional_stocks = [
-            "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "HINDUNILVR", "ITC",
-            "SBIN", "BHARTIARTL", "KOTAKBANK", "LT", "AXISBANK", "ASIANPAINT",
-            "MARUTI", "SUNPHARMA", "TITAN", "ULTRACEMCO", "BAJFINANCE", "HCLTECH",
-            "WIPRO", "NESTLEIND", "POWERGRID", "NTPC", "M&M", "TMCV", "ONGC",
-            "JSWSTEEL", "TATASTEEL", "ADANIENT", "COALINDIA", "DRREDDY", "CIPLA",
-            "DIVISLAB", "TECHM", "GRASIM", "BRITANNIA", "EICHERMOT", "APOLLOHOSP",
-            "HEROMOTOCO", "UPL", "BANKBARODA", "LICI", "ETERNAL", "DELHIVERY",
-            "HUDCO", "IREDA",
-        ]
-        all_symbols.update(additional_stocks)
+        The fetch itself lives in ``screener.universe``; this method owns only
+        what is run-shaped rather than source-shaped -- recording diagnostics,
+        unioning the safety net, and honouring the custom-watchlist override.
+        """
+        profile = self.market_profile
+        logger.info("Fetching comprehensive %s stock list...", profile.label)
+
+        result = universe_sources.fetch(profile, self.config)
+        diagnostics = self.collection_diagnostics
+        diagnostics["universe_fetch_status"] = result.status
+        diagnostics["universe_source_url"] = result.source_url
+        diagnostics["universe_source_sha256"] = result.source_sha256
+        diagnostics["universe_source_symbol_count"] = result.source_symbol_count
+        if result.notes:
+            diagnostics["universe_source_notes"] = list(result.notes)
+        if result.status.startswith("ok"):
+            diagnostics["universe_fetched_at"] = (
+                self._now_market().to_pydatetime().isoformat(timespec="seconds")
+            )
+
+        all_symbols = set(result.symbols)
+        all_symbols.update(profile.safety_net_symbols)
         filtered = {
             str(s).strip().upper()
             for s in all_symbols
@@ -460,10 +450,8 @@ class StockDataCollector:
         }
         if not self.config.SCAN_ALL_NSE:
             filtered = {s.upper() for s in self.config.CUSTOM_WATCHLIST}
-            self.collection_diagnostics["universe_fetch_status"] += (
-                ":custom_watchlist_override"
-            )
-        self.collection_diagnostics["universe_selected_symbols"] = sorted(filtered)
+            diagnostics["universe_fetch_status"] += ":custom_watchlist_override"
+        diagnostics["universe_selected_symbols"] = sorted(filtered)
         logger.info(f"Total symbols to scan: {len(filtered)}")
         return sorted(filtered)
 
@@ -581,12 +569,13 @@ class StockDataCollector:
             if factor_model_enabled
             else 60
         )
-        nse_symbols = [s + ".NS" for s in to_download]
+        profile = self.market_profile
+        vendor_symbols = [ticker_for(s, profile) for s in to_download]
         batch_size = 30
-        for i in range(0, len(nse_symbols), batch_size):
-            batch = nse_symbols[i : i + batch_size]
+        for i in range(0, len(vendor_symbols), batch_size):
+            batch = vendor_symbols[i : i + batch_size]
             batch_num = i // batch_size + 1
-            total_batches = max(1, (len(nse_symbols) - 1) // batch_size + 1)
+            total_batches = max(1, (len(vendor_symbols) - 1) // batch_size + 1)
             if batch_num % 5 == 0 or batch_num == 1:
                 logger.info(
                     f"Batch {batch_num}/{total_batches} ({len(results) + len(cached_records)} collected)..."
@@ -600,7 +589,7 @@ class StockDataCollector:
                 )
                 fetched_at_text = self._now_market().to_pydatetime().isoformat(timespec="seconds")
                 for symbol in batch:
-                    clean_sym = symbol.replace(".NS", "")
+                    clean_sym = bare_symbol(symbol, profile)
                     try:
                         if isinstance(data.columns, pd.MultiIndex):
                             if symbol not in data.columns.get_level_values(0):
@@ -1171,7 +1160,7 @@ class StockDataCollector:
         requests_this_minute = 0
         today_str = self._now_market().strftime("%Y-%m-%d")
         for idx, symbol in enumerate(needs_fetch):
-            ticker_str = symbol + ".NS"
+            ticker_str = ticker_for(symbol, self.market_profile)
             if (idx + 1) % 100 == 0:
                 logger.info(f"Fundamentals fetched {idx + 1}/{len(needs_fetch)}")
             requests_this_minute += 1

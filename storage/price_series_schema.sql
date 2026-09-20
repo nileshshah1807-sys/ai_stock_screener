@@ -22,17 +22,21 @@
 -- carrying its own dates, which would cost ~23 KB per symbol instead of ~23 KB
 -- in total.
 create table if not exists price_calendar (
-    id smallint primary key default 1,
+    -- One calendar per market: NSE and NYSE do not share sessions.
+    market text not null default 'NSE' check (market in ('NSE', 'US')),
+    id smallint,
     sessions text not null,
     session_count integer not null,
     first_session date not null,
     last_session date not null,
     updated_at timestamptz not null default now(),
-    constraint price_calendar_single_row check (id = 1)
+
+    primary key (market)
 );
 
 create table if not exists price_series (
-    symbol text primary key,
+    market text not null default 'NSE' check (market in ('NSE', 'US')),
+    symbol text not null,
     -- Positions in price_calendar.sessions, delta-encoded. A gap here is a
     -- session the symbol did not trade; it is never forward-filled.
     session_deltas text not null,
@@ -43,13 +47,15 @@ create table if not exists price_series (
     points integer not null,
     first_session date not null,
     last_session date not null,
-    updated_at timestamptz not null default now()
+    updated_at timestamptz not null default now(),
+
+    primary key (market, symbol)
 );
 
 -- The dashboard reads one symbol at a time; the primary key already serves
 -- that. This index supports the freshness check the publisher runs.
 create index if not exists price_series_last_session_idx
-    on price_series (last_session desc);
+    on price_series (market, last_session desc);
 
 alter table price_calendar enable row level security;
 alter table price_series enable row level security;

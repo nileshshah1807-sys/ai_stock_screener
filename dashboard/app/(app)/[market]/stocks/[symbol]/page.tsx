@@ -8,6 +8,7 @@ import { EntryBadge } from "@/components/entry-badge";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
+import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
 import { FactorBlocks } from "@/components/stock/factor-blocks";
@@ -135,36 +136,43 @@ const VALUE_INPUT_LABELS: Record<string, string> = {
 
 export async function generateMetadata({
   params,
-}: PageProps<"/stocks/[symbol]">) {
-  const { symbol } = await params;
-  return { title: decodeSymbolParam(symbol).toUpperCase() };
+}: PageProps<"/[market]/stocks/[symbol]">) {
+  const { market, symbol } = await params;
+  // The same ticker is a different company in each market, so the title says
+  // which one -- otherwise two open tabs of "TCS" are indistinguishable.
+  const label = marketFromSlug(market)?.label;
+  const ticker = decodeSymbolParam(symbol).toUpperCase();
+  return { title: label ? `${ticker} · ${label}` : ticker };
 }
 
-export default async function StockPage({ params }: PageProps<"/stocks/[symbol]">) {
+export default async function StockPage({
+  params,
+}: PageProps<"/[market]/stocks/[symbol]">) {
   // Next.js 16: params is a Promise.
-  const { symbol: rawSymbol } = await params;
+  const { market: marketSlug, symbol: rawSymbol } = await params;
+  const market = marketFromSlug(marketSlug)!;
   // Whether the host hands this back percent-encoded varies, and ten tickers
   // contain an ampersand. Decoding is idempotent here, so it is correct either
   // way. See lib/symbol.mjs.
   const symbol = decodeSymbolParam(rawSymbol);
 
-  const run = await getLatestRun();
+  const run = await getLatestRun(market.code);
   if (!run) notFound();
 
   // The price series and its calendar are independent of the snapshot, so all
   // four reads go out together rather than adding two round trips to the page.
   const [row, history, priceSeries, sessions] = await Promise.all([
-    getStock(run.run_date, symbol),
-    getStockHistory(symbol),
-    getPriceSeries(symbol),
-    getPriceCalendar(),
+    getStock(market.code, run.run_date, symbol),
+    getStockHistory(market.code, symbol),
+    getPriceSeries(market.code, symbol),
+    getPriceCalendar(market.code),
   ]);
 
   // Sessions since the base series was last rebuilt. Fetched after it because
   // the cutoff is the base's own last_session; with no base there is nothing to
   // append to, and the daily rows alone would draw an unadjusted stub.
   const priceTail = priceSeries
-    ? await getPriceTail(symbol, priceSeries.last_session)
+    ? await getPriceTail(market.code, symbol, priceSeries.last_session)
     : [];
 
   if (!row) notFound();
@@ -174,8 +182,8 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
   // fetched here rather than by the client on open -- a popover that opens empty
   // and then fills in is worse than one that opens correct.
   const [watchlists, watchlistMembership] = await Promise.all([
-    getWatchlists(),
-    getWatchlistMembership(symbol),
+    getWatchlists(market.code),
+    getWatchlistMembership(market.code, symbol),
   ]);
 
   // Last completed session's move. Now that the model publishes it, the row is
@@ -662,7 +670,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
         */}
         <div className="panel p-5 sm:p-6">
           <Link
-            href="/"
+            href={marketPath(market.slug)}
             className="inline-flex items-center gap-1 rounded-full text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ArrowLeft className="size-3" aria-hidden />

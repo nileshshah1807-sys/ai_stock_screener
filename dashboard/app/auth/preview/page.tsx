@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
+import { DEFAULT_MARKET } from "@/lib/markets";
 import { RatingBadge } from "@/components/rating-badge";
 import { SummaryTiles } from "@/components/summary-tiles";
 import { ScreenerTable } from "@/components/screener/screener-table";
@@ -38,6 +39,7 @@ export default function PreviewPage() {
     <AppShell
       run={previewRun}
       viewer={{ id: "preview", email: "preview@localhost", role: "viewer" }}
+      market={DEFAULT_MARKET}
     >
       <div className="flex flex-col gap-8 px-4 py-8 sm:px-8">
         <header className="flex items-center justify-between gap-4">
@@ -86,7 +88,7 @@ export default function PreviewPage() {
 
         <section className="flex flex-col gap-3">
           <h2 className="text-heading">KPI band</h2>
-          <SummaryTiles run={previewRun} />
+          <SummaryTiles run={previewRun} market={DEFAULT_MARKET} />
         </section>
 
         <section className="flex flex-col gap-3">

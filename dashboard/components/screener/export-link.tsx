@@ -3,6 +3,8 @@
 import { useSearchParams } from "next/navigation";
 import { Download } from "lucide-react";
 
+import { useMarket } from "@/components/market-provider";
+
 /**
  * CSV export for the current filter set.
  *
@@ -13,6 +15,7 @@ import { Download } from "lucide-react";
  */
 export function ExportLink() {
   const searchParams = useSearchParams();
+  const market = useMarket();
 
   const params = new URLSearchParams(searchParams.toString());
   params.delete("page");
@@ -20,7 +23,7 @@ export function ExportLink() {
 
   return (
     <a
-      href={`/api/export${query ? `?${query}` : ""}`}
+      href={`/api/export?market=${market.slug}${query ? `&${query}` : ""}`}
       className="inline-flex h-9 items-center gap-1.5 rounded-full border bg-muted px-4 text-sm font-medium transition-colors duration-(--duration-fast) hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <Download className="size-3.5" aria-hidden />

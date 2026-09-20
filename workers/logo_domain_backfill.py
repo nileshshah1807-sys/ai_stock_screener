@@ -20,6 +20,8 @@ from urllib.parse import urlparse
 
 import yfinance as yf
 
+from screener.markets import DEFAULT_MARKET, ticker_for
+from screener.markets import resolve as resolve_market
 from storage.dashboard_repository import DashboardRepository
 
 logger = logging.getLogger("logo_domain_backfill")
@@ -52,9 +54,9 @@ def normalize_domain(website: Any) -> str | None:
     return domain[4:] if domain.startswith("www.") else domain
 
 
-def resolve_yahoo_domain(symbol: str) -> str | None:
-    """Resolve one NSE symbol through Yahoo's issuer website metadata."""
-    info = yf.Ticker(f"{symbol}.NS").info
+def resolve_yahoo_domain(symbol: str, market: str = DEFAULT_MARKET) -> str | None:
+    """Resolve one symbol through Yahoo's issuer website metadata."""
+    info = yf.Ticker(ticker_for(symbol, resolve_market(market))).info
     if not isinstance(info, dict) or len(info) < 5:
         return None
     return normalize_domain(info.get("website"))
@@ -103,10 +105,18 @@ def backfill_logo_domains(
     run_date: str | None = None,
     limit: int = 0,
     batch_size: int = 25,
-    resolver: Callable[[str], str | None] = resolve_yahoo_domain,
+    resolver: Callable[[str], str | None] | None = None,
     pace: Callable[[], None] | None = None,
 ) -> BackfillSummary:
     """Resolve and patch every missing logo domain in one snapshot."""
+    # The repository knows which market it is scoped to, so the default
+    # resolver takes its ticker suffix from there rather than assuming NSE.
+    # An injected resolver keeps the single-argument shape tests rely on.
+    if resolver is None:
+        market = repository.market
+        def resolver(symbol: str) -> str | None:
+            return resolve_yahoo_domain(symbol, market)
+
     target_date = resolve_run_date(repository, run_date)
     candidates = repository.snapshot_logo_candidates(target_date, only_missing=True)
     if limit > 0:

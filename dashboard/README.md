@@ -1,8 +1,12 @@
-# Screener Dashboard
+# Winnow Dashboard
 
-Private web dashboard for the daily NSE screener. Replaces the emailed
-spreadsheet and the static `dashboard_*.html` report with a searchable,
-filterable view of the full scored universe.
+Private web dashboard for the daily screener. Replaces the emailed spreadsheet
+and the static `dashboard_*.html` report with a searchable, filterable view of
+the full scored universe.
+
+Every view is nested under a market segment — `/nse` and `/us` — and the market
+switch beside the brand moves between them, keeping the destination. `/`
+redirects to `/nse`, so links saved before markets existed still resolve.
 
 Next.js 16 (App Router) · TypeScript · Tailwind v4 · shadcn/ui (Base UI) ·
 Supabase (Postgres + Auth).

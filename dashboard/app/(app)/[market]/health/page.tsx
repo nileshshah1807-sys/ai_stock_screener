@@ -9,6 +9,7 @@ import {
   formatRelativeAge,
   MISSING,
 } from "@/lib/format";
+import { marketFromSlug } from "@/lib/markets";
 import { getLatestRun, getRecentRuns } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
@@ -29,8 +30,12 @@ function short(value: string | null | undefined, length = 12): string {
   return value.length > length ? `${value.slice(0, length)}…` : value;
 }
 
-export default async function HealthPage() {
-  const [run, recent] = await Promise.all([getLatestRun(), getRecentRuns(20)]);
+export default async function HealthPage({ params }: PageProps<"/[market]/health">) {
+  const market = marketFromSlug((await params).market)!;
+  const [run, recent] = await Promise.all([
+    getLatestRun(market.code),
+    getRecentRuns(market.code, 20),
+  ]);
 
   if (!run) {
     return (

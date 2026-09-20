@@ -3,8 +3,10 @@
 The workflow runs on calendar days, while the model is a completed-session
 snapshot. Rebuilding a Friday cross-section on Saturday/Sunday can introduce
 vendor revisions and partial-download drift without adding a new market bar.
-This guard compares the latest expected NSE session with the latest completed
-Supabase run before the expensive screener starts.
+This guard compares the latest expected session for the configured market
+with the latest completed Supabase run before the expensive screener starts.
+The calendar itself is market-neutral: the cutoff and holiday list come from
+Config, which resolves them from the run's market profile.
 """
 
 from __future__ import annotations
@@ -61,10 +63,11 @@ def decide(
     if latest and latest.get("run_date"):
         published = pd.Timestamp(latest["run_date"]).date()
     skip = published is not None and published >= expected
+    market = repository.market
     reason = (
-        f"completed NSE session {expected.isoformat()} is already published"
+        f"completed {market} session {expected.isoformat()} is already published"
         if skip
-        else f"NSE session {expected.isoformat()} still needs publication"
+        else f"{market} session {expected.isoformat()} still needs publication"
     )
     return GuardDecision(skip, expected, published, reason)
 

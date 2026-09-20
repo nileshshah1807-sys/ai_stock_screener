@@ -82,7 +82,9 @@ class ModuleWiringTests(unittest.TestCase):
             content=master_csv.encode("utf-8"),
         )
 
-        with patch("screener.data_collection.requests.get", return_value=response):
+        # The fetch itself now lives in ``screener.universe``; the collector
+        # keeps the safety-net union and the watchlist override.
+        with patch("screener.universe.requests.get", return_value=response):
             symbols = StockDataCollector(config).get_comprehensive_stock_list()
 
         self.assertIn("20MICRONS", symbols)

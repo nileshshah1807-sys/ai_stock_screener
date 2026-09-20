@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
+import { marketPath, type Market } from "@/lib/markets";
 import { CountUp, Reveal } from "@/components/motion";
 import type { ScreenerRun } from "@/lib/types";
 
@@ -74,7 +75,13 @@ function AccentBar({ className }: { className: string }) {
   );
 }
 
-export function SummaryTiles({ run }: { run: ScreenerRun }) {
+export function SummaryTiles({
+  run,
+  market,
+}: {
+  run: ScreenerRun;
+  market: Market;
+}) {
   const total = run.row_count || 0;
 
   return (
@@ -111,7 +118,7 @@ export function SummaryTiles({ run }: { run: ScreenerRun }) {
         return (
           <Link
             key={tile.rating}
-            href={`/?rating=${encodeURIComponent(tile.rating)}`}
+            href={`${marketPath(market.slug)}?rating=${encodeURIComponent(tile.rating)}`}
             data-kpi
             className={cn(
               "press group flex items-center gap-3 bg-card px-4 py-3",

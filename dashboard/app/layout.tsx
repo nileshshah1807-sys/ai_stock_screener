@@ -53,11 +53,12 @@ const satoshi = localFont({
 
 export const metadata: Metadata = {
   title: {
-    default: "NSE Screener",
-    template: "%s · NSE Screener",
+    default: "Winnow",
+    template: "%s · Winnow",
   },
   description:
-    "Daily NSE research screener: model decision scores, evidence gates, and execution suitability.",
+    "Daily equity research screener across NSE and US markets: model decision " +
+    "scores, evidence gates, and execution suitability.",
   robots: { index: false, follow: false },
 };
 

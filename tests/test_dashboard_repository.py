@@ -4,9 +4,13 @@ from storage.dashboard_repository import DashboardRepository
 
 
 class RecordingDashboardRepository(DashboardRepository):
-    def __init__(self, responses=None):
+    def __init__(self, responses=None, market="NSE"):
         self.responses = list(responses or [])
         self.calls = []
+        # The real __init__ needs Supabase credentials, so it is bypassed here.
+        # The market scope is what the queries below read, so it is set
+        # explicitly rather than inherited.
+        self.market = market
 
     def _request(self, method, path, **kwargs):
         self.calls.append((method, path, kwargs))
@@ -64,9 +68,10 @@ class DashboardRepositoryLogoTests(unittest.TestCase):
         self.assertEqual(written, 1)
         method, path, kwargs = repository.calls[0]
         self.assertEqual(method, "POST")
+        # Market joins the conflict target because it joins the primary key.
         self.assertEqual(
             path,
-            "screener_snapshot?on_conflict=run_date,symbol",
+            "screener_snapshot?on_conflict=market,run_date,symbol",
         )
         self.assertEqual(
             kwargs["json"],
@@ -76,9 +81,67 @@ class DashboardRepositoryLogoTests(unittest.TestCase):
                     "symbol": "RELIANCE",
                     "logo_domain": "ril.com",
                     "payload": {"Symbol": "RELIANCE", "Decision_Score": 36.8},
+                    "market": "NSE",
                 }
             ],
         )
+
+
+class MarketScopingTests(unittest.TestCase):
+    """Every read is narrowed and every write stamped with one market.
+
+    Symbols collide across exchanges -- TCS is Tata Consultancy on the NSE and
+    The Container Store in the US -- so an unscoped query would mix two
+    companies into one row set.
+    """
+
+    def test_reads_are_narrowed_to_the_repositorys_market(self):
+        repository = RecordingDashboardRepository([[]], market="US")
+
+        repository.latest_completed_run()
+
+        self.assertEqual(repository.calls[0][2]["params"]["market"], "eq.US")
+
+    def test_snapshot_writes_are_stamped(self):
+        repository = RecordingDashboardRepository(market="US")
+
+        repository.replace_snapshot_rows(
+            "2026-08-14",
+            [{"run_date": "2026-08-14", "symbol": "TCS", "payload": {}}],
+        )
+
+        rows = repository.calls[0][2]["json"]
+        self.assertEqual(rows[0]["market"], "US")
+
+    def test_history_writes_are_stamped(self):
+        repository = RecordingDashboardRepository(market="US")
+
+        repository.upsert_history_rows([{"observed_on": "2026-08-14", "symbol": "TCS"}])
+
+        method, path, kwargs = repository.calls[0]
+        self.assertEqual(path, "screener_history?on_conflict=market,observed_on,symbol")
+        self.assertEqual(kwargs["json"][0]["market"], "US")
+
+    def test_pruning_retains_runs_per_market(self):
+        """Ranked globally, two markets would halve each other's retention."""
+        repository = RecordingDashboardRepository([2], market="US")
+
+        repository.prune_snapshots(keep_runs=2)
+
+        self.assertEqual(repository.calls[0][2]["json"]["p_market"], "US")
+
+    def test_the_calendar_is_one_row_per_market(self):
+        repository = RecordingDashboardRepository(market="US")
+
+        repository.upsert_price_calendar({"sessions": "x", "session_count": 1})
+
+        method, path, kwargs = repository.calls[0]
+        self.assertEqual(path, "price_calendar?on_conflict=market")
+        self.assertEqual(kwargs["json"][0]["market"], "US")
+
+    def test_an_unknown_market_is_rejected_at_construction(self):
+        with self.assertRaises(ValueError):
+            DashboardRepository("https://x.test", "key", market="LSE")
 
 
 if __name__ == "__main__":
