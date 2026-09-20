@@ -27,8 +27,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -139,7 +139,7 @@ def simulate(panel, closes, stages, width, rebalances, *, exit_codes=None,
         cash_share = float(cash_fraction_for(signal)) if cash_fraction_for else 0.0
         invested_share.append(1.0 - cash_share)
         weight = (1.0 - cash_share) / len(picks)
-        target = {name: weight for name in picks}
+        target = dict.fromkeys(picks, weight)
         if cash_share:
             target["CASH"] = cash_share
 
