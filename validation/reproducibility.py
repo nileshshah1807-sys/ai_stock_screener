@@ -20,6 +20,12 @@ MANIFEST_SCHEMA_VERSION = 1
 # should be an intentional manifest change. Credentials and notification targets
 # must never be added here.
 DEFAULT_REPRODUCIBILITY_CONFIG_KEYS = (
+    # The market and its universe breadth are part of a run's identity: two
+    # runs that differ only by which exchange they screened must not share a
+    # config hash. Adding these shifts the NSE hash once, which is correct --
+    # the previous hash did not record a fact that distinguishes the runs.
+    "MARKET",
+    "US_UNIVERSE_SOURCE",
     "MODEL_VERSION",
     "RECOMMENDATION_POLICY_VERSION",
     "OUTPUT_SCHEMA_VERSION",

@@ -9,6 +9,8 @@ from pathlib import Path
 
 import yfinance as yf
 
+from .markets import resolve as resolve_market
+
 logger = logging.getLogger(__name__)
 
 def _env_bool(name, default):
@@ -65,6 +67,14 @@ class IPv4SMTP_SSL(smtplib.SMTP_SSL):
 # CONFIGURATION
 # =====================================================
 class Config:
+    # Which exchange this run screens. Everything below that used to be an NSE
+    # literal now takes its default from the profile, so an unset MARKET
+    # resolves to exactly the values this file carried before it was
+    # market-aware. Declared first because the defaults below read it.
+    MARKET = os.getenv("MARKET", "NSE")
+    _PROFILE = resolve_market(MARKET)
+    MARKET_CURRENCY = _PROFILE.currency
+
     # Model and policy versions are deliberately separate from the report schema.
     # Any semantic ranking change must bump MODEL_VERSION; additive audit columns
     # bump OUTPUT_SCHEMA_VERSION without pretending the signal itself changed.
@@ -117,19 +127,23 @@ class Config:
     PYWHATKIT_WAIT_TIME = 15
 
     # --- Scanning ---
+    # Which universe source the US market reads: sp1500 (default), sp500 or
+    # all_listed. A setting rather than a literal so the universe can be
+    # widened once a real run has been measured against the job timeout.
+    US_UNIVERSE_SOURCE = os.getenv("US_UNIVERSE_SOURCE", "").strip().lower()
     SCAN_ALL_NSE = _env_bool("SCAN_ALL_NSE", True)  # Set to True for full NSE scan, False for custom watchlist (faster for testing)
-    CUSTOM_WATCHLIST = _env_list("CUSTOM_WATCHLIST", [
-        "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK",
-        "HINDUNILVR", "ITC", "SBIN", "BHARTIARTL", "KOTAKBANK",
-    ])
+    CUSTOM_WATCHLIST = _env_list("CUSTOM_WATCHLIST", list(_PROFILE.fallback_symbols))
     TOP_STOCKS_COUNT = _env_int("TOP_STOCKS_COUNT", 20)
     WHATSAPP_TOP_COUNT = _env_int("WHATSAPP_TOP_COUNT", 10)
     NEWS_SENTIMENT_TOP_N = _env_int("NEWS_SENTIMENT_TOP_N", 20)     # fetch news sentiment for top N picks only
     PRICE_CACHE_MAX_AGE_HOURS = _env_int("PRICE_CACHE_MAX_AGE_HOURS", 18)
     FUND_CACHE_MAX_AGE_DAYS = _env_int("FUND_CACHE_MAX_AGE_DAYS", 7)
-    ANALYSIS_TIMEZONE = os.getenv("ANALYSIS_TIMEZONE", "Asia/Kolkata")
+    ANALYSIS_TIMEZONE = os.getenv("ANALYSIS_TIMEZONE", _PROFILE.timezone)
+    # Named "_IST" for compatibility: it is read as market-local wall clock
+    # time, which is IST for NSE and ET for US. Renaming it would churn the
+    # workflows and config_local files for no behavioural gain.
     MARKET_BAR_COMPLETE_AFTER_IST = os.getenv(
-        "MARKET_BAR_COMPLETE_AFTER_IST", "16:15"
+        "MARKET_BAR_COMPLETE_AFTER_IST", _PROFILE.bar_complete_after
     )
     # Fail closed after the completion cutoff if a normal weekday has no
     # same-session bar. Populate official weekday exchange holidays as ISO dates.
@@ -382,8 +396,12 @@ class Config:
     # --- Benchmark, relative strength and market regime ----------------------
     # Nifty 500 (^CRSLDX) is the broadest liquid total-market proxy Yahoo serves
     # for India; ^NSEI is the fallback when it is unavailable.
-    BENCHMARK_INDEX_SYMBOL = os.getenv("BENCHMARK_INDEX_SYMBOL", "^CRSLDX")
-    BENCHMARK_INDEX_FALLBACK = os.getenv("BENCHMARK_INDEX_FALLBACK", "^NSEI")
+    BENCHMARK_INDEX_SYMBOL = os.getenv(
+        "BENCHMARK_INDEX_SYMBOL", _PROFILE.benchmark_symbol
+    )
+    BENCHMARK_INDEX_FALLBACK = os.getenv(
+        "BENCHMARK_INDEX_FALLBACK", _PROFILE.benchmark_fallback
+    )
     MARKET_REGIME_ENABLED = _env_bool("MARKET_REGIME_ENABLED", True)
     # The regime overlay changes deployment conviction only. It never edits a
     # factor score, so the underlying research rank stays visible in RISK_OFF.

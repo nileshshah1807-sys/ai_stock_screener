@@ -25,6 +25,8 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
+from .markets import active_profile, ticker_for
+
 logger = logging.getLogger(__name__)
 
 # Bump whenever a derived column's meaning changes so an older cache cannot mix
@@ -443,6 +445,7 @@ class FinancialStatementCollector:
 
     def __init__(self, config, *, ticker_factory=None, clock=None):
         self.config = config
+        self.market_profile = active_profile(config)
         # Injectable so tests never touch the network.
         self._ticker_factory = ticker_factory
         self._clock = clock or (lambda: datetime.now())
@@ -487,7 +490,7 @@ class FinancialStatementCollector:
     def fetch_symbol(self, symbol):
         """Return derived factors for one symbol, or None when unavailable."""
         try:
-            ticker = self._make_ticker(f"{symbol}.NS")
+            ticker = self._make_ticker(ticker_for(symbol, self.market_profile))
             derived = derive_statement_factors(
                 ticker.income_stmt, ticker.balance_sheet, ticker.cashflow
             )
