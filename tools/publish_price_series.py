@@ -1,11 +1,19 @@
-"""Build and publish the stock-page price series from the backtest archive.
+"""Build and publish the stock-page price series.
 
     python -m tools.publish_price_series --dry-run
     python -m tools.publish_price_series
+    python -m tools.publish_price_series --market US
 
-Reads the same archive the point-in-time backtest reads, so the chart and the
-model are drawn from one set of corporate-action-adjusted prices. Apply
-`storage/price_series_schema.sql` once before the first real run.
+NSE reads the same archive the point-in-time backtest reads, so the chart and
+the model are drawn from one set of corporate-action-adjusted prices.
+
+No such archive exists for the US, so that market is sourced from yfinance
+instead -- see `workers/price_series_market.py`, which states the trade. The
+encoding, the shrink guard and the publish path are shared, so both markets
+produce the same rows and the dashboard reads them the same way.
+
+Apply `storage/price_series_schema.sql` once before the first real run, and
+`storage/multi_market_migration.sql` before the first non-NSE one.
 """
 
 from __future__ import annotations
@@ -52,8 +60,91 @@ def load_env_file(path=Path(".env")):
     return loaded
 
 
+def _publish_vendor_sourced(args, profile, repository):
+    """Build and publish a market that has no point-in-time archive.
+
+    Shares everything downstream of the observations with the NSE path: the
+    same encoder, the same row builder, the same shrink guard and the same
+    writer, so both markets land identical row shapes and the dashboard reads
+    them with one decoder.
+    """
+    from screener.universe import fetch as fetch_universe
+    from workers.price_series_market import (
+        DEFAULT_START,
+        collect_observations,
+        identity_symbols,
+        trading_calendar,
+    )
+    from workers.price_series_publisher import build_rows, publish
+
+    if args.since:
+        # Yahoo back-adjusts silently, so there is no action ledger to ask
+        # "what changed since". Failing is better than accepting the flag and
+        # quietly publishing a full rebuild the caller did not ask for.
+        raise SystemExit(
+            f"--since is archive-only; {profile.code} has no corporate-action "
+            "ledger to target a rebuild from. Re-run without it for a full "
+            "rebuild, which for this market takes a few minutes."
+        )
+
+    start = args.start or DEFAULT_START
+    sessions = trading_calendar(profile, start=start, end=args.end)
+    if len(sessions) < 2:
+        raise SystemExit(f"Fewer than two {profile.code} sessions in {start}..{args.end}")
+
+    universe = fetch_universe(profile, _UniverseConfig(args))
+    if not universe.symbols:
+        raise SystemExit(
+            f"{profile.code} universe came back empty ({universe.status}); "
+            "refusing to publish a chart set with no symbols"
+        )
+    symbols = list(universe.symbols)
+    if args.limit:
+        symbols = symbols[: args.limit]
+    logger.info("Universe: %d symbols from %s", len(symbols), universe.source_url)
+
+    started = time.monotonic()
+    observations = collect_observations(symbols, profile, start=start, end=args.end)
+    logger.info(
+        "Fetched %d symbols in %.0fs", len(observations), time.monotonic() - started
+    )
+
+    rows = build_rows(
+        sessions,
+        observations,
+        identity_symbols(observations),
+        min_points=args.min_points,
+    )
+
+    publish(
+        repository,
+        sessions,
+        rows,
+        dry_run=args.dry_run,
+        allow_shrink=args.allow_shrink,
+    )
+    return 0
+
+
+class _UniverseConfig:
+    """Minimal config for the universe fetch.
+
+    ``screener.universe`` reads one setting, and building a full Config here
+    would drag in the whole runtime -- including its email and cache side
+    effects -- to answer a single question.
+    """
+
+    def __init__(self, args):
+        self.US_UNIVERSE_SOURCE = os.getenv("US_UNIVERSE_SOURCE", "")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--market",
+        default=os.getenv("MARKET", "NSE"),
+        help="Market to publish: NSE (archive-sourced) or US (vendor-sourced)",
+    )
     parser.add_argument("--root", default=str(DEFAULT_ROOT))
     parser.add_argument("--start", default=None,
                         help="earliest session to publish (default: archive start)")
@@ -80,6 +171,11 @@ def main(argv=None):
     if loaded:
         logger.info("Loaded %s from .env", ", ".join(sorted(loaded)))
 
+    from screener.markets import NSE
+    from screener.markets import resolve as resolve_market
+
+    profile = resolve_market(args.market)
+
     # Constructed before the archive read, which takes about a minute. Missing
     # credentials should fail in the first second, not the sixty-first.
     repository = None
@@ -87,7 +183,7 @@ def main(argv=None):
         from storage.dashboard_repository import DashboardRepository
 
         try:
-            repository = DashboardRepository.from_environment()
+            repository = DashboardRepository.from_environment(profile.code)
         except ValueError as error:
             hint = [
                 str(error),
@@ -97,6 +193,9 @@ def main(argv=None):
                 "  SUPABASE_SERVICE_ROLE_KEY=<service role key>",
             ]
             raise SystemExit("\n".join(hint)) from error
+
+    if profile.code != NSE:
+        return _publish_vendor_sourced(args, profile, repository)
 
     from datetime import date
 
