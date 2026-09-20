@@ -1,0 +1,100 @@
+name: CI
+run-name: CI (${{ github.event_name }} on ${{ github.ref_name }})
+
+# The scheduled data workflows already run `python -m unittest` as a pre-flight
+# guard, but only on their cron. That means a broken commit stays invisible
+# until it takes down a production run at 16:30 IST. This workflow moves that
+# signal to the commit that caused it.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes an in-flight run irrelevant.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python-lint:
+    name: Python lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      # Ruff alone, so lint feedback does not wait on the runtime dependency
+      # install. Rules and the ratchet list live in pyproject.toml.
+      - name: Install ruff
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check --output-format=github .
+
+  python-tests:
+    name: Python tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      # torch and transformers are excluded deliberately. sentiment/
+      # local_analyzer.py imports them lazily and only after the
+      # TRANSCRIPT_ENABLE_FINBERT check below clears, so the suite never touches
+      # them -- and pulling the CUDA wheel would add ~2 GB to every run. The
+      # scheduled workflows still install the full requirements.txt.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          grep -vE '^(torch|transformers)\b' requirements.txt > "${RUNNER_TEMP}/requirements-ci.txt"
+          python -m pip install -r "${RUNNER_TEMP}/requirements-ci.txt" -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          # Matches the scheduled workflows: keeps the FinBERT path, and with it
+          # the torch import, out of the test run.
+          TRANSCRIPT_ENABLE_FINBERT: "false"
+        run: pytest
+
+  dashboard:
+    name: Dashboard (typecheck, lint, test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
