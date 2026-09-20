@@ -235,7 +235,15 @@ class TechnicalEnhancer:
             if any(pd.isna(value) for value in (val, plus_di_val, minus_di_val)):
                 return np.nan, np.nan, np.nan
             return float(val), float(plus_di_val), float(minus_di_val)
+        except (IndexError, KeyError, ValueError, TypeError, ZeroDivisionError, AttributeError):
+            # A short, empty or non-numeric history: the value is genuinely
+            # unknown, so report it as missing rather than as a number.
+            return np.nan, np.nan, np.nan
         except Exception:
+            # Anything else is a defect, not absent data. Stay resilient --
+            # one bad row must not end a daily run -- but leave a trace so a
+            # silent NaN cannot be mistaken for a stock that lacks history.
+            logger.warning("ADX calculation failed unexpectedly", exc_info=True)
             return np.nan, np.nan, np.nan
 
     @staticmethod
@@ -249,7 +257,15 @@ class TechnicalEnhancer:
             stoch_k = raw_stoch.rolling(k_window, min_periods=k_window).mean()
             val = stoch_k.iloc[-1]
             return float(val) if not pd.isna(val) else np.nan
+        except (IndexError, KeyError, ValueError, TypeError, ZeroDivisionError, AttributeError):
+            # A short, empty or non-numeric history: the value is genuinely
+            # unknown, so report it as missing rather than as a number.
+            return np.nan
         except Exception:
+            # Anything else is a defect, not absent data. Stay resilient --
+            # one bad row must not end a daily run -- but leave a trace so a
+            # silent NaN cannot be mistaken for a stock that lacks history.
+            logger.warning("StochRSI calculation failed unexpectedly", exc_info=True)
             return np.nan
 
     @staticmethod
@@ -267,7 +283,15 @@ class TechnicalEnhancer:
             atr = tr.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
             val = atr.iloc[-1]
             return float(val) if not pd.isna(val) else np.nan
+        except (IndexError, KeyError, ValueError, TypeError, ZeroDivisionError, AttributeError):
+            # A short, empty or non-numeric history: the value is genuinely
+            # unknown, so report it as missing rather than as a number.
+            return np.nan
         except Exception:
+            # Anything else is a defect, not absent data. Stay resilient --
+            # one bad row must not end a daily run -- but leave a trace so a
+            # silent NaN cannot be mistaken for a stock that lacks history.
+            logger.warning("ATR calculation failed unexpectedly", exc_info=True)
             return np.nan
 
     @staticmethod
@@ -646,7 +670,15 @@ class PriceCache:
                     )
                     return pd.DataFrame()
             return df
+        except (IndexError, KeyError, ValueError, TypeError, ZeroDivisionError, AttributeError):
+            # A short, empty or non-numeric history: the value is genuinely
+            # unknown, so report it as missing rather than as a number.
+            return pd.DataFrame()
         except Exception:
+            # Anything else is a defect, not absent data. Stay resilient --
+            # one bad row must not end a daily run -- but leave a trace so a
+            # silent NaN cannot be mistaken for a stock that lacks history.
+            logger.warning("Price cache read failed unexpectedly", exc_info=True)
             return pd.DataFrame()
 
 # =====================================================
