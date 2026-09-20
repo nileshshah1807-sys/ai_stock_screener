@@ -1,6 +1,7 @@
 import { Pagination } from "@/components/screener/pagination";
 import { ScreenerTable } from "@/components/screener/screener-table";
 import { parseFilters, toSearchParams } from "@/lib/filters";
+import { marketFromSlug } from "@/lib/markets";
 import { getLatestRun, getSnapshotPage, PAGE_SIZE } from "@/lib/queries";
 import { mark, trace } from "@/lib/trace";
 
@@ -34,9 +35,13 @@ function EmptyState() {
  * navigation. The single query below is the only work a sort, filter or page
  * change should cost.
  */
-export default async function ScreenerPage({ searchParams }: PageProps<"/">) {
+export default async function ScreenerPage({
+  params,
+  searchParams,
+}: PageProps<"/[market]">) {
   mark("(screener)/page RENDERED");
-  const run = await getLatestRun();
+  const market = marketFromSlug((await params).market)!;
+  const run = await getLatestRun(market.code);
 
   if (!run) {
     return (
@@ -46,12 +51,13 @@ export default async function ScreenerPage({ searchParams }: PageProps<"/">) {
     );
   }
 
-  const params = await searchParams;
-  const filters = parseFilters(params);
-  const urlParams = toSearchParams(params);
+  // Named `query` rather than `params`, which is now the route params prop.
+  const query = await searchParams;
+  const filters = parseFilters(query);
+  const urlParams = toSearchParams(query);
 
   const { rows, total } = await trace("  getSnapshotPage", () =>
-    getSnapshotPage(run.run_date, filters),
+    getSnapshotPage(market.code, run.run_date, filters),
   );
 
   return (

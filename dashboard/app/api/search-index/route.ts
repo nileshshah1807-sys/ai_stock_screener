@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 import { getViewer } from "@/lib/auth";
+import { DEFAULT_MARKET, marketFromSlug } from "@/lib/markets";
 import { getLatestRun, getSearchIndex } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -17,21 +18,27 @@ export const dynamic = "force-dynamic";
  * viewer, but only allowlisted viewers may read them, and an intermediary must
  * not be able to serve this to an unauthenticated request.
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const viewer = await getViewer();
   if (!viewer) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const run = await getLatestRun();
+  // Each market has its own universe, so each has its own index. The market is
+  // echoed back below for the same reason runDate is: the browser caches this
+  // for an hour and must be able to tell whose index it is holding.
+  const market =
+    marketFromSlug(request.nextUrl.searchParams.get("market")) ?? DEFAULT_MARKET;
+
+  const run = await getLatestRun(market.code);
   if (!run) {
-    return NextResponse.json({ runDate: null, entries: [] });
+    return NextResponse.json({ market: market.slug, runDate: null, entries: [] });
   }
 
-  const entries = await getSearchIndex(run.run_date, run.row_count);
+  const entries = await getSearchIndex(market.code, run.run_date, run.row_count);
 
   return NextResponse.json(
-    { runDate: run.run_date, entries },
+    { market: market.slug, runDate: run.run_date, entries },
     {
       headers: {
         // A run is immutable once published, so the browser can hold this for

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { removeFromWatchlist } from "@/app/(app)/watchlists/actions";
+import { removeFromWatchlist } from "@/app/(app)/[market]/watchlists/actions";
 import { cn } from "@/lib/utils";
 
 /**

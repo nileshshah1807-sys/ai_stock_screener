@@ -29,7 +29,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       <div className="w-full max-w-sm">
         <div className="mb-8 animate-rise">
           <h1 className="font-mono text-heading font-semibold tracking-tight">
-            NSE Screener
+            Winnow
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">
             Private research dashboard. Sign-in is by invitation.

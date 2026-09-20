@@ -9,6 +9,7 @@ import { WatchlistSearch } from "@/components/watchlist/watchlist-search";
 import { WatchlistSelector } from "@/components/watchlist/watchlist-selector";
 import { parseFilters, toSearchParams } from "@/lib/filters";
 import { formatDate } from "@/lib/format";
+import { marketFromSlug } from "@/lib/markets";
 import {
   getLatestRun,
   getSnapshotPage,
@@ -57,26 +58,32 @@ function Panel({
  * it re-reads every day and shows what the model thinks now.
  */
 export default async function WatchlistsPage({
+  params,
   searchParams,
-}: PageProps<"/watchlists">) {
-  const params = await searchParams;
-  const filters = parseFilters(params);
-  const urlParams = toSearchParams(params);
+}: PageProps<"/[market]/watchlists">) {
+  const market = marketFromSlug((await params).market)!;
+  // Named `query` rather than `params`, which is now the route params prop.
+  const query = await searchParams;
+  const filters = parseFilters(query);
+  const urlParams = toSearchParams(query);
 
   // Independent reads. The run manifest does not depend on which lists exist.
-  const [run, lists] = await Promise.all([getLatestRun(), getWatchlists()]);
+  const [run, lists] = await Promise.all([
+    getLatestRun(market.code),
+    getWatchlists(market.code),
+  ]);
 
-  const requested = Array.isArray(params.list) ? params.list[0] : params.list;
+  const requested = Array.isArray(query.list) ? query.list[0] : query.list;
   const selected = resolveWatchlist(lists, requested);
 
   // Independent reads again: the alert covers the whole list regardless of the
   // grid's filters and page, so it is not derived from the grid's rows.
   const [{ rows, total }, breaks] = selected?.symbols.length
     ? await Promise.all([
-        getSnapshotPage(run?.run_date ?? "", filters, {
+        getSnapshotPage(market.code, run?.run_date ?? "", filters, {
           symbols: selected.symbols,
         }),
-        getStageBreaks(run?.run_date ?? "", selected.addedAt),
+        getStageBreaks(market.code, run?.run_date ?? "", selected.addedAt),
       ])
     : [{ rows: [], total: 0 }, []];
 
@@ -145,7 +152,7 @@ export default async function WatchlistsPage({
         />
       ) : (
         <>
-          <StageBreakAlert breaks={breaks} />
+          <StageBreakAlert breaks={breaks} market={market} />
 
           <ScreenerTable
             rows={rows}

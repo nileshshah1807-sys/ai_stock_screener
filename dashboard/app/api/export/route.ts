@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getViewer } from "@/lib/auth";
 import { parseFilters } from "@/lib/filters";
+import { DEFAULT_MARKET, marketFromSlug } from "@/lib/markets";
 import { getExportRows, getLatestRun } from "@/lib/queries";
 import type { SnapshotRow } from "@/lib/types";
 
@@ -75,7 +76,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Not authorised" }, { status: 403 });
   }
 
-  const run = await getLatestRun();
+  // Falls back to the default market rather than 400ing, so an export link
+  // saved before markets existed still resolves to the market it came from.
+  const market =
+    marketFromSlug(request.nextUrl.searchParams.get("market")) ?? DEFAULT_MARKET;
+
+  const run = await getLatestRun(market.code);
   if (!run) {
     return NextResponse.json({ error: "No run published" }, { status: 404 });
   }
@@ -89,7 +95,7 @@ export async function GET(request: NextRequest) {
   filters.eligibility = request.nextUrl.searchParams.getAll("eligibility");
   filters.stage = request.nextUrl.searchParams.getAll("stage");
 
-  const rows = await getExportRows(run.run_date, filters);
+  const rows = await getExportRows(market.code, run.run_date, filters);
 
   const header = COLUMNS.map(([, label]) => label).join(",");
   const body = rows

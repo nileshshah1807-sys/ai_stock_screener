@@ -11,6 +11,7 @@ import {
   formatScore,
   MISSING,
 } from "@/lib/format";
+import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
 import { getLatestRun, getMovers, getPriceMovers } from "@/lib/queries";
 import type { PriceMoverRow } from "@/lib/queries";
 import type { MoverRow } from "@/lib/types";
@@ -48,12 +49,14 @@ function MoverList({
   icon: Icon,
   rows,
   mode,
+  market,
 }: {
   title: string;
   description: string;
   icon: typeof TrendingUp;
   rows: MoverRow[];
   mode: "rank" | "rating" | "new";
+  market: Market;
 }) {
   return (
     <section data-mover className="panel overflow-hidden">
@@ -73,7 +76,10 @@ function MoverList({
           {rows.map((row) => (
             <li key={row.symbol}>
               <Link
-                href={`/stocks/${encodeURIComponent(row.symbol)}`}
+                href={marketPath(
+                  market.slug,
+                  `/stocks/${encodeURIComponent(row.symbol)}`,
+                )}
                 className="group flex items-center gap-3 px-4 py-2 transition-colors duration-(--duration-fast) ease-(--ease-standard) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">
@@ -144,11 +150,13 @@ function PriceMoverList({
   description,
   icon: Icon,
   rows,
+  market,
 }: {
   title: string;
   description: string;
   icon: typeof TrendingUp;
   rows: PriceMoverRow[];
+  market: Market;
 }) {
   return (
     <section data-mover className="panel overflow-hidden">
@@ -168,7 +176,10 @@ function PriceMoverList({
           {rows.map((row) => (
             <li key={row.symbol}>
               <Link
-                href={`/stocks/${encodeURIComponent(row.symbol)}`}
+                href={marketPath(
+                  market.slug,
+                  `/stocks/${encodeURIComponent(row.symbol)}`,
+                )}
                 className="group flex items-center gap-3 px-4 py-2 transition-colors duration-(--duration-fast) ease-(--ease-standard) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">
@@ -214,8 +225,11 @@ function PriceMoverList({
   );
 }
 
-export default async function MoversPage() {
-  const run = await getLatestRun();
+export default async function MoversPage({
+  params,
+}: PageProps<"/[market]/movers">) {
+  const market = marketFromSlug((await params).market)!;
+  const run = await getLatestRun(market.code);
 
   if (!run) {
     return (
@@ -230,8 +244,8 @@ export default async function MoversPage() {
   // Independent reads, so they go out together. The price side needs no previous
   // run and the model side needs no price field, and neither should wait.
   const [movers, priceMovers] = await Promise.all([
-    getMovers(run.run_date),
-    getPriceMovers(run.run_date),
+    getMovers(market.code, run.run_date),
+    getPriceMovers(market.code, run.run_date),
   ]);
 
   const hasComparison = Boolean(movers.previousOn);
@@ -271,12 +285,14 @@ export default async function MoversPage() {
         {hasPriceMoves ? (
           <Reveal selector="[data-mover]" bounce className="grid gap-4 lg:grid-cols-2">
             <PriceMoverList
+              market={market}
               title="Biggest daily gains"
               description="Largest moves on the last completed session, on adjusted closes."
               icon={TrendingUp}
               rows={priceMovers.gainers}
             />
             <PriceMoverList
+              market={market}
               title="Biggest daily falls"
               description="Largest declines on the last completed session, on adjusted closes."
               icon={TrendingDown}
@@ -291,6 +307,7 @@ export default async function MoversPage() {
         {hasComparison ? (
           <Reveal selector="[data-mover]" bounce className="grid gap-4 lg:grid-cols-2">
             <MoverList
+              market={market}
               title="Biggest rank gains"
               description="Largest improvements in Investment Rank since the previous run."
               icon={TrendingUp}
@@ -298,6 +315,7 @@ export default async function MoversPage() {
               mode="rank"
             />
             <MoverList
+              market={market}
               title="Biggest rank falls"
               description="Largest deteriorations in Investment Rank since the previous run."
               icon={TrendingDown}
@@ -305,6 +323,7 @@ export default async function MoversPage() {
               mode="rank"
             />
             <MoverList
+              market={market}
               title="Rating upgrades"
               description="Published rating moved up a class."
               icon={ArrowUpRight}
@@ -312,6 +331,7 @@ export default async function MoversPage() {
               mode="rating"
             />
             <MoverList
+              market={market}
               title="Rating downgrades"
               description="Published rating moved down a class."
               icon={ArrowDownRight}
@@ -319,6 +339,7 @@ export default async function MoversPage() {
               mode="rating"
             />
             <MoverList
+              market={market}
               title="New to the universe"
               description="Scored for the first time in the recorded history."
               icon={Sparkles}

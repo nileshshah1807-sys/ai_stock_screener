@@ -13,7 +13,7 @@ import {
 import {
   addToWatchlist,
   removeFromWatchlist,
-} from "@/app/(app)/watchlists/actions";
+} from "@/app/(app)/[market]/watchlists/actions";
 
 /**
  * Add stocks to the selected list, by ticker or company name.

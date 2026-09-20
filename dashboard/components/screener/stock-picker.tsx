@@ -6,6 +6,8 @@ import { Check, Loader2, Search } from "lucide-react";
 import { RatingBadge } from "@/components/rating-badge";
 import { cn } from "@/lib/utils";
 import { rank } from "@/lib/search.mjs";
+import { useMarket } from "@/components/market-provider";
+import type { MarketSlug } from "@/lib/markets";
 import type { SearchEntry } from "@/lib/types";
 
 
@@ -26,20 +28,28 @@ import type { SearchEntry } from "@/lib/types";
  * Module-scoped so the index survives remounts and is fetched at most once per
  * page load, no matter how often the dialog is opened and closed -- and now, no
  * matter which of the two pickers opens it.
+ *
+ * Keyed by market, not a single slot. Each market has its own universe, and a
+ * shared slot would serve whichever one happened to be opened first: switch to
+ * the US tab, press Cmd+K, and search NSE tickers.
  */
-let indexPromise: Promise<SearchEntry[]> | null = null;
+const indexPromises = new Map<MarketSlug, Promise<SearchEntry[]>>();
 
-function loadIndex(): Promise<SearchEntry[]> {
-  indexPromise ??= fetch("/api/search-index")
+function loadIndex(market: MarketSlug): Promise<SearchEntry[]> {
+  const cached = indexPromises.get(market);
+  if (cached) return cached;
+
+  const promise = fetch(`/api/search-index?market=${market}`)
     .then((response) => (response.ok ? response.json() : { entries: [] }))
     .then((payload) => (payload.entries ?? []) as SearchEntry[])
     .catch(() => {
       // Let a failed load retry the next time the dialog opens rather than
       // caching the failure for the life of the page.
-      indexPromise = null;
+      indexPromises.delete(market);
       return [];
     });
-  return indexPromise;
+  indexPromises.set(market, promise);
+  return promise;
 }
 
 /**
@@ -93,6 +103,7 @@ export function StockPicker({
   busySymbol?: string | null;
   stayOpen?: boolean;
 }) {
+  const market = useMarket();
   const [term, setTerm] = useState("");
   const [cursor, setCursor] = useState(0);
   const [entries, setEntries] = useState<SearchEntry[]>([]);
@@ -111,7 +122,7 @@ export function StockPicker({
   useEffect(() => {
     if (!open || status === "ready") return;
     let active = true;
-    loadIndex().then((loaded) => {
+    loadIndex(market.slug).then((loaded) => {
       if (!active) return;
       setEntries(loaded);
       setStatus("ready");
@@ -119,7 +130,7 @@ export function StockPicker({
     return () => {
       active = false;
     };
-  }, [open, status]);
+  }, [open, status, market.slug]);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();

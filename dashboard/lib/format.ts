@@ -3,14 +3,17 @@
  *
  * Two conventions are non-negotiable for this dataset:
  *
- *  - Indian digit grouping (12,34,567 not 1,234,567) and crore/lakh scaling,
- *    because the underlying figures are NSE rupee amounts and a reader
- *    comparing them against any Indian source would otherwise misread them by
- *    two orders of magnitude.
+ *  - Money is grouped and scaled the way a reader of that market's own sources
+ *    would expect: Indian grouping with crore/lakh for NSE rupee amounts
+ *    (12,34,567 not 1,234,567), Western grouping with billions/millions for US
+ *    dollar amounts. Using one convention for both misreads figures by two
+ *    orders of magnitude.
  *  - Missing is rendered as an explicit dash, never 0 or "-100%". The screener
  *    treats absent evidence as neutral, and a display that invents a value
  *    would contradict the model it is reporting.
  */
+
+import { DEFAULT_MARKET, type Market } from "@/lib/markets";
 
 const EN_IN = "en-IN";
 
@@ -41,40 +44,74 @@ export function formatInteger(value: number | null | undefined): string {
   return Math.round(value).toLocaleString(EN_IN);
 }
 
-/** Rupee amount with Indian grouping. */
-export function formatINR(
+/** Money in a market's own currency and grouping. */
+export function formatMoney(
   value: number | null | undefined,
+  market: Market = DEFAULT_MARKET,
   digits = 2,
 ): string {
   if (isMissing(value)) return MISSING;
-  return `₹${value.toLocaleString(EN_IN, {
+  return `${market.currencySymbol}${value.toLocaleString(market.locale, {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   })}`;
 }
 
 /**
- * Scale a rupee amount to crore/lakh. Market caps and turnover span nine orders
- * of magnitude across this universe, so a raw figure is unreadable in a column.
+ * Scale a money amount to the market's own magnitude words.
+ *
+ * Market caps and turnover span nine orders of magnitude in either universe,
+ * so a raw figure is unreadable in a column. The thresholds differ because the
+ * words do: crore is 10^7 and lakh 10^5, against billion at 10^9 and million
+ * at 10^6.
  */
-export function formatINRCompact(value: number | null | undefined): string {
+export function formatMoneyCompact(
+  value: number | null | undefined,
+  market: Market = DEFAULT_MARKET,
+): string {
   if (isMissing(value)) return MISSING;
   const abs = Math.abs(value);
   const sign = value < 0 ? "-" : "";
+  const { currencySymbol, locale } = market;
 
-  if (abs >= 1e7) {
-    return `${sign}₹${(abs / 1e7).toLocaleString(EN_IN, {
-      maximumFractionDigits: abs / 1e7 >= 100 ? 0 : 1,
-    })} Cr`;
+  const steps =
+    market.scale === "indian"
+      ? ([
+          [1e7, "Cr"],
+          [1e5, "L"],
+        ] as const)
+      : ([
+          [1e9, "B"],
+          [1e6, "M"],
+          [1e3, "K"],
+        ] as const);
+
+  for (const [divisor, unit] of steps) {
+    if (abs >= divisor) {
+      const scaled = abs / divisor;
+      return `${sign}${currencySymbol}${scaled.toLocaleString(locale, {
+        maximumFractionDigits: scaled >= 100 ? 0 : 1,
+      })} ${unit}`;
+    }
   }
-  if (abs >= 1e5) {
-    return `${sign}₹${(abs / 1e5).toLocaleString(EN_IN, {
-      maximumFractionDigits: 1,
-    })} L`;
-  }
-  return `${sign}₹${abs.toLocaleString(EN_IN, {
+  return `${sign}${currencySymbol}${abs.toLocaleString(locale, {
     maximumFractionDigits: 0,
   })}`;
+}
+
+/**
+ * NSE-bound wrappers, kept so callers that have no market in scope keep
+ * working unchanged. New code should pass a market to formatMoney instead.
+ */
+export function formatINR(
+  value: number | null | undefined,
+  digits = 2,
+): string {
+  return formatMoney(value, DEFAULT_MARKET, digits);
+}
+
+export function formatINRCompact(value: number | null | undefined): string {
+  return formatMoneyCompact(value, DEFAULT_MARKET);
 }
 
 /** Value already expressed in percent (e.g. 12.5 renders as +12.5%). */

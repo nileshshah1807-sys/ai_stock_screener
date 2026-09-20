@@ -2,6 +2,7 @@ import Link from "next/link";
 import { TriangleAlert } from "lucide-react";
 
 import { formatDate } from "@/lib/format";
+import { marketPath, type Market } from "@/lib/markets";
 import type { StageBreak } from "@/lib/types";
 
 /**
@@ -17,7 +18,13 @@ import type { StageBreak } from "@/lib/types";
  * Renders nothing when nothing broke down. A failed read also renders nothing
  * rather than an all-clear, because the query logs and returns an empty list.
  */
-export function StageBreakAlert({ breaks }: { breaks: StageBreak[] }) {
+export function StageBreakAlert({
+  breaks,
+  market,
+}: {
+  breaks: StageBreak[];
+  market: Market;
+}) {
   if (!breaks.length) return null;
   const count = breaks.length;
 
@@ -38,7 +45,10 @@ export function StageBreakAlert({ breaks }: { breaks: StageBreak[] }) {
             {breaks.map((item) => (
               <li key={item.symbol} className="flex flex-wrap items-baseline gap-x-2">
                 <Link
-                  href={`/stocks/${encodeURIComponent(item.symbol)}`}
+                  href={marketPath(
+                    market.slug,
+                    `/stocks/${encodeURIComponent(item.symbol)}`,
+                  )}
                   prefetch={false}
                   className="font-mono text-xs font-semibold underline-offset-2 hover:underline"
                 >

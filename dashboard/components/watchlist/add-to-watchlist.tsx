@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+
+import { useMarket } from "@/components/market-provider";
 import { useRouter } from "next/navigation";
 import { BookmarkCheck, BookmarkPlus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -18,7 +20,7 @@ import {
   addToWatchlist,
   createWatchlist,
   removeFromWatchlist,
-} from "@/app/(app)/watchlists/actions";
+} from "@/app/(app)/[market]/watchlists/actions";
 import { WATCHLIST_MAX_LISTS, type Watchlist } from "@/lib/types";
 
 /**
@@ -44,6 +46,7 @@ export function AddToWatchlist({
   memberOf: string[];
 }) {
   const router = useRouter();
+  const market = useMarket();
   const [pending, startTransition] = useTransition();
   const [creating, setCreating] = useState(false);
   const [draft, setDraft] = useState("");
@@ -91,6 +94,8 @@ export function AddToWatchlist({
     startTransition(async () => {
       const created = new FormData();
       created.set("name", name);
+      // See watchlist-selector: the market is part of a new list's identity.
+      created.set("market", market.slug);
       const result = await createWatchlist(created);
       if (!result.ok) {
         toast.error(result.error);

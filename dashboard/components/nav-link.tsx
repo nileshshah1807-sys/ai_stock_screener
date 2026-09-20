@@ -23,15 +23,27 @@ import { cn } from "@/lib/utils";
  */
 export function NavLink({
   href,
+  exact = false,
   onNavigate,
   children,
 }: {
   href: string;
+  /**
+   * Match the path exactly rather than by prefix.
+   *
+   * Needed since destinations gained a market segment: the screener lives at
+   * `/nse`, which is a prefix of `/nse/watchlists`, `/nse/movers` and every
+   * other sibling. Without this the screener pill would read as active on
+   * every page in the market.
+   */
+  exact?: boolean;
   onNavigate?: () => void;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+  const active = exact
+    ? pathname === href
+    : pathname === href || pathname.startsWith(`${href}/`);
 
   return (
     <Link

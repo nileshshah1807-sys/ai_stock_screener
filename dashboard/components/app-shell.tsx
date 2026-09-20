@@ -7,7 +7,10 @@ import { Button } from "@/components/ui/button";
 import { FreshnessBanner } from "@/components/freshness-banner";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavLink } from "@/components/nav-link";
+import { MarketProvider } from "@/components/market-provider";
+import { MarketSwitch } from "@/components/market-switch";
 import { formatDate } from "@/lib/format";
+import { marketPath, type Market } from "@/lib/markets";
 import type { ScreenerRun } from "@/lib/types";
 import type { Viewer } from "@/lib/auth";
 
@@ -17,18 +20,24 @@ import { signOut } from "@/app/login/actions";
  * Four destinations. The comment on AppShell notes this group stays comfortable
  * to about six before it needs an overflow menu; Watchlists is the fourth, so
  * there is room, but that ceiling is now closer than it was.
+ *
+ * Markets are deliberately NOT in this list. Which market you are looking at
+ * and which view you are looking at are independent axes -- every destination
+ * exists in every market -- so folding them into one row would misrepresent
+ * the structure and would multiply this group's length by the market count,
+ * blowing straight through that ceiling.
  */
 const NAV = [
-  { href: "/", label: "Screener", icon: LayoutGrid },
-  { href: "/watchlists", label: "Watchlists", icon: Bookmark },
-  { href: "/movers", label: "Movers", icon: ArrowLeftRight },
-  { href: "/health", label: "Run health", icon: Activity },
+  { path: "", label: "Screener", icon: LayoutGrid },
+  { path: "/watchlists", label: "Watchlists", icon: Bookmark },
+  { path: "/movers", label: "Movers", icon: ArrowLeftRight },
+  { path: "/health", label: "Run health", icon: Activity },
 ] as const;
 
-function Brand({ run }: { run: ScreenerRun | null }) {
+function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
   return (
     <Link
-      href="/"
+      href={marketPath(market.slug)}
       className={cn(
         "group/brand flex shrink-0 items-center gap-2.5 rounded-full",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -47,7 +56,7 @@ function Brand({ run }: { run: ScreenerRun | null }) {
       </span>
       <span className="min-w-0">
         <span className="block truncate text-lead font-semibold tracking-[-0.011em]">
-          NSE Screener
+          Winnow
         </span>
         <span className="tabular hidden truncate font-mono text-[11px] text-muted-foreground sm:block">
           {run ? formatDate(run.price_bar_as_of ?? run.run_date) : "no run"}
@@ -115,10 +124,12 @@ function SignOut({ viewer }: { viewer: Viewer }) {
 export function AppShell({
   run,
   viewer,
+  market,
   children,
 }: {
   run: ScreenerRun | null;
   viewer: Viewer;
+  market: Market;
   children: React.ReactNode;
 }) {
   return (
@@ -133,7 +144,9 @@ export function AppShell({
         )}
       >
         <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-4 sm:px-8 sm:py-5">
-          <Brand run={run} />
+          <Brand run={run} market={market} />
+
+          <MarketSwitch current={market} />
 
           {/*
             The recessed track is what the filled active pill sits in. Without
@@ -149,8 +162,14 @@ export function AppShell({
               "lg:order-none lg:w-auto lg:overflow-visible",
             )}
           >
-            {NAV.map(({ href, label, icon: Icon }) => (
-              <NavLink key={href} href={href}>
+            {NAV.map(({ path, label, icon: Icon }) => (
+              <NavLink
+                key={path}
+                href={marketPath(market.slug, path)}
+                // The screener is the market root, so it must match exactly or
+                // it reads as active on every page in the market.
+                exact={path === ""}
+              >
                 <Icon className="size-4 shrink-0" aria-hidden />
                 <span className="whitespace-nowrap">{label}</span>
               </NavLink>
@@ -174,13 +193,15 @@ export function AppShell({
           cheapest interaction in the app look like a full page load. Per-view
           motion belongs to the components that actually change.
         */}
-        <main className="flex-1 animate-fade">{children}</main>
+        <main className="flex-1 animate-fade">
+          <MarketProvider market={market}>{children}</MarketProvider>
+        </main>
 
         <footer className="border-t px-4 py-5 text-xs text-muted-foreground sm:px-8">
           <p>
             {run?.model_validation_status ??
               "Research model; point-in-time out-of-sample validation pending."}{" "}
-            Not investment advice. Consult a SEBI-registered advisor.
+            Not investment advice. {market.advisor}
           </p>
         </footer>
       </div>

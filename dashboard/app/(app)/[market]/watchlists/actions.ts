@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { requireAccess } from "@/lib/auth";
+import { MARKET_SLUGS, marketFromSlug } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/server";
 import { WATCHLIST_MAX_LISTS, WATCHLIST_MAX_SYMBOLS } from "@/lib/types";
 
@@ -22,10 +23,20 @@ import { WATCHLIST_MAX_LISTS, WATCHLIST_MAX_SYMBOLS } from "@/lib/types";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
-/** Both watchlist surfaces read the same rows, so both must be revalidated. */
+/**
+ * Both watchlist surfaces read the same rows, so both must be revalidated.
+ *
+ * Every market's copy of those paths is revalidated rather than only the one
+ * the mutation came from. A list belongs to exactly one market, so at most one
+ * of these has anything to rebuild -- and revalidating a path with no stale
+ * entry is free, while threading the market through five client components
+ * purely to narrow this would not be.
+ */
 function revalidateWatchlistViews(symbol?: string): void {
-  revalidatePath("/watchlists");
-  if (symbol) revalidatePath(`/stocks/${symbol}`);
+  for (const slug of MARKET_SLUGS) {
+    revalidatePath(`/${slug}/watchlists`);
+    if (symbol) revalidatePath(`/${slug}/stocks/${symbol}`);
+  }
 }
 
 function cleanName(raw: FormDataEntryValue | null): string {
@@ -41,28 +52,40 @@ export async function createWatchlist(formData: FormData): Promise<ActionResult>
   const name = cleanName(formData.get("name"));
   if (!name) return { ok: false, error: "Give the list a name." };
 
+  // A list belongs to one market and appears only on that market's tab, so the
+  // caller must say which. Defaulting would silently file a US list under NSE.
+  const market = marketFromSlug(formData.get("market"));
+  if (!market) return { ok: false, error: "Missing market." };
+
   const supabase = await createClient();
 
   // Counted rather than left to a constraint: there is no database-level way to
   // express "at most twenty rows per owner" without a trigger, and the limit
-  // exists for the selector's layout rather than for storage.
+  // exists for the selector's layout rather than for storage. Counted per
+  // market, so filling the NSE tab does not lock the US one.
   const { count } = await supabase
     .from("watchlists")
-    .select("id", { count: "exact", head: true });
+    .select("id", { count: "exact", head: true })
+    .eq("market", market.code);
   if ((count ?? 0) >= WATCHLIST_MAX_LISTS) {
     return {
       ok: false,
-      error: `You already have ${WATCHLIST_MAX_LISTS} lists. Delete one first.`,
+      error: `You already have ${WATCHLIST_MAX_LISTS} ${market.label} lists. Delete one first.`,
     };
   }
 
-  const { error } = await supabase.from("watchlists").insert({ name });
+  const { error } = await supabase
+    .from("watchlists")
+    .insert({ name, market: market.code });
 
   if (error) {
     // 23505 is unique_violation, from watchlists_owner_name_idx. Reported as
     // the human problem rather than the Postgres one.
     if (error.code === "23505") {
-      return { ok: false, error: `You already have a list called “${name}”.` };
+      return {
+        ok: false,
+        error: `You already have a ${market.label} list called “${name}”.`,
+      };
     }
     console.error("createWatchlist failed", error.message);
     return { ok: false, error: "Could not create the list." };

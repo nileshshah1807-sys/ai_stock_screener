@@ -6,6 +6,7 @@ import { SavedViews } from "@/components/screener/saved-views";
 import { StockSearch } from "@/components/screener/stock-search";
 import { ViewOptions } from "@/components/screener/view-options";
 import { investmentRankExplanation } from "@/lib/model-display.mjs";
+import { marketFromSlug } from "@/lib/markets";
 import { getLatestRun, getSectors, runUsesFactorModel } from "@/lib/queries";
 import { mark, trace } from "@/lib/trace";
 
@@ -21,9 +22,15 @@ import { mark, trace } from "@/lib/trace";
  * FilterBar reads the query string through useSearchParams on the client, so it
  * still reflects the active filters despite living outside the page.
  */
-export default async function ScreenerLayout({ children }: LayoutProps<"/">) {
+export default async function ScreenerLayout({
+  params,
+  children,
+}: LayoutProps<"/[market]">) {
   mark("(screener)/layout RENDERED");
-  const run = await trace("  getLatestRun", () => getLatestRun());
+  // The parent [market] layout already rejected an unknown slug, so this
+  // cannot be null by the time the layout renders.
+  const market = marketFromSlug((await params).market)!;
+  const run = await trace("  getLatestRun", () => getLatestRun(market.code));
 
   if (!run) return <>{children}</>;
 
@@ -39,17 +46,17 @@ export default async function ScreenerLayout({ children }: LayoutProps<"/">) {
     run.sectors?.length
       ? run.sectors
       : trace("  getSectors (fallback)", () =>
-          getSectors(run.run_date, run.row_count),
+          getSectors(market.code, run.run_date, run.row_count),
         ),
     run.factor_model_applied ??
       trace("  runUsesFactorModel (fallback)", () =>
-        runUsesFactorModel(run.run_date),
+        runUsesFactorModel(market.code, run.run_date),
       ),
   ]);
 
   return (
     <div className="space-y-4 px-4 py-5 sm:px-6">
-      <SummaryTiles run={run} />
+      <SummaryTiles run={run} market={market} />
 
       {/*
         One chrome block at gap-2, not three siblings at the page's gap-4.
