@@ -6,11 +6,10 @@ import numpy as np
 import pandas as pd
 
 from screener.stage import (
-    ENTRY_ENTER,
-    ENTRY_EXTENDED,
     ENTRY_PULLBACK,
     ENTRY_STAGE_3,
     ENTRY_STAGE_4,
+    ENTRY_UPTREND,
     S2_CANDIDATE,
     STAGE_2,
     STAGE_3,
@@ -106,6 +105,86 @@ class StageRunTests(unittest.TestCase):
         self.assertEqual(len(result["Stage_Entry_Date"]), 10)
 
 
+class BreakdownTests(unittest.TestCase):
+    """The P5 exit signal: the first observed session in Stage 3 or 4."""
+
+    def test_break_below_ma150_is_dated_and_names_the_stage_it_left(self):
+        closes = dated(path((380, 0.003), (35, -0.012)))
+        result = stage_features(closes)
+        self.assertEqual(result["Stage"], STAGE_3)
+        self.assertIn(result["Breakdown_From"], (STAGE_2, S2_CANDIDATE))
+        broke = pd.Timestamp(result["Breakdown_Date"])
+        self.assertEqual(result["Breakdown_Age_Days"], (closes.index[-1] - broke).days)
+
+    def test_deterioration_into_stage_4_keeps_the_first_breakdown_date(self):
+        closes = dated(path((380, 0.003), (200, -0.006)))
+        result = stage_features(closes)
+        self.assertEqual(result["Stage"], STAGE_4)
+        labels = classify_stages(closes.reset_index(drop=True))
+        labels.index = closes.index
+        in_breakdown = labels.isin([STAGE_3, STAGE_4])
+        first = in_breakdown[in_breakdown & ~in_breakdown.shift(fill_value=False)].index[-1]
+        self.assertEqual(result["Breakdown_Date"], first.date().isoformat())
+        self.assertIn(result["Breakdown_From"], (STAGE_2, S2_CANDIDATE, "Stage 1"))
+
+    def test_a_decline_older_than_the_data_has_no_breakdown_date(self):
+        result = stage_features(dated(path((400, -0.002))))
+        self.assertEqual(result["Stage"], STAGE_4)
+        self.assertIsNone(result["Breakdown_Date"])
+        self.assertTrue(np.isnan(result["Breakdown_Age_Days"]))
+
+    def test_no_breakdown_fields_in_an_advance(self):
+        result = stage_features(dated(path((400, 0.002))))
+        self.assertIsNone(result["Breakdown_Date"])
+        self.assertIsNone(result["Breakdown_From"])
+
+
+class Stage2EntryTests(unittest.TestCase):
+    """When the latest advance entered Stage 2, and the return since."""
+
+    def test_running_advance_reports_entry_and_return(self):
+        closes = dated(path((300, -0.002), (260, 0.004)))
+        result = stage_features(closes)
+        self.assertEqual(result["Stage"], STAGE_2)
+        entry = pd.Timestamp(result["Stage2_Entry_Date"])
+        self.assertIsNone(result["Stage2_Exit_Date"])
+        self.assertFalse(result["Stage2_Entry_Censored"])
+        expected = (closes.iloc[-1] / closes.loc[entry] - 1.0) * 100.0
+        self.assertAlmostEqual(result["Return_Since_Stage2_Entry_Pct"], round(expected, 2))
+        self.assertAlmostEqual(result["Stage2_Entry_Price"], round(float(closes.loc[entry]), 2))
+
+    def test_a_pullback_keeps_the_original_stage_2_entry(self):
+        closes = dated(path((300, -0.002), (260, 0.004), (12, -0.008)))
+        result = stage_features(closes)
+        self.assertEqual(result["Stage"], S2_CANDIDATE)
+        before_pullback = stage_features(closes.iloc[:-12])
+        self.assertEqual(result["Stage2_Entry_Date"], before_pullback["Stage2_Entry_Date"])
+
+    def test_an_ended_advance_keeps_its_entry_and_dates_its_exit(self):
+        closes = dated(path((300, -0.002), (260, 0.004), (60, -0.012)))
+        result = stage_features(closes)
+        self.assertIn(result["Stage"], (STAGE_3, STAGE_4))
+        self.assertIsNotNone(result["Stage2_Entry_Date"])
+        self.assertGreater(result["Stage2_Exit_Date"], result["Stage2_Entry_Date"])
+        self.assertLess(result["Return_Since_Stage2_Entry_Pct"], 50.0)
+
+    def test_advance_older_than_the_data_marks_the_entry_censored(self):
+        result = stage_features(dated(path((400, 0.002))))
+        self.assertTrue(result["Stage2_Entry_Censored"])
+
+    def test_no_stage_2_ever_leaves_the_fields_empty(self):
+        result = stage_features(dated(path((400, -0.002))))
+        self.assertIsNone(result["Stage2_Entry_Date"])
+        self.assertTrue(np.isnan(result["Return_Since_Stage2_Entry_Pct"]))
+
+    def test_return_since_current_stage_entry(self):
+        closes = dated(path((380, 0.003), (12, -0.008)))
+        result = stage_features(closes)
+        entry = pd.Timestamp(result["Stage_Entry_Date"])
+        expected = (closes.iloc[-1] / closes.loc[entry] - 1.0) * 100.0
+        self.assertAlmostEqual(result["Return_Since_Stage_Entry_Pct"], round(expected, 2))
+
+
 class RelativeStrengthInputTests(unittest.TestCase):
     def test_weighted_return_uses_the_ibd_quarter_weights(self):
         closes = path((300, 0.001))
@@ -188,9 +267,11 @@ class AttachTimingTests(unittest.TestCase):
         frame.loc[len(frame)] = ["F", 80.0, STAGE_3, -3.0, 0.0, 0.0]
         result = attach_timing(frame).set_index("Symbol")
         self.assertEqual(result.loc["A", "Entry_State"], ENTRY_PULLBACK)
-        self.assertEqual(result.loc["B", "Entry_State"], ENTRY_ENTER)
+        self.assertEqual(result.loc["B", "Entry_State"], ENTRY_UPTREND)
         self.assertEqual(result.loc["C", "Entry_State"], ENTRY_STAGE_4)
-        self.assertEqual(result.loc["E", "Entry_State"], ENTRY_EXTENDED)
+        # Extension no longer qualifies the label: P4 found the most extended
+        # names inside the research top 50 returned the most, not the least.
+        self.assertEqual(result.loc["E", "Entry_State"], ENTRY_UPTREND)
         self.assertEqual(result.loc["F", "Entry_State"], ENTRY_STAGE_3)
         self.assertTrue(pd.isna(result.loc["D", "Entry_State"]))
 
@@ -279,12 +360,14 @@ class ActionRankPolicyTests(unittest.TestCase):
         self.assertEqual(result.loc["TOPPING", "Action_Rank"], 3)
         self.assertEqual(result.loc["TOPPING", "Entry_State"], ENTRY_STAGE_4)
 
-    def test_zero_weight_action_rank_follows_research(self):
+    def test_zero_weight_publishes_evidence_but_no_second_rank(self):
+        # P3 refuted every non-zero weight; at zero an Action_Rank would only
+        # duplicate Investment_Rank.
         result = self.finalize(STAGE_TIMING_ENABLED=True, TIMING_WEIGHT=0.0)
-        self.assertEqual(
-            list(result.sort_values("Action_Rank").index),
-            list(result.sort_values("Investment_Rank").index),
-        )
+        self.assertNotIn("Action_Rank", result.columns)
+        self.assertNotIn("Action_Score", result.columns)
+        self.assertEqual(result.loc["TOPPING", "Entry_State"], ENTRY_STAGE_4)
+        self.assertIn("RS_Rating", result.columns)
 
     def test_disabled_publishes_no_timing_columns(self):
         result = self.finalize(STAGE_TIMING_ENABLED=False, TIMING_WEIGHT=0.4)

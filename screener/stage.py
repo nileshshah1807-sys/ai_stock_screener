@@ -63,6 +63,14 @@ STAGE_LABELS = (STAGE_1, STAGE_2, S2_CANDIDATE, STAGE_3, STAGE_4)
 #: way it restarts ``Days_In_Stage``.
 ADVANCING_STAGES = frozenset({STAGE_2, S2_CANDIDATE})
 
+#: Stages whose onset is the exit signal tested in P5
+#: (`docs/Review/p5_stage_overlay_preregistration.md`): selling a holding the
+#: session after it breaks into Stage 3 or 4 raised Sharpe and cut drawdowns in
+#: both halves of 2018-2026. ``Breakdown_*`` describes the current unbroken run
+#: inside this set, so a Stage 3 that deteriorates into Stage 4 keeps the date it
+#: first broke down rather than looking like a fresh signal.
+BREAKDOWN_STAGES = frozenset({STAGE_3, STAGE_4})
+
 SLOPE_SESSIONS = 21
 #: MA200 plus its slope lookback: below this the stage is undefined, not Stage 1.
 MIN_STAGE_SESSIONS = 200 + SLOPE_SESSIONS
@@ -93,12 +101,17 @@ TIMING_COMPONENT_WEIGHTS = {
 EXTENSION_FULL_PCT = 25.0
 EXTENSION_ZERO_PCT = 75.0
 
-ENTRY_ENTER = "ENTER · Stage 2"
-ENTRY_EXTENDED = "WAIT · extended"
-ENTRY_PULLBACK = "WATCH · S2 pullback"
-ENTRY_STAGE_1 = "WATCH · Stage 1"
-ENTRY_STAGE_3 = "WAIT · Stage 3"
-ENTRY_STAGE_4 = "AVOID · Stage 4"
+# Descriptions of the chart, not instructions. The first version said ENTER /
+# WAIT · extended / AVOID, and the P4 diagnostics contradicted the advice:
+# inside the research top 50, names >50% above MA150 returned the MOST over the
+# next 3-6 months (+13.4 points over 6M), and excluding Stage 3/4 from a
+# quarterly top 20 cost 3.9 points a year in 2023-2026. A label that tells the
+# reader to wait on the best-performing group is worse than no label.
+ENTRY_UPTREND = "Stage 2 · uptrend"
+ENTRY_PULLBACK = "Stage 2 · pullback"
+ENTRY_STAGE_1 = "Stage 1 · basing"
+ENTRY_STAGE_3 = "Stage 3 · topping"
+ENTRY_STAGE_4 = "Stage 4 · downtrend"
 
 STAGE_FEATURE_COLUMNS = (
     "Stage",
@@ -108,6 +121,15 @@ STAGE_FEATURE_COLUMNS = (
     "Stage_Run_Censored",
     "Advance_Age_Days",
     "Advance_Age_Censored",
+    "Breakdown_Date",
+    "Breakdown_Age_Days",
+    "Breakdown_From",
+    "Return_Since_Stage_Entry_Pct",
+    "Stage2_Entry_Date",
+    "Stage2_Entry_Price",
+    "Stage2_Exit_Date",
+    "Stage2_Entry_Censored",
+    "Return_Since_Stage2_Entry_Pct",
     "MA150",
     "MA150_Slope_Pct",
     "Price_To_MA150_Pct",
@@ -124,6 +146,11 @@ def _empty_features():
     out["Stage_Entry_Date"] = None
     out["Stage_Run_Censored"] = None
     out["Advance_Age_Censored"] = None
+    out["Breakdown_Date"] = None
+    out["Breakdown_From"] = None
+    out["Stage2_Entry_Date"] = None
+    out["Stage2_Exit_Date"] = None
+    out["Stage2_Entry_Censored"] = None
     return out
 
 
@@ -179,6 +206,28 @@ def _run_start(labels, members):
         return None
     outside = np.flatnonzero(~inside)
     return int(outside[-1] + 1) if len(outside) else 0
+
+
+def _latest_stage_2_entry(labels):
+    """The most recent advance that reached Stage 2: where it entered Stage 2,
+    and where the advance ended (``None`` while it is still running).
+
+    An advance is an unbroken run inside ``ADVANCING_STAGES``, so a pullback to
+    S2 Candidate does not end it -- the same definition ``Advance_Age_Days``
+    uses. Returns ``(run_start, stage_2_entry, run_end)`` as index positions, or
+    ``None`` if the history holds no Stage 2 session at all.
+    """
+    stage_2 = np.flatnonzero((labels == STAGE_2).to_numpy())
+    if not len(stage_2):
+        return None
+    last_stage_2 = int(stage_2[-1])
+    advancing = labels.isin(ADVANCING_STAGES).to_numpy()
+    before = np.flatnonzero(~advancing[:last_stage_2])
+    run_start = int(before[-1] + 1) if len(before) else 0
+    after = np.flatnonzero(~advancing[last_stage_2:])
+    run_end = last_stage_2 + int(after[0]) if len(after) else None
+    entry = run_start + int(np.flatnonzero((labels.iloc[run_start:] == STAGE_2).to_numpy())[0])
+    return run_start, entry, run_end
 
 
 def _calendar_days(index, start_position):
@@ -252,6 +301,26 @@ def stage_features(closes, dates=None):
     # A run that began on the first classifiable session may have begun
     # earlier: the count is a floor, not a measurement.
     out["Stage_Run_Censored"] = bool(start <= first_defined)
+    out["Return_Since_Stage_Entry_Pct"] = round(
+        (price / float(values.iloc[start]) - 1.0) * 100.0, 2
+    )
+
+    # "When did it enter Stage 2, and what has it done since?" -- answered for
+    # the latest advance whether or not it is still running, so a stock that
+    # has since broken down still shows where its last advance began and ended.
+    latest = _latest_stage_2_entry(labels)
+    if latest is not None:
+        run_start, entry, run_end = latest
+        entry_price = float(values.iloc[entry])
+        out["Stage2_Entry_Price"] = round(entry_price, 2)
+        out["Return_Since_Stage2_Entry_Pct"] = round((price / entry_price - 1.0) * 100.0, 2)
+        # An advance already under way when the data begins may have entered
+        # Stage 2 earlier than we can see: the date is then an upper bound.
+        out["Stage2_Entry_Censored"] = bool(run_start <= first_defined)
+        if isinstance(values.index, pd.DatetimeIndex):
+            out["Stage2_Entry_Date"] = values.index[entry].date().isoformat()
+            if run_end is not None:
+                out["Stage2_Exit_Date"] = values.index[run_end].date().isoformat()
 
     if current in ADVANCING_STAGES:
         advance_start = _run_start(labels, ADVANCING_STAGES)
@@ -261,6 +330,17 @@ def stage_features(closes, dates=None):
         # VENUSREM, which reads 406 days from a two-year download and 476 from
         # the archive.
         out["Advance_Age_Censored"] = bool(advance_start <= first_defined)
+
+    if current in BREAKDOWN_STAGES:
+        breakdown_start = _run_start(labels, BREAKDOWN_STAGES)
+        # Only a break that happened inside the data is reported. A breakdown
+        # older than the download has no knowable date, and an alert must fire
+        # on a transition that was actually observed, never on a guess.
+        if breakdown_start > first_defined:
+            out["Breakdown_Age_Days"] = _calendar_days(values.index, breakdown_start)
+            out["Breakdown_From"] = labels.iloc[breakdown_start - 1]
+            if isinstance(values.index, pd.DatetimeIndex):
+                out["Breakdown_Date"] = values.index[breakdown_start].date().isoformat()
     return out
 
 
@@ -285,20 +365,21 @@ def extension_score(price_to_ma150_pct):
     return score.where(x.notna())
 
 
-def entry_state(stage, extension, rs_change):
-    if stage == STAGE_4:
-        return ENTRY_STAGE_4
-    if stage == STAGE_3:
-        return ENTRY_STAGE_3
-    if stage == STAGE_1:
-        return ENTRY_STAGE_1
-    if stage == S2_CANDIDATE:
-        return ENTRY_PULLBACK
-    if stage == STAGE_2:
-        extended = extension is not None and not pd.isna(extension) and extension < 50.0
-        fading = rs_change is not None and not pd.isna(rs_change) and rs_change <= -10.0
-        return ENTRY_EXTENDED if extended or fading else ENTRY_ENTER
-    return None
+_ENTRY_BY_STAGE = {
+    STAGE_2: ENTRY_UPTREND,
+    S2_CANDIDATE: ENTRY_PULLBACK,
+    STAGE_1: ENTRY_STAGE_1,
+    STAGE_3: ENTRY_STAGE_3,
+    STAGE_4: ENTRY_STAGE_4,
+}
+
+
+def entry_state(stage):
+    """The stage in words. Extension and RS change no longer qualify it: both
+    were tested in P4 and neither pointed the way the old labels assumed."""
+    if stage is None or (isinstance(stage, float) and pd.isna(stage)):
+        return None
+    return _ENTRY_BY_STAGE.get(stage)
 
 
 def attach_timing(frame, *, timing_weight=0.0, research_column="Research_Score"):
@@ -312,7 +393,14 @@ def attach_timing(frame, *, timing_weight=0.0, research_column="Research_Score")
     working = frame.copy()
     for column in STAGE_FEATURE_COLUMNS:
         if column not in working:
-            working[column] = None if column in ("Stage", "Stage_Entry_Date") else np.nan
+            working[column] = (
+                None
+                if column in (
+                    "Stage", "Stage_Entry_Date", "Breakdown_Date", "Breakdown_From",
+                    "Stage2_Entry_Date", "Stage2_Exit_Date",
+                )
+                else np.nan
+            )
 
     working["RS_Rating"] = _percentile_rating(working["RS_Raw_Pct"]).round(1)
     prior_rating = _percentile_rating(working["RS_Raw_1M_Ago_Pct"])
@@ -347,10 +435,5 @@ def attach_timing(frame, *, timing_weight=0.0, research_column="Research_Score")
     else:
         working["Action_Score"] = np.nan
 
-    working["Entry_State"] = [
-        entry_state(stage, extension, change)
-        for stage, extension, change in zip(
-            working["Stage"], working["Extension_Score"], working["RS_Rating_Change_1M"]
-        )
-    ]
+    working["Entry_State"] = [entry_state(stage) for stage in working["Stage"]]
     return working

@@ -1,3 +1,5 @@
+import type { ColumnId, Density } from "@/lib/columns";
+
 export const RATINGS = [
   "STRONG BUY",
   "BUY",
@@ -64,6 +66,7 @@ export type SnapshotRow = {
   fundamental_anomaly: boolean | null;
 
   current_price: number | null;
+  pct_change_1d: number | null;
   pct_change_1m: number | null;
   pct_change_3m: number | null;
   pct_change_6m: number | null;
@@ -167,6 +170,46 @@ export type SnapshotRow = {
   max_drawdown_1y_pct: number | null;
   downside_deviation_pct: number | null;
   roic: number | null;
+
+  /**
+   * Entry timing (screener/stage.py): where the stock is in its cycle. Null on
+   * 4.x runs and on runs published before stages were computed. Display and
+   * ordering only -- no rating, gate or research score reads these.
+   */
+  stage: string | null;
+  days_in_stage: number | null;
+  advance_age_days: number | null;
+  price_to_ma150_pct: number | null;
+  rs_rating: number | null;
+  rs_rating_change_1m: number | null;
+  timing_score: number | null;
+  timing_weight: number | null;
+  action_score: number | null;
+  action_rank: number | null;
+  entry_state: string | null;
+  /**
+   * When the current Stage 3/4 run began and the stage it left -- the exit
+   * signal tested in P5. Null unless the break was observed in the data.
+   */
+  breakdown_date: string | null;
+  breakdown_age_days: number | null;
+  breakdown_from: string | null;
+  /**
+   * Stage history for the stock page: when the current stage began, when the
+   * latest advance entered Stage 2 (and ended, if it has), and the adjusted
+   * return since each. `stage2_entry_censored` means the advance was already
+   * under way when the price history begins, so the date is a lower bound on
+   * how long it has run.
+   */
+  stage_entry_date: string | null;
+  return_since_stage_entry_pct: number | null;
+  stage2_entry_date: string | null;
+  stage2_entry_price: number | null;
+  stage2_exit_date: string | null;
+  stage2_entry_censored: boolean | null;
+  return_since_stage2_entry_pct: number | null;
+  advance_age_censored: boolean | null;
+  pct_from_52w_high: number | null;
 };
 
 /** Model 5.0 eligibility classes, in the order they rank. */
@@ -175,6 +218,45 @@ export const ELIGIBILITY_CLASSES = [
   { value: 1, label: "BUY eligible" },
   { value: 2, label: "Policy capped" },
   { value: 3, label: "Unscorable" },
+] as const;
+
+/**
+ * Stage labels exactly as the screener publishes them, in cycle order.
+ * `short` is the grid's compact form; `tone` picks the text colour.
+ */
+export const STAGES = [
+  {
+    value: "Stage 1",
+    short: "S1",
+    tone: "muted",
+    meaning: "Basing: no established trend in either direction.",
+  },
+  {
+    value: "Stage 2",
+    short: "S2",
+    tone: "positive",
+    meaning: "Advancing: price above a rising 50 > 150 > 200-day stack.",
+  },
+  {
+    value: "S2 Candidate",
+    short: "S2c",
+    tone: "neutral",
+    meaning:
+      "Stage 2 structure without the full stack -- usually a pullback under the 50-day average.",
+  },
+  {
+    value: "Stage 3",
+    short: "S3",
+    tone: "caution",
+    meaning:
+      "Topping: price has broken below its 150-day average while the long averages still rise.",
+  },
+  {
+    value: "Stage 4",
+    short: "S4",
+    tone: "negative",
+    meaning: "Declining: below a falling 200-day average.",
+  },
 ] as const;
 
 /**
@@ -260,6 +342,49 @@ export type HistoryRow = {
   current_price: number | null;
 };
 
+/**
+ * A named, per-user list of symbols.
+ *
+ * The first thing in this app owned by a viewer rather than published by a run,
+ * which is why it carries an `owner_id` and lives behind an ownership policy
+ * rather than the shared invite-list one.
+ */
+export type Watchlist = {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  /** Symbols on the list, ordered as stored. */
+  symbols: string[];
+  /** When each symbol was added (ISO timestamp), keyed by symbol. */
+  addedAt: Record<string, string>;
+};
+
+/** A watched stock that broke into Stage 3 or 4 after it was added. */
+export type StageBreak = {
+  symbol: string;
+  company: string | null;
+  stage: string;
+  breakdown_date: string;
+  breakdown_age_days: number | null;
+  breakdown_from: string | null;
+  added_at: string;
+};
+
+/**
+ * Upper bound on one list.
+ *
+ * Not a storage limit -- it is the read path. Members are fetched with
+ * `symbol=in.(...)`, which PostgREST expresses in the query string, so the set
+ * size is bounded by URL length rather than by anything about the table. 200
+ * twelve-character tickers is roughly 2.4 KB, comfortably inside every limit in
+ * the chain, and well past what anyone tracks by hand.
+ */
+export const WATCHLIST_MAX_SYMBOLS = 200;
+
+/** Upper bound on lists per viewer, so the selector stays a row of chips. */
+export const WATCHLIST_MAX_LISTS = 20;
+
 /** Slim record shipped to the browser for instant client-side search. */
 export type SearchEntry = {
   s: string; // symbol
@@ -285,7 +410,18 @@ export type ScreenerFilters = {
   minMomentum?: number;
   eligibility?: string[];
   aboveMa200?: boolean;
+  /** Entry timing. Stage labels as published; RS rating on 1-99. */
+  stage?: string[];
+  minRs?: number;
   sort?: string;
   dir?: "asc" | "desc";
   page?: number;
+  /**
+   * Presentation, not filtering. In the URL beside the filters for one reason:
+   * it makes a hidden-column set and a row density part of a saved view, so
+   * "the screen I look at every morning" is one link rather than a link plus
+   * two settings to re-apply.
+   */
+  hiddenColumns?: ColumnId[];
+  density?: Density;
 };

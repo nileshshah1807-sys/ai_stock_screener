@@ -97,6 +97,7 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("fundamental_anomaly", "Fundamental_Anomaly", "bool"),
 
     ("current_price", "Current_Price", "num:14,2"),
+    ("pct_change_1d", "Pct_Change_1D", "num:10,2"),
     ("pct_change_1m", "Pct_Change_1M", "num:10,2"),
     ("pct_change_3m", "Pct_Change_3M", "num:10,2"),
     ("pct_change_6m", "Pct_Change_6M", "num:10,2"),
@@ -196,6 +197,35 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("max_drawdown_1y_pct", "Max_Drawdown_1Y_Pct", "num:10,3"),
     ("downside_deviation_pct", "Downside_Deviation_Pct", "num:10,3"),
     ("roic", "ROIC", "num:12,4"),
+
+    # Entry timing (screener/stage.py). Display and ordering only: no rating,
+    # gate or research score reads these.
+    ("stage", "Stage", "text"),
+    ("days_in_stage", "Days_In_Stage", "int"),
+    ("advance_age_days", "Advance_Age_Days", "int"),
+    ("price_to_ma150_pct", "Price_To_MA150_Pct", "num:10,3"),
+    ("rs_rating", "RS_Rating", "num:5,1"),
+    ("rs_rating_change_1m", "RS_Rating_Change_1M", "num:6,1"),
+    ("timing_score", "Timing_Score", "num:6,2"),
+    ("timing_weight", "Timing_Weight", "num:4,3"),
+    ("action_score", "Action_Score", "num:6,2"),
+    ("action_rank", "Action_Rank", "int"),
+    ("entry_state", "Entry_State", "text"),
+    # When the current Stage 3/4 run began, and from which stage. The P5 exit
+    # signal; the watchlist alert compares it with each item's added_at.
+    ("breakdown_date", "Breakdown_Date", "date"),
+    ("breakdown_age_days", "Breakdown_Age_Days", "int"),
+    ("breakdown_from", "Breakdown_From", "text"),
+    # Stage history for the stock page. Display only.
+    ("stage_entry_date", "Stage_Entry_Date", "date"),
+    ("return_since_stage_entry_pct", "Return_Since_Stage_Entry_Pct", "num:12,2"),
+    ("stage2_entry_date", "Stage2_Entry_Date", "date"),
+    ("stage2_entry_price", "Stage2_Entry_Price", "num:14,2"),
+    ("stage2_exit_date", "Stage2_Exit_Date", "date"),
+    ("stage2_entry_censored", "Stage2_Entry_Censored", "bool"),
+    ("return_since_stage2_entry_pct", "Return_Since_Stage2_Entry_Pct", "num:12,2"),
+    ("advance_age_censored", "Advance_Age_Censored", "bool"),
+    ("pct_from_52w_high", "Pct_From_52W_High", "num:10,3"),
 ]
 
 HISTORY_COLUMNS: list[tuple[str, str, str]] = [
@@ -224,6 +254,11 @@ HISTORY_COLUMNS: list[tuple[str, str, str]] = [
     ("research_score", "Research_Score", "num:6,2"),
     ("eligibility_class", "Eligibility_Class", "int"),
     ("primary_gate", "Primary_Gate", "text"),
+    # Entry timing: the stage a name was in on each day, and where the timing
+    # blend ranked it, survive snapshot pruning.
+    ("stage", "Stage", "text"),
+    ("rs_rating", "RS_Rating", "num:5,1"),
+    ("action_rank", "Action_Rank", "int"),
 ]
 
 

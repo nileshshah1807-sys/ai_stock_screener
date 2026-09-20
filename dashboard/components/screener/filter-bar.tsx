@@ -13,7 +13,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ELIGIBILITY_CLASSES, RATINGS } from "@/lib/types";
+import { ELIGIBILITY_CLASSES, RATINGS, STAGES } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const TOGGLES = [
@@ -139,7 +139,9 @@ export function FilterBar({
       .length +
     searchParams.getAll("eligibility").length +
     (searchParams.get("minQuality") ? 1 : 0) +
-    (searchParams.get("minMomentum") ? 1 : 0);
+    (searchParams.get("minMomentum") ? 1 : 0) +
+    searchParams.getAll("stage").length +
+    (searchParams.get("minRs") ? 1 : 0);
 
   const clearAll = () => {
     setQuery("");
@@ -343,6 +345,57 @@ export function FilterBar({
                       </Label>
                     </div>
                   ))}
+                </fieldset>
+
+                <fieldset className="space-y-1.5">
+                  <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Stage and relative strength
+                  </legend>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                    {STAGES.map((item) => (
+                      <div key={item.value} className="flex items-center gap-2">
+                        <Checkbox
+                          id={`stage-${item.value}`}
+                          checked={searchParams
+                            .getAll("stage")
+                            .includes(item.value)}
+                          onCheckedChange={() =>
+                            toggleValue("stage", item.value)
+                          }
+                        />
+                        <Label
+                          htmlFor={`stage-${item.value}`}
+                          className="cursor-pointer text-xs font-normal"
+                          title={item.meaning}
+                        >
+                          {item.value}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={99}
+                    step={1}
+                    inputMode="numeric"
+                    defaultValue={searchParams.get("minRs") ?? ""}
+                    placeholder="RS rating ≥"
+                    aria-label="Minimum RS rating"
+                    className="tabular h-9"
+                    onBlur={(event) => {
+                      const value = event.target.value.trim();
+                      push((params) => {
+                        if (value) params.set("minRs", value);
+                        else params.delete("minRs");
+                      });
+                    }}
+                  />
+                  <p className="text-[11px] leading-snug text-muted-foreground">
+                    Display evidence: stage and RS never change a score or
+                    rating. S2 Candidate is a Stage 2 structure pulled back
+                    under its 50-day average.
+                  </p>
                 </fieldset>
 
                 <fieldset className="space-y-1.5">

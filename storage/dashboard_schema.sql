@@ -204,6 +204,7 @@ create table if not exists screener_snapshot (
 
     -- Price and momentum, all on the same completed bar.
     current_price numeric(14,2),
+    pct_change_1d numeric(10,2),
     pct_change_1m numeric(10,2),
     pct_change_3m numeric(10,2),
     pct_change_6m numeric(10,2),
@@ -323,6 +324,33 @@ create table if not exists screener_snapshot (
     downside_deviation_pct numeric(10,3),
     roic numeric(12,4),
 
+    -- Entry timing (screener/stage.py): where the stock is in its cycle, which
+    -- the research score does not measure. action_rank is published beside
+    -- investment_rank and never replaces it.
+    stage text,
+    days_in_stage integer,
+    advance_age_days integer,
+    price_to_ma150_pct numeric(10,3),
+    rs_rating numeric(5,1),
+    rs_rating_change_1m numeric(6,1),
+    timing_score numeric(6,2),
+    timing_weight numeric(4,3),
+    action_score numeric(6,2),
+    action_rank integer,
+    entry_state text,
+    breakdown_date date,
+    breakdown_age_days integer,
+    breakdown_from text,
+    stage_entry_date date,
+    return_since_stage_entry_pct numeric(12,2),
+    stage2_entry_date date,
+    stage2_entry_price numeric(14,2),
+    stage2_exit_date date,
+    stage2_entry_censored boolean,
+    return_since_stage2_entry_pct numeric(12,2),
+    advance_age_censored boolean,
+    pct_from_52w_high numeric(10,3),
+
     -- Complete source row. Every column above also appears here; the typed
     -- copies exist for indexing, not as the record of truth.
     payload jsonb not null,
@@ -400,6 +428,50 @@ alter table screener_snapshot
     add column if not exists downside_deviation_pct numeric(10,3),
     add column if not exists roic numeric(12,4);
 
+-- Last completed session's move, added after the Model 5.0 block because it is
+-- not factor evidence: it is display-only and applies to both models. Null on
+-- every run published before the screener emitted Pct_Change_1D, which the
+-- grid renders as a dash rather than as a flat session.
+alter table screener_snapshot
+    add column if not exists pct_change_1d numeric(10,2);
+
+-- Entry timing (screener/stage.py). Null on every run published before the
+-- screener computed stages, and on 4.x runs, which never do.
+alter table screener_snapshot
+    add column if not exists stage text,
+    add column if not exists days_in_stage integer,
+    add column if not exists advance_age_days integer,
+    add column if not exists price_to_ma150_pct numeric(10,3),
+    add column if not exists rs_rating numeric(5,1),
+    add column if not exists rs_rating_change_1m numeric(6,1),
+    add column if not exists timing_score numeric(6,2),
+    add column if not exists timing_weight numeric(4,3),
+    add column if not exists action_score numeric(6,2),
+    add column if not exists action_rank integer,
+    add column if not exists entry_state text;
+
+-- The P5 exit signal (docs/Review/p5_stage_overlay_preregistration.md): the
+-- date the current Stage 3/4 run began and the stage it left. Null unless the
+-- break was observed inside the downloaded history.
+alter table screener_snapshot
+    add column if not exists breakdown_date date,
+    add column if not exists breakdown_age_days integer,
+    add column if not exists breakdown_from text;
+
+-- Stage history for the stock page: when the current stage began, when the
+-- latest advance entered Stage 2 (and ended, if it has), and the return since
+-- each. Display only.
+alter table screener_snapshot
+    add column if not exists stage_entry_date date,
+    add column if not exists return_since_stage_entry_pct numeric(12,2),
+    add column if not exists stage2_entry_date date,
+    add column if not exists stage2_entry_price numeric(14,2),
+    add column if not exists stage2_exit_date date,
+    add column if not exists stage2_entry_censored boolean,
+    add column if not exists return_since_stage2_entry_pct numeric(12,2),
+    add column if not exists advance_age_censored boolean,
+    add column if not exists pct_from_52w_high numeric(10,3);
+
 -- Grid default ordering.
 create index if not exists screener_snapshot_rank_idx
     on screener_snapshot (run_date, investment_rank);
@@ -425,6 +497,15 @@ create index if not exists screener_snapshot_quality_pct_idx
     on screener_snapshot (run_date, quality_percentile desc);
 create index if not exists screener_snapshot_momentum_pct_idx
     on screener_snapshot (run_date, momentum_percentile desc);
+
+-- Entry-timing ordering and filters: the Action rank sort, the stage filter
+-- and the minimum-RS filter.
+create index if not exists screener_snapshot_action_rank_idx
+    on screener_snapshot (run_date, action_rank);
+create index if not exists screener_snapshot_stage_idx
+    on screener_snapshot (run_date, stage);
+create index if not exists screener_snapshot_rs_rating_idx
+    on screener_snapshot (run_date, rs_rating desc);
 
 -- Symbol lookup for drill-down by URL.
 create index if not exists screener_snapshot_symbol_idx
@@ -480,6 +561,13 @@ alter table screener_history
 alter table screener_history
     add column if not exists volume bigint;
 
+-- Entry timing, so "when did it enter Stage 2" and "how did its action rank
+-- move" can be answered from history after the snapshot is pruned.
+alter table screener_history
+    add column if not exists stage text,
+    add column if not exists rs_rating numeric(5,1),
+    add column if not exists action_rank integer;
+
 create index if not exists screener_history_symbol_date_idx
     on screener_history (symbol, observed_on desc);
 create index if not exists screener_history_date_idx
@@ -521,6 +609,114 @@ select
     prev_observed_on,
     prev_observed_on is null as is_new_entrant
 from ordered;
+
+-- =====================================================================
+-- Watchlists
+-- =====================================================================
+
+-- The first per-user data in this schema. Everything above is one shared,
+-- read-only cross-section published by the screener; these two tables are
+-- written by the browser and are private to their owner.
+--
+-- That difference is why their policies live here rather than in the Row Level
+-- Security section below. Those policies all ask the same question -- "is this
+-- viewer on the invite list" -- and are interchangeable. These ask a second,
+-- narrower one: "does this row belong to the viewer". Filing them together
+-- would hide that distinction, which is the one that matters if either is ever
+-- edited.
+
+create table if not exists watchlists (
+    id uuid primary key default gen_random_uuid(),
+    -- auth.uid() as the default, so a client insert cannot claim another
+    -- owner: the column is not supplied by the browser at all, and the RLS
+    -- with-check below refuses the row if it somehow were.
+    owner_id uuid not null default auth.uid()
+        references auth.users(id) on delete cascade,
+    name text not null,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    constraint watchlists_name_present check (length(btrim(name)) > 0),
+    constraint watchlists_name_bounded check (length(name) <= 60)
+);
+
+-- Case-insensitive uniqueness per owner. A plain `unique (owner_id, name)`
+-- would happily accept "Banks" beside "banks", which is a duplicate to the
+-- person reading their own list.
+create unique index if not exists watchlists_owner_name_idx
+    on watchlists (owner_id, lower(name));
+create index if not exists watchlists_owner_idx
+    on watchlists (owner_id, updated_at desc);
+
+create table if not exists watchlist_items (
+    watchlist_id uuid not null references watchlists(id) on delete cascade,
+    -- Deliberately *not* a foreign key to screener_snapshot. A watched symbol
+    -- that leaves the universe -- delisted, or simply not selected by a later
+    -- run -- must stay on the list and read as "no longer scored", the same
+    -- reasoning that keeps screener_history independent of the snapshot. A FK
+    -- would delete the user's own data on a universe change.
+    symbol text not null,
+    added_at timestamptz not null default now(),
+    note text,
+    constraint watchlist_items_note_bounded check (note is null or length(note) <= 280),
+    primary key (watchlist_id, symbol)
+);
+
+-- Answers "which of this reader's lists contain this symbol", which is what the
+-- add-to-watchlist control on a row needs.
+create index if not exists watchlist_items_symbol_idx
+    on watchlist_items (symbol);
+
+alter table watchlists enable row level security;
+alter table watchlist_items enable row level security;
+
+-- `for all` rather than four policies: every operation here has the identical
+-- condition, and splitting it would only create four places for them to drift.
+-- Both predicates are needed -- `using` governs which rows are visible to
+-- read/update/delete, `with check` governs what may be written -- and omitting
+-- the second would let a viewer insert a row owned by someone else.
+--
+-- `(select auth.uid())` for the same reason the read-model policies use it: as
+-- a bare call it is evaluated once per row, and as a scalar subquery it becomes
+-- an InitPlan evaluated once per statement. dashboard_has_access() is included
+-- so a signed-in but uninvited account cannot use this as free storage.
+drop policy if exists watchlists_owner_all on watchlists;
+create policy watchlists_owner_all
+    on watchlists for all
+    to authenticated
+    using (owner_id = (select auth.uid()) and (select dashboard_has_access()))
+    with check (owner_id = (select auth.uid()) and (select dashboard_has_access()));
+
+-- Ownership is inherited from the parent list. Written as EXISTS rather than a
+-- helper function so the planner can treat it as a semi-join against the
+-- watchlists primary key; the auth.uid() call inside is still row-independent
+-- and so still an InitPlan.
+drop policy if exists watchlist_items_owner_all on watchlist_items;
+create policy watchlist_items_owner_all
+    on watchlist_items for all
+    to authenticated
+    using (
+        exists (
+            select 1 from watchlists w
+            where w.id = watchlist_id
+              and w.owner_id = (select auth.uid())
+        )
+    )
+    with check (
+        exists (
+            select 1 from watchlists w
+            where w.id = watchlist_id
+              and w.owner_id = (select auth.uid())
+        )
+    );
+
+-- Supabase grants the `anon` and `authenticated` roles broad table privileges
+-- by default. RLS is what actually gates these, but revoking `anon` removes the
+-- unauthenticated role from the picture entirely rather than relying on the
+-- absence of a policy.
+revoke all on watchlists from anon;
+revoke all on watchlist_items from anon;
+grant select, insert, update, delete on watchlists to authenticated;
+grant select, insert, update, delete on watchlist_items to authenticated;
 
 -- =====================================================================
 -- Row level security

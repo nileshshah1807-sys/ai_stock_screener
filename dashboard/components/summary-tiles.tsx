@@ -16,8 +16,14 @@ import type { ScreenerRun } from "@/lib/types";
  * six floating cards, hairline dividers between cells, a small muted label over
  * a large display figure, and a rounded vertical accent bar carrying the
  * rating's hue. The mock sets its figure at 64px across three cells; at six
- * cells the same proportion lands near 48px, so the scale below tops out there
- * rather than reproducing the literal pixel value into a column half the width.
+ * cells the same proportion lands near 48px.
+ *
+ * The band tops out at 36px rather than 48px, and pads 12px rather than 16px.
+ * That is a deliberate departure from the mock, made for the screener page
+ * specifically: the grid below is bounded to the viewport so its header can stay
+ * pinned, which turns every pixel of chrome above it into a direct trade against
+ * rows on screen. The band was ~123px and is now ~100px. Five counts do not need
+ * 48px type to be read at a glance, and the rows do need the space.
  */
 const TILES = [
   {
@@ -84,14 +90,14 @@ export function SummaryTiles({ run }: { run: ScreenerRun }) {
       bounce
       className="panel grid grid-cols-2 gap-px overflow-hidden bg-border sm:grid-cols-3 xl:grid-cols-6"
     >
-      <div data-kpi className="flex items-center gap-3 bg-card p-4">
+      <div data-kpi className="flex items-center gap-3 bg-card px-4 py-3">
         <AccentBar className="bg-muted-foreground/40 ring-muted-foreground/30" />
         <div className="min-w-0">
           <p className="truncate text-[13px] text-muted-foreground">Universe</p>
           <p className="flex items-baseline gap-1.5">
             <CountUp
               value={total}
-              className="numeral text-3xl font-semibold sm:text-4xl xl:text-5xl"
+              className="numeral text-3xl font-semibold sm:text-4xl"
             />
           </p>
           <p className="text-[11px] text-muted-foreground">scored</p>
@@ -108,7 +114,7 @@ export function SummaryTiles({ run }: { run: ScreenerRun }) {
             href={`/?rating=${encodeURIComponent(tile.rating)}`}
             data-kpi
             className={cn(
-              "press group flex items-center gap-3 bg-card p-4",
+              "press group flex items-center gap-3 bg-card px-4 py-3",
               "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
             )}
           >
@@ -130,7 +136,7 @@ export function SummaryTiles({ run }: { run: ScreenerRun }) {
               <p className="flex items-baseline gap-1.5">
                 <CountUp
                   value={count}
-                  className="numeral text-3xl font-semibold sm:text-4xl xl:text-5xl"
+                  className="numeral text-3xl font-semibold sm:text-4xl"
                 />
               </p>
               <p className="tabular text-[11px] text-muted-foreground">

@@ -3,7 +3,7 @@
 Last reviewed: 2026-08-25
 Scheduled production model: 5.1.0
 Scheduled recommendation policy: 5.2.0
-Output schema: 4.1.0
+Output schema: 4.2.0
 Local/manual-daily model: 4.0.0-candidate (`FACTOR_MODEL_ENABLED=false`)
 
 > Scheduled production uses Model 5.0. It replaces the 70/30

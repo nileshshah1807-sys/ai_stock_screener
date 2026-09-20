@@ -2,12 +2,14 @@ import "server-only";
 
 import { cache } from "react";
 
+import { gridProjection } from "@/lib/columns";
 import { createClient } from "@/lib/supabase/server";
 import type {
   HistoryRow,
   MoverRow,
   ScreenerFilters,
   ScreenerRun,
+  StageBreak,
   SearchEntry,
   SnapshotRow,
   SnapshotRowWithPayload,
@@ -33,62 +35,25 @@ function chunkOffsets(rowCount: number): number[] {
 }
 
 /**
- * Columns the on-screen grid renders.
+ * Columns the on-screen grid renders, when nothing is hidden.
  *
- * Kept to exactly what ScreenerTable reads, because this read is payload-bound
- * rather than latency-bound: measured against this database, 100 rows of 61
- * columns is 155 KB and 301 ms, while the same 100 rows of the ~34 columns the
- * grid actually displays is 66 KB and 171 ms -- within noise of the 167 ms
- * network round trip. Every unused column is pure transfer cost on every sort,
- * filter and page change.
+ * Derived from the column registry rather than listed here, so a column and the
+ * fields it reads are declared in one place and cannot drift apart -- the way
+ * `pb_ratio` and `roe` once did in the export, where the column map named them
+ * but the select did not and they were written empty for every row.
+ *
+ * This read is payload-bound rather than latency-bound: measured against this
+ * database, 100 rows of 61 columns is 155 KB and 301 ms, while the same 100
+ * rows of the ~34 columns the grid actually displays is 66 KB and 171 ms --
+ * within noise of the 167 ms network round trip. Every unused column is pure
+ * transfer cost on every sort, filter and page change, which is why hiding a
+ * column narrows this select instead of only hiding cells in the browser.
  *
  * Sorting is unaffected by what is selected: `.order()` runs in Postgres, so a
  * sortable column need not appear here. The CSV export needs a different and
  * partly wider set, which is why EXPORT_COLUMNS exists separately.
  */
-const GRID_COLUMNS = [
-  "run_date",
-  "symbol",
-  "company",
-  "logo_domain",
-  "investment_rank",
-  "rating",
-  "decision_score",
-  "final_score",
-  "evidence_score",
-  "fundamental_score",
-  "technical_score",
-  "fundamental_coverage",
-  "technical_coverage",
-  "rating_capped",
-  "rating_cap_reason",
-  "decision_cap_reason",
-  "current_price",
-  "pct_change_1m",
-  "market_cap",
-  "pe_ratio",
-  "dcf_status",
-  "dcf_base_case_upside",
-  "transcript_status",
-  "transcript_scoring_eligible",
-  "transcript_guidance",
-  "red_flag_status",
-  "red_flag_severity",
-  "shadow_red_flag_would_change",
-  "liquidity_grade",
-  "portfolio_actionable",
-  "median_turnover_20d_inr",
-  // Model 5.0. Null on 4.x rows, so the grid renders these columns only when
-  // factor_model_applied is set rather than showing a wall of dashes.
-  "factor_model_applied",
-  "quality_percentile",
-  "growth_percentile",
-  "momentum_percentile",
-  "primary_gate",
-  // Feeds the entry chip's distance-to-clearing text: "2.3% below 200DMA"
-  // says what would have to change, where a bare gate name does not.
-  "price_to_ma200_pct",
-].join(",");
+const GRID_COLUMNS = gridProjection([]);
 
 /**
  * Columns the CSV export writes.
@@ -124,6 +89,7 @@ const EXPORT_COLUMNS = [
   "fund_fields_present",
   "fund_fields_expected",
   "current_price",
+  "pct_change_1d",
   "pct_change_1m",
   "pct_change_3m",
   "market_cap",
@@ -166,6 +132,13 @@ const EXPORT_COLUMNS = [
   "momentum_12_1_pct",
   "rs_market_6m_pct",
   "roic",
+  // Entry timing. Null on 4.x runs and on runs published before stages existed.
+  "stage",
+  "days_in_stage",
+  "advance_age_days",
+  "rs_rating",
+  "rs_rating_change_1m",
+  "entry_state",
 ].join(",");
 
 const SORTABLE = new Set([
@@ -177,6 +150,7 @@ const SORTABLE = new Set([
   "fundamental_score",
   "technical_score",
   "current_price",
+  "pct_change_1d",
   "pct_change_1m",
   "pct_change_3m",
   "market_cap",
@@ -200,13 +174,63 @@ const SORTABLE = new Set([
   "momentum_12_1_pct",
   "rs_market_6m_pct",
   "roic",
+  // Entry timing.
+  "rs_rating",
+  "rs_rating_change_1m",
+  "days_in_stage",
+  "advance_age_days",
 ]);
 
 /** Sort keys where a LOWER value is better, so they default to ascending. */
 const ASCENDING_BY_DEFAULT = new Set([
   "eligibility_class",
   "gate_severity",
+  // Fewest days first: the freshest stage transitions are what a stage column
+  // is sorted to find.
+  "days_in_stage",
 ]);
+
+/**
+ * Run manifest columns, minus `manifest` itself.
+ *
+ * That one jsonb column is 7.1 KB of an 8.2 KB row and nothing in the dashboard
+ * reads it -- it is an archival record of the run, kept for forensics against
+ * the database rather than for display. Selecting it cost 256 ms against 172 ms
+ * for the same row without it, on every page load, because this read sits on the
+ * critical path in the app layout.
+ *
+ * Listed explicitly rather than filtered client-side because PostgREST has no
+ * "everything except" syntax. A new run column must be added here to reach the
+ * dashboard, which is the cost of the 84 ms.
+ */
+const RUN_COLUMNS = [
+  "run_date",
+  "generated_at_utc",
+  "price_bar_as_of",
+  "analysis_as_of",
+  "row_count",
+  "model_version",
+  "recommendation_policy_version",
+  "output_schema_version",
+  "model_validation_status",
+  "config_sha256",
+  "git_sha",
+  "git_dirty",
+  "market_calendar_version",
+  "universe_selected_count",
+  "technical_requested_count",
+  "technical_collected_count",
+  "technical_failed_count",
+  "fundamental_missing_count",
+  "strong_buy_count",
+  "buy_count",
+  "hold_count",
+  "reduce_count",
+  "sell_count",
+  "sectors",
+  "factor_model_applied",
+  "ingested_at",
+].join(",");
 
 /**
  * Wrapped in React's cache() so the shell layout, the screener layout and the
@@ -216,7 +240,7 @@ export const getLatestRun = cache(async (): Promise<ScreenerRun | null> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_runs")
-    .select("*")
+    .select(RUN_COLUMNS)
     // The publisher reserves a run_date with row_count=0 before writing its
     // dependent rows, then replaces this with the completed manifest. Never
     // let an in-flight or abandoned reservation displace the last good run.
@@ -229,14 +253,16 @@ export const getLatestRun = cache(async (): Promise<ScreenerRun | null> => {
     console.error("getLatestRun failed", error.message);
     return null;
   }
-  return data as ScreenerRun | null;
+  return data as unknown as ScreenerRun | null;
 });
 
 export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_runs")
-    .select("*")
+    // Same exclusion as getLatestRun, and it matters more here: 30 runs of the
+    // 7.1 KB manifest is ~213 KB transferred to render a list of dates.
+    .select(RUN_COLUMNS)
     .gt("row_count", 0)
     .order("run_date", { ascending: false })
     .limit(limit);
@@ -245,7 +271,9 @@ export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
     console.error("getRecentRuns failed", error.message);
     return [];
   }
-  return (data ?? []) as ScreenerRun[];
+  // Double cast, as in getSnapshotPage: a runtime column string gives
+  // PostgREST's generic no shape to infer, so it widens to GenericStringError[].
+  return (data ?? []) as unknown as ScreenerRun[];
 }
 
 /**
@@ -254,18 +282,44 @@ export async function getRecentRuns(limit = 30): Promise<ScreenerRun[]> {
  * Filtering runs in Postgres rather than the browser so the page weight stays
  * constant as the universe grows, and so a filter reflects the whole universe
  * rather than whatever subset happened to be loaded.
+ *
+ * The projection follows the caller's hidden-column set, so hiding columns is a
+ * transfer saving on every subsequent sort, filter and page change rather than
+ * only a visual one. An explicit `columns` option still wins, which is how the
+ * export asks for its own wider set.
+ *
+ * `symbols` restricts the read to an explicit set, which is what lets the
+ * watchlist page reuse this function whole rather than growing a parallel query
+ * that would have to re-implement the projection, the sort whitelist, all
+ * fourteen filters and the pagination -- and then drift from them.
  */
 export async function getSnapshotPage(
   runDate: string,
   filters: ScreenerFilters,
-  columns: string = GRID_COLUMNS,
+  options: { columns?: string; symbols?: readonly string[] } = {},
 ): Promise<{ rows: SnapshotRow[]; total: number }> {
   const supabase = await createClient();
+  const projection =
+    options.columns ??
+    (filters.hiddenColumns?.length
+      ? gridProjection(filters.hiddenColumns)
+      : GRID_COLUMNS);
 
   let query = supabase
     .from("screener_snapshot")
-    .select(columns, { count: "exact" })
+    .select(projection, { count: "exact" })
     .eq("run_date", runDate);
+
+  if (options.symbols) {
+    // An empty restriction means "nothing", never "everything". Falling through
+    // to an unrestricted read would show an empty watchlist the entire
+    // universe, which is the worst possible failure for this feature.
+    if (!options.symbols.length) return { rows: [], total: 0 };
+    // PostgREST expresses this as `symbol=in.(A,B,C)` in the query string, so
+    // the set size is bounded by URL length. WATCHLIST_MAX_SYMBOLS keeps it
+    // inside a couple of kilobytes.
+    query = query.in("symbol", [...options.symbols]);
+  }
 
   if (filters.q?.trim()) {
     const term = filters.q.trim().replace(/[%,()]/g, "");
@@ -324,6 +378,14 @@ export async function getSnapshotPage(
   }
   if (filters.aboveMa200) {
     query = query.gte("price_to_ma200_pct", 0);
+  }
+  // Entry timing. Null on runs without stages, so these empty the grid there
+  // for the same reason the factor filters do; the filter bar hides them.
+  if (filters.stage?.length) {
+    query = query.in("stage", filters.stage);
+  }
+  if (typeof filters.minRs === "number") {
+    query = query.gte("rs_rating", filters.minRs);
   }
 
   const sortColumn =
@@ -733,12 +795,128 @@ export async function getMovers(
   };
 }
 
+export type PriceMoverRow = {
+  symbol: string;
+  company: string | null;
+  investment_rank: number | null;
+  rating: string | null;
+  current_price: number | null;
+  pct_change_1d: number | null;
+};
+
+const PRICE_MOVER_COLUMNS =
+  "symbol, company, investment_rank, rating, current_price, pct_change_1d";
+
+/**
+ * Biggest single-session gainers and losers.
+ *
+ * Reads `screener_snapshot` rather than the `screener_movers` view, for two
+ * reasons. The view diffs `screener_history.current_price`, which is the *raw*
+ * close, so a split or a large dividend would publish a fabricated -90% mover;
+ * `pct_change_1d` is computed on adjusted closes by the model itself. And a
+ * snapshot read needs no previous run, so these two panels work on a first-ever
+ * publication, where every rank and rating bucket is necessarily empty.
+ *
+ * Two ordered reads rather than one full-universe read and a client-side sort:
+ * Postgres already has the index, and the whole point is to move ~2,400 rows of
+ * transfer off the wire for the 15 rows actually rendered.
+ */
+export async function getPriceMovers(
+  runDate: string,
+  limit = 15,
+): Promise<{ gainers: PriceMoverRow[]; losers: PriceMoverRow[] }> {
+  const supabase = await createClient();
+
+  const side = (ascending: boolean) =>
+    supabase
+      .from("screener_snapshot")
+      .select(PRICE_MOVER_COLUMNS)
+      .eq("run_date", runDate)
+      // Runs published before Pct_Change_1D existed carry null for every row.
+      // Excluding them here is what lets the page decide to render nothing at
+      // all rather than two panels of dashes presented as the day's movers.
+      .not("pct_change_1d", "is", null)
+      .order("pct_change_1d", { ascending, nullsFirst: false })
+      .order("symbol", { ascending: true })
+      .limit(limit);
+
+  const [top, bottom] = await Promise.all([side(false), side(true)]);
+
+  if (top.error || bottom.error) {
+    console.error(
+      "getPriceMovers failed",
+      top.error?.message ?? bottom.error?.message,
+    );
+    return { gainers: [], losers: [] };
+  }
+
+  const rows = (result: { data: unknown }) =>
+    ((result.data ?? []) as unknown as PriceMoverRow[]).filter(
+      (row) => row.pct_change_1d !== null,
+    );
+
+  return {
+    // A flat session is neither a gain nor a fall. Without this a universe that
+    // barely moved fills both panels with +0.00% rows.
+    gainers: rows(top).filter((row) => (row.pct_change_1d ?? 0) > 0),
+    losers: rows(bottom).filter((row) => (row.pct_change_1d ?? 0) < 0),
+  };
+}
+
 /**
  * Full filtered result set for CSV export, paged past the PostgREST cap.
  *
  * Selects EXPORT_COLUMNS rather than the grid's leaner set: a download is not
  * latency-sensitive and is expected to carry every field the CSV declares.
  */
+/**
+ * Watched stocks that broke into Stage 3 or 4 after they were added.
+ *
+ * The P5 exit rule, as a reader-facing alert: in 2018-2026 selling a holding
+ * the session after it broke into Stage 3 or 4 raised Sharpe and cut the worst
+ * drawdown in both halves of the data (docs/Review/p5_stage_overlay_preregistration.md).
+ * A symbol added while it was already in Stage 3/4 is not reported -- the rule
+ * is about deterioration after the decision, not about the decision itself.
+ *
+ * One read for the whole list, restricted server-side to rows with a dated
+ * breakdown, so the comparison with `added_at` runs on a handful of rows.
+ */
+export async function getStageBreaks(
+  runDate: string,
+  addedAt: Record<string, string>,
+): Promise<StageBreak[]> {
+  const symbols = Object.keys(addedAt);
+  if (!runDate || !symbols.length) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("screener_snapshot")
+    .select("symbol, company, stage, breakdown_date, breakdown_age_days, breakdown_from")
+    .eq("run_date", runDate)
+    .in("symbol", symbols)
+    .not("breakdown_date", "is", null);
+
+  if (error) {
+    // A failed read must not look like "nothing broke down"; it is logged and
+    // the page shows no alert rather than a false all-clear message.
+    console.error("getStageBreaks failed", error.message);
+    return [];
+  }
+  type Row = Omit<StageBreak, "added_at">;
+  return ((data ?? []) as Row[])
+    .filter((row) => {
+      const added = addedAt[row.symbol];
+      // Compare calendar dates in IST: added_at is a timestamp, the breakdown
+      // is an exchange session date. A break on the day of adding counts,
+      // because the session that closed below the line had not been seen yet.
+      const addedDay = new Date(added).toLocaleDateString("en-CA", {
+        timeZone: "Asia/Kolkata",
+      });
+      return row.breakdown_date >= addedDay;
+    })
+    .map((row) => ({ ...row, added_at: addedAt[row.symbol] }))
+    .sort((a, b) => b.breakdown_date.localeCompare(a.breakdown_date));
+}
+
 export async function getExportRows(
   runDate: string,
   filters: ScreenerFilters,
@@ -749,7 +927,7 @@ export async function getExportRows(
     const { rows: chunk, total } = await getSnapshotPage(
       runDate,
       { ...filters, page },
-      EXPORT_COLUMNS,
+      { columns: EXPORT_COLUMNS },
     );
     rows.push(...chunk);
     if (!chunk.length || rows.length >= total) break;

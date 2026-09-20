@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
+import { AddToWatchlist } from "@/components/watchlist/add-to-watchlist";
 import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
@@ -14,6 +15,7 @@ import { HistoryChart } from "@/components/stock/history-chart";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { PriceChart } from "@/components/stock/price-chart";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
+import { StageSummary, stageMarkers } from "@/components/stock/stage-summary";
 import {
   Tabs,
   TabsContent,
@@ -46,6 +48,7 @@ import {
   getStock,
   getStockHistory,
 } from "@/lib/queries";
+import { getWatchlistMembership, getWatchlists } from "@/lib/watchlists";
 
 export const dynamic = "force-dynamic";
 
@@ -161,16 +164,29 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
 
   if (!row) notFound();
 
-  // Last completed session's move, from the same merged series the chart
-  // draws. There is no Pct_Change_1D in the model output, and deriving it here
-  // rather than adding a column keeps the tile and the chart on one source:
-  // if the chart shows a gap, the tile shows nothing rather than a number the
-  // chart contradicts.
+  // The viewer's own lists, and which of them already hold this symbol. Both are
+  // needed to render the Watch control's initial checked state, so they are
+  // fetched here rather than by the client on open -- a popover that opens empty
+  // and then fills in is worse than one that opens correct.
+  const [watchlists, watchlistMembership] = await Promise.all([
+    getWatchlists(),
+    getWatchlistMembership(symbol),
+  ]);
+
+  // Last completed session's move. Now that the model publishes it, the row is
+  // the source: it puts this tile on the same number the screener grid's 1D
+  // column shows, and on the same adjusted-close basis as the 1M and 3M tiles
+  // beside it -- the derivation below reads the chart tail, which carries raw
+  // closes, so the two disagreed on any ex-dividend or split session.
+  //
+  // The chart derivation is kept as a fallback for runs published before the
+  // column existed. It is second, not first, so a corporate action cannot make
+  // the tile contradict the grid.
   const chartPoints = withTail(
     decodeSeries(priceSeries, sessions ?? []).points,
     priceTail,
   );
-  const change1d =
+  const derivedChange1d =
     chartPoints.length >= 2
       ? (() => {
           const previous = chartPoints[chartPoints.length - 2].close;
@@ -178,6 +194,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
           return previous > 0 ? (latest / previous - 1) * 100 : null;
         })()
       : null;
+  const change1d = row.pct_change_1d ?? derivedChange1d;
 
   const payload = row.payload ?? {};
   const valueAudit = valueInputAudit(pick(payload, "Value_Input_Audit"));
@@ -660,6 +677,16 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
               <p className="text-heading text-muted-foreground">{row.company}</p>
               <EntryBadge row={row} size="md" />
             </div>
+            {/* Right-aligned, beside the identity rather than down with the
+                numbers. Watching is a decision about this company, not a fact
+                about its current evidence. */}
+            <div className="ml-auto shrink-0 self-start">
+              <AddToWatchlist
+                symbol={row.symbol}
+                lists={watchlists}
+                memberOf={watchlistMembership}
+              />
+            </div>
           </div>
 
           <p className="mt-1.5 text-xs text-muted-foreground">
@@ -719,6 +746,7 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
               sessions={sessions ?? []}
               tail={priceTail}
               height={300}
+              markers={stageMarkers(row)}
             />
           </div>
         </div>
@@ -729,6 +757,20 @@ export default async function StockPage({ params }: PageProps<"/stocks/[symbol]"
           that argues with them, and burying it below the factor panels would
           make the disagreement something you have to go looking for.
         */}
+        {/*
+          Directly under the chart it annotates: the chart's Stage 2 and S3/S4
+          markers are these dates, and the returns here are measured on the
+          same adjusted closes.
+        */}
+        {factorModel ? (
+          <Panel
+            title="Stage"
+            description="Where the stock is in its cycle, from the 50/150/200-day averages, and what it has done since."
+          >
+            <StageSummary row={row} asOf={row.price_bar_as_of ?? run.price_bar_as_of} />
+          </Panel>
+        ) : null}
+
         <ExpectationsGap data={expectations} />
 
         {/*

@@ -97,6 +97,28 @@ class DashboardRepository:
         )
         return rows[0] if rows else None
 
+    def previous_completed_run_date(self, before: str) -> str | None:
+        """The completed run published immediately before ``before``.
+
+        One published run corresponds to one completed NSE session, because the
+        scheduled session guard refuses to publish a weekend, a holiday, or an
+        already-published session. So the previous run is normally the previous
+        session -- but not if a scheduled run was missed, which is why callers
+        that care about adjacency must check the gap themselves.
+        """
+        rows = self._request(
+            "GET",
+            "screener_runs",
+            params={
+                "select": "run_date",
+                "run_date": f"lt.{before}",
+                "row_count": "gt.0",
+                "order": "run_date.desc",
+                "limit": "1",
+            },
+        )
+        return str(rows[0]["run_date"]) if rows else None
+
     def latest_completed_run(self) -> dict[str, Any] | None:
         """Return the newest published run, ignoring in-flight reservations."""
         rows = self._request(
@@ -196,6 +218,97 @@ class DashboardRepository:
             )
             written += len(chunk)
         return written
+
+    def snapshot_session_change_state(
+        self,
+        run_date: str,
+        page_size: int = 1000,
+    ) -> dict[str, Any]:
+        """Symbol -> current ``pct_change_1d`` for one snapshot.
+
+        Deliberately excludes `payload`: unlike the logo backfill, the session
+        change is written with PATCH rather than upsert, so there is no NOT NULL
+        column to satisfy and no reason to move ~12 MB of payload over the wire
+        and back to set one numeric field.
+        """
+        state: dict[str, Any] = {}
+        for offset in range(0, 1_000_000, page_size):
+            page = self._request(
+                "GET",
+                "screener_snapshot",
+                params={
+                    "select": "symbol,pct_change_1d",
+                    "run_date": f"eq.{run_date}",
+                    "order": "symbol.asc",
+                    "limit": str(page_size),
+                    "offset": str(offset),
+                },
+            ) or []
+            for row in page:
+                state[str(row.get("symbol") or "")] = row.get("pct_change_1d")
+            if len(page) < page_size:
+                break
+        state.pop("", None)
+        return state
+
+    def history_closes(
+        self,
+        observed_on: str,
+        page_size: int = 1000,
+    ) -> dict[str, float]:
+        """Symbol -> raw close recorded for one observation date.
+
+        `screener_history.current_price` is the *unadjusted* close, which is
+        what makes a difference of two of these a raw-basis return.
+        """
+        closes: dict[str, float] = {}
+        for offset in range(0, 1_000_000, page_size):
+            page = self._request(
+                "GET",
+                "screener_history",
+                params={
+                    "select": "symbol,current_price",
+                    "observed_on": f"eq.{observed_on}",
+                    "order": "symbol.asc",
+                    "limit": str(page_size),
+                    "offset": str(offset),
+                },
+            ) or []
+            for row in page:
+                symbol = str(row.get("symbol") or "").strip().upper()
+                price = row.get("current_price")
+                if not symbol or price is None:
+                    continue
+                try:
+                    closes[symbol] = float(price)
+                except (TypeError, ValueError):
+                    continue
+            if len(page) < page_size:
+                break
+        return closes
+
+    def patch_snapshot_row(
+        self,
+        run_date: str,
+        symbol: str,
+        values: dict[str, Any],
+    ) -> None:
+        """Update named fields on one snapshot row.
+
+        A real UPDATE, not an upsert. PostgREST applies one request body to
+        every matching row, so a per-row value needs a per-row request -- which
+        is the deliberate trade here. It touches exactly the columns named and
+        cannot rewrite `payload`, where an upsert of 2,370 rows would put the
+        entire drill-down record of the run in the blast radius to set one
+        nullable number.
+        """
+        self._request(
+            "PATCH",
+            "screener_snapshot",
+            params={"run_date": f"eq.{run_date}", "symbol": f"eq.{symbol}"},
+            json=values,
+            headers={"Prefer": "return=minimal"},
+        )
 
     def upsert_price_calendar(self, calendar: dict[str, Any]) -> None:
         """Replace the single shared trading calendar row."""

@@ -179,3 +179,109 @@ positive in BEAR if anywhere. Confidence that any T1-T4 clears the full bar:
   in every variant including the baseline (as in P0-P2).
 * The timing weight is fitted to everything visible, exactly as the 5.1 block
   weights were before they lost FORWARD by 8.1 points.
+
+---
+
+# Result, recorded 2026-09-19
+
+Run: `tools.run_p0_backtest --with-fundamentals --timing-grid --horizons 1,3,6
+--min-history 200`, five windows, results in
+`reports_advanced/backtest/p3_{bear,main,bs_era,forward,recent}.json`.
+
+## Verdict: NOT PROMOTED. Every variant fails, and the response is ordered the wrong way.
+
+## Net CAGR minus the equal-weight eligible universe (top 20)
+
+| Strategy | BEAR | MAIN | BS_ERA | FORWARD | RECENT |
+|---|---|---|---|---|---|
+| T0 `model_5` (production ranking) | +22.11 | +25.29 | +27.46 | −6.12 | +9.64 |
+| T1 w = 0.10 | +22.79 | +22.43 | +24.18 | −10.56 | +8.73 |
+| T2 w = 0.20 | +19.49 | +14.46 | +20.45 | −11.33 | +3.91 |
+| T3 w = 0.30 | +18.62 | +12.48 | +16.90 | −11.01 | +5.27 |
+| T4 w = 0.40 | +15.84 | +8.48 | +11.59 | −7.88 | +3.01 |
+| T5 Stage 4 demotion only | +21.69 | +25.15 | +27.46 | −7.20 | +7.48 |
+
+Advantage over T0, in points:
+
+| | BEAR | MAIN | BS_ERA | FORWARD | RECENT |
+|---|---|---|---|---|---|
+| T1 | +0.68 | −2.86 | −3.28 | −4.44 | −0.92 |
+| T2 | −2.62 | −10.83 | −7.02 | −5.21 | −5.74 |
+| T3 | −3.49 | −12.81 | −10.56 | −4.88 | −4.38 |
+| T4 | −6.27 | −16.81 | −15.87 | −1.76 | −6.63 |
+| T5 | −0.42 | −0.15 | 0.00 | −1.07 | −2.16 |
+
+## Risk, ranking quality and turnover
+
+| Max drawdown % | BEAR | MAIN | BS_ERA | FORWARD | RECENT |
+|---|---|---|---|---|---|
+| T0 | −17.53 | −15.61 | −13.32 | −8.07 | −17.85 |
+| T1 | −16.54 | −15.95 | −10.96 | −6.96 | −18.47 |
+| T3 | −13.31 | −16.53 | −13.01 | −8.31 | −18.94 |
+| T5 | −17.60 | −15.61 | −13.32 | −8.11 | −18.92 |
+
+| Rank IC 3M | BEAR | MAIN | BS_ERA | FORWARD | RECENT |
+|---|---|---|---|---|---|
+| T0 | 0.1468 | 0.0780 | 0.1008 | 0.0696 | −0.0856 |
+| T1 | 0.1461 | 0.0788 | 0.1007 | 0.0675 | −0.0803 |
+| T2 | 0.1444 | 0.0791 | 0.1000 | 0.0645 | −0.0766 |
+| T4 | 0.1394 | 0.0780 | 0.0950 | 0.0552 | −0.0926 |
+| T5 | 0.1426 | 0.0772 | 0.1023 | 0.0594 | −0.0683 |
+
+| Mean monthly turnover | BEAR | MAIN | BS_ERA | FORWARD |
+|---|---|---|---|---|
+| T0 | 0.371 | 0.335 | 0.314 | 0.369 |
+| T1 | 0.405 | 0.420 | 0.428 | 0.444 |
+| T4 | 0.545 | 0.668 | 0.694 | 0.613 |
+
+## Against the pre-registered rule
+
+| Criterion | T1 | T2 | T3 | T4 | T5 |
+|---|---|---|---|---|---|
+| 1. beats T0 in ≥3 of 4 | 1/4 FAIL | 0/4 FAIL | 0/4 FAIL | 0/4 FAIL | 0/4 FAIL |
+| 2. FORWARD not worse by >2pp | −4.44 FAIL | −5.21 FAIL | −4.88 FAIL | −1.76 pass | −1.07 pass |
+| 3. BEAR drawdown not worse by >3pp | pass | pass | pass | pass | pass |
+| 4. ordered response | ordered, **downward**: more weight, less return | | | | |
+| 5. RECENT not worse by >2pp | pass | FAIL | FAIL | FAIL | FAIL |
+| 6. IC 3M ≥ T0 in ≥2 of 3 | 1/3 FAIL | 1/3 FAIL | 1/3 FAIL | 1/3 FAIL | 1/3 FAIL |
+
+## Reading
+
+The prior of ~30% was too generous. This is not a mixed result: net CAGR falls
+monotonically with the weight in MAIN and BS_ERA, the two long windows, and
+turnover roughly doubles at w = 0.40, so part of the cost is trading and part
+is selection. Rank IC barely moves at small weights (T1-T2 are within 0.001 of
+T0 in MAIN and BS_ERA), which says the blend reshuffles the *top* of the list
+rather than improving or damaging the ordering as a whole -- and at the top,
+where the research scores are packed between 97 and 100, the timing score
+decides almost everything, which is the mechanism behind the losses.
+
+The one improvement is BEAR drawdown (−17.53 to −13.31 at T3), the only place a
+stage filter did what stage analysis promises. It did not buy back the return.
+
+T5 isolates "never rank a Stage 4 above anything else": close to neutral in the
+long windows and negative in FORWARD and RECENT. Stage 4 names at the top of the
+research ranking were not systematically the losers the rule assumes.
+
+This repeats the repo's standing finding -- p0 eligibility-first ranking, P2
+momentum floors -- that trend conditions used as selection inputs cost this
+model return.
+
+## What ships
+
+Per the decision rule: `TIMING_WEIGHT` stays 0, and at 0 `Action_Rank` and
+`Action_Score` are not published (they would duplicate `Investment_Rank`). The
+stage, RS rating, advance age and entry-state columns ship as display-only
+evidence, as agreed before the run. The knob and the T1-T5 grid stay so the
+result can be re-tested on later data, not tuned.
+
+## What this does not refute
+
+A top-20 monthly rotation measures stage as a *ranking* input. It does not test
+stage as an entry-timing rule for one name the reader has already chosen -- buy
+on a Stage 2 entry, wait through a pullback -- nor abstention: holding cash when
+nothing is in Stage 2. Those need a different experiment and remain open.
+
+Also noted, outside this experiment: the production ranking itself had negative
+3-month rank IC in RECENT (−0.086), while still beating the equal-weight
+universe by 9.6 points on CAGR.

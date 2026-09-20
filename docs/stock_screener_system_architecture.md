@@ -2,7 +2,7 @@
 
 - **Status:** implementation-derived design document
 - **Scope:** current `app.run_daily_analysis()` production path and its supporting modules
-- **Scheduled production contract:** model `5.0.0` / recommendation policy `5.0.0` / output schema `4.1.0`
+- **Scheduled production contract:** model `5.0.0` / recommendation policy `5.0.0` / output schema `4.2.0`
 - **Local and manual-daily default:** `4.0.0-candidate`, with the factor switch off
 - **Last reviewed against code:** 2026-08-19 (`main` through PR #12, plus workflow retirement and repository cleanup)
 - **Live workflows:** `daily-stock-screener.yml`, `red-flag-shadow.yml`, `transcript-sentiment.yml` (see `development_guidelines.md`)
@@ -447,6 +447,7 @@ All score-driving indicators use adjusted OHLC and `Technical_Price` on the same
 | StochRSI | 14-period RSI position inside rolling RSI min/max, then 3-period mean. |
 | ATR(14) | Wilder EWMA of true range `max(H-L, abs(H-prevClose), abs(L-prevClose))`. |
 | 1/3/6 month return | `100 * (AdjustedClose_now / AdjustedClose_{lookback} - 1)` at 21 sessions, 65 sessions, and all available prior sessions. |
+| 1 session return | The same formula at a 1-session lookback, exported as `Pct_Change_1D`. Display evidence only: no score component, gate, or rank reads it. It is on adjusted closes like every other return here, so an ex-dividend or split session reports the holder's return rather than the mechanical price cut. Added in output schema `4.2.0`; it is a required price-cache column so a cache written before it existed forces one refresh rather than reusing rows that would blank the whole column. |
 | Relative volume | `Vol_Ratio = last_volume / rolling_mean_20(volume)`. |
 
 Missing indicators remain missing; valid zero values are observed data. For example, a flat but sufficiently long time series has ADX/DI/ATR zero rather than missing.
@@ -1052,7 +1053,7 @@ For a reviewer examining an exported top-ranked row:
 ## 20. Model 5.0 factor architecture (scheduled production)
 
 **Status:** scheduled production uses model `5.0.0`, recommendation policy `5.0.0`, and
-additive output schema `4.1.0`. The daily workflow enables the factor switch only for scheduled
+additive output schema `4.2.0`. The daily workflow enables the factor switch only for scheduled
 runs; local execution and a manual dispatch of that workflow retain the 4.x default. Candidate
 run `31685056109` supplied operational full-universe evidence, while point-in-time,
 out-of-sample predictive validation remains pending.
@@ -1394,7 +1395,7 @@ out-of-sample validation is pending.
 | Parameter | Runtime default / scheduled override | Effect |
 |---|---:|---|
 | `FACTOR_MODEL_ENABLED` | false / true | Master switch; GitHub's scheduled production run explicitly enables it while manual daily dispatch remains false |
-| `MODEL_VERSION` / `RECOMMENDATION_POLICY_VERSION` / `OUTPUT_SCHEMA_VERSION` | local model/policy `4.0.0-candidate`; scheduled model/policy `5.0.0`; schema `4.1.0` | Scheduled model, policy, and additive export contracts are versioned independently |
+| `MODEL_VERSION` / `RECOMMENDATION_POLICY_VERSION` / `OUTPUT_SCHEMA_VERSION` | local model/policy `4.0.0-candidate`; scheduled model/policy `5.0.0`; schema `4.2.0` | Scheduled model, policy, and additive export contracts are versioned independently |
 | `FACTOR_WEIGHT_{QUALITY,GROWTH,VALUE,MOMENTUM,RISK}` | .35/.20/.15/.25/.05 | Block blend |
 | `FACTOR_SCORE_AS_PERCENTILE` | true | Publish the blend as a cross-sectional percentile |
 | `FACTOR_SECTOR_NEUTRAL` / `FACTOR_MIN_SECTOR_PEERS` | true / 8 | Rank inside sector when it is large enough |
