@@ -5,9 +5,9 @@ import { Check, Loader2, Search } from "lucide-react";
 
 import { RatingBadge } from "@/components/rating-badge";
 import { cn } from "@/lib/utils";
+import { rank } from "@/lib/search.mjs";
 import type { SearchEntry } from "@/lib/types";
 
-const MAX_RESULTS = 8;
 
 /**
  * The universe typeahead, without an opinion about what picking does.
@@ -21,45 +21,6 @@ const MAX_RESULTS = 8;
  * stocks" versus "Add stocks"), and they own their own shortcut binding through
  * `useStockPickerShortcut`.
  */
-
-/**
- * Ranked match over the pre-shipped universe index.
- *
- * Ordering is deliberate: someone typing "INF" wants INFY, not the first
- * company whose name happens to contain "inf". Exact ticker beats ticker
- * prefix, which beats a word-start in the company name, which beats any
- * substring. Within a tier the better-ranked stock wins.
- */
-export function rank(entries: SearchEntry[], term: string): SearchEntry[] {
-  const query = term.trim().toUpperCase();
-  if (!query) return [];
-
-  const scored: Array<{ entry: SearchEntry; tier: number }> = [];
-
-  for (const entry of entries) {
-    const symbol = entry.s.toUpperCase();
-    const company = entry.c.toUpperCase();
-
-    let tier = -1;
-    if (symbol === query) tier = 0;
-    else if (symbol.startsWith(query)) tier = 1;
-    else if (company.startsWith(query)) tier = 2;
-    else if (
-      new RegExp(`\\b${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(company)
-    )
-      tier = 3;
-    else if (symbol.includes(query) || company.includes(query)) tier = 4;
-
-    if (tier >= 0) scored.push({ entry, tier });
-  }
-
-  scored.sort((a, b) => {
-    if (a.tier !== b.tier) return a.tier - b.tier;
-    return (a.entry.r ?? 1e9) - (b.entry.r ?? 1e9);
-  });
-
-  return scored.slice(0, MAX_RESULTS).map((item) => item.entry);
-}
 
 /**
  * Module-scoped so the index survives remounts and is fetched at most once per

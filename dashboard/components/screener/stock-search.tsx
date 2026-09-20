@@ -42,7 +42,7 @@ export function StockSearch() {
         open={open}
         onClose={close}
         title="Search stocks"
-        onPick={(symbol) => router.push(`/stocks/${symbol}`)}
+        onPick={(symbol) => router.push(`/stocks/${encodeURIComponent(symbol)}`)}
         hint="Type a ticker or company name. Enter opens the stock; ↑↓ to move."
       />
     </>

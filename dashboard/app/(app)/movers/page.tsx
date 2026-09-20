@@ -73,7 +73,7 @@ function MoverList({
           {rows.map((row) => (
             <li key={row.symbol}>
               <Link
-                href={`/stocks/${row.symbol}`}
+                href={`/stocks/${encodeURIComponent(row.symbol)}`}
                 className="group flex items-center gap-3 px-4 py-2 transition-colors duration-(--duration-fast) ease-(--ease-standard) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">
@@ -168,7 +168,7 @@ function PriceMoverList({
           {rows.map((row) => (
             <li key={row.symbol}>
               <Link
-                href={`/stocks/${row.symbol}`}
+                href={`/stocks/${encodeURIComponent(row.symbol)}`}
                 className="group flex items-center gap-3 px-4 py-2 transition-colors duration-(--duration-fast) ease-(--ease-standard) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">

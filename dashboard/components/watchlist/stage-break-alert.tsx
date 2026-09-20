@@ -38,7 +38,7 @@ export function StageBreakAlert({ breaks }: { breaks: StageBreak[] }) {
             {breaks.map((item) => (
               <li key={item.symbol} className="flex flex-wrap items-baseline gap-x-2">
                 <Link
-                  href={`/stocks/${item.symbol}`}
+                  href={`/stocks/${encodeURIComponent(item.symbol)}`}
                   prefetch={false}
                   className="font-mono text-xs font-semibold underline-offset-2 hover:underline"
                 >

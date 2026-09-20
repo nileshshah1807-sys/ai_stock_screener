@@ -11,6 +11,11 @@
  * would bury the thing the view is about.
  */
 
+import { VIEW_KEYS, viewIsActive } from "@/lib/view-match.mjs";
+
+// Re-exported so callers keep importing view state from one place.
+export { viewIsActive };
+
 export type Preset = {
   id: string;
   label: string;
@@ -63,73 +68,15 @@ export const PRESETS: readonly Preset[] = [
     label: "Fresh Stage 2 leaders",
     description:
       "Score 70+, in Stage 2 with an RS rating of 70+, most recent stage entry first. Context, not a signal: blending stage into the rank lowered returns in every validation window (P3), so this narrows the list without evidence that it improves it.",
-    query: "minScore=70&stage=Stage+2&minRs=70&sort=days_in_stage&dir=asc",
+    query: "minScore=70&stage=Stage+2&minRs=70&sort=advance_age_days&dir=asc",
     factorOnly: true,
   },
 ];
 
-/** Keys a view owns. Anything else in the URL is left alone when one is applied. */
-const VIEW_KEYS = [
-  "q",
-  "rating",
-  "sector",
-  "minScore",
-  "maxScore",
-  "actionable",
-  "buyEligible",
-  "excludeCapped",
-  "transcript",
-  "redFlags",
-  "minQuality",
-  "minMomentum",
-  "eligibility",
-  "aboveMa200",
-  "stage",
-  "minRs",
-  "sort",
-  "dir",
-  "cols",
-  "density",
-] as const;
-
-/**
- * Replace the current view with `query`, preserving nothing but the path.
- *
- * Applying a view has to *clear* the keys it does not set, or a preset would
- * silently inherit whatever filters happened to be active and show a different
- * result set to two people who clicked the same chip. `page` goes too: page 7
- * of the previous result set is meaningless here.
- */
 export function applyView(query: string): URLSearchParams {
   const next = new URLSearchParams(query);
   next.delete("page");
   return next;
-}
-
-/**
- * True when the current URL already *is* this view.
- *
- * Compared as sorted key/value multisets rather than as strings, because
- * `rating=BUY&rating=STRONG+BUY` and the reverse order are the same view and a
- * string comparison would call them different. Extra params in the URL make it
- * not a match: the chip claims the screen shows exactly the preset, so an added
- * sector filter must switch it off rather than leave it lit misleadingly.
- */
-export function viewIsActive(
-  current: URLSearchParams,
-  query: string,
-): boolean {
-  const canonical = (params: URLSearchParams) => {
-    const pairs: string[] = [];
-    for (const [key, value] of params.entries()) {
-      if (key === "page") continue;
-      if (!(VIEW_KEYS as readonly string[]).includes(key)) continue;
-      if (value === "") continue;
-      pairs.push(`${key}=${value}`);
-    }
-    return pairs.sort().join("&");
-  };
-  return canonical(current) === canonical(new URLSearchParams(query));
 }
 
 export type SavedView = { id: string; label: string; query: string };
