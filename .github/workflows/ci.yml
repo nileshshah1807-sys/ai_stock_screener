@@ -51,19 +51,20 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            requirements.txt
+            requirements-ci.txt
             requirements-dev.txt
 
-      # torch and transformers are excluded deliberately. sentiment/
-      # local_analyzer.py imports them lazily and only after the
-      # TRANSCRIPT_ENABLE_FINBERT check below clears, so the suite never touches
-      # them -- and pulling the CUDA wheel would add ~2 GB to every run. The
-      # scheduled workflows still install the full requirements.txt.
+      # requirements-ci.txt is the core lock: no torch or transformers.
+      # sentiment/local_analyzer.py imports them lazily and only past the
+      # TRANSCRIPT_ENABLE_FINBERT check below, so the suite never touches them,
+      # and skipping the CUDA wheels saves ~2 GB per run. The scheduled
+      # workflows install the full requirements.txt, which keeps torch and
+      # transformers present for the run manifest in validation/
+      # reproducibility.py.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          grep -vE '^(torch|transformers)\b' requirements.txt > "${RUNNER_TEMP}/requirements-ci.txt"
-          python -m pip install -r "${RUNNER_TEMP}/requirements-ci.txt" -r requirements-dev.txt
+          python -m pip install -r requirements-ci.txt -r requirements-dev.txt
 
       - name: Run tests
         env:
