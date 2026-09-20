@@ -14,6 +14,9 @@ from typing import Any
 
 import requests
 
+from screener.markets import DEFAULT_MARKET
+from screener.markets import resolve as resolve_market
+
 # The snapshot row carries the full source record in `payload`, so a batch of
 # rows is large in bytes even though the row count is modest. Chunks are sized
 # for request-body limits rather than row count.
@@ -30,15 +33,28 @@ def chunked(rows: list[dict[str, Any]], size: int) -> Iterator[list[dict[str, An
 
 
 class DashboardRepository:
+    """Read-model writer for one market.
+
+    The repository is market-scoped rather than taking a market argument on
+    every method: a publisher process loads exactly one market's run, so
+    binding it once at construction removes a dozen chances to forget the
+    filter. Every read is narrowed to ``self.market`` and every write is
+    stamped with it.
+    """
+
     def __init__(
         self,
         url: str,
         service_role_key: str,
         timeout_seconds: int = 60,
+        market: str = DEFAULT_MARKET,
     ):
         if not url or not service_role_key:
             raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
         self.base_url = f"{url.rstrip('/')}/rest/v1"
+        # Raises on an unknown code, so a typo cannot publish a US run into the
+        # NSE market.
+        self.market = resolve_market(market).code
         self.timeout_seconds = timeout_seconds
         self.session = requests.Session()
         self.headers = {
@@ -48,12 +64,23 @@ class DashboardRepository:
         }
 
     @classmethod
-    def from_environment(cls) -> DashboardRepository:
+    def from_environment(cls, market: str | None = None) -> DashboardRepository:
         return cls(
             os.getenv("SUPABASE_URL", ""),
             os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
             int(os.getenv("SUPABASE_TIMEOUT_SECONDS", "60")),
+            market or os.getenv("MARKET", DEFAULT_MARKET),
         )
+
+    # -- market scoping -----------------------------------------------------
+
+    def _scoped(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Narrow a PostgREST query to this repository's market."""
+        return {**params, "market": f"eq.{self.market}"}
+
+    def _stamped(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Stamp rows with this repository's market before a write."""
+        return [{**row, "market": self.market} for row in rows]
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         headers = {**self.headers, **kwargs.pop("headers", {})}
@@ -83,8 +110,8 @@ class DashboardRepository:
     def upsert_run(self, run: dict[str, Any]) -> dict[str, Any]:
         rows = self._request(
             "POST",
-            "screener_runs?on_conflict=run_date",
-            json=run,
+            "screener_runs?on_conflict=market,run_date",
+            json={**run, "market": self.market},
             headers={"Prefer": "resolution=merge-duplicates,return=representation"},
         )
         return rows[0] if rows else {}
@@ -93,7 +120,9 @@ class DashboardRepository:
         rows = self._request(
             "GET",
             "screener_runs",
-            params={"select": "*", "order": "run_date.desc", "limit": "1"},
+            params=self._scoped(
+                {"select": "*", "order": "run_date.desc", "limit": "1"}
+            ),
         )
         return rows[0] if rows else None
 
@@ -109,13 +138,13 @@ class DashboardRepository:
         rows = self._request(
             "GET",
             "screener_runs",
-            params={
+            params=self._scoped({
                 "select": "run_date",
                 "run_date": f"lt.{before}",
                 "row_count": "gt.0",
                 "order": "run_date.desc",
                 "limit": "1",
-            },
+            }),
         )
         return str(rows[0]["run_date"]) if rows else None
 
@@ -124,12 +153,12 @@ class DashboardRepository:
         rows = self._request(
             "GET",
             "screener_runs",
-            params={
+            params=self._scoped({
                 "select": "*",
                 "row_count": "gt.0",
                 "order": "run_date.desc",
                 "limit": "1",
-            },
+            }),
         )
         return rows[0] if rows else None
 
@@ -151,8 +180,8 @@ class DashboardRepository:
         for chunk in chunked(rows, chunk_size):
             self._request(
                 "POST",
-                "screener_snapshot?on_conflict=run_date,symbol",
-                json=chunk,
+                "screener_snapshot?on_conflict=market,run_date,symbol",
+                json=self._stamped(chunk),
                 headers={
                     "Prefer": "resolution=merge-duplicates,return=minimal",
                 },
@@ -170,7 +199,7 @@ class DashboardRepository:
         """Read the small set of fields needed for a logo-domain backfill."""
         rows: list[dict[str, Any]] = []
         for offset in range(0, 1_000_000, page_size):
-            params: dict[str, Any] = {
+            params: dict[str, Any] = self._scoped({
                 # `payload` is NOT NULL. The domain update uses an upsert so it
                 # can batch distinct symbols; carrying the existing payload
                 # satisfies the insert side without changing drill-down data.
@@ -179,7 +208,7 @@ class DashboardRepository:
                 "order": "symbol.asc",
                 "limit": str(page_size),
                 "offset": str(offset),
-            }
+            })
             if only_missing:
                 params["logo_domain"] = "is.null"
             page = self._request(
@@ -212,8 +241,8 @@ class DashboardRepository:
         for chunk in chunked(rows, chunk_size):
             self._request(
                 "POST",
-                "screener_snapshot?on_conflict=run_date,symbol",
-                json=chunk,
+                "screener_snapshot?on_conflict=market,run_date,symbol",
+                json=self._stamped(chunk),
                 headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )
             written += len(chunk)
@@ -236,13 +265,13 @@ class DashboardRepository:
             page = self._request(
                 "GET",
                 "screener_snapshot",
-                params={
+                params=self._scoped({
                     "select": "symbol,pct_change_1d",
                     "run_date": f"eq.{run_date}",
                     "order": "symbol.asc",
                     "limit": str(page_size),
                     "offset": str(offset),
-                },
+                }),
             ) or []
             for row in page:
                 state[str(row.get("symbol") or "")] = row.get("pct_change_1d")
@@ -266,13 +295,13 @@ class DashboardRepository:
             page = self._request(
                 "GET",
                 "screener_history",
-                params={
+                params=self._scoped({
                     "select": "symbol,current_price",
                     "observed_on": f"eq.{observed_on}",
                     "order": "symbol.asc",
                     "limit": str(page_size),
                     "offset": str(offset),
-                },
+                }),
             ) or []
             for row in page:
                 symbol = str(row.get("symbol") or "").strip().upper()
@@ -305,24 +334,30 @@ class DashboardRepository:
         self._request(
             "PATCH",
             "screener_snapshot",
-            params={"run_date": f"eq.{run_date}", "symbol": f"eq.{symbol}"},
+            params=self._scoped({"run_date": f"eq.{run_date}", "symbol": f"eq.{symbol}"}),
             json=values,
             headers={"Prefer": "return=minimal"},
         )
 
     def upsert_price_calendar(self, calendar: dict[str, Any]) -> None:
-        """Replace the single shared trading calendar row."""
+        """Replace this market's trading calendar row.
+
+        One row per market rather than one row overall: NSE and NYSE sessions
+        do not line up, so a shared calendar would misindex every US series.
+        """
         self._request(
             "POST",
-            "price_calendar?on_conflict=id",
-            json=[{**calendar, "id": 1}],
+            "price_calendar?on_conflict=market",
+            json=[{**calendar, "market": self.market}],
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
         )
 
     def published_calendar_size(self) -> int | None:
         """Session count of the live calendar, or None if none is published."""
         rows = self._request(
-            "GET", "price_calendar", params={"select": "session_count", "id": "eq.1"}
+            "GET",
+            "price_calendar",
+            params=self._scoped({"select": "session_count"}),
         )
         if not rows:
             return None
@@ -343,8 +378,8 @@ class DashboardRepository:
         for chunk in chunked(rows, chunk_size):
             self._request(
                 "POST",
-                "price_series?on_conflict=symbol",
-                json=chunk,
+                "price_series?on_conflict=market,symbol",
+                json=self._stamped(chunk),
                 headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )
             written += len(chunk)
@@ -366,7 +401,7 @@ class DashboardRepository:
         stored = self._request(
             "GET",
             "screener_snapshot",
-            params={"select": "symbol", "run_date": f"eq.{run_date}"},
+            params=self._scoped({"select": "symbol", "run_date": f"eq.{run_date}"}),
         ) or []
         obsolete = sorted({row["symbol"] for row in stored} - set(keep))
         for chunk in chunked([{"symbol": s} for s in obsolete], 100):
@@ -374,10 +409,10 @@ class DashboardRepository:
             self._request(
                 "DELETE",
                 "screener_snapshot",
-                params={
+                params=self._scoped({
                     "run_date": f"eq.{run_date}",
                     "symbol": f"in.({symbols_csv})",
-                },
+                }),
                 headers={"Prefer": "return=minimal"},
             )
 
@@ -393,8 +428,8 @@ class DashboardRepository:
         for chunk in chunked(rows, chunk_size):
             self._request(
                 "POST",
-                "screener_history?on_conflict=observed_on,symbol",
-                json=chunk,
+                "screener_history?on_conflict=market,observed_on,symbol",
+                json=self._stamped(chunk),
                 headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )
             written += len(chunk)
@@ -406,7 +441,7 @@ class DashboardRepository:
         removed = self._request(
             "POST",
             "rpc/prune_screener_snapshots",
-            json={"keep_runs": int(keep_runs)},
+            json={"keep_runs": int(keep_runs), "p_market": self.market},
         )
         return int(removed or 0)
 

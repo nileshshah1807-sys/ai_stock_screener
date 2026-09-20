@@ -91,7 +91,10 @@ create policy dashboard_allowlist_admin_read
 -- One row per screener run. Everything the freshness banner and run-health
 -- panel need is here, so neither has to scan the snapshot table.
 create table if not exists screener_runs (
-    run_date date primary key,
+    -- Which exchange this run screened. Part of the key: two markets publish a
+    -- run for the same calendar date every weekday.
+    market text not null default 'NSE' check (market in ('NSE', 'US')),
+    run_date date not null,
     generated_at_utc timestamptz not null,
     -- Model identity is deliberately three separate fields: the screener bumps
     -- MODEL_VERSION for a ranking change but OUTPUT_SCHEMA_VERSION for an
@@ -131,18 +134,21 @@ create table if not exists screener_runs (
     factor_model_applied boolean,
 
     manifest jsonb,
-    ingested_at timestamptz not null default now()
+    ingested_at timestamptz not null default now(),
+
+    primary key (market, run_date)
 );
 
-create index if not exists screener_runs_generated_idx
-    on screener_runs (generated_at_utc desc);
+create index if not exists screener_runs_market_generated_idx
+    on screener_runs (market, generated_at_utc desc);
 
 -- =====================================================================
 -- Latest full snapshot
 -- =====================================================================
 
 create table if not exists screener_snapshot (
-    run_date date not null references screener_runs(run_date) on delete cascade,
+    market text not null default 'NSE' check (market in ('NSE', 'US')),
+    run_date date not null,
     symbol text not null,
     company text,
     logo_domain text,
@@ -355,7 +361,9 @@ create table if not exists screener_snapshot (
     -- copies exist for indexing, not as the record of truth.
     payload jsonb not null,
 
-    primary key (run_date, symbol)
+    primary key (market, run_date, symbol),
+    foreign key (market, run_date)
+        references screener_runs (market, run_date) on delete cascade
 );
 
 -- =====================================================================
@@ -474,42 +482,42 @@ alter table screener_snapshot
 
 -- Grid default ordering.
 create index if not exists screener_snapshot_rank_idx
-    on screener_snapshot (run_date, investment_rank);
+    on screener_snapshot (market, run_date, investment_rank);
 
 -- Filter surfaces used by the sidebar.
 create index if not exists screener_snapshot_rating_idx
-    on screener_snapshot (run_date, rating);
+    on screener_snapshot (market, run_date, rating);
 create index if not exists screener_snapshot_sector_idx
-    on screener_snapshot (run_date, sector);
+    on screener_snapshot (market, run_date, sector);
 create index if not exists screener_snapshot_score_idx
-    on screener_snapshot (run_date, decision_score desc);
+    on screener_snapshot (market, run_date, decision_score desc);
 
 -- Model 5.0 filter and ordering surfaces. The primary Model 5.0 ordering is
 -- eligibility class first, then research score, which is what the eligibility
 -- index serves; the others back the sidebar's factor and regime filters.
 create index if not exists screener_snapshot_eligibility_idx
-    on screener_snapshot (run_date, eligibility_class, research_score desc);
+    on screener_snapshot (market, run_date, eligibility_class, research_score desc);
 create index if not exists screener_snapshot_research_score_idx
-    on screener_snapshot (run_date, research_score desc);
+    on screener_snapshot (market, run_date, research_score desc);
 create index if not exists screener_snapshot_primary_gate_idx
-    on screener_snapshot (run_date, primary_gate);
+    on screener_snapshot (market, run_date, primary_gate);
 create index if not exists screener_snapshot_quality_pct_idx
-    on screener_snapshot (run_date, quality_percentile desc);
+    on screener_snapshot (market, run_date, quality_percentile desc);
 create index if not exists screener_snapshot_momentum_pct_idx
-    on screener_snapshot (run_date, momentum_percentile desc);
+    on screener_snapshot (market, run_date, momentum_percentile desc);
 
 -- Entry-timing ordering and filters: the Action rank sort, the stage filter
 -- and the minimum-RS filter.
 create index if not exists screener_snapshot_action_rank_idx
-    on screener_snapshot (run_date, action_rank);
+    on screener_snapshot (market, run_date, action_rank);
 create index if not exists screener_snapshot_stage_idx
-    on screener_snapshot (run_date, stage);
+    on screener_snapshot (market, run_date, stage);
 create index if not exists screener_snapshot_rs_rating_idx
-    on screener_snapshot (run_date, rs_rating desc);
+    on screener_snapshot (market, run_date, rs_rating desc);
 
 -- Symbol lookup for drill-down by URL.
 create index if not exists screener_snapshot_symbol_idx
-    on screener_snapshot (symbol);
+    on screener_snapshot (market, symbol);
 
 -- Substring search on ticker and company name. Trigram indexes serve
 -- `ilike '%query%'`, which a btree cannot, and matter once the universe grows
@@ -528,6 +536,7 @@ create index if not exists screener_snapshot_company_trgm_idx
 -- 0.4 MB/day at the current universe size, so multi-year history stays well
 -- inside the free tier while full snapshots are pruned.
 create table if not exists screener_history (
+    market text not null default 'NSE' check (market in ('NSE', 'US')),
     observed_on date not null,
     symbol text not null,
     company text,
@@ -544,7 +553,7 @@ create table if not exists screener_history (
     buy_eligible boolean,
     strong_buy_eligible boolean,
     rating_capped boolean,
-    primary key (observed_on, symbol)
+    primary key (market, observed_on, symbol)
 );
 
 -- Model 5.0 migration for already-deployed databases; see the note above.
@@ -569,9 +578,9 @@ alter table screener_history
     add column if not exists action_rank integer;
 
 create index if not exists screener_history_symbol_date_idx
-    on screener_history (symbol, observed_on desc);
+    on screener_history (market, symbol, observed_on desc);
 create index if not exists screener_history_date_idx
-    on screener_history (observed_on desc);
+    on screener_history (market, observed_on desc);
 
 -- =====================================================================
 -- Movers
@@ -589,9 +598,10 @@ with ordered as (
         lag(h.decision_score) over w as prev_decision_score,
         lag(h.observed_on) over w as prev_observed_on
     from screener_history h
-    window w as (partition by h.symbol order by h.observed_on)
+    window w as (partition by h.market, h.symbol order by h.observed_on)
 )
 select
+    market,
     observed_on,
     symbol,
     company,
@@ -627,6 +637,8 @@ from ordered;
 
 create table if not exists watchlists (
     id uuid primary key default gen_random_uuid(),
+    -- A list belongs to one market and appears only on that market's tab.
+    market text not null default 'NSE' check (market in ('NSE', 'US')),
     -- auth.uid() as the default, so a client insert cannot claim another
     -- owner: the column is not supplied by the browser at all, and the RLS
     -- with-check below refuses the row if it somehow were.
@@ -643,9 +655,9 @@ create table if not exists watchlists (
 -- would happily accept "Banks" beside "banks", which is a duplicate to the
 -- person reading their own list.
 create unique index if not exists watchlists_owner_name_idx
-    on watchlists (owner_id, lower(name));
+    on watchlists (owner_id, market, lower(name));
 create index if not exists watchlists_owner_idx
-    on watchlists (owner_id, updated_at desc);
+    on watchlists (owner_id, market, updated_at desc);
 
 create table if not exists watchlist_items (
     watchlist_id uuid not null references watchlists(id) on delete cascade,
@@ -784,7 +796,10 @@ grant select on screener_movers to service_role;
 -- Called by the ingestion job after a successful load; the default keeps the
 -- current run plus one prior run so a bad load can be inspected against its
 -- predecessor before being overwritten.
-create or replace function prune_screener_snapshots(keep_runs integer default 2)
+create or replace function prune_screener_snapshots(
+    keep_runs integer default 2,
+    p_market text default null
+)
 returns integer
 language plpgsql
 security definer
@@ -793,24 +808,34 @@ as $$
 declare
     removed integer;
 begin
-    with doomed as (
-        select run_date
+    -- Retention is per market. Ranking globally would let the US run's rows
+    -- count against the NSE run's allowance, so "keep the last two runs" would
+    -- silently become "keep the last one day" once both markets publish.
+    with ranked as (
+        select
+            market,
+            run_date,
+            row_number() over (partition by market order by run_date desc) as position
         from screener_runs
-        order by run_date desc
-        offset greatest(1, keep_runs)
+        where p_market is null or market = p_market
+    ),
+    doomed as (
+        select market, run_date
+        from ranked
+        where position > greatest(1, keep_runs)
     )
     delete from screener_runs r
     using doomed d
-    where r.run_date = d.run_date;
+    where r.market = d.market and r.run_date = d.run_date;
 
     get diagnostics removed = row_count;
     return removed;
 end;
 $$;
 
-revoke all on function prune_screener_snapshots(integer) from public;
-revoke all on function prune_screener_snapshots(integer) from anon, authenticated;
-grant execute on function prune_screener_snapshots(integer) to service_role;
+revoke all on function prune_screener_snapshots(integer, text) from public;
+revoke all on function prune_screener_snapshots(integer, text) from anon, authenticated;
+grant execute on function prune_screener_snapshots(integer, text) to service_role;
 
 revoke all on function dashboard_has_access() from public;
 revoke all on function dashboard_is_admin() from public;

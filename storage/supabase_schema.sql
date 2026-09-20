@@ -2,7 +2,7 @@ create extension if not exists pgcrypto;
 
 create table if not exists transcript_filings (
     id uuid primary key default gen_random_uuid(),
-    exchange text not null check (exchange in ('NSE')),
+    exchange text not null check (exchange in ('NSE', 'US')),
     seq_id text not null,
     symbol text not null,
     company_name text,
@@ -34,6 +34,9 @@ create table if not exists transcript_filing_documents (
 create table if not exists transcripts (
     id uuid primary key default gen_random_uuid(),
     document_id uuid not null unique references transcript_documents(id) on delete cascade,
+    -- The screener joins sentiment on symbol; without a market a US call would
+    -- attach itself to the NSE row that happens to share its ticker.
+    market text not null default 'NSE' check (market in ('NSE', 'US')),
     symbol text not null,
     quarter text,
     call_date date,
@@ -63,7 +66,8 @@ create table if not exists transcript_sentiments (
     unique (transcript_id, model_name, analysis_version)
 );
 
-create index if not exists transcripts_symbol_call_date_idx on transcripts(symbol, call_date desc);
+create index if not exists transcripts_symbol_call_date_idx
+    on transcripts(market, symbol, call_date desc);
 create index if not exists transcript_sentiments_transcript_idx on transcript_sentiments(transcript_id);
 create index if not exists transcript_sentiments_analysis_lookup_idx
     on transcript_sentiments(transcript_id, model_name, analysis_version);
@@ -176,6 +180,7 @@ with latest_analysis_per_transcript as (
     from transcript_sentiments s
 )
 select
+    t.market,
     t.symbol,
     t.call_date,
     s.overall_score,
@@ -185,19 +190,23 @@ select
     s.management_confidence,
     s.guidance_direction,
     s.created_at,
+    -- Every window partitions by (market, symbol). Partitioned by symbol
+    -- alone, a US TCS call and an NSE TCS call would sit in one series and
+    -- each quarter-on-quarter delta between them would be meaningless.
     lag(s.optimism_score) over (
-        partition by t.symbol order by t.call_date nulls last, s.created_at
+        partition by t.market, t.symbol order by t.call_date nulls last, s.created_at
     ) as previous_optimism_score,
     row_number() over (
-        partition by t.symbol order by t.call_date desc nulls last, s.created_at desc
+        partition by t.market, t.symbol
+        order by t.call_date desc nulls last, s.created_at desc
     ) as sentiment_rank,
     s.structured_output,
     nullif(s.structured_output ->> 'uncertainty_density', '')::numeric as uncertainty_density,
     lag(nullif(s.structured_output ->> 'uncertainty_density', '')::numeric) over (
-        partition by t.symbol order by t.call_date nulls last, s.created_at
+        partition by t.market, t.symbol order by t.call_date nulls last, s.created_at
     ) as previous_uncertainty_density,
     lag(s.guidance_direction) over (
-        partition by t.symbol order by t.call_date nulls last, s.created_at
+        partition by t.market, t.symbol order by t.call_date nulls last, s.created_at
     ) as previous_guidance_direction
 from transcripts t
 join latest_analysis_per_transcript s on s.transcript_id = t.id
@@ -205,6 +214,7 @@ where s.analysis_rank = 1;
 
 create or replace view latest_transcript_sentiment as
 select
+    market,
     symbol,
     call_date,
     overall_score,

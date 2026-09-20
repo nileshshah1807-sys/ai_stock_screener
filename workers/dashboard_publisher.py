@@ -27,6 +27,8 @@ from typing import Any
 
 import pandas as pd
 
+from screener.markets import DEFAULT_MARKET
+from screener.markets import resolve as resolve_market
 from storage.dashboard_repository import DashboardRepository
 
 logger = logging.getLogger("dashboard_publisher")
@@ -680,9 +682,13 @@ def publish(
     chunk_size: int = 200,
     dry_run: bool = False,
     if_exists: str = "error",
+    market: str = DEFAULT_MARKET,
 ) -> dict[str, Any]:
     if if_exists not in {"error", "skip"}:
         raise ValueError("if_exists must be either 'error' or 'skip'")
+    # Validated before the CSV is read, so a typo'd market fails on the command
+    # line rather than after a few minutes of parsing.
+    market = resolve_market(market).code
 
     df = pd.read_csv(csv_path, low_memory=False)
     if "Symbol" not in df.columns:
@@ -741,12 +747,13 @@ def publish(
         ),
         "payload_columns": len(df.columns),
         "dry_run": dry_run,
+        "market": market,
     }
 
     if dry_run:
         return summary
 
-    repository = DashboardRepository.from_environment()
+    repository = DashboardRepository.from_environment(market)
     existing_run = _existing_run(repository, run_date)
     if existing_run is not None:
         existing_row_count = coerce_int(existing_run.get("row_count"))
@@ -855,6 +862,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--csv", required=True, type=Path, help="Screener CSV export")
     parser.add_argument(
+        "--market",
+        default=os.getenv("MARKET", DEFAULT_MARKET),
+        help=(
+            "Market this export belongs to: NSE or US "
+            "(default: env MARKET, else NSE)"
+        ),
+    )
+    parser.add_argument(
         "--manifest",
         type=Path,
         default=None,
@@ -916,6 +931,7 @@ def main(argv: list[str] | None = None) -> int:
             chunk_size=args.chunk_size,
             dry_run=args.dry_run,
             if_exists=args.if_exists,
+            market=args.market,
         )
     except Exception as exc:  # noqa: BLE001 - surfaced as a job failure
         logger.error("Publish failed: %s", exc)

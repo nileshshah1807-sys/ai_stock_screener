@@ -10,8 +10,10 @@ IST = ZoneInfo("Asia/Kolkata")
 
 
 class FakeRepository:
-    def __init__(self, run_date):
+    def __init__(self, run_date, market="NSE"):
         self.run_date = run_date
+        # The guard names the market in its decision reason.
+        self.market = market
 
     def latest_completed_run(self):
         return {"run_date": self.run_date} if self.run_date else None
