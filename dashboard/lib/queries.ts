@@ -179,6 +179,7 @@ const SORTABLE = new Set([
   "rs_rating_change_1m",
   "days_in_stage",
   "advance_age_days",
+  "stage2_entry_date",
 ]);
 
 /** Sort keys where a LOWER value is better, so they default to ascending. */

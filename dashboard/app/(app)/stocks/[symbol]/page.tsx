@@ -7,6 +7,7 @@ import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, withTail } from "@/lib/price-series.mjs";
+import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
 import { FactorBlocks } from "@/components/stock/factor-blocks";
@@ -136,12 +137,16 @@ export async function generateMetadata({
   params,
 }: PageProps<"/stocks/[symbol]">) {
   const { symbol } = await params;
-  return { title: symbol.toUpperCase() };
+  return { title: decodeSymbolParam(symbol).toUpperCase() };
 }
 
 export default async function StockPage({ params }: PageProps<"/stocks/[symbol]">) {
   // Next.js 16: params is a Promise.
-  const { symbol } = await params;
+  const { symbol: rawSymbol } = await params;
+  // Whether the host hands this back percent-encoded varies, and ten tickers
+  // contain an ampersand. Decoding is idempotent here, so it is correct either
+  // way. See lib/symbol.mjs.
+  const symbol = decodeSymbolParam(rawSymbol);
 
   const run = await getLatestRun();
   if (!run) notFound();
