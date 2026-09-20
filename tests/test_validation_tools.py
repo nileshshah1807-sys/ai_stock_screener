@@ -1,11 +1,11 @@
 import json
-import re
 import logging
 import os
+import re
 import sys
 import tempfile
 import unittest
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -22,9 +22,10 @@ from tools.run_isolated_validation import (
     _set_isolated_environment,
     _validate_isolated_config,
     _validate_output_dir,
+)
+from tools.run_isolated_validation import (
     main as run_isolated_validation,
 )
-
 from validation.comparator import (
     compare_frames,
     validate_factor_statement_coverage,
@@ -125,7 +126,7 @@ class ReproducibilityManifestTests(unittest.TestCase):
             root = Path(directory)
             input_path = root / "snapshot.csv"
             input_path.write_text("Symbol,Score\nMCLOUD,71.28\n", encoding="utf-8")
-            generated_at = datetime(2026, 8, 10, 3, 17, tzinfo=timezone.utc)
+            generated_at = datetime(2026, 8, 10, 3, 17, tzinfo=UTC)
             manifest = build_run_manifest(
                 self._config(),
                 input_files=[input_path],
@@ -490,9 +491,8 @@ class ScreenerComparatorTests(unittest.TestCase):
                     "--min-statement-coverage",
                     "0.90",
                 ],
-            ):
-                with self.assertRaisesRegex(ValueError, "below the required minimum"):
-                    compare_screener_outputs()
+            ), self.assertRaisesRegex(ValueError, "below the required minimum"):
+                compare_screener_outputs()
 
             self.assertFalse(output_dir.exists())
 
@@ -532,9 +532,11 @@ class IsolatedRunnerSafetyTests(unittest.TestCase):
             production_root / "candidate",
             production_root / "nested" / "cache",
         ):
-            with self.subTest(unsafe_path=unsafe_path):
-                with self.assertRaisesRegex(ValueError, "production output tree"):
-                    _validate_output_dir(unsafe_path)
+            with (
+                self.subTest(unsafe_path=unsafe_path),
+                self.assertRaisesRegex(ValueError, "production output tree"),
+            ):
+                _validate_output_dir(unsafe_path)
 
         validation_root = (
             repository_root / ".validation-output" / "run-123"

@@ -29,12 +29,10 @@ contribution is reported separately rather than folded in silently.
 
 from __future__ import annotations
 
-from datetime import date, datetime
 import logging
-from pathlib import Path
-
-import numpy as np
 from bisect import bisect_right
+from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 
@@ -146,50 +144,49 @@ class IndexStore:
 
         start, end = _as_date(start), _as_date(end)
         frames = []
-        with TemporaryDirectory(prefix="nse_index_") as folder:
-            with self._make_nse(folder) as nse:
-                for index_name in indices:
-                    collected = []
-                    chunk_start = start
-                    while chunk_start <= end:
-                        chunk_end = min(
-                            end,
-                            (
-                                pd.Timestamp(chunk_start)
-                                + pd.DateOffset(months=int(chunk_months))
-                                - pd.Timedelta(days=1)
-                            ).date(),
+        with TemporaryDirectory(prefix="nse_index_") as folder, self._make_nse(folder) as nse:
+            for index_name in indices:
+                collected = []
+                chunk_start = start
+                while chunk_start <= end:
+                    chunk_end = min(
+                        end,
+                        (
+                            pd.Timestamp(chunk_start)
+                            + pd.DateOffset(months=int(chunk_months))
+                            - pd.Timedelta(days=1)
+                        ).date(),
+                    )
+                    try:
+                        records = nse.fetch_historical_index_data(
+                            index_name, from_date=chunk_start, to_date=chunk_end
                         )
-                        try:
-                            records = nse.fetch_historical_index_data(
-                                index_name, from_date=chunk_start, to_date=chunk_end
-                            )
-                            if len(records or []) >= ENDPOINT_ROW_CAP:
-                                logger.warning(
-                                    "Index %s %s..%s returned %d rows, at the "
-                                    "endpoint cap -- the response was probably "
-                                    "truncated. Reduce chunk_months.",
-                                    index_name,
-                                    chunk_start,
-                                    chunk_end,
-                                    len(records),
-                                )
-                            collected.extend(records or [])
-                        except Exception as exc:
+                        if len(records or []) >= ENDPOINT_ROW_CAP:
                             logger.warning(
-                                "Index %s %s..%s failed: %s",
+                                "Index %s %s..%s returned %d rows, at the "
+                                "endpoint cap -- the response was probably "
+                                "truncated. Reduce chunk_months.",
                                 index_name,
                                 chunk_start,
                                 chunk_end,
-                                exc,
+                                len(records),
                             )
-                        chunk_start = (
-                            pd.Timestamp(chunk_end) + pd.Timedelta(days=1)
-                        ).date()
-                    frame = normalise_index_rows(index_name, collected)
-                    logger.info("Index %s: %d sessions", index_name, len(frame))
-                    if not frame.empty:
-                        frames.append(frame)
+                        collected.extend(records or [])
+                    except Exception as exc:
+                        logger.warning(
+                            "Index %s %s..%s failed: %s",
+                            index_name,
+                            chunk_start,
+                            chunk_end,
+                            exc,
+                        )
+                    chunk_start = (
+                        pd.Timestamp(chunk_end) + pd.Timedelta(days=1)
+                    ).date()
+                frame = normalise_index_rows(index_name, collected)
+                logger.info("Index %s: %d sessions", index_name, len(frame))
+                if not frame.empty:
+                    frames.append(frame)
 
         # Merge with whatever is already cached rather than replacing it. The
         # endpoint returns intermittent 500s on individual quarters, so a run can
@@ -198,7 +195,7 @@ class IndexStore:
         # re-running the fetch heals them.
         existing = self.load()
         combined = pd.concat(
-            [frame for frame in ([existing] if not existing.empty else []) + frames],
+            ([existing] if not existing.empty else []) + frames,
             ignore_index=True,
         ) if (frames or not existing.empty) else pd.DataFrame(columns=list(INDEX_COLUMNS))
 

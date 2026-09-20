@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-
 _DIRECTIONS = {"raised", "maintained", "lowered", "unclear"}
 
 
@@ -43,7 +42,7 @@ class ChunkSentiment:
     evidence: list[str]
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> "ChunkSentiment":
+    def from_payload(cls, payload: dict[str, Any]) -> ChunkSentiment:
         if not isinstance(payload, dict):
             raise ValueError("model response must be a JSON object")
         direction = str(payload.get("guidance_direction", "unclear")).strip().lower()

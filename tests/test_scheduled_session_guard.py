@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 
 from workers.scheduled_session_guard import GuardDecision, _write_github_outputs, decide
 
-
 IST = ZoneInfo("Asia/Kolkata")
 
 

@@ -11,11 +11,11 @@ import csv
 import gzip
 import io
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import date, datetime
-from typing import Any, Iterable
+from typing import Any
 
 import requests
-
 
 VIGIL_TABLES = (
     "credit_ratings",
@@ -197,7 +197,7 @@ def build_red_flag_snapshots(
                 "flags": symbol_flags,
                 "flags_truncated": len(all_symbol_flags) > len(symbol_flags),
                 "tables_present": sorted(coverage[symbol]),
-                "table_freshness": {table: state for table, state in table_freshness.items()},
+                "table_freshness": dict(table_freshness),
                 "stale_tables": stale_tables,
                 "issuer_severity": issuer_severity,
                 "trading_severity": trading_severity,

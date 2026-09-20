@@ -3,19 +3,19 @@
 
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
 
+from red_flags.enricher import RedFlagEnricher
+from red_flags.shadow import RedFlagShadowSimulator
 from scoring.transcript_enricher import (
     TranscriptSentimentEnricher,
     rank_actionable_recommendations,
 )
-from red_flags.enricher import RedFlagEnricher
-from red_flags.shadow import RedFlagShadowSimulator
 from screener.benchmark import BenchmarkProvider
 from screener.data_collection import (
     StockDataCollector,
@@ -23,20 +23,28 @@ from screener.data_collection import (
 )
 from screener.expectations import attach_expectations_gap
 from screener.factors import FactorModel
-from screener.statements import (
-    FinancialStatementCollector,
-    apply_statement_fallbacks,
-)
 from screener.liquidity import (
     LiquidityQualityEnricher,
     NSELiquidityProvider,
     filter_execution_universe,
 )
 from screener.market_data import AlternativeData, BacktestEngine, PriceCache, TechnicalEnhancer, fmt_cr, fmt_f, fmt_pct
-from screener.reporting import EmailReporter, InteractiveDashboard, WhatsAppReporter
 from screener.recommendation import finalize_recommendations
+from screener.reporting import EmailReporter, InteractiveDashboard, WhatsAppReporter
 from screener.runtime import Config, IPv4SMTP, IPv4SMTP_SSL, configure_runtime_cache, load_local_config
-from screener.scoring import StockScorer, fundamental_model_for_row, score_financial_services, score_fundamentals, score_real_estate, sector_relative_fund_scores, sort_by_recommendation
+from screener.scoring import (
+    StockScorer,
+    fundamental_model_for_row,
+    score_financial_services,
+    score_fundamentals,
+    score_real_estate,
+    sector_relative_fund_scores,
+    sort_by_recommendation,
+)
+from screener.statements import (
+    FinancialStatementCollector,
+    apply_statement_fallbacks,
+)
 from screener.valuation import ReverseDCFModel
 from validation.reproducibility import (
     build_run_manifest,
@@ -468,7 +476,7 @@ def run_daily_analysis():
     manifest = build_run_manifest(
         config,
         input_files=input_files,
-        generated_at=analysis_now.astimezone(timezone.utc),
+        generated_at=analysis_now.astimezone(UTC),
         cwd=Path(__file__).parent,
         extra={
             "analysis_as_of": analysis_now.isoformat(timespec="seconds"),
@@ -534,7 +542,7 @@ def run_daily_analysis():
 
     # Dashboard. Same depth as the emailed PDF/CSV so one run cannot publish
     # two different "top" lists.
-    dashboard_path = InteractiveDashboard.generate(
+    InteractiveDashboard.generate(
         scored_df,
         date_str,
         config.OUTPUT_DIR,

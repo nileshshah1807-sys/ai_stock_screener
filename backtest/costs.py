@@ -28,9 +28,9 @@ the cost model is responsible for.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
-import logging
 
 import numpy as np
 import pandas as pd

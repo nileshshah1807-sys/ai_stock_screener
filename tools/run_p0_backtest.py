@@ -21,12 +21,12 @@ no network calls of its own.
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime
 import json
 import logging
-from pathlib import Path
 import sys
 import time
+from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger("p0")
 
@@ -481,10 +481,7 @@ def main(argv=None):
             )
             payload["comparison"] = comparison
 
-    if args.json_out:
-        out = Path(args.json_out)
-    else:
-        out = Path(args.root) / f"p0_backtest_{start}_{end}.json"
+    out = Path(args.json_out) if args.json_out else Path(args.root) / f"p0_backtest_{start}_{end}.json"
     write_report(out, payload)
     logger.info("Report written: %s", out)
 

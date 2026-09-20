@@ -6,7 +6,7 @@ assumption.
 """
 
 import unittest
-from datetime import date, timedelta, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 

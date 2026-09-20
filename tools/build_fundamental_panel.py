@@ -24,12 +24,11 @@ Usage::
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import json
 import logging
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 
 import pandas as pd
 
@@ -49,8 +48,8 @@ def main(argv=None):
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
     )
 
-    from backtest.calendar import CalendarLedger, TradingCalendar
     from backtest.bhavcopy import BhavcopyStore
+    from backtest.calendar import CalendarLedger, TradingCalendar
     from backtest.filings import attach_availability
     from backtest.security_master import SecurityMaster
     from backtest.xbrl import (

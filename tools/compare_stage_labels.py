@@ -23,8 +23,8 @@ Vendor columns are recognised case-insensitively: a stage column, optionally
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pandas as pd
 
@@ -92,8 +92,7 @@ def load_export(paths):
             }
         )
         frames.append(out)
-    merged = pd.concat(frames, ignore_index=True).drop_duplicates("Symbol")
-    return merged
+    return pd.concat(frames, ignore_index=True).drop_duplicates("Symbol")
 
 
 def load_screener(path):

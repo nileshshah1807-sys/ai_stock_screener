@@ -18,7 +18,6 @@ from transcripts.collector import discover_nse_transcripts, filing_payload
 from transcripts.extractor import extract_pdf_text
 from transcripts.periods import reporting_period_end_for_call
 
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ class TranscriptSettings:
     analysis_batch_size: int = 10
 
     @classmethod
-    def from_environment(cls) -> "TranscriptSettings":
+    def from_environment(cls) -> TranscriptSettings:
         finbert_enabled = os.getenv("TRANSCRIPT_ENABLE_FINBERT", "1").lower() in {
             "1", "true", "yes"
         }

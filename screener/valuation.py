@@ -7,15 +7,14 @@ in :mod:`screener.recommendation`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import math
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
 from .numeric import round_half_up
-
 
 logger = logging.getLogger(__name__)
 

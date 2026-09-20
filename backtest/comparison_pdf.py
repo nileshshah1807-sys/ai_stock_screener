@@ -23,8 +23,8 @@ model's contribution is visible rather than assumed.
 
 from __future__ import annotations
 
-from datetime import datetime
 import logging
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -68,7 +68,6 @@ def write_comparison_pdf(payload, path, *, comparison=None):
             PageBreak,
             Paragraph,
             SimpleDocTemplate,
-            Spacer,
             Table,
             TableStyle,
         )
@@ -137,7 +136,6 @@ def write_comparison_pdf(payload, path, *, comparison=None):
     story = []
     window = payload.get("window", {})
     size = comparison.get("portfolio_size", 20)
-    horizon = comparison.get("horizon_months", 1)
     rebalances = comparison.get("rebalances", 0)
 
     story.append(Paragraph("Model vs Index &mdash; CAGR Comparison", title_style))

@@ -14,7 +14,6 @@ import requests
 from red_flags.vigil import POLICY_VERSION, VIGIL_TABLES, VigilClient, build_red_flag_snapshots
 from storage.supabase_repository import SupabaseRepository
 
-
 logger = logging.getLogger(__name__)
 
 

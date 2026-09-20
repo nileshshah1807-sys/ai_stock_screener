@@ -9,10 +9,10 @@ import os
 import platform
 import subprocess
 import sys
-from datetime import datetime, timezone
+from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Mapping
-
+from typing import Any
 
 MANIFEST_SCHEMA_VERSION = 1
 
@@ -317,10 +317,10 @@ def build_run_manifest(
             "size_bytes": file_path.stat().st_size,
         })
 
-    timestamp = generated_at or datetime.now(timezone.utc)
+    timestamp = generated_at or datetime.now(UTC)
     if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=timezone.utc)
-    timestamp = timestamp.astimezone(timezone.utc)
+        timestamp = timestamp.replace(tzinfo=UTC)
+    timestamp = timestamp.astimezone(UTC)
 
     git_worktree = _git_worktree_provenance(cwd)
     manifest = {

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
 import logging
-from tempfile import TemporaryDirectory
 import time
+from datetime import date, datetime, timedelta
+from tempfile import TemporaryDirectory
 from typing import Any
-
 
 _INCLUDED_PHRASES = (
     "transcript",
@@ -52,13 +51,15 @@ def discover_nse_transcripts(
     attempts = max(1, attempts)
     for attempt in range(1, attempts + 1):
         try:
-            with TemporaryDirectory(prefix="nse_discovery_") as download_folder:
-                with NSE(download_folder=download_folder, timeout=60, server=False) as nse:
-                    records = nse.announcements(
-                        index="equities",
-                        from_date=datetime.combine(start_date, datetime.min.time()),
-                        to_date=datetime.combine(end_date, datetime.max.time()),
-                    )
+            with (
+                TemporaryDirectory(prefix="nse_discovery_") as download_folder,
+                NSE(download_folder=download_folder, timeout=60, server=False) as nse,
+            ):
+                records = nse.announcements(
+                    index="equities",
+                    from_date=datetime.combine(start_date, datetime.min.time()),
+                    to_date=datetime.combine(end_date, datetime.max.time()),
+                )
             break
         except Exception:
             if attempt == attempts:

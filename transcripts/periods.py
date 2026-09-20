@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-
 CURRENT_CYCLE = "Current cycle"
 PRIOR_CYCLE = "Prior cycle"
 EXPIRED = "Expired"

@@ -18,8 +18,8 @@ Palette matches ``screener.reporting`` so the two documents read as one family.
 
 from __future__ import annotations
 
-from datetime import datetime
 import logging
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)

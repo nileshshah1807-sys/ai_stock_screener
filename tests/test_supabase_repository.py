@@ -115,7 +115,7 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
 
         def request(method, path, **kwargs):
             payload_sizes.append(len(kwargs["json"]))
-            return None
+            return
 
         repository._request = request
         saved = repository.upsert_red_flag_snapshots(
@@ -132,7 +132,7 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
 
         def request(method, path, **kwargs):
             calls.append((method, path, kwargs))
-            return None
+            return
 
         repository._request = request
         saved = repository.upsert_red_flag_snapshot_history([{

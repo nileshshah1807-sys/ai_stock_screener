@@ -1,10 +1,9 @@
-from datetime import datetime
-from pathlib import Path
 import json
 import time
+from datetime import datetime
+from pathlib import Path
 
 from nse import NSE
-
 
 DOWNLOAD_DIR = Path("nse_transcripts")
 DOWNLOAD_DIR.mkdir(exist_ok=True)
@@ -31,10 +30,7 @@ def is_transcript(record: dict) -> bool:
         "egm transcript",
     )
 
-    if any(phrase in text for phrase in excluded_phrases):
-        return False
-
-    return True
+    return not any(phrase in text for phrase in excluded_phrases)
 
 
 def save_metadata(record: dict, saved_path: str) -> None:

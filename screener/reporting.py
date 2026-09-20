@@ -19,11 +19,11 @@ from .market_data import fmt_cr, fmt_f, fmt_pct
 from .runtime import IPv4SMTP, IPv4SMTP_SSL
 
 try:
-    from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
@@ -411,7 +411,7 @@ class EmailReporter:
                 f"<td class='{css}'>{r['Rating']}{capped_star}</td></tr>"
             )
 
-        html = f"""<html><head><style>
+        return f"""<html><head><style>
 body{{font-family:Arial,sans-serif;margin:20px;background:#f5f7fa;}}
 .card{{background:white;border-radius:12px;padding:25px;margin-bottom:20px;box-shadow:0 4px 18px rgba(0,0,0,0.06);}}
 h1{{color:#1a237e;margin:0;font-size:26px;}}
@@ -445,7 +445,6 @@ td{{padding:9px;border-bottom:1px solid #ddd;text-align:center;}}
 </table></div>
 <div class="card"><p><b>Method:</b> {model_method_summary()} * marks an applied policy cap. Liquidity and shadow red flags never rewrite Decision Score or Rating. This research model has not completed point-in-time out-of-sample validation. Not investment advice — consult a SEBI-registered advisor.</p></div>
 </body></html>"""
-        return html
 
     def create_pdf_report(self, df, date_str):
         """Create a compact presentation PDF; detailed analytics stay in CSV."""

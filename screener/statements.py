@@ -279,7 +279,7 @@ def derive_statement_factors(income, balance, cashflow):
     capex = _first_available(cashflow, CASHFLOW_ROWS["capex"])
 
     negative_base = []
-    out = {column: None for column in DERIVED_COLUMNS}
+    out = dict.fromkeys(DERIVED_COLUMNS)
 
     year_counts = [len(s) for s in (revenue, total_assets, ocf) if s is not None]
     out["Statement_Years"] = max(year_counts) if year_counts else 0

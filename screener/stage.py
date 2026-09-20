@@ -119,7 +119,7 @@ STAGE_FEATURE_COLUMNS = (
 
 
 def _empty_features():
-    out = {column: np.nan for column in STAGE_FEATURE_COLUMNS}
+    out = dict.fromkeys(STAGE_FEATURE_COLUMNS, np.nan)
     out["Stage"] = None
     out["Stage_Entry_Date"] = None
     out["Stage_Run_Censored"] = None

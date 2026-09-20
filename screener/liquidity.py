@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 import requests
 
-
 logger = logging.getLogger(__name__)
 
 NSE_MONTHLY_REPORTS_URL = "https://www.nseindia.com/api/monthly-reports?key=CM"

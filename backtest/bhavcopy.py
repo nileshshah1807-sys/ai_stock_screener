@@ -22,8 +22,8 @@ tested against fixture frames without touching the network.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
 import logging
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -263,12 +263,11 @@ class BhavcopyStore:
         from tempfile import TemporaryDirectory
 
         trade_date = _as_date(trade_date)
-        with TemporaryDirectory(prefix="bhavcopy_") as download_folder:
-            with self._make_nse(download_folder) as nse:
-                raw_path = nse.equityBhavcopy(
-                    date=datetime.combine(trade_date, datetime.min.time())
-                )
-                raw = pd.read_csv(raw_path, dtype={"ISIN": str})
+        with TemporaryDirectory(prefix="bhavcopy_") as download_folder, self._make_nse(download_folder) as nse:
+            raw_path = nse.equityBhavcopy(
+                date=datetime.combine(trade_date, datetime.min.time())
+            )
+            raw = pd.read_csv(raw_path, dtype={"ISIN": str})
         frame = normalise_bhavcopy(raw, trade_date, series=self.series)
         if frame.empty:
             raise ValueError(f"Bhavcopy for {trade_date} normalised to zero rows")

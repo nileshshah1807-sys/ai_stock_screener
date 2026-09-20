@@ -8,13 +8,12 @@ one place prevents a later enrichment stage from bypassing an earlier gate.
 from __future__ import annotations
 
 import json
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
 import pandas as pd
 
 from .numeric import round_half_up, round_series_half_up
-
 
 RATING_ORDER = {
     "STRONG BUY": 0,
@@ -324,11 +323,12 @@ class RecommendationPolicy:
         # An illiquid name can be excellent research and still be unsuitable as
         # a published BUY. Research_Rating stays uncapped so the research view
         # is not lost.
-        if _as_bool(getattr(config, "REQUIRE_LIQUIDITY_FOR_BUY", True), True):
-            if "Portfolio_Actionable" in row.index and not _as_bool(
-                row.get("Portfolio_Actionable"), False
-            ):
-                buy_failures.append("insufficient execution liquidity for target size")
+        if (
+            _as_bool(getattr(config, "REQUIRE_LIQUIDITY_FOR_BUY", True), True)
+            and "Portfolio_Actionable" in row.index
+            and not _as_bool(row.get("Portfolio_Actionable"), False)
+        ):
+            buy_failures.append("insufficient execution liquidity for target size")
 
         # --- STRONG BUY ---------------------------------------------------
         strong_quality_floor = float(
@@ -550,17 +550,18 @@ class RecommendationPolicy:
         # cross-section, so it must not carry BUY conviction that day. The row
         # is still scored and published -- excluding it outright would discard
         # most of the universe whenever the vendor has a session gap.
-        if _as_bool(
-            getattr(self.config, "REQUIRE_ALIGNED_PRICE_BAR_FOR_BUY", True), True
-        ) and "Price_Bar_Aligned" in row.index:
-            if not _as_bool(row.get("Price_Bar_Aligned"), True):
-                sessions_behind = _safe_float(row.get("Price_Bar_Session_Lag"))
-                detail = (
-                    f" ({int(sessions_behind)} session(s) behind)"
-                    if sessions_behind
-                    else ""
-                )
-                buy_failures.append(f"price bar behind expected session{detail}")
+        if (
+            _as_bool(getattr(self.config, "REQUIRE_ALIGNED_PRICE_BAR_FOR_BUY", True), True)
+            and "Price_Bar_Aligned" in row.index
+            and not _as_bool(row.get("Price_Bar_Aligned"), True)
+        ):
+            sessions_behind = _safe_float(row.get("Price_Bar_Session_Lag"))
+            detail = (
+                f" ({int(sessions_behind)} session(s) behind)"
+                if sessions_behind
+                else ""
+            )
+            buy_failures.append(f"price bar behind expected session{detail}")
 
         anomaly_reason = _safe_text(row.get("Fundamental_Anomaly_Reason"))
         anomaly_parts = [part.strip() for part in anomaly_reason.split(",") if part.strip()]

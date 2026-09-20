@@ -1,8 +1,7 @@
 """Conservative speaker and section detection for cleaned call transcripts."""
 
-from dataclasses import dataclass
 import re
-
+from dataclasses import dataclass
 
 _SPEAKER_LINE = re.compile(r"^(?P<speaker>[A-Za-z][A-Za-z .,'()&/-]{1,120})(?::|\s+-\s+)$")
 _SPEAKER_WITH_TITLE = re.compile(

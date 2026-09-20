@@ -14,7 +14,6 @@ from screener.data_collection import (
 )
 from screener.market_data import PriceCache, TechnicalEnhancer
 
-
 IST = ZoneInfo("Asia/Kolkata")
 
 
@@ -236,7 +235,7 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
 
     @staticmethod
     def _cache_record(**overrides):
-        row = {column: 1 for column in PriceCache.REQUIRED_COLUMNS}
+        row = dict.fromkeys(PriceCache.REQUIRED_COLUMNS, 1)
         row.update(
             {
                 "Symbol": "EXAMPLE",
@@ -274,7 +273,7 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
         legacy = self._cache_record()
         factor = self._cache_record(
             Technical_Indicator_Version=TechnicalEnhancer.FACTOR_INDICATOR_VERSION,
-            **{column: 1 for column in PriceCache.FACTOR_REQUIRED_COLUMNS},
+            **dict.fromkeys(PriceCache.FACTOR_REQUIRED_COLUMNS, 1),
         )
         as_of = datetime(2026, 8, 10, 15, 30, tzinfo=IST)
         with tempfile.TemporaryDirectory() as directory:

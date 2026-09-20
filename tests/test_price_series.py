@@ -77,28 +77,28 @@ class BuildSeriesTests(unittest.TestCase):
     def test_untraded_sessions_stay_absent_rather_than_forward_filled(self):
         """A thin stock's gaps are real; inventing prices would draw a lie."""
         traded = [self.sessions[0], self.sessions[3], self.sessions[9]]
-        row = build_series(self.sessions, {d: (50.0, 10) for d in traded})
+        row = build_series(self.sessions, dict.fromkeys(traded, (50.0, 10)))
         points = decode_series(row, self.sessions)
         self.assertEqual([p["date"] for p in points],
                          [d.isoformat() for d in traded])
 
     def test_first_and_last_session_describe_the_encoded_range(self):
         traded = self.sessions[2:6]
-        row = build_series(self.sessions, {d: (10.0, 1) for d in traded})
+        row = build_series(self.sessions, dict.fromkeys(traded, (10.0, 1)))
         self.assertEqual(row["first_session"], traded[0].isoformat())
         self.assertEqual(row["last_session"], traded[-1].isoformat())
         self.assertEqual(row["points"], len(traded))
 
     def test_a_session_outside_the_calendar_is_dropped_not_misaligned(self):
         """Silently shifting one array against the others corrupts every later point."""
-        observations = {d: (10.0, 1) for d in self.sessions[:3]}
+        observations = dict.fromkeys(self.sessions[:3], (10.0, 1))
         observations[date(1999, 1, 4)] = (99.0, 1)
         row = build_series(self.sessions, observations)
         self.assertEqual(row["points"], 3)
         decode_series(row, self.sessions)  # must not raise
 
     def test_non_positive_prices_are_dropped(self):
-        observations = {d: (10.0, 1) for d in self.sessions}
+        observations = dict.fromkeys(self.sessions, (10.0, 1))
         observations[self.sessions[4]] = (0.0, 1)
         observations[self.sessions[5]] = (None, 1)
         row = build_series(self.sessions, observations)
@@ -106,7 +106,7 @@ class BuildSeriesTests(unittest.TestCase):
 
     def test_missing_volume_becomes_zero_not_a_gap(self):
         """No trades is a real observation when a close still printed."""
-        observations = {d: (10.0, 0) for d in self.sessions}
+        observations = dict.fromkeys(self.sessions, (10.0, 0))
         row = build_series(self.sessions, observations)
         points = decode_series(row, self.sessions)
         self.assertEqual(len(points), 10)
@@ -120,7 +120,7 @@ class BuildSeriesTests(unittest.TestCase):
 
     def test_misaligned_arrays_raise_rather_than_draw_wrong_prices(self):
         row = build_series(
-            self.sessions, {d: (10.0, 1) for d in self.sessions}
+            self.sessions, dict.fromkeys(self.sessions, (10.0, 1))
         )
         row["closes"] = encode_deltas([1, 2, 3])
         with self.assertRaises(ValueError):

@@ -21,12 +21,12 @@ instead of a failed one.
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime
 import json
 import logging
-from pathlib import Path
 import sys
 import time
+from datetime import date, datetime
+from pathlib import Path
 
 logger = logging.getLogger("backfill")
 

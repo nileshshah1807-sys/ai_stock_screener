@@ -844,7 +844,7 @@ class StockScorer:
     def technical_score_details(cls, row):
         """Return continuous component scores plus explicit evidence coverage."""
         s = cls.safe_float
-        scores = {name: None for name in TECH_COMPONENT_MAX}
+        scores = dict.fromkeys(TECH_COMPONENT_MAX)
         # Every price-relative indicator below is derived from adjusted OHLC.
         # Current_Price intentionally remains raw for valuation/display only.
         price = s(row.get("Technical_Price"))
@@ -972,9 +972,7 @@ class StockScorer:
 
         stoch_rsi = s(row.get("StochRSI_14"))
         if stoch_rsi is not None:
-            if stoch_rsi <= 0 or stoch_rsi >= 100:
-                scores["STOCH"] = 6.0
-            elif stoch_rsi < 20 and direction is not None and direction < 0:
+            if stoch_rsi <= 0 or stoch_rsi >= 100 or stoch_rsi < 20 and direction is not None and direction < 0:
                 scores["STOCH"] = 6.0
             else:
                 scores["STOCH"] = cls._interpolate(

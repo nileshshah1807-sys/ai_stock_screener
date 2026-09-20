@@ -2,9 +2,8 @@
 
 import logging
 import re
-import time
 import xml.etree.ElementTree as ET
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -524,7 +523,7 @@ class PriceCache:
                 else ZoneInfo(str(market_timezone))
             )
             current = pd.Timestamp(
-                as_of if as_of is not None else datetime.now(timezone.utc)
+                as_of if as_of is not None else datetime.now(UTC)
             )
             if current.tzinfo is None:
                 current = current.tz_localize(timezone_info)

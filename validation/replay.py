@@ -8,27 +8,26 @@ the historical export was written.
 
 from __future__ import annotations
 
-from datetime import date
 import json
+from datetime import date
 
 import numpy as np
 import pandas as pd
 
-from scoring.transcript_enricher import recency_weight, rank_actionable_recommendations
+from scoring.transcript_enricher import rank_actionable_recommendations, recency_weight
 from screener.data_collection import align_valuation_to_completed_price_bar
 from screener.liquidity import LiquidityQualityEnricher
 from screener.numeric import round_series_half_up
 from screener.recommendation import finalize_recommendations
 from screener.scoring import StockScorer
 from screener.valuation import ReverseDCFModel
-from validation.reproducibility import canonical_config_hash
 from transcripts.periods import (
     CURRENT_CYCLE,
     PRIOR_CYCLE,
     classify_transcript_evidence,
     cycle_transition_confidence,
 )
-
+from validation.reproducibility import canonical_config_hash
 
 DECISION_COLUMNS = {
     "Core_Score",

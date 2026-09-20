@@ -11,7 +11,6 @@ from transcripts.segmenter import segment_transcript
 from .local_analyzer import LocalSentimentAnalyzer
 from .schemas import ChunkSentiment
 
-
 ANALYSIS_VERSION = "v7-batched-relevant-finbert"
 
 

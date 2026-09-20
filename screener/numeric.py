@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_HALF_UP
 import math
+from decimal import ROUND_HALF_UP, Decimal
 
 
 def round_half_up(value, places=2):

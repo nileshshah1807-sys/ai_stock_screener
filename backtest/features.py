@@ -15,8 +15,8 @@ and the comparison in `p0.md` §7E would be meaningless.
 
 from __future__ import annotations
 
-from datetime import date, datetime
 import logging
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
