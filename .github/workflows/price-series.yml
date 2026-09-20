@@ -1,7 +1,14 @@
 name: Price series
 run-name: Price series (${{ github.event_name }})
 
-# Rebuilds the stock-page price chart from the point-in-time bhavcopy archive.
+# Rebuilds the stock-page price chart for both markets.
+#
+# Two jobs, because the two markets have nothing in common here beyond the
+# encoder. NSE reads the point-in-time bhavcopy archive and needs its ~160 MB
+# cache restored; US is sourced from yfinance and needs no cache at all, so it
+# finishes in a few minutes. They run in parallel and write disjoint rows --
+# `market` is part of the price_series and price_calendar keys -- so neither
+# can lose the other's work, and a failure of one must not hold up the other.
 #
 # Deliberately separate from daily-stock-screener.yml. The chart is a reading
 # aid; the screener is the product. A failure here, or the ~160 MB cache restore
@@ -39,16 +46,18 @@ on:
 permissions:
   contents: read
 
-# Never let two runs publish at once: they would race on the same rows, and a
-# queued run inherits nothing useful from the one it is waiting on.
-concurrency:
-  group: price-series
-  cancel-in-progress: false
-
 jobs:
   publish:
+    name: NSE (archive-sourced)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Per job rather than per workflow: never let two NSE rebuilds publish at
+    # once, since they would race on the same rows and a queued run inherits
+    # nothing useful from the one it waits on. Scoped to this market so the
+    # cheap US rebuild is not queued behind the NSE archive restore.
+    concurrency:
+      group: price-series-nse
+      cancel-in-progress: false
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -119,4 +128,43 @@ jobs:
           python -m tools.publish_price_series \
             --root "${ARCHIVE_ROOT}" \
             ${{ inputs.since && format('--since {0}', inputs.since) || '' }} \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
+
+  publish-us:
+    name: US (vendor-sourced)
+    runs-on: ubuntu-latest
+    # No archive to restore and ~1,500 symbols of daily history to fetch in
+    # thirties; measured at a few minutes end to end.
+    timeout-minutes: 30
+    concurrency:
+      group: price-series-us
+      cancel-in-progress: false
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MARKET: "US"
+      # Charts for exactly the universe the screener publishes.
+      US_UNIVERSE_SOURCE: "sp1500"
+      WIKIPEDIA_USER_AGENT: "winnow-screener/1.0 (+https://github.com/${{ github.repository }})"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      # No --since: Yahoo back-adjusts silently, so there is no corporate-action
+      # ledger to target a rebuild from. A full rebuild is cheap here, which is
+      # exactly why this market does not need the archive's incremental path.
+      - name: Publish US price series
+        run: |
+          python -m tools.publish_price_series \
+            --market US \
+            --start 2018-01-01 \
             ${{ inputs.dry_run && '--dry-run' || '' }}
