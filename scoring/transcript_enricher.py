@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date
 import json
 import math
+from datetime import date
 
 import numpy as np
 import pandas as pd
 
 from screener.numeric import round_half_up, round_series_half_up
-from screener.scoring import RATING_ORDER
 from storage.supabase_repository import SupabaseRepository
 from transcripts.periods import (
     CURRENT_CYCLE,
@@ -54,8 +53,6 @@ class TranscriptSentimentEnricher:
 
     def enrich(self, scored_df):
         enriched = scored_df.copy()
-        base_score_column = "Final_Score" if "Final_Score" in enriched else "Combined_Score"
-        base_scores = enriched[base_score_column].copy()
         enriched["Transcript_Status"] = "No transcript"
         enriched["Transcript_Evidence_Status"] = "No transcript"
         enriched["Transcript_Evidence_Period"] = ""
@@ -246,7 +243,6 @@ class TranscriptSentimentEnricher:
             enriched["Transcript_Recency_Weight"], errors="coerce"
         ).fillna(0.0).clip(0.0, 1.0)
         applied_weight = priority_weight * recency
-        high_risk = eligible & transcript_risk.gt(maximum_priority_risk)
         tone_direction = pd.Series("unknown", index=enriched.index, dtype=object)
         tone_direction.loc[eligible & effective.lt(45.0)] = "negative"
         tone_direction.loc[

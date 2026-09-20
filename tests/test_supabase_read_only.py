@@ -24,9 +24,8 @@ class SupabaseReadOnlyTests(unittest.TestCase):
         repository = self.repository(True)
         with patch.object(repository.session, "request") as request:
             for method in ("POST", "PATCH", "PUT", "DELETE"):
-                with self.subTest(method=method):
-                    with self.assertRaises(SupabaseReadOnlyError):
-                        repository._request(method, "transcripts")
+                with self.subTest(method=method), self.assertRaises(SupabaseReadOnlyError):
+                    repository._request(method, "transcripts")
             request.assert_not_called()
 
     def test_read_only_allows_reads(self):

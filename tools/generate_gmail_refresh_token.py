@@ -18,7 +18,6 @@ import webbrowser
 
 import requests
 
-
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPE = "https://www.googleapis.com/auth/gmail.send"
@@ -115,7 +114,7 @@ def main():
     print(f"GMAIL_CLIENT_ID={client_id}")
     print(f"GMAIL_CLIENT_SECRET={client_secret}")
     print(f"GMAIL_REFRESH_TOKEN={refresh_token}")
-    print(f"EMAIL_SENDER=<the Gmail account you just authorized>")
+    print("EMAIL_SENDER=<the Gmail account you just authorized>")
     print("EMAIL_ENABLED=True")
 
 

@@ -10,6 +10,36 @@ The evidence, assumptions, known limitations, and validation requirements for
 every active model component are recorded in
 [`docs/model_methodology.md`](docs/model_methodology.md).
 
+## Development
+
+Dependencies are pinned. The `.in` files are the human-edited inputs; the
+`.txt` files are generated locks and should not be edited by hand.
+
+| File | Purpose |
+| --- | --- |
+| `requirements.in` → `requirements.txt` | Full runtime set, including the FinBERT stack. Installed by every scheduled workflow. |
+| `requirements-core.in` → `requirements-ci.txt` | Runtime set without torch/transformers. Used by CI, which never runs FinBERT. |
+| `requirements-dev.in` → `requirements-dev.txt` | Lint and test tooling. |
+
+```bash
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m pip install -r requirements.txt -r requirements-dev.txt
+
+TRANSCRIPT_ENABLE_FINBERT=false pytest   # test suite
+ruff check .                             # lint
+```
+
+The locks are cross-platform (`uv pip compile --universal`), so the Linux-only
+CUDA wheels that torch pulls in are gated behind platform markers and skipped
+on Windows. To change a dependency, edit the matching `.in` file and
+regenerate — each lock's header carries its exact command.
+
+Both `torch` and `transformers` stay in the production lock even though only
+the transcript-sentiment workflow runs FinBERT:
+`validation/reproducibility.py` records their installed versions in the run
+manifest, so dropping them would write `not-installed` into the manifest and
+change the reproducibility hash.
+
 ## Project Layout
 
 `app.py` remains the deployment and scheduler entry point. It composes the

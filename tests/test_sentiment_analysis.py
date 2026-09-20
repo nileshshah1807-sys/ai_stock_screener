@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from sentiment.analyzer import analyze_transcript, aggregate_sentiments
+from sentiment.analyzer import aggregate_sentiments, analyze_transcript
 from sentiment.local_analyzer import LocalSentimentAnalyzer
 from sentiment.schemas import ChunkSentiment
 from transcripts.chunker import TranscriptChunk
@@ -151,9 +151,9 @@ It is 35% plus growth for the current year and 30% to 35% for the next three yea
         with (
             patch.dict("os.environ", {"TRANSCRIPT_REQUIRE_FINBERT": "true"}),
             patch("sentiment.local_analyzer._finbert_pipeline", return_value=broken_classifier),
+            self.assertRaisesRegex(RuntimeError, "FinBERT inference failed"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "FinBERT inference failed"):
-                LocalSentimentAnalyzer().analyze_chunk("Demand remained strong.")
+            LocalSentimentAnalyzer().analyze_chunk("Demand remained strong.")
 
     def test_finbert_sentences_are_batched_across_chunks(self):
         calls = []

@@ -103,10 +103,11 @@ class FaceValueBridgeTests(unittest.TestCase):
     def setUp(self):
         days = {}
         for index, day in enumerate(SESSIONS):
-            if index < 5:
-                rows = [["INE296A01024", "BAJFINANCE", 7000.0]]
-            else:
-                rows = [["INE296A01032", "BAJFINANCE", 700.0]]
+            rows = (
+                [["INE296A01024", "BAJFINANCE", 7000.0]]
+                if index < 5
+                else [["INE296A01032", "BAJFINANCE", 700.0]]
+            )
             days[day] = panel(rows)
         self.master = SecurityMaster(
             build_master(DictStore(days), SESSIONS, terminal_absence_sessions=3)

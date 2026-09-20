@@ -20,8 +20,8 @@ at. This is why the ledger stores a tri-state and not a boolean.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
 import logging
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd

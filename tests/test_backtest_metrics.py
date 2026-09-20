@@ -3,7 +3,6 @@
 import unittest
 
 import numpy as np
-import pandas as pd
 
 from backtest.metrics import (
     bucket_returns,
@@ -150,8 +149,8 @@ class TurnoverTests(unittest.TestCase):
 
     def test_three_of_five_replaced(self):
         """The p0.md worked example: A,B,C,D,E -> A,B,F,G,H."""
-        before = {k: 0.2 for k in "ABCDE"}
-        after = {k: 0.2 for k in "ABFGH"}
+        before = dict.fromkeys("ABCDE", 0.2)
+        after = dict.fromkeys("ABFGH", 0.2)
         self.assertAlmostEqual(turnover(before, after), 0.6)
 
     def test_empty_to_empty_is_zero(self):

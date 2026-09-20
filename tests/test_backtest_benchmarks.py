@@ -197,7 +197,7 @@ class CompoundCagrTests(unittest.TestCase):
 
 def fills_frame():
     rows = []
-    for period, signal in enumerate(["2024-01-31", "2024-02-29", "2024-03-31"]):
+    for signal in ["2024-01-31", "2024-02-29", "2024-03-31"]:
         for strategy, base in (("model_5", 2.0), ("equal_weight_universe", 0.0)):
             for index in range(30):
                 score = 50.0 if strategy == "equal_weight_universe" else float(index)

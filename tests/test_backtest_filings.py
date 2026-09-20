@@ -13,8 +13,6 @@ information the investor did not have.
 import unittest
 from datetime import date, datetime
 
-import pandas as pd
-
 from backtest.calendar import TradingCalendar
 from backtest.filings import (
     IND_AS_FROM_YEAR,
@@ -316,8 +314,8 @@ class StoreTests(unittest.TestCase):
             return self.records
 
     def test_fetch_queries_each_year_and_caches(self):
-        from tempfile import TemporaryDirectory
         from pathlib import Path
+        from tempfile import TemporaryDirectory
 
         stub = self.StubNSE([raw()])
         with TemporaryDirectory() as tmp:
@@ -329,8 +327,8 @@ class StoreTests(unittest.TestCase):
             self.assertFalse(frame.empty)
 
     def test_loading_a_missing_cache_returns_the_schema(self):
-        from tempfile import TemporaryDirectory
         from pathlib import Path
+        from tempfile import TemporaryDirectory
 
         with TemporaryDirectory() as tmp:
             frame = FilingStore(Path(tmp) / "absent.csv").load()

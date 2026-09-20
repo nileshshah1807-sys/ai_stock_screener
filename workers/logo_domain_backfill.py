@@ -12,9 +12,10 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import date
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import urlparse
 
 import yfinance as yf

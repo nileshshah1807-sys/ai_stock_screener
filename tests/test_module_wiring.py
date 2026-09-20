@@ -9,9 +9,9 @@ import pandas as pd
 from app import merge_research_universe, run_daily_analysis
 from screener.data_collection import StockDataCollector
 from screener.reporting import (
+    REPORTLAB_AVAILABLE,
     EmailReporter,
     InteractiveDashboard,
-    REPORTLAB_AVAILABLE,
     red_flag_summary,
 )
 from screener.runtime import load_local_config
@@ -219,9 +219,9 @@ class ModuleWiringTests(unittest.TestCase):
             patch("app.Config", return_value=SimpleNamespace()),
             patch("app.configure_runtime_cache"),
             patch("app.StockDataCollector", return_value=collector),
+            self.assertRaisesRegex(RuntimeError, "No technical data"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "No technical data"):
-                run_daily_analysis()
+            run_daily_analysis()
 
 
 if __name__ == "__main__":

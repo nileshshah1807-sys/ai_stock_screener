@@ -1,11 +1,11 @@
 """NSE universe, price history, and fundamentals collection."""
 
-import io
 import hashlib
+import io
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -301,7 +301,7 @@ class StockDataCollector:
             )
         # A clock callable makes the session boundary deterministic in tests.
         # Naive injected datetimes are interpreted as local exchange time.
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or (lambda: datetime.now(UTC))
         self.allow_provisional_market_bars = bool(
             getattr(config, "ALLOW_PROVISIONAL_MARKET_BARS", False)
         )
@@ -371,7 +371,6 @@ class StockDataCollector:
         today = analysis_as_of.date()
         current_time = analysis_as_of.time().replace(tzinfo=None)
         today_complete = current_time >= self.price_bar_completion_cutoff
-        today_is_session = is_expected_nse_session(today, self.market_holidays)
         expected_session = latest_expected_completed_nse_session(
             today,
             current_time,

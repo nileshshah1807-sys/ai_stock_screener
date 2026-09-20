@@ -18,7 +18,6 @@ from screener.scoring import (
     score_real_estate,
 )
 
-
 GENERIC = "Generic Fundamental Model"
 
 

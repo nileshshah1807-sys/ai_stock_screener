@@ -1,0 +1,127 @@
+# Tool configuration for the screener's Python side.
+#
+# This file deliberately carries NO [project] / [build-system] table yet. The
+# codebase is a flat layout of top-level packages (screener, backtest, workers,
+# ...) imported relative to the repo root, and app.py is a composition root
+# rather than an installed entry point. Turning it into an installable
+# distribution is a separate migration; doing it here would change how CI
+# installs the code and how every `from screener...` import resolves.
+
+# --------------------------------------------------------------------------
+# pytest
+# --------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "7.0"
+
+# Without testpaths, pytest recurses from the repo root through node_modules
+# (~53k files) and .venv before it finds a single test. On a WSL/NTFS mount
+# that walk alone took over three minutes.
+testpaths = ["tests"]
+
+# The suite imports first-party packages as `from screener.x import y`, which
+# resolves only when the repo root is on sys.path. `python -m pytest` happens to
+# add it; a bare `pytest` does not. Pinning it here makes both work.
+pythonpath = ["."]
+
+norecursedirs = [
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "dashboard",
+    "__pycache__",
+    ".pytest_cache",
+    "reports_advanced",
+    ".validation-output",
+]
+
+# -ra          summarise every non-passing outcome, so skips can't hide.
+# --strict-markers / --strict-config  turn typos in markers or this config into
+#              errors instead of silent no-ops.
+addopts = "-ra --strict-markers --strict-config"
+
+# --------------------------------------------------------------------------
+# ruff
+# --------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py312"
+
+# The codebase's 99th-percentile line is 94 chars; 120 leaves headroom for the
+# wide scoring tables without forcing a reflow of existing code.
+line-length = 120
+
+extend-exclude = [
+    ".venv",
+    "node_modules",
+    "reports_advanced",
+    ".validation-output",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes: undefined names, unused imports/variables
+    "I",    # isort: import ordering
+    "UP",   # pyupgrade: outdated syntax for the target version
+    "B",    # flake8-bugbear: likely bugs (mutable defaults, etc.)
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "RET",  # flake8-return
+]
+
+# Ratchet list. Each entry is a rule the codebase violates today and that needs
+# judgement rather than a mechanical fix. Remove entries as they are burned
+# down; the count is what `ruff check --select <code>` reported at the time.
+ignore = [
+    "E501",  # line-too-long (50). Cosmetic, and a formatter's job, not a linter's.
+    "E701",  # multiple-statements-on-one-line (24). Existing compact guard clauses.
+    "E402",  # module-import-not-at-top (7). Deliberate in the workflow entry points.
+    "E731",  # lambda-assignment (3). Used for small scoring helpers.
+    "B905",  # zip-without-explicit-strict (24). Each call needs a real decision
+             # about whether mismatched lengths should raise, which matters for
+             # price/date alignment. Highest-value entry to burn down first.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# app.py is a composition root AND, per its own docstring, a
+# "backwards-compatible API": it re-exports names that callers still import
+# directly, e.g. tests/test_technical_scoring.py does
+# `from app import StockScorer, TechnicalEnhancer, sort_by_recommendation`.
+# Those re-exports read as unused imports, and letting F401 strip them breaks
+# the suite. The durable fix is an explicit `__all__` in app.py; until then this
+# ignore is what keeps the façade intact.
+"app.py" = ["F401"]
+# Tests deliberately build partial fixtures and shadow names.
+"tests/*" = ["F841"]
+# One-off operational scripts; their console output is the interface.
+"tools/*" = ["T201"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "backtest",
+    "red_flags",
+    "scoring",
+    "screener",
+    "sentiment",
+    "storage",
+    "transcripts",
+    "validation",
+    "workers",
+]
+
+# --------------------------------------------------------------------------
+# mypy
+# --------------------------------------------------------------------------
+# Not wired into CI yet: the codebase has roughly 180 return annotations across
+# ~2000 function definitions, so a repo-wide run would be noise. This block sets
+# a permissive baseline so `mypy screener/` is useful locally today, and the
+# strictness can be raised per-module as annotations land.
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true      # yfinance, nse, textblob ship no stubs
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+check_untyped_defs = false         # raise to true once annotations are denser
+exclude = "(^|/)(\\.venv|node_modules|dashboard|reports_advanced)/"

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
+from scoring.transcript_enricher import rank_actionable_recommendations
 from screener.data_collection import StockDataCollector, calculate_liquidity_metrics
 from screener.liquidity import (
     LiquidityQualityEnricher,
@@ -10,7 +11,6 @@ from screener.liquidity import (
     filter_execution_universe,
 )
 from screener.scoring import score_fundamentals
-from scoring.transcript_enricher import rank_actionable_recommendations
 
 
 class LiquidityMetricTests(unittest.TestCase):

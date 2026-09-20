@@ -12,7 +12,6 @@ import numpy as np
 import pandas as pd
 import requests
 
-
 logger = logging.getLogger(__name__)
 
 NSE_MONTHLY_REPORTS_URL = "https://www.nseindia.com/api/monthly-reports?key=CM"
@@ -110,7 +109,15 @@ class NSELiquidityProvider:
                 "NSE_Liquidity_Source_URL",
             }
             return cached if required.issubset(cached.columns) else pd.DataFrame()
+        except (IndexError, KeyError, ValueError, TypeError, ZeroDivisionError, AttributeError):
+            # A short, empty or non-numeric history: the value is genuinely
+            # unknown, so report it as missing rather than as a number.
+            return pd.DataFrame()
         except Exception:
+            # Anything else is a defect, not absent data. Stay resilient --
+            # one bad row must not end a daily run -- but leave a trace so a
+            # silent NaN cannot be mistaken for a stock that lacks history.
+            logger.warning("NSE liquidity cache read failed unexpectedly", exc_info=True)
             return pd.DataFrame()
 
     def _fetch_categories(self):

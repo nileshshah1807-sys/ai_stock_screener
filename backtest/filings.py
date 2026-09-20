@@ -36,8 +36,8 @@ it by 15:30.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
 import logging
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -246,21 +246,20 @@ class FilingStore:
         from tempfile import TemporaryDirectory
 
         collected = []
-        with TemporaryDirectory(prefix="nse_filings_") as folder:
-            with self._make_nse(folder) as nse:
-                for year in range(int(start_year), int(end_year) + 1):
-                    try:
-                        records = nse.financial_results(
-                            segment=segment,
-                            period=period,
-                            from_date=datetime(year, 1, 1),
-                            to_date=datetime(year, 12, 31, 23, 59, 59),
-                        )
-                    except Exception as exc:
-                        logger.warning("Filing fetch failed for %s: %s", year, exc)
-                        continue
-                    logger.info("  %s: %d %s filings", year, len(records), period)
-                    collected.extend(records)
+        with TemporaryDirectory(prefix="nse_filings_") as folder, self._make_nse(folder) as nse:
+            for year in range(int(start_year), int(end_year) + 1):
+                try:
+                    records = nse.financial_results(
+                        segment=segment,
+                        period=period,
+                        from_date=datetime(year, 1, 1),
+                        to_date=datetime(year, 12, 31, 23, 59, 59),
+                    )
+                except Exception as exc:
+                    logger.warning("Filing fetch failed for %s: %s", year, exc)
+                    continue
+                logger.info("  %s: %d %s filings", year, len(records), period)
+                collected.extend(records)
 
         frame = normalise_filings(collected)
         self.path.parent.mkdir(parents=True, exist_ok=True)

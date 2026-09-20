@@ -42,8 +42,8 @@ explicit, reported policy choice rather than a hidden default.
 
 from __future__ import annotations
 
-from datetime import date, datetime
 import logging
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd

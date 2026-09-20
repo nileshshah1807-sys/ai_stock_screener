@@ -239,7 +239,7 @@ class RandomRanking(Strategy):
         # it cannot calibrate anything.
         signal = str(working.get("Signal_Date", pd.Series(["x"])).iloc[0])
         digest = hashlib.blake2b(
-            f"{self.seed}:{signal}".encode("utf-8"), digest_size=8
+            f"{self.seed}:{signal}".encode(), digest_size=8
         ).digest()
         generator = np.random.default_rng(int.from_bytes(digest, "big") % (2**32))
         working["Score"] = generator.uniform(0, 100, len(working))

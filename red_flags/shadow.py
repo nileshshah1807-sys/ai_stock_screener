@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-
 # Keep the red-flag worker's dependency surface small. Importing the full
 # screener scoring module also imports market-data clients that this worker
 # deliberately does not install.

@@ -1,5 +1,5 @@
-import unittest
 import tempfile
+import unittest
 from pathlib import Path
 
 import numpy as np
@@ -209,7 +209,7 @@ class TechnicalScoringTests(unittest.TestCase):
     def test_price_cache_rejects_old_indicator_math(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "price_cache.csv"
-            row = {column: 1 for column in PriceCache.REQUIRED_COLUMNS}
+            row = dict.fromkeys(PriceCache.REQUIRED_COLUMNS, 1)
             row["Technical_Indicator_Version"] = TechnicalEnhancer.INDICATOR_VERSION - 1
             pd.DataFrame([row]).to_csv(path, index=False)
 

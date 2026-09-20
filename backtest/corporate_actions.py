@@ -27,10 +27,10 @@ what P0 exists to prevent.
 
 from __future__ import annotations
 
-from datetime import date, datetime
 import logging
-from pathlib import Path
 import re
+from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 
@@ -294,13 +294,12 @@ class ActionStore:
         from tempfile import TemporaryDirectory
 
         start, end = _as_date(start), _as_date(end)
-        with TemporaryDirectory(prefix="nse_actions_") as folder:
-            with self._make_nse(folder) as nse:
-                records = nse.actions(
-                    segment="equities",
-                    from_date=datetime.combine(start, datetime.min.time()),
-                    to_date=datetime.combine(end, datetime.max.time()),
-                )
+        with TemporaryDirectory(prefix="nse_actions_") as folder, self._make_nse(folder) as nse:
+            records = nse.actions(
+                segment="equities",
+                from_date=datetime.combine(start, datetime.min.time()),
+                to_date=datetime.combine(end, datetime.max.time()),
+            )
         frame = normalise_actions(records)
 
         existing = self.load()

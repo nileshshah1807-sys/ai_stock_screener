@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from screener.recommendation import finalize_recommendations, rating_from_score
 from screener.numeric import round_half_up
+from screener.recommendation import finalize_recommendations, rating_from_score
 
 
 def config():

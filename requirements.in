@@ -1,0 +1,9 @@
+# Full runtime set: core plus the FinBERT stack. Only the transcript-sentiment
+# workflow runs FinBERT, but validation/reproducibility.py records torch and
+# transformers versions in the run manifest, so every production job installs
+# them -- dropping them would change the manifest to "not-installed" and with it
+# the reproducibility hash.
+-r requirements-core.in
+
+torch>=2.2.0
+transformers>=4.40.0

@@ -3,7 +3,6 @@
 import inspect
 import re
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -79,20 +78,21 @@ class ProductionStatementCoverageTests(unittest.TestCase):
             ),
         ]
         for frame in cases:
-            with self.subTest(columns=list(frame.columns)):
-                with self.assertRaisesRegex(RuntimeError, "coverage check failed"):
-                    enforce_factor_statement_coverage(frame, _config())
+            with (
+                self.subTest(columns=list(frame.columns)),
+                self.assertRaisesRegex(RuntimeError, "coverage check failed"),
+            ):
+                enforce_factor_statement_coverage(frame, _config())
 
     def test_invalid_floor_fails_closed(self):
         for floor in ("not-a-number", np.nan, -0.01, 1.01):
-            with self.subTest(floor=floor):
-                with self.assertRaisesRegex(
-                    RuntimeError,
-                    "FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE",
-                ):
-                    enforce_factor_statement_coverage(
-                        _frame([True]), _config(floor=floor)
-                    )
+            with self.subTest(floor=floor), self.assertRaisesRegex(
+                RuntimeError,
+                "FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE",
+            ):
+                enforce_factor_statement_coverage(
+                    _frame([True]), _config(floor=floor)
+                )
 
     def test_factor_model_disabled_is_completely_unaffected(self):
         enforce_factor_statement_coverage(

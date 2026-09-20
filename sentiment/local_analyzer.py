@@ -15,7 +15,6 @@ from textblob import TextBlob
 
 from .schemas import ChunkSentiment
 
-
 logger = logging.getLogger(__name__)
 
 

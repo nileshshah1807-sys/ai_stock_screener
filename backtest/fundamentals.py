@@ -27,8 +27,8 @@ Yahoo does:
 
 from __future__ import annotations
 
-from datetime import date, datetime
 import logging
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd

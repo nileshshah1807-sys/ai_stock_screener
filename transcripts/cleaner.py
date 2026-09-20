@@ -5,7 +5,6 @@ from collections import Counter
 
 from .segmenter import is_speaker_line
 
-
 _PAGE_NUMBER = re.compile(r"^(?:page\s*)?\d+(?:\s*(?:of|/)\s*\d+)?$", re.IGNORECASE)
 _SAFE_HARBOR = re.compile(
     r"(?:safe harbor|forward-looking statements?|actual results? may differ)",

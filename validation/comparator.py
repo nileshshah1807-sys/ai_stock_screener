@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 import pandas as pd
-
 
 RATING_ORDER = ("STRONG BUY", "BUY", "HOLD", "REDUCE", "SELL", "UNKNOWN")
 SCORE_COLUMNS = (
@@ -110,9 +110,12 @@ def _boolean(value: Any, *, column: str) -> bool:
         return bool(value)
     if isinstance(value, (int, np.integer)) and value in (0, 1):
         return bool(value)
-    if isinstance(value, (float, np.floating)) and math.isfinite(float(value)):
-        if float(value) in (0.0, 1.0):
-            return bool(value)
+    if (
+        isinstance(value, (float, np.floating))
+        and math.isfinite(float(value))
+        and float(value) in (0.0, 1.0)
+    ):
+        return bool(value)
     text = str(value).strip().lower()
     if text in _TRUE_VALUES:
         return True

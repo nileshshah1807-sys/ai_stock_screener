@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
-
 
 READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -40,7 +39,7 @@ class SupabaseRepository:
         }
 
     @classmethod
-    def from_environment(cls) -> "SupabaseRepository":
+    def from_environment(cls) -> SupabaseRepository:
         return cls(
             os.getenv("SUPABASE_URL", ""),
             os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
@@ -256,7 +255,7 @@ class SupabaseRepository:
         return rows
 
     def upsert_red_flag_snapshots(self, snapshots: list[dict[str, Any]], batch_size: int = 250) -> int:
-        fetched_at = datetime.now(timezone.utc).isoformat()
+        fetched_at = datetime.now(UTC).isoformat()
         rows = [{**snapshot, "fetched_at": fetched_at} for snapshot in snapshots]
         saved = 0
         for start in range(0, len(rows), batch_size):
@@ -278,7 +277,7 @@ class SupabaseRepository:
     ) -> int:
         """Save one idempotent point-in-time observation per policy and day."""
 
-        fetched_at = datetime.now(timezone.utc).isoformat()
+        fetched_at = datetime.now(UTC).isoformat()
         rows = []
         for snapshot in snapshots:
             details = snapshot.get("snapshot") if isinstance(snapshot.get("snapshot"), dict) else {}

@@ -25,15 +25,15 @@ from the original rather than overwriting it.
 from __future__ import annotations
 
 import argparse
-from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import gzip
 import logging
-from pathlib import Path
 import random
 import sys
 import threading
 import time
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import pandas as pd
 

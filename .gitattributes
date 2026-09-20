@@ -1,0 +1,35 @@
+# Line-ending policy.
+#
+# This repo is edited from both Windows and WSL. Without a rule here, a Windows
+# editor rewrites every file with CRLF and the whole tree shows as modified,
+# which buries real changes and destroys `git blame`. LF is the stored form and
+# the checked-out form on every platform; pair this with `core.autocrlf=input`
+# (or `false`) locally.
+* text=auto eol=lf
+
+# Explicit text types. Redundant with `text=auto` for these, but it documents
+# intent and stops a stray heuristic from treating one as binary.
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.css   text eol=lf
+*.md    text eol=lf
+*.sql   text eol=lf
+*.yml   text eol=lf
+*.txt   text eol=lf
+*.svg   text eol=lf
+
+# Binary: never munge line endings, never try to diff as text. The PDFs under
+# docs/Review/ are backtest reports; the woff2 files are the dashboard fonts.
+*.pdf   binary
+*.woff2 binary
+*.zip   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+
+# Generated: collapse in diffs and exclude from language stats.
+dashboard/package-lock.json linguist-generated=true -diff

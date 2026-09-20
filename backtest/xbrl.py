@@ -40,11 +40,11 @@ whole-model coverage.
 
 from __future__ import annotations
 
-from datetime import date, datetime
 import gzip
 import logging
-from pathlib import Path
 import re
+from datetime import date
+from pathlib import Path
 
 import numpy as np
 import pandas as pd

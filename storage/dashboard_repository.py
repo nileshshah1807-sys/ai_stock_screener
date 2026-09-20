@@ -9,10 +9,10 @@ only means the site serves the previous run behind a staleness banner.
 from __future__ import annotations
 
 import os
-from typing import Any, Iterable, Iterator
+from collections.abc import Iterable, Iterator
+from typing import Any
 
 import requests
-
 
 # The snapshot row carries the full source record in `payload`, so a batch of
 # rows is large in bytes even though the row count is modest. Chunks are sized
@@ -48,7 +48,7 @@ class DashboardRepository:
         }
 
     @classmethod
-    def from_environment(cls) -> "DashboardRepository":
+    def from_environment(cls) -> DashboardRepository:
         return cls(
             os.getenv("SUPABASE_URL", ""),
             os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),

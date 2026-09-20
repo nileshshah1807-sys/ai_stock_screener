@@ -5,6 +5,7 @@ config_local.py
 *.env
 
 # Generated reports and logs
+advanced_analysis_*.csv
 reports_advanced/
 .validation-output/
 *.log

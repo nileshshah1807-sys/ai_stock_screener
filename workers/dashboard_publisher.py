@@ -21,7 +21,7 @@ import math
 import os
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -644,7 +644,7 @@ def build_run_row(
 
     run: dict[str, Any] = {
         "run_date": run_date,
-        "generated_at_utc": generated_at or datetime.now(timezone.utc).isoformat(),
+        "generated_at_utc": generated_at or datetime.now(UTC).isoformat(),
         "model_version": coerce_text(first("Model_Version")),
         "recommendation_policy_version": coerce_text(
             first("Recommendation_Policy_Version")
