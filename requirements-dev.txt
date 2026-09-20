@@ -1,0 +1,8 @@
+# Tooling for CI and local development. Runtime dependencies stay in
+# requirements.txt, which the scheduled workflows install unchanged.
+#
+# Install alongside the runtime deps:
+#   python -m pip install -r requirements.txt -r requirements-dev.txt
+
+pytest>=8.0
+ruff>=0.14
