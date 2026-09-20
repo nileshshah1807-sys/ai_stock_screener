@@ -29,6 +29,7 @@ import {
   ratingToken,
   MISSING,
 } from "@/lib/format";
+import { stageAge } from "@/lib/stage-age.mjs";
 import { STAGES, type SnapshotRow } from "@/lib/types";
 
 /**
@@ -258,7 +259,12 @@ const STAGE_TONE: Record<string, string> = {
 };
 
 /**
- * Stage and days in it, e.g. `S2 23d`.
+ * Stage and how long it has run, e.g. `S2 391d`.
+ *
+ * For an advancing stage the number is the age of the advance, not of the
+ * current label: a pullback under the 50-day average flips Stage 2 to
+ * S2 Candidate and restarts `days_in_stage`, so a months-old advance would
+ * otherwise read `S2 0d` the day it recovers. See `stageAge`.
  *
  * Deliberately not a pill. The Rating column's `EntryBadge` already speaks in
  * WAIT/BUY chips, and a second chip vocabulary one column over would read as
@@ -268,6 +274,7 @@ const STAGE_TONE: Record<string, string> = {
  */
 function StageCell({ row }: { row: SnapshotRow }) {
   const stage = STAGES.find((item) => item.value === row.stage);
+  const age = stageAge(row);
   if (!stage) {
     return <span className="text-xs text-muted-foreground">{MISSING}</span>;
   }
@@ -286,9 +293,10 @@ function StageCell({ row }: { row: SnapshotRow }) {
         >
           {stage.short}
         </span>
-        {row.days_in_stage !== null && row.days_in_stage !== undefined ? (
+        {age ? (
           <span className="tabular font-mono text-[11px] text-muted-foreground">
-            {row.days_in_stage}d
+            {age.censored ? "≥" : ""}
+            {age.days}d
           </span>
         ) : null}
       </TooltipTrigger>
@@ -297,7 +305,7 @@ function StageCell({ row }: { row: SnapshotRow }) {
         <p className="text-xs opacity-90">{stage.meaning}</p>
         <ul className="mt-1 space-y-0.5 text-xs opacity-90">
           {row.days_in_stage !== null && row.days_in_stage !== undefined ? (
-            <li>In this stage for {row.days_in_stage} days.</li>
+            <li>On this exact label for {row.days_in_stage} days.</li>
           ) : null}
           {row.advance_age_days !== null && row.advance_age_days !== undefined ? (
             <li>
@@ -370,7 +378,7 @@ const CELLS: Record<ColumnId, (row: SnapshotRow) => ReactNode> = {
   rank: (row) => row.investment_rank ?? MISSING,
   stock: (row) => (
     <Link
-      href={`/stocks/${row.symbol}`}
+      href={`/stocks/${encodeURIComponent(row.symbol)}`}
       // Read by GridKeyboard to find the next row to focus. A class or a tag
       // selector would also match links inside cells, and j/k would then walk
       // sideways through a row instead of down the column.

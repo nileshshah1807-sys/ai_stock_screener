@@ -188,6 +188,7 @@ const ASCENDING_BY_DEFAULT = new Set([
   // Fewest days first: the freshest stage transitions are what a stage column
   // is sorted to find.
   "days_in_stage",
+  "advance_age_days",
 ]);
 
 /**
