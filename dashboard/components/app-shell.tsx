@@ -39,7 +39,7 @@ function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
     <Link
       href={marketPath(market.slug)}
       className={cn(
-        "group/brand flex shrink-0 items-center gap-2.5 rounded-full",
+        "group/brand flex min-w-0 items-center gap-2.5 rounded-full",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       )}
     >
@@ -58,7 +58,15 @@ function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
         <span className="block truncate text-lead font-semibold tracking-[-0.011em]">
           Winnow
         </span>
-        <span className="tabular hidden truncate font-mono text-[11px] text-muted-foreground sm:block">
+        {/*
+          pr-px, and it is not a fudge. This line sizes the brand block, so its
+          box ends up exactly as wide as its text -- measured at 102.00px in a
+          102.00px box. Subpixel antialiasing then bleeds past that edge and
+          `truncate`'s overflow:hidden shaves it, which rendered "v5.0" as
+          "v5.C". One pixel of trailing room gives the last glyph somewhere to
+          land without changing the layout.
+        */}
+        <span className="tabular hidden truncate pr-px font-mono text-[11px] text-muted-foreground sm:block">
           {run ? formatDate(run.price_bar_as_of ?? run.run_date) : "no run"}
           {run?.model_version ? ` · v${run.model_version}` : ""}
         </span>
@@ -120,6 +128,19 @@ function SignOut({ viewer }: { viewer: Viewer }) {
  * Nav items keep both icon and label at every breakpoint. The mock is
  * label-only, but an icon-free pill group gives the eye nothing to lock onto
  * when scanning back to a destination, and the icons cost 20px each.
+ *
+ * The header is three zones -- identity, navigation, account -- with the two
+ * side zones sharing the free space equally so the nav sits on the container's
+ * true centre. It was `justify-between` across four children until markets
+ * arrived, at which point the nav drifted to wherever the brand and the
+ * account controls left it and the market switch floated in the gap between
+ * them, belonging to neither. Grouping the switch with the brand and giving
+ * the side zones equal weight is what makes the row read as composed rather
+ * than as four things that happen to be on the same line.
+ *
+ * The heights are deliberate and form a scale: the market switch and the
+ * avatar are both 40px, bracketing the row at each end, while the nav track is
+ * 52px because navigation is the primary control here and should dominate.
  */
 export function AppShell({
   run,
@@ -143,23 +164,65 @@ export function AppShell({
           "sm:min-h-0 sm:rounded-workspace sm:elevate-workspace sm:overflow-hidden",
         )}
       >
-        <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-4 sm:px-8 sm:py-5">
-          <Brand run={run} market={market} />
+        {/*
+          Three zones: identity left, navigation centred, account right.
 
-          <MarketSwitch current={market} />
+          The side zones are `flex-1` rather than the header being
+          `justify-between`, and that is the whole fix. With space-between and
+          four children the gaps are simply whatever is left over, so the nav
+          sat wherever the brand and the account controls happened to leave it
+          and shifted every time either changed width. Two equal side zones put
+          the nav on the container's true centre and hold it there.
+        */}
+        <header className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-8 sm:py-5">
+          {/*
+            Identity: what you are looking at. The market switch belongs here
+            rather than out on its own, because it qualifies the brand the way
+            the run date beneath it does -- it says *which* screener this is,
+            not where to go next. Floating between the brand and the nav it read
+            as a stray control belonging to neither.
+
+            min-w-0 so a long brand can truncate instead of forcing the header
+            wider than the sheet.
+          */}
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <Brand run={run} market={market} />
+            {/*
+              A hairline, not a gap. Adjacency alone reads as two unrelated
+              controls; the rule says the switch modifies the brand. Hidden on
+              small screens, where the two already stack against the viewport
+              edge and the rule would only add noise.
+            */}
+            <span
+              aria-hidden
+              className="hidden h-8 w-px shrink-0 bg-border sm:block"
+            />
+            <MarketSwitch current={market} />
+          </div>
 
           {/*
             The recessed track is what the filled active pill sits in. Without
             it the pill reads as a stray button floating in the header.
-            `order-last` on small screens drops the group onto its own row so
-            it never competes with the brand for horizontal space.
+            `order-last` below the breakpoint drops the group onto its own row
+            so it never competes with the brand for horizontal space.
+
+            That breakpoint is xl, not lg, and the 256px matter. The nav track
+            is 540px and the two side zones are equal, so a single row needs
+            roughly 540 + 2x283 + gaps before the identity zone starts losing
+            room. At lg the row was technically wide enough to *fit* but not to
+            fit comfortably: measured at 1100px the brand was crushed to 11px
+            of its 66px, rendering as "W...". Wrapping at xl means the one-row
+            layout is only used where it genuinely works.
+
+            shrink-0 there: the nav is the one element that must never compress,
+            because its labels are the app's primary destinations.
           */}
           <nav
             aria-label="Primary"
             className={cn(
               "order-last flex w-full gap-1 overflow-x-auto rounded-full border bg-muted p-1.5",
               "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-              "lg:order-none lg:w-auto lg:overflow-visible",
+              "xl:order-none xl:w-auto xl:shrink-0 xl:overflow-visible",
             )}
           >
             {NAV.map(({ path, label, icon: Icon }) => (
@@ -176,7 +239,16 @@ export function AppShell({
             ))}
           </nav>
 
-          <div className="flex shrink-0 items-center gap-1">
+          {/*
+            Account. flex-1 only from xl, where the nav actually sits between
+            the two side zones and equal widths are what centre it. Below that
+            the nav has wrapped to its own row, so equal zones would buy
+            nothing and cost real space -- on a 430px phone they handed the
+            account controls 187px to display 120px of icons while squeezing
+            the brand down to "W...". Natural width plus justify-end gives the
+            identity zone everything the icons do not need.
+          */}
+          <div className="flex shrink-0 items-center justify-end gap-1 xl:flex-1">
             <ThemeToggle />
             <SignOut viewer={viewer} />
             <Avatar viewer={viewer} />

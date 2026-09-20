@@ -43,7 +43,14 @@ export function MarketSwitch({ current }: { current: Market }) {
             aria-current={active ? "true" : undefined}
             title={market.name}
             className={cn(
-              "min-h-8 rounded-full px-3.5 py-1 text-xs font-semibold",
+              // inline-flex + items-center, not just min-height. A bare
+              // min-height reserves the box but leaves the text sitting at the
+              // top of it, which is what made these read as misaligned against
+              // the nav pills beside them -- those centre via NavLink's own
+              // flex. justify-center keeps NSE and US optically even despite
+              // their different widths.
+              "inline-flex min-h-8 items-center justify-center rounded-full",
+              "px-3.5 text-xs font-semibold leading-none",
               "transition-[background-color,color] duration-(--duration-base) ease-(--ease-standard)",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
               active
