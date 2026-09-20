@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .numeric import round_half_up, round_series_half_up
+from .numeric import safe_float as _safe_float
 
 RATING_ORDER = {
     "STRONG BUY": 0,
@@ -23,15 +24,6 @@ RATING_ORDER = {
     "SELL": 4,
     "UNRATED": 5,
 }
-
-
-def _safe_float(value, default=None):
-    try:
-        if value is None or pd.isna(value):
-            return default
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _safe_text(value):
