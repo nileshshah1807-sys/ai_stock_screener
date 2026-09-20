@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 import { dcfStatus } from "@/lib/labels";
 import { visibleColumns, type ColumnId, type Density } from "@/lib/columns";
 import {
+  formatDate,
   formatINR,
   formatINRCompact,
   formatNumber,
@@ -259,12 +260,14 @@ const STAGE_TONE: Record<string, string> = {
 };
 
 /**
- * Stage and how long it has run, e.g. `S2 391d`.
+ * Stage and days since it entered Stage 2, e.g. `S2 50d`.
  *
- * For an advancing stage the number is the age of the advance, not of the
- * current label: a pullback under the 50-day average flips Stage 2 to
- * S2 Candidate and restarts `days_in_stage`, so a months-old advance would
- * otherwise read `S2 0d` the day it recovers. See `stageAge`.
+ * The number is days since this advance first reached the full Stage 2 stack,
+ * the same figure the stock page shows as "Entered Stage 2". Deliberately not
+ * `days_in_stage`, which counts only the current *label*: a pullback under the
+ * 50-day average flips Stage 2 to S2 Candidate and restarts it, so a months-old
+ * advance read `S2 0d` the day it recovered. All three figures are in the
+ * tooltip. See `stageAge`.
  *
  * Deliberately not a pill. The Rating column's `EntryBadge` already speaks in
  * WAIT/BUY chips, and a second chip vocabulary one column over would read as
@@ -304,13 +307,21 @@ function StageCell({ row }: { row: SnapshotRow }) {
         <p className="font-medium">{stage.value}</p>
         <p className="text-xs opacity-90">{stage.meaning}</p>
         <ul className="mt-1 space-y-0.5 text-xs opacity-90">
-          {row.days_in_stage !== null && row.days_in_stage !== undefined ? (
-            <li>On this exact label for {row.days_in_stage} days.</li>
+          {age?.basis === "stage2" ? (
+            <li>
+              Entered Stage 2 on {formatDate(row.stage2_entry_date)}
+              {age.censored ? ", at the latest" : ""}.
+            </li>
           ) : null}
           {row.advance_age_days !== null && row.advance_age_days !== undefined ? (
             <li>
               Advance running {row.advance_age_days} days (Stage 2 and its
               pullbacks, unbroken).
+            </li>
+          ) : null}
+          {row.days_in_stage !== null && row.days_in_stage !== undefined ? (
+            <li>
+              On the {stage.value} label itself for {row.days_in_stage} days.
             </li>
           ) : null}
           {row.price_to_ma150_pct !== null &&

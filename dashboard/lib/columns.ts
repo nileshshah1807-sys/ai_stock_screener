@@ -201,14 +201,20 @@ export const COLUMNS: readonly ColumnSpec[] = [
     // and is rolling over scores the same 100 as one that broke out last week.
     id: "stage",
     label: "Stage",
-    sort: "advance_age_days",
-    defaultDir: "asc",
+    sort: "stage2_entry_date",
+    defaultDir: "desc",
     title:
-      "Stage from the 50/150/200-day averages, and how long it has run -- for an advance, its full age across pullbacks, not the current label. Sorts freshest first. Display only: no score, gate or rating reads it.",
+      "Stage from the 50/150/200-day averages, and days since this advance entered Stage 2 -- the same figure the stock page shows. Sorts freshest first. Display only: no score, gate or rating reads it.",
     fields: [
       "stage",
       "days_in_stage",
       "advance_age_days",
+      "advance_age_censored",
+      // Days since Stage 2 entry is what the column shows, and it is derived
+      // from the entry date against this row's own bar date.
+      "stage2_entry_date",
+      "stage2_entry_censored",
+      "price_bar_as_of",
       "price_to_ma150_pct",
       "entry_state",
     ],
