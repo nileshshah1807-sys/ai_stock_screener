@@ -6,6 +6,7 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { MISSING } from "@/lib/format";
+import { useMarket } from "@/components/market-provider";
 
 /**
  * Every field of the source row, searchable.
@@ -22,9 +23,22 @@ function groupOf(key: string): string {
   return match ? match[1].replace(/_/g, " ") : "General";
 }
 
-const INTEGER_FORMAT = new Intl.NumberFormat("en-IN", {
-  maximumFractionDigits: 0,
-});
+/**
+ * Integer grouping in the market's own convention. A raw US market cap is
+ * 130,040,000,000 to its reader; Indian grouping renders the same number as
+ * 13,00,40,00,00,000. One formatter per locale, built once -- constructing an
+ * Intl.NumberFormat per cell across ~370 rows is measurably slow.
+ */
+const INTEGER_FORMATS = new Map<string, Intl.NumberFormat>();
+
+function integerFormat(locale: string): Intl.NumberFormat {
+  let format = INTEGER_FORMATS.get(locale);
+  if (!format) {
+    format = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
+    INTEGER_FORMATS.set(locale, format);
+  }
+  return format;
+}
 
 /**
  * Formats one source value for display.
@@ -40,7 +54,10 @@ const INTEGER_FORMAT = new Intl.NumberFormat("en-IN", {
  * The kind is returned alongside the text so the row can style a figure
  * differently from a string without re-sniffing the type.
  */
-function renderValue(value: unknown): {
+function renderValue(
+  value: unknown,
+  locale: string,
+): {
   text: string;
   kind: "missing" | "boolean" | "number" | "text";
 } {
@@ -52,7 +69,7 @@ function renderValue(value: unknown): {
   }
   if (typeof value === "number" && Number.isFinite(value)) {
     if (Number.isInteger(value)) {
-      return { text: INTEGER_FORMAT.format(value), kind: "number" };
+      return { text: integerFormat(locale).format(value), kind: "number" };
     }
     // parseFloat drops trailing zeros that toFixed always pads on.
     return { text: String(parseFloat(value.toFixed(4))), kind: "number" };
@@ -65,6 +82,7 @@ export function PayloadExplorer({
 }: {
   payload: Record<string, unknown>;
 }) {
+  const market = useMarket();
   const [term, setTerm] = useState("");
   // Filtering ~370 rows on every keystroke is cheap but not free; deferring
   // keeps the input responsive while the list catches up.
@@ -78,7 +96,7 @@ export function PayloadExplorer({
       if (
         query &&
         !key.toLowerCase().includes(query) &&
-        !renderValue(value).text.toLowerCase().includes(query)
+        !renderValue(value, market.locale).text.toLowerCase().includes(query)
       ) {
         continue;
       }
@@ -88,7 +106,7 @@ export function PayloadExplorer({
     }
 
     return [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [payload, deferred]);
+  }, [payload, deferred, market.locale]);
 
   const matchCount = groups.reduce((sum, [, rows]) => sum + rows.length, 0);
 
@@ -131,7 +149,7 @@ export function PayloadExplorer({
             </h3>
             <dl className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
               {rows.map(([key, value]) => {
-                const { text, kind } = renderValue(value);
+                const { text, kind } = renderValue(value, market.locale);
                 return (
                   <div
                     key={key}

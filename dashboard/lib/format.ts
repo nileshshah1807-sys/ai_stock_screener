@@ -13,7 +13,7 @@
  *    would contradict the model it is reporting.
  */
 
-import { DEFAULT_MARKET, type Market } from "@/lib/markets";
+import type { Market } from "@/lib/markets";
 
 const EN_IN = "en-IN";
 
@@ -44,10 +44,17 @@ export function formatInteger(value: number | null | undefined): string {
   return Math.round(value).toLocaleString(EN_IN);
 }
 
-/** Money in a market's own currency and grouping. */
+/**
+ * Money in a market's own currency and grouping.
+ *
+ * `market` is required, with no default. A default is how rupee formatting
+ * leaked onto every US price the first time: a call that forgot the market
+ * compiled, ran and printed a currency sign that was simply wrong. Without
+ * one, forgetting it is a type error.
+ */
 export function formatMoney(
   value: number | null | undefined,
-  market: Market = DEFAULT_MARKET,
+  market: Market,
   digits = 2,
 ): string {
   if (isMissing(value)) return MISSING;
@@ -67,7 +74,7 @@ export function formatMoney(
  */
 export function formatMoneyCompact(
   value: number | null | undefined,
-  market: Market = DEFAULT_MARKET,
+  market: Market,
 ): string {
   if (isMissing(value)) return MISSING;
   const abs = Math.abs(value);
@@ -99,20 +106,6 @@ export function formatMoneyCompact(
   })}`;
 }
 
-/**
- * NSE-bound wrappers, kept so callers that have no market in scope keep
- * working unchanged. New code should pass a market to formatMoney instead.
- */
-export function formatINR(
-  value: number | null | undefined,
-  digits = 2,
-): string {
-  return formatMoney(value, DEFAULT_MARKET, digits);
-}
-
-export function formatINRCompact(value: number | null | undefined): string {
-  return formatMoneyCompact(value, DEFAULT_MARKET);
-}
 
 /** Value already expressed in percent (e.g. 12.5 renders as +12.5%). */
 export function formatPercent(

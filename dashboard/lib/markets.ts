@@ -38,6 +38,14 @@ export type Market = {
    * `toLocaleString`.
    */
   scale: "indian" | "western";
+  /**
+   * Decimals for a price in a dense list -- the grid, the movers panels.
+   * Rupee prices are typically in the hundreds or thousands, where paise are
+   * noise at a glance. Dollar prices cluster in the tens, where dropping the
+   * cents hides real movement: $34.47 and $34.02 would both read as $34. Full
+   * detail views always show two.
+   */
+  listPriceDigits: number;
   /** Regulator line in the footer disclaimer. */
   advisor: string;
 };
@@ -51,6 +59,7 @@ export const MARKETS: Record<MarketSlug, Market> = {
     currencySymbol: "₹",
     locale: "en-IN",
     scale: "indian",
+    listPriceDigits: 0,
     advisor: "Consult a SEBI-registered advisor.",
   },
   us: {
@@ -61,6 +70,7 @@ export const MARKETS: Record<MarketSlug, Market> = {
     currencySymbol: "$",
     locale: "en-US",
     scale: "western",
+    listPriceDigits: 2,
     advisor: "Consult a registered investment adviser.",
   },
 };

@@ -3,7 +3,7 @@
  *
  * The writer is `workers/price_series.py`; this is the other half of that
  * contract and the two must agree exactly. Three delta-encoded JSON arrays per
- * symbol -- positions in the shared trading calendar, adjusted close in paise,
+ * symbol -- positions in the shared trading calendar, adjusted close in minor currency units (paise or cents),
  * and volume -- chosen because a price series is smooth, so successive
  * differences are one or two digits where absolute values are six.
  *

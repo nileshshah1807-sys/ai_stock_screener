@@ -6,7 +6,7 @@ import { RatingBadge } from "@/components/rating-badge";
 import { Reveal } from "@/components/motion";
 import {
   formatDate,
-  formatINR,
+  formatMoney,
   formatPercent,
   formatScore,
   MISSING,
@@ -196,7 +196,7 @@ function PriceMoverList({
                 </span>
 
                 <span className="tabular hidden font-mono text-[11px] text-muted-foreground sm:inline">
-                  {formatINR(row.current_price, 0)}
+                  {formatMoney(row.current_price, market, market.listPriceDigits)}
                 </span>
                 {/* Two decimals, matching the grid's 1D column and the stock
                     page's 1D tile. One decimal collapses most of a session's

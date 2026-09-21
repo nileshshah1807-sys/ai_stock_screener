@@ -1,6 +1,7 @@
 import { TriangleAlert } from "lucide-react";
 
-import { formatPercent } from "@/lib/format";
+import { formatMoney, formatPercent } from "@/lib/format";
+import type { Market } from "@/lib/markets";
 
 const MISSING = "—";
 
@@ -63,7 +64,14 @@ function Fact({
   );
 }
 
-export function ExpectationsGap({ data }: { data: ExpectationsData }) {
+export function ExpectationsGap({
+  data,
+  market,
+}: {
+  data: ExpectationsData;
+  /** EPS is quoted in the market's own currency. */
+  market: Market;
+}) {
   const hasEarnings = data.changePct !== null;
   const hasGrowth = data.growthGapPct !== null;
   const hasGuidance = Boolean(data.guidanceTransition);
@@ -98,7 +106,7 @@ export function ExpectationsGap({ data }: { data: ExpectationsData }) {
           }
           detail={
             hasEarnings && data.trailingEps !== null && data.forwardEps !== null
-              ? `Trailing ₹${data.trailingEps.toFixed(2)} → forward ₹${data.forwardEps.toFixed(2)}`
+              ? `Trailing ${formatMoney(data.trailingEps, market)} → forward ${formatMoney(data.forwardEps, market)}`
               : data.status
           }
           tone={

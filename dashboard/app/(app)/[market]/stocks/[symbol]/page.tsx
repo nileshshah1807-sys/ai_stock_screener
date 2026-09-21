@@ -26,8 +26,8 @@ import {
 } from "@/components/ui/tabs";
 import {
   formatDate,
-  formatINR,
-  formatINRCompact,
+  formatMoney,
+  formatMoneyCompact,
   formatNumber,
   formatPercent,
   formatRatioAsPercent,
@@ -527,7 +527,7 @@ export default async function StockPage({
     },
     { label: "Revenue growth", value: formatRatioAsPercent(row.revenue_growth, 1, true) },
     { label: "Earnings growth", value: formatRatioAsPercent(row.earnings_growth, 1, true) },
-    { label: "Market cap", value: formatINRCompact(row.market_cap) },
+    { label: "Market cap", value: formatMoneyCompact(row.market_cap, market) },
   ];
 
   const technicalFields: Field[] = [
@@ -553,8 +553,8 @@ export default async function StockPage({
     },
     { label: "RSI 14", value: formatNumber(row.rsi_14, 1) },
     { label: "ADX 14", value: formatNumber(row.adx_14, 1) },
-    { label: "MA20", value: formatINR(numeric(payload, "MA20"), 1) },
-    { label: "MA50", value: formatINR(ma50, 1) },
+    { label: "MA20", value: formatMoney(numeric(payload, "MA20"), market, 1) },
+    { label: "MA50", value: formatMoney(ma50, market, 1) },
     {
       label: "Price vs MA50",
       value: formatPercent(priceVsMa50, 2, true),
@@ -626,7 +626,7 @@ export default async function StockPage({
       value: row.portfolio_actionable ? "Yes" : "No",
       tone: row.portfolio_actionable ? "positive" : "caution",
     },
-    { label: "20D median turnover", value: formatINRCompact(row.median_turnover_20d_inr) },
+    { label: "20D median turnover", value: formatMoneyCompact(row.median_turnover_20d_inr, market) },
     { label: "NSE impact cost", value: formatPercent(row.nse_impact_cost_pct, 2) },
     { label: "NSE group", value: text(payload, "NSE_Liquidity_Group") },
     { label: "Est. build days", value: formatNumber(row.portfolio_estimated_build_days, 1) },
@@ -711,7 +711,7 @@ export default async function StockPage({
 
           <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border sm:grid-cols-3 lg:grid-cols-5">
             {[
-              { label: "Price", value: formatINR(row.current_price), tone: "" },
+              { label: "Price", value: formatMoney(row.current_price, market), tone: "" },
               {
                 label: "1D",
                 value: formatPercent(change1d, 2, true),
@@ -734,7 +734,7 @@ export default async function StockPage({
                 tone:
                   (row.pct_change_3m ?? 0) >= 0 ? "text-positive" : "text-negative",
               },
-              { label: "Market cap", value: formatINRCompact(row.market_cap), tone: "" },
+              { label: "Market cap", value: formatMoneyCompact(row.market_cap, market), tone: "" },
             ].map((stat) => (
               <div key={stat.label} className="bg-muted/40 px-4 py-3">
                 <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -780,11 +780,15 @@ export default async function StockPage({
             title="Stage"
             description="Where the stock is in its cycle, from the 50/150/200-day averages, and what it has done since."
           >
-            <StageSummary row={row} asOf={row.price_bar_as_of ?? run.price_bar_as_of} />
+            <StageSummary
+              row={row}
+              asOf={row.price_bar_as_of ?? run.price_bar_as_of}
+              market={market}
+            />
           </Panel>
         ) : null}
 
-        <ExpectationsGap data={expectations} />
+        <ExpectationsGap data={expectations} market={market} />
 
         {/*
           The ring gets a fixed narrow column and the waterfall gets the rest.
