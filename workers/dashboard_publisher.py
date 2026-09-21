@@ -493,14 +493,18 @@ def _existing_run(repository: DashboardRepository, run_date: str) -> dict[str, A
     ``row_count=0`` is different: it is an incomplete publisher reservation and
     can be reclaimed before retrying the serialized scheduled workflow.
     """
+    # Scoped to the repository's market like every repository method. Both
+    # markets publish a run for the same calendar date, so an unscoped lookup
+    # finds the other market's run and refuses a publish that is not a
+    # replacement at all.
     rows = repository._request(  # noqa: SLF001 - repository has no dated lookup
         "GET",
         "screener_runs",
-        params={
+        params=repository._scoped({  # noqa: SLF001 - same publisher protocol
             "select": "run_date,row_count",
             "run_date": f"eq.{run_date}",
             "limit": "1",
-        },
+        }),
     )
     return rows[0] if rows else None
 
@@ -518,10 +522,15 @@ def _reserve_run(
     Complete run metadata is not written until snapshot and history writes have
     both succeeded.
     """
+    # The market is part of the key the snapshot's foreign key points at.
+    # Left to the column default, a US reservation is filed as NSE: the US
+    # snapshot rows then fail their foreign key, and the compensation below
+    # runs against a date that belongs to the other market.
     repository._request(  # noqa: SLF001 - reservation is a publisher protocol
         "POST",
         "screener_runs",
         json={
+            "market": repository.market,
             "run_date": run_date,
             "generated_at_utc": generated_at_utc,
             "row_count": 0,
@@ -544,11 +553,15 @@ def _remove_failed_reservation(
     """
     errors: list[str] = []
     history_cleaned = False
+    # Both deletes are scoped to this publisher's market, and must be. Unscoped
+    # they match the other market's rows for the same date -- its history
+    # directly, and its snapshot through the run's cascading foreign key -- so
+    # a failed US publish would erase the live NSE run for that day.
     try:
         repository._request(  # noqa: SLF001 - compensating publisher protocol
             "DELETE",
             "screener_history",
-            params={"observed_on": f"eq.{run_date}"},
+            params=repository._scoped({"observed_on": f"eq.{run_date}"}),  # noqa: SLF001
             headers={"Prefer": "return=minimal"},
         )
         history_cleaned = True
@@ -563,7 +576,7 @@ def _remove_failed_reservation(
             repository._request(  # noqa: SLF001 - compensating publisher protocol
                 "DELETE",
                 "screener_runs",
-                params={"run_date": f"eq.{run_date}"},
+                params=repository._scoped({"run_date": f"eq.{run_date}"}),  # noqa: SLF001
                 headers={"Prefer": "return=minimal"},
             )
         except Exception as exc:  # noqa: BLE001 - retain the original publish error

@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
+from storage.dashboard_repository import DashboardRepository
 from workers.dashboard_publisher import (
     HISTORY_COLUMNS,
     SNAPSHOT_COLUMNS,
@@ -42,16 +43,36 @@ def minimal_frame(**overrides):
 
 
 class RecordingDashboardRepository:
-    """Small fake that exposes publication order without contacting Supabase."""
+    """Small fake that exposes publication order without contacting Supabase.
 
-    def __init__(self, *, existing_run=False, fail_at=None):
+    Market-faithful on purpose. It is scoped to one market like the real
+    repository, delegates to the real `_scoped`, and answers the date lookup
+    the way the database would: a query that names a market sees only that
+    market's run, and one that names none sees every market's. An earlier
+    version answered as though only one market existed, which is exactly how
+    unscoped publisher requests got past it.
+    """
+
+    # The real implementation, so these tests exercise the actual scoping
+    # rather than a copy of it that could drift.
+    _scoped = DashboardRepository._scoped
+
+    def __init__(self, *, existing_run=False, fail_at=None, market="NSE",
+                 existing_market=None):
         self.existing_run = existing_run
         self.fail_at = fail_at
+        self.market = market
+        # Which market already holds a run on the publish date. Defaults to
+        # this repository's own, which is what every single-market test means.
+        self.existing_market = existing_market or market
         self.calls = []
 
     def _request(self, method, path, **kwargs):
         if method == "GET" and path == "screener_runs":
             self.calls.append(("check_run", kwargs))
+            wanted = (kwargs.get("params") or {}).get("market")
+            if wanted is not None and wanted != f"eq.{self.existing_market}":
+                return []
             if self.existing_run == "incomplete":
                 return [{"run_date": "2026-08-11", "row_count": 0}]
             return (
@@ -382,7 +403,7 @@ class PublishTests(unittest.TestCase):
             if name == "reserve_run"
         )
         self.assertEqual(
-            set(reservation), {"run_date", "generated_at_utc", "row_count"}
+            set(reservation), {"market", "run_date", "generated_at_utc", "row_count"}
         )
         self.assertEqual(reservation["row_count"], 0)
         published = next(
@@ -453,6 +474,64 @@ class PublishTests(unittest.TestCase):
         )
         self.assertLess(labels.index("cleanup_run"), labels.index("snapshot"))
         self.assertEqual(summary["snapshot_rows_written"], 1)
+
+    # -- market scoping ------------------------------------------------------
+    #
+    # Both markets publish a run for the same calendar date. The publisher's
+    # reservation protocol talks to the tables directly rather than through a
+    # repository method, and it did so unscoped: the first US publish was
+    # refused because Friday's NSE run existed, and had the check alone been
+    # fixed, the reservation would have been filed as NSE and the failure
+    # cleanup would have deleted Friday's live NSE run.
+
+    def test_another_markets_run_on_the_same_date_does_not_block_publishing(self):
+        repository = RecordingDashboardRepository(
+            market="US", existing_run=True, existing_market="NSE"
+        )
+
+        summary = self.publish_with(repository, market="US")
+
+        self.assertEqual(summary["snapshot_rows_written"], 1)
+        self.assertIn("publish_run", [name for name, _ in repository.calls])
+
+    def test_the_same_markets_run_on_the_same_date_still_blocks(self):
+        """Scoping must not weaken the guard against replacing a live run."""
+        repository = RecordingDashboardRepository(
+            market="US", existing_run=True, existing_market="US"
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "already published"):
+            self.publish_with(repository, market="US")
+
+    def test_the_existence_check_names_the_publishers_market(self):
+        repository = RecordingDashboardRepository(market="US")
+
+        self.publish_with(repository, market="US")
+
+        check = next(d for name, d in repository.calls if name == "check_run")
+        self.assertEqual(check["params"]["market"], "eq.US")
+
+    def test_the_reservation_is_filed_under_the_publishers_market(self):
+        """Left to the column default, a US reservation would be filed as NSE."""
+        repository = RecordingDashboardRepository(market="US")
+
+        self.publish_with(repository, market="US")
+
+        reservation = next(d for name, d in repository.calls if name == "reserve_run")
+        self.assertEqual(reservation["json"]["market"], "US")
+
+    def test_failure_cleanup_deletes_only_its_own_markets_rows(self):
+        """Unscoped, a failed US publish would erase that day's NSE run."""
+        repository = RecordingDashboardRepository(market="US", fail_at="snapshot")
+
+        with self.assertRaisesRegex(RuntimeError, "snapshot write failed"):
+            self.publish_with(repository, market="US")
+
+        cleanups = {name: d for name, d in repository.calls if name.startswith("cleanup_")}
+        self.assertEqual(set(cleanups), {"cleanup_history", "cleanup_run"})
+        for name, details in cleanups.items():
+            with self.subTest(cleanup=name):
+                self.assertEqual(details["params"]["market"], "eq.US")
 
     def test_prune_failure_is_non_fatal_after_completed_publish(self):
         repository = RecordingDashboardRepository(fail_at="prune")
