@@ -103,6 +103,7 @@ export function SummaryTiles({
           <p className="truncate text-[13px] text-muted-foreground">Universe</p>
           <p className="flex items-baseline gap-1.5">
             <CountUp
+              locale={market.locale}
               value={total}
               className="numeral text-3xl font-semibold sm:text-4xl"
             />
@@ -142,6 +143,7 @@ export function SummaryTiles({
               */}
               <p className="flex items-baseline gap-1.5">
                 <CountUp
+                  locale={market.locale}
                   value={count}
                   className="numeral text-3xl font-semibold sm:text-4xl"
                 />

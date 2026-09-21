@@ -199,7 +199,7 @@ export function StockPicker({
           <span className="tabular shrink-0 font-mono text-[11px] text-muted-foreground">
             {loading
               ? "loading…"
-              : `${entries.length.toLocaleString("en-IN")} stocks`}
+              : `${entries.length.toLocaleString(market.locale)} stocks`}
           </span>
         </div>
 

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { StockLink } from "@/components/screener/stock-link";
+import { Money } from "@/components/money";
 import { EntryBadge } from "@/components/entry-badge";
 import {
   CappedChip,
@@ -21,8 +22,6 @@ import { dcfStatus } from "@/lib/labels";
 import { visibleColumns, type ColumnId, type Density } from "@/lib/columns";
 import {
   formatDate,
-  formatINR,
-  formatINRCompact,
   formatNumber,
   formatPercent,
   formatScore,
@@ -243,7 +242,7 @@ function LiquidityCell({ row }: { row: SnapshotRow }) {
         </p>
         <p className="mt-1 text-xs opacity-80">
           20-day median turnover{" "}
-          {formatINRCompact(row.median_turnover_20d_inr)}
+          <Money value={row.median_turnover_20d_inr} compact />
         </p>
       </TooltipContent>
     </Tooltip>
@@ -422,10 +421,10 @@ const CELLS: Record<ColumnId, (row: SnapshotRow) => ReactNode> = {
       />
     </span>
   ),
-  price: (row) => formatINR(row.current_price, 0),
+  price: (row) => <Money value={row.current_price} list />,
   change1d: (row) => <ChangeCell value={row.pct_change_1d} decimals={2} />,
   change1m: (row) => <ChangeCell value={row.pct_change_1m} />,
-  marketCap: (row) => formatINRCompact(row.market_cap),
+  marketCap: (row) => <Money value={row.market_cap} compact />,
   pe: (row) => formatNumber(row.pe_ratio, 1),
   liq: (row) => <LiquidityCell row={row} />,
 };

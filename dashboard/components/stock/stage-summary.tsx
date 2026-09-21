@@ -2,7 +2,8 @@ import { TriangleAlert } from "lucide-react";
 
 import { FieldList, type Field } from "@/components/stock/field-list";
 import type { ChartMarker } from "@/components/stock/price-chart";
-import { formatDate, formatINR, formatPercent, MISSING } from "@/lib/format";
+import { formatDate, formatMoney, formatPercent, MISSING } from "@/lib/format";
+import type { Market } from "@/lib/markets";
 import { STAGES, type SnapshotRow } from "@/lib/types";
 
 type StageRow = Pick<
@@ -69,10 +70,13 @@ export function stageMarkers(row: StageRow): ChartMarker[] {
 export function StageSummary({
   row,
   asOf,
+  market,
 }: {
   row: StageRow;
   /** The run's bar date, to state "N days ago" against the data, not today. */
   asOf: string | null;
+  /** Whose currency the Stage 2 entry price is in. */
+  market: Market;
 }) {
   const stage = STAGES.find((item) => item.value === row.stage);
   if (!stage) {
@@ -105,7 +109,7 @@ export function StageSummary({
       value: stage2Label ?? "No Stage 2 in the data",
       tone: stage2Label ? "default" : "muted",
       hint: row.stage2_entry_date
-        ? `${stage2Ago !== null ? `${stage2Ago} days ago · ` : ""}at ${formatINR(row.stage2_entry_price)}${
+        ? `${stage2Ago !== null ? `${stage2Ago} days ago · ` : ""}at ${formatMoney(row.stage2_entry_price, market)}${
             row.stage2_entry_censored
               ? " · the advance was under way when the price history begins"
               : ""
