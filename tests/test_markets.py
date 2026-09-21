@@ -1,8 +1,10 @@
+import importlib
 import os
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from screener import runtime
 from screener.markets import (
     MARKETS,
     NSE,
@@ -13,7 +15,6 @@ from screener.markets import (
     resolve,
     ticker_for,
 )
-from screener.runtime import Config
 
 
 class MarketResolutionTests(unittest.TestCase):
@@ -91,10 +92,52 @@ class ProfileContentTests(unittest.TestCase):
         self.assertEqual(profile.ticker_suffix, ".NS")
 
 
+# Every environment variable a MarketProfile stands in for. The profile only
+# supplies defaults, so any of these being set in the environment overrides it
+# -- which is the design, and also exactly why a test of the *defaults* has to
+# clear them. Both scheduled workflows set several at job level, and they leak
+# into the regression-test step: the US workflow's America/New_York timezone
+# failed this test on its first two runs.
+PROFILE_OVERRIDES = (
+    "MARKET",
+    "ANALYSIS_TIMEZONE",
+    "MARKET_BAR_COMPLETE_AFTER_IST",
+    "BENCHMARK_INDEX_SYMBOL",
+    "BENCHMARK_INDEX_FALLBACK",
+    "CUSTOM_WATCHLIST",
+    "US_UNIVERSE_SOURCE",
+)
+
+
+def config_with_env_cleared():
+    """Return a Config class evaluated with no profile overrides in the env.
+
+    Config's attributes are read from the environment when the class body runs,
+    at import, so clearing the environment afterwards changes nothing. The
+    module is reloaded inside the cleared environment instead, then reloaded
+    again outside it so every later test sees the Config the process started
+    with. The runtime module has no import-time side effects -- only imports and
+    definitions -- so the reload is safe.
+    """
+    scrubbed = {k: v for k, v in os.environ.items() if k not in PROFILE_OVERRIDES}
+    try:
+        with mock.patch.dict(os.environ, scrubbed, clear=True):
+            return importlib.reload(runtime).Config
+    finally:
+        importlib.reload(runtime)
+
+
 class ConfigDefaultTests(unittest.TestCase):
-    """Config is imported with MARKET unset, so it must still read as NSE."""
+    """With no overrides in the environment, Config must read as NSE.
+
+    Asserted against a Config built with the overrides cleared rather than the
+    one imported at module load: the latter reflects whatever environment the
+    suite happens to run in, and CI, the NSE workflow and the US workflow all
+    run it in a different one.
+    """
 
     def test_config_defaults_match_the_nse_profile(self):
+        Config = config_with_env_cleared()
         profile = resolve(NSE)
         self.assertEqual(Config.MARKET, NSE)
         self.assertEqual(Config.ANALYSIS_TIMEZONE, profile.timezone)
@@ -105,6 +148,18 @@ class ConfigDefaultTests(unittest.TestCase):
         self.assertEqual(Config.BENCHMARK_INDEX_FALLBACK, profile.benchmark_fallback)
         self.assertEqual(Config.MARKET_CURRENCY, "INR")
         self.assertEqual(list(Config.CUSTOM_WATCHLIST), list(profile.fallback_symbols))
+
+    def test_an_explicit_environment_still_overrides_the_profile(self):
+        """The other half of the contract: defaults only, never a hard value."""
+        scrubbed = {k: v for k, v in os.environ.items() if k not in PROFILE_OVERRIDES}
+        scrubbed["ANALYSIS_TIMEZONE"] = "Europe/London"
+        try:
+            with mock.patch.dict(os.environ, scrubbed, clear=True):
+                Config = importlib.reload(runtime).Config
+        finally:
+            importlib.reload(runtime)
+        self.assertEqual(Config.ANALYSIS_TIMEZONE, "Europe/London")
+        self.assertEqual(Config.MARKET, NSE)
 
 
 if __name__ == "__main__":

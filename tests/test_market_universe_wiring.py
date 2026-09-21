@@ -1,5 +1,6 @@
 """The collector's market wiring: universe selection and ticker translation."""
 
+import os
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -89,7 +90,38 @@ class UniverseSelectionTests(unittest.TestCase):
         self.assertNotIn("A" * 21, symbols)
 
 
+# Environment variables the collector consults before falling back to the
+# market profile. Both scheduled workflows set some of these at job level, and
+# they leak into the regression-test step -- the NSE workflow's 16:15 cutoff
+# failed the US assertion below, the US workflow's 16:00 failed the NSE one.
+COLLECTOR_ENV_OVERRIDES = (
+    "MARKET",
+    "ANALYSIS_TIMEZONE",
+    "MARKET_BAR_COMPLETE_AFTER_IST",
+    "NSE_PRICE_BAR_COMPLETION_CUTOFF",
+    "NSE_MARKET_TIMEZONE",
+    "US_UNIVERSE_SOURCE",
+)
+
+
 class MarketProfileWiringTests(unittest.TestCase):
+    """What the collector resolves from its profile when nothing overrides it.
+
+    The environment is cleared of every override for each test. These assert
+    profile defaults, and a default the ambient environment can change is not
+    being tested -- it is being sampled.
+    """
+
+    def setUp(self):
+        scrubbed = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in COLLECTOR_ENV_OVERRIDES
+        }
+        patcher = mock.patch.dict(os.environ, scrubbed, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_an_nse_collector_keeps_the_pre_refactor_defaults(self):
         collector = StockDataCollector(_config())
 
