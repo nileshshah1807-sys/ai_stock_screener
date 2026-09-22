@@ -145,6 +145,12 @@ class Config:
     MARKET_BAR_COMPLETE_AFTER_IST = os.getenv(
         "MARKET_BAR_COMPLETE_AFTER_IST", _PROFILE.bar_complete_after
     )
+    # Share of collected symbols whose last usable bar must be the expected
+    # completed session. A healthy run sits above 99.9%; a vendor that has not
+    # yet finalised the session's bars leaves every symbol one session behind,
+    # and that cross-section must fail the run rather than be scored and
+    # published as the previous session under today's name.
+    MIN_PRICE_SESSION_ALIGNMENT = _env_float("MIN_PRICE_SESSION_ALIGNMENT", 0.90)
     # Fail closed after the completion cutoff if a normal weekday has no
     # same-session bar. Populate official weekday exchange holidays as ISO dates.
     NSE_MARKET_HOLIDAYS = _env_list("NSE_MARKET_HOLIDAYS", [])
