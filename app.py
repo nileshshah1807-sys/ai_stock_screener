@@ -83,6 +83,75 @@ def merge_research_universe(tech_df, fund_df):
     return merged.drop(columns="_Fundamental_Merge")
 
 
+def enforce_price_session_alignment(frame, config):
+    """Fail before fundamentals when prices lag the session being analysed.
+
+    The collector keeps a symbol whose last usable bar is one session old, so
+    a single suspended or vendor-delayed name costs one row, not the run. When
+    the vendor has not finalised the session at all, that same rule keeps every
+    symbol: the run then scores the previous session, the publisher dates it by
+    its bars, finds that date already published and skips -- a green workflow
+    that refreshed nothing. Failing here costs minutes rather than the hour of
+    fundamentals, and leaves the scheduled fallback slot free to retry.
+    """
+
+    floor_value = getattr(config, "MIN_PRICE_SESSION_ALIGNMENT", 0.90)
+    try:
+        floor = float(floor_value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(
+            "MIN_PRICE_SESSION_ALIGNMENT must be a finite number between 0 and 1"
+        ) from exc
+    if not np.isfinite(floor) or not 0.0 <= floor <= 1.0:
+        raise RuntimeError(
+            "MIN_PRICE_SESSION_ALIGNMENT must be a finite number between 0 and 1"
+        )
+
+    required = {"Price_Bar_As_Of", "Expected_Price_Bar_As_Of"}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        raise RuntimeError(
+            "Price session alignment check failed: missing column(s) "
+            + ", ".join(missing)
+        )
+
+    bar_dates = pd.to_datetime(frame["Price_Bar_As_Of"], errors="coerce")
+    expected_dates = pd.to_datetime(
+        frame["Expected_Price_Bar_As_Of"], errors="coerce"
+    )
+    expected = expected_dates.dropna().unique()
+    if len(expected) != 1:
+        raise RuntimeError(
+            "Price session alignment check failed: Expected_Price_Bar_As_Of "
+            "must be one repeated date"
+        )
+    expected_session = pd.Timestamp(expected[0]).date().isoformat()
+
+    aligned = int(bar_dates.eq(expected_dates).sum())
+    total = len(frame)
+    actual = aligned / total
+    if actual < floor:
+        latest = bar_dates.max()
+        latest_text = latest.date().isoformat() if pd.notna(latest) else "none"
+        raise RuntimeError(
+            "Price bars lag the expected completed session "
+            f"{expected_session}: {aligned}/{total} ({actual:.2%}) aligned < "
+            f"{floor:.2%}; latest usable bar is {latest_text}. The vendor has "
+            "probably not finalised the session yet. No scores, reports or "
+            "dashboard rows were produced; rerun once the session's bars are "
+            "complete."
+        )
+
+    logger.info(
+        "Price session alignment guard passed: %d/%d on %s (%.2f%%; minimum %.2f%%)",
+        aligned,
+        total,
+        expected_session,
+        actual * 100,
+        floor * 100,
+    )
+
+
 def enforce_factor_statement_coverage(frame, config):
     """Fail before scoring when Model 5 statement coverage is incomplete.
 
@@ -187,6 +256,7 @@ def run_daily_analysis():
     tech_df = collector.download_stock_data(symbols)
     if tech_df.empty:
         raise RuntimeError("No technical data was collected")
+    enforce_price_session_alignment(tech_df, config)
 
     # One cached bulk read adds the exchange's six-month liquidity group and
     # Rs1 lakh mean impact cost. This is primary execution evidence; OHLCV

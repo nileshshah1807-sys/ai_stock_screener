@@ -351,6 +351,32 @@ class RunDateTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             resolve_run_date(frame, Path("export.csv"), None)
 
+    def test_the_modal_session_dates_the_run_not_the_first_row(self):
+        # Rank order puts one lagging name first; the cross-section is still
+        # the later session.
+        frame = pd.concat(
+            [
+                minimal_frame(Symbol="LAG", Price_Bar_As_Of="2026-08-10"),
+                minimal_frame(Symbol="A"),
+                minimal_frame(Symbol="B"),
+            ],
+            ignore_index=True,
+        )
+        frame["Expected_Price_Bar_As_Of"] = "2026-08-11"
+        resolved = resolve_run_date(frame, Path("advanced_analysis_20260101.csv"), None)
+        self.assertEqual(resolved, "2026-08-11")
+
+    def test_export_lagging_its_expected_session_is_refused_not_skipped(self):
+        # The 21 Sept 2026 US run: built for Monday, every bar from Friday.
+        # Dating it Friday made --if-exists skip report success.
+        frame = minimal_frame(
+            Price_Bar_As_Of="2026-09-18", Expected_Price_Bar_As_Of="2026-09-21"
+        )
+        with self.assertRaisesRegex(
+            ValueError, r"built for session 2026-09-21 but its bars are from 2026-09-18"
+        ):
+            resolve_run_date(frame, Path("advanced_analysis_20260921.csv"), None)
+
     def test_override_wins(self):
         frame = minimal_frame()
         self.assertEqual(

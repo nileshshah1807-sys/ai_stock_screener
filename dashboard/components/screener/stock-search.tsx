@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 
+import { useMarketPath } from "@/components/market-provider";
 import { Button } from "@/components/ui/button";
 import {
   StockPicker,
@@ -19,6 +20,7 @@ import {
  */
 export function StockSearch() {
   const router = useRouter();
+  const marketPath = useMarketPath();
   const [open, setOpen] = useState(false);
 
   const close = useCallback(() => setOpen(false), []);
@@ -42,7 +44,9 @@ export function StockSearch() {
         open={open}
         onClose={close}
         title="Search stocks"
-        onPick={(symbol) => router.push(`/stocks/${encodeURIComponent(symbol)}`)}
+        onPick={(symbol) =>
+          router.push(marketPath(`/stocks/${encodeURIComponent(symbol)}`))
+        }
         hint="Type a ticker or company name. Enter opens the stock; ↑↓ to move."
       />
     </>

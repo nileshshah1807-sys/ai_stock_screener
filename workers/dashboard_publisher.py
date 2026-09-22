@@ -594,13 +594,36 @@ def resolve_run_date(df: pd.DataFrame, csv_path: Path, override: str | None) -> 
     if override:
         return coerce_date(override) or override
 
-    for column in ("Price_Bar_As_Of", "Analysis_As_Of"):
-        if column in df.columns:
-            values = df[column].dropna()
-            if not values.empty:
-                resolved = coerce_date(values.iloc[0])
-                if resolved:
-                    return resolved
+    if "Price_Bar_As_Of" in df.columns:
+        # The session most rows were measured on, not the first row's: the
+        # export is sorted by rank, so a single lagging leader would otherwise
+        # date the whole cross-section.
+        bar_dates = df["Price_Bar_As_Of"].map(coerce_date).dropna()
+        if not bar_dates.empty:
+            resolved = bar_dates.mode().max()
+            expected = (
+                df["Expected_Price_Bar_As_Of"].map(coerce_date).dropna().unique()
+                if "Expected_Price_Bar_As_Of" in df.columns
+                else ()
+            )
+            if len(expected) == 1 and resolved != expected[0]:
+                # Built for one session, measured on an older one. Skipping it
+                # as "already published" would report success for a run that
+                # refreshed nothing, so refuse loudly instead.
+                raise ValueError(
+                    f"{csv_path.name} was built for session {expected[0]} but "
+                    f"its bars are from {resolved}; the price vendor had not "
+                    "finalised the session. Rerun the screener, or pass "
+                    "--run-date to publish it deliberately."
+                )
+            return resolved
+
+    if "Analysis_As_Of" in df.columns:
+        values = df["Analysis_As_Of"].dropna()
+        if not values.empty:
+            resolved = coerce_date(values.iloc[0])
+            if resolved:
+                return resolved
 
     match = re.search(r"(\d{4})(\d{2})(\d{2})", csv_path.name)
     if match:

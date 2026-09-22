@@ -75,3 +75,40 @@ test("a deep in-market path keeps every segment", () => {
     "/us/watchlists/extra/deep",
   );
 });
+
+/*
+ * Every in-app link to a stock must carry the market. A bare `/stocks/PYPL`
+ * has no route under app/(app)/[market] and renders a 404 -- which is what
+ * the Ctrl+K search did before it went through useMarketPath.
+ */
+test("no stock link is built without the market prefix", async () => {
+  const { readdir, readFile } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+  const root = new URL("..", import.meta.url).pathname;
+
+  async function* sources(dir) {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) yield* sources(path);
+      else if (/\.tsx?$/.test(entry.name)) yield path;
+    }
+  }
+
+  const offenders = [];
+  for (const dir of ["app", "components"]) {
+    for await (const path of sources(join(root, dir))) {
+      const lines = (await readFile(path, "utf8")).split("\n");
+      lines.forEach((line, index) => {
+        if (!/[`"']\/stocks\//.test(line)) return;
+        if (/^\s*(\*|\/\/|\/\*)/.test(line)) return; // prose, not a link
+        // The prefix is added either on this line or by a marketPath( call
+        // that opens on one of the few lines above it.
+        const context = lines.slice(Math.max(0, index - 3), index + 1).join("\n");
+        if (!/marketPath\(/.test(context)) {
+          offenders.push(`${path.slice(root.length)}:${index + 1}`);
+        }
+      });
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
