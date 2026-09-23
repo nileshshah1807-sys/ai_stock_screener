@@ -1128,7 +1128,7 @@ function NewListingView({
         </Link>
 
         <div className="mt-3 flex items-center gap-3">
-          <CompanyLogo symbol={listing.symbol} domain={null} size="lg" />
+          <CompanyLogo symbol={listing.symbol} domain={listing.logo_domain} size="lg" />
           <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 className="font-mono text-[1.75rem] font-bold leading-tight tracking-tight">
               {listing.symbol}

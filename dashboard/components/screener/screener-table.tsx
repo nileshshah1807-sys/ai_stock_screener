@@ -560,10 +560,13 @@ export function ScreenerTable({
             </tr>
           </thead>
 
-          <tbody>
+          {/* data-match feeds the filter box's instant pass (see FilterBar):
+              the same symbol/company text the server's ilike matches on. */}
+          <tbody data-screener-rows>
             {rows.map((row) => (
               <tr
                 key={row.symbol}
+                data-match={`${row.symbol} ${row.company ?? ""}`.toLowerCase()}
                 className={cn(
                   "group border-t transition-colors duration-(--duration-fast) ease-(--ease-standard)",
                   // focus-within, not just hover: keyboard traversal down the

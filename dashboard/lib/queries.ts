@@ -675,13 +675,18 @@ export type NewListingRow = {
   median_turnover_20d: number | null;
   turnover_floor: number;
   market_cap: number | null;
+  /** Absent until the column's migration is applied; see new_listings_schema.sql. */
+  logo_domain?: string | null;
   updated_at: string;
 };
 
-const NEW_LISTING_COLUMNS =
-  "symbol, company, series, listed_on, status, sessions, sessions_required, " +
-  "first_session, first_close, last_session, last_close, change_since_first_pct, " +
-  "avg_turnover_20d, median_turnover_20d, turnover_floor, market_cap, updated_at";
+/*
+ * Every column, deliberately. The table is narrow, and naming columns would
+ * make the page fail outright between a deploy and the migration that adds a
+ * new one (logo_domain did exactly that); with `*` it simply arrives when it
+ * exists.
+ */
+const NEW_LISTING_COLUMNS = "*";
 
 /**
  * Recent listings not yet rated, newest first. A few hundred rows at most, so

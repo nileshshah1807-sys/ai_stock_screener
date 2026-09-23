@@ -58,3 +58,7 @@ drop policy if exists new_listings_read on new_listings;
 create policy new_listings_read
     on new_listings for select
     using (dashboard_has_access());
+
+-- Added after the first release: the issuer website domain the dashboard turns
+-- into a logo, resolved the same way as screener_snapshot.logo_domain.
+alter table new_listings add column if not exists logo_domain text;
