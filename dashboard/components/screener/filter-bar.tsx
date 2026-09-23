@@ -150,7 +150,10 @@ export function FilterBar({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="relative min-w-56 flex-1">
+      {/* min-w-0 on a phone: the search shares its row with the icon-only
+          Filters trigger and the grid's tool buttons, so it takes whatever
+          width is left rather than forcing the row to wrap. */}
+      <div className="relative min-w-0 flex-1 sm:min-w-56">
         <Search
           className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
           aria-hidden
@@ -172,9 +175,11 @@ export function FilterBar({
       </div>
 
       {/* Rating is the highest-traffic filter, so it stays visible rather than
-          hiding behind the popover. */}
+          hiding behind the popover -- from `sm` up. On a phone five chips cost
+          two full rows above the grid, so they move to the top of the Filters
+          panel instead, and the trigger's badge still counts them. */}
       <div
-        className="flex flex-wrap items-center gap-1"
+        className="hidden flex-wrap items-center gap-1 sm:flex"
         role="group"
         aria-label="Filter by rating"
       >
@@ -208,19 +213,72 @@ export function FilterBar({
 
       <Popover>
         <PopoverTrigger
-          render={<Button variant="outline" className="gap-1.5" />}
+          render={
+            <Button
+              variant="outline"
+              className="relative gap-1.5 max-sm:size-9 max-sm:px-0"
+              aria-label={
+                activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"
+              }
+            />
+          }
         >
           <SlidersHorizontal className="size-3.5" aria-hidden />
-          Filters
+          <span className="hidden sm:inline">Filters</span>
           {activeFilterCount ? (
-            <span className="tabular ml-0.5 rounded bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+            <span className="tabular ml-0.5 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground max-sm:absolute max-sm:-top-1 max-sm:-right-1 max-sm:ml-0 max-sm:min-w-4 max-sm:leading-4">
               {activeFilterCount}
             </span>
           ) : null}
         </PopoverTrigger>
 
-        <PopoverContent align="end" className="w-80">
+        {/* Full width on a phone and scrollable within the viewport, so every
+            filter is reachable without the panel running off screen. */}
+        <PopoverContent
+          align="end"
+          className="max-h-(--available-height) w-[min(20rem,calc(100vw-2rem))] overflow-y-auto"
+        >
           <div className="space-y-4">
+            <div className="flex items-center justify-between sm:hidden">
+              <p className="text-sm font-semibold">Filters</p>
+              {activeFilterCount || query ? (
+                <Button variant="ghost" size="sm" className="-mr-1.5 gap-1" onClick={clearAll}>
+                  <X className="size-3.5" aria-hidden />
+                  Clear all
+                </Button>
+              ) : null}
+            </div>
+
+            <fieldset className="space-y-2 sm:hidden">
+              <legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Rating
+              </legend>
+              <div className="flex flex-wrap gap-1.5">
+                {RATINGS.map((rating) => {
+                  const active = activeRatings.includes(rating);
+                  return (
+                    <button
+                      key={rating}
+                      type="button"
+                      onClick={() => toggleValue("rating", rating)}
+                      aria-pressed={active}
+                      className={cn(
+                        "inline-flex h-9 items-center rounded-full px-3.5 text-[11px] font-semibold uppercase tracking-wide",
+                        "transition-[background-color,color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
+                        "active:scale-[0.95] active:duration-(--duration-press) active:ease-out",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        active
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-(--control) text-muted-foreground hover:bg-(--control-hover) hover:text-foreground",
+                      )}
+                    >
+                      {rating}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
             <fieldset className="space-y-2">
               <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Evidence and execution
@@ -452,7 +510,7 @@ export function FilterBar({
       </Popover>
 
       {activeFilterCount || query ? (
-        <Button variant="ghost" className="gap-1" onClick={clearAll}>
+        <Button variant="ghost" className="hidden gap-1 sm:inline-flex" onClick={clearAll}>
           <X className="size-3.5" aria-hidden />
           Clear
         </Button>
