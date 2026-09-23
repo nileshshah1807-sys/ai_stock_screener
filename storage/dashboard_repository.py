@@ -442,6 +442,43 @@ class DashboardRepository:
             written += len(chunk)
         return written
 
+    # -- new listings -----------------------------------------------------
+
+    def new_listing_symbols(self) -> list[str]:
+        """Recent listings not yet rated, newest listing first."""
+        rows = self._paged(
+            "new_listings", {"select": "symbol", "order": "listed_on.desc,symbol.asc"}
+        )
+        return [str(row["symbol"]) for row in rows if row.get("symbol")]
+
+    def replace_new_listings(self, rows: list[dict[str, Any]], chunk_size: int = 200) -> int:
+        """Make this market's new_listings exactly ``rows``.
+
+        Upsert first, then delete the difference, so a listing that entered the
+        scored universe since the last run leaves the table -- and so a failure
+        between the two steps leaves stale extras rather than an empty table.
+        """
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "new_listings?on_conflict=market,symbol",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        keep = {str(row["symbol"]) for row in rows}
+        obsolete = sorted(set(self.new_listing_symbols()) - keep)
+        for chunk in chunked(obsolete, 100):
+            symbols_csv = ",".join(f'"{symbol}"' for symbol in chunk)
+            self._request(
+                "DELETE",
+                "new_listings",
+                params=self._scoped({"symbol": f"in.({symbols_csv})"}),
+                headers={"Prefer": "return=minimal"},
+            )
+        return written
+
     def delete_stale_snapshot_rows(self, run_date: str, symbols: Iterable[str]) -> None:
         """Remove rows for a re-ingested date that the new run no longer covers.
 
