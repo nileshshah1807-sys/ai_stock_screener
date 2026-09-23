@@ -246,6 +246,21 @@ class RunTests(unittest.TestCase):
         self.assertTrue(row["has_data"])
         self.assertEqual(row["statements"]["annual"]["cashflow"]["periods"], [])
 
+    def test_time_budget_stops_cleanly_and_reports_the_remainder(self):
+        repo = FakeRepository()
+        repo.latest_snapshot_symbols = lambda: ["A", "B", "C", "D"]
+        ticks = iter([0, 0, 10, 20, 30, 40])  # start, then one tick per symbol check
+        counts = run(
+            repo,
+            ticker_factory=FakeTicker,
+            pause_seconds=0,
+            time_budget_seconds=15,
+            clock=lambda: next(ticks),
+            today=date(2026, 9, 23),
+        )
+        self.assertEqual([row["symbol"] for row in repo.written], ["A", "B"])
+        self.assertEqual(counts["deferred"], 2)
+
     def test_dry_run_writes_nothing(self):
         repo = FakeRepository()
         run(repo, ticker_factory=FakeTicker, pause_seconds=0, dry_run=True,

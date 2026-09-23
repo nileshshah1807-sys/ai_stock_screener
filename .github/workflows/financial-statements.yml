@@ -9,24 +9,32 @@ run-name: Financial statements (${{ github.event_name }})
 # financial_statements table, so a failure here must never touch the run that
 # publishes scores, and this job needs none of their caches.
 #
-# Daily, but cheap. The worker refreshes a symbol only when its stored copy is
+# Three times a day, and each run is bounded by time rather than by count.
+#
+# Cold build (a new table or market): every run fetches for up to 50 minutes,
+# ~1,300 symbols at ~2.3 s each, then stops cleanly and the next run carries
+# on -- never-fetched symbols always come first, most-investable first. NSE's
+# ~2,300 names and the US's ~1,500 therefore fill within the first day, with
+# no manual run needed.
+#
+# Steady state: the worker refreshes a symbol only when its stored copy is
 # older than --max-age-days or its latest quarter implies new results are due,
-# so a normal day fetches a few dozen names. The per-run cap bounds the cold
-# build instead: at 500 a run, NSE fills in about five days and the US universe
-# in about ten, most-investable names first.
+# so a run finds a few dozen names, finishes in a minute or two, and most of
+# the three daily runs are near-empty.
 
 on:
   schedule:
-    # 03:00 UTC (08:30 IST, 23:00 ET): after the NSE screener has published and
-    # after the US screener's last retry slot at 01:30 UTC, so the universe read
-    # from each market's latest run is the fresh one.
-    - cron: "0 3 * * *"
+    # 03:00, 09:00 and 15:00 UTC. The first follows the US screener's last
+    # retry slot (01:30 UTC); the last follows the NSE screener (11:00/13:00
+    # UTC), so each market's newest universe is picked up the same day. None
+    # overlaps a screener run, so they never contend for Yahoo.
+    - cron: "0 3,9,15 * * *"
   workflow_dispatch:
     inputs:
       max_symbols:
-        description: Symbols to fetch per market this run (raise to speed a backfill)
+        description: Upper bound on symbols per market this run (the time budget usually binds first)
         required: false
-        default: "500"
+        default: "5000"
         type: string
       symbols:
         description: Refresh exactly these (space separated, NSE job only), ignoring staleness
@@ -45,7 +53,8 @@ jobs:
   refresh:
     name: ${{ matrix.market }}
     runs-on: ubuntu-latest
-    # ~2 s per symbol plus a short pause; 500 symbols is ~20 minutes.
+    # The worker stops itself at 50 minutes (see --time-budget-minutes below);
+    # the remaining margin covers setup and the final write.
     timeout-minutes: 60
     strategy:
       # The markets write disjoint rows (market is part of the key); one
@@ -76,12 +85,13 @@ jobs:
 
       - name: Refresh financial statements
         env:
-          MAX_SYMBOLS: ${{ inputs.max_symbols || '500' }}
+          MAX_SYMBOLS: ${{ inputs.max_symbols || '5000' }}
           SYMBOLS: ${{ matrix.market == 'NSE' && inputs.symbols || '' }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: |
           python -m workers.financial_statements \
             --market "${MARKET}" \
             --max-symbols "${MAX_SYMBOLS}" \
+            --time-budget-minutes 50 \
             ${SYMBOLS:+--symbols ${SYMBOLS}} \
             ${DRY_RUN}
