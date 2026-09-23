@@ -26,18 +26,28 @@ type Box = { x: number; y: number; w: number; h: number };
  *    moving redirects it mid-flight rather than finishing the first trip.
  *
  * Items are the children; the current one is whichever carries
- * `aria-current`. The very first placement is made without a transition, so
- * the lens appears under the current item rather than sliding in from 0,0.
+ * `aria-current` (links) or `aria-selected="true"` (tabs). The track watches
+ * those attributes, so it follows a selection that moves without a route
+ * change -- a client-side tab switch -- as well as one that does. The very
+ * first placement is made without a transition, so the lens appears under the
+ * current item rather than sliding in from 0,0.
  */
+const SELECTED = '[aria-current]:not([aria-current="false"]), [aria-selected="true"]';
+
 export function GlassTrack({
   label,
+  role,
   className,
   lensClassName,
+  onKeyDown,
   children,
 }: {
   label: string;
+  /** `tablist` when the items are tabs rather than navigation links. */
+  role?: "tablist";
   className?: string;
   lensClassName?: string;
+  onKeyDown?: React.KeyboardEventHandler<HTMLElement>;
   children: React.ReactNode;
 }) {
   const track = useRef<HTMLElement>(null);
@@ -52,7 +62,7 @@ export function GlassTrack({
     setBox({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight });
   };
 
-  const current = () => track.current?.querySelector("[aria-current]") ?? null;
+  const current = () => track.current?.querySelector(SELECTED) ?? null;
 
   // Settle on the real current item whenever the route changes, and follow it
   // when the track reflows (a font swap, the viewport crossing a breakpoint).
@@ -63,7 +73,19 @@ export function GlassTrack({
     if (!root) return;
     const ro = new ResizeObserver(() => measure(pending.current ?? current()));
     ro.observe(root);
-    return () => ro.disconnect();
+    const mo = new MutationObserver(() => {
+      pending.current = null;
+      measure(current());
+    });
+    mo.observe(root, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-current", "aria-selected"],
+    });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
   }, [pathname]);
 
   // Transitions switch on only after the first placement has painted.
@@ -107,8 +129,10 @@ export function GlassTrack({
     <nav
       ref={track}
       aria-label={label}
+      role={role}
       className={cn("glass relative isolate flex rounded-full", className)}
       onPointerDown={onPointerDown}
+      onKeyDown={onKeyDown}
       onKeyUp={(event) => {
         if (event.key === "Enter") measure(event.target as Element);
       }}
