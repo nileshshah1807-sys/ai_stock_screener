@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowLeft, Clock } from "lucide-react";
 
-import { NewListingsList } from "@/components/new-listing";
+import { NewListingsBrowser } from "@/components/new-listings-browser";
 import { Reveal } from "@/components/motion";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
@@ -65,7 +65,7 @@ export default async function NewListingsPage({ params }: PageProps<"/[market]/n
             <span>{building} building price history</span>
             {updated ? <span className="sm:ml-auto">Updated {formatDate(updated)}</span> : null}
           </div>
-          <NewListingsList rows={rows} market={market} />
+          <NewListingsBrowser rows={rows} market={market} />
         </Reveal>
       ) : (
         <div className="panel px-5 py-10 text-center">

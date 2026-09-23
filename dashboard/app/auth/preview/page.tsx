@@ -11,7 +11,8 @@ import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { Financials } from "@/components/stock/financials";
 import { StockTabs } from "@/components/stock/stock-tabs";
-import { NewListingsList, NotRatedBadge } from "@/components/new-listing";
+import { NotRatedBadge } from "@/components/new-listing";
+import { NewListingsBrowser } from "@/components/new-listings-browser";
 import { Suspense } from "react";
 import { ActiveFilters } from "@/components/screener/active-filters";
 import { ExportLink } from "@/components/screener/export-link";
@@ -180,7 +181,7 @@ export default function PreviewPage() {
             New listings <NotRatedBadge size="md" />
           </h2>
           <div className="panel overflow-hidden">
-            <NewListingsList rows={previewNewListings} market={DEFAULT_MARKET} />
+            <NewListingsBrowser rows={previewNewListings} market={DEFAULT_MARKET} />
           </div>
         </section>
 

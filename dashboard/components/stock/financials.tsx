@@ -112,7 +112,7 @@ export function Financials({
         <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
           {data
             ? `Checked ${formatDate(data.fetched_at)}. Newly listed companies often have no history at the source until their first results are filed.`
-            : "They are refreshed in the background once a day, most-investable names first."}
+            : "Statements are collected in the background three times a day, highest-ranked companies first, then recent listings."}
         </p>
       </div>
     );
