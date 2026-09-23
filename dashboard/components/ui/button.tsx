@@ -11,23 +11,32 @@ import { cn } from "@/lib/utils"
  * Press feedback is a scale rather than the previous 1px nudge. `translate-y`
  * moved the button inside its own layout box, which makes a row of controls
  * appear to twitch; a transform-only scale about the centre cannot shift a
- * neighbour, and the slight overshoot on release is what reads as "bouncy".
- * The scale is skipped for menu triggers so a popover anchor stays put while
- * its panel is open.
+ * neighbour. The scale is skipped for menu triggers so a popover anchor stays
+ * put while its panel is open.
+ *
+ * The press is asymmetric, the way UIKit's is: going down takes ~70ms with a
+ * plain ease-out, so it lands on the frame the pointer went down on; coming
+ * back up uses the 0.8-damped spring, because the release is the half of the
+ * gesture that carries energy. `:active` swaps the duration and curve, so the
+ * base values describe the release.
+ *
+ * Recessed controls (outline, secondary, ghost hover) fill with --control, a
+ * translucent grey, so they read correctly on a solid card and on glass alike
+ * rather than painting an opaque grey chip onto a translucent capsule.
  */
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-full border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none transition-[background-color,border-color,color,box-shadow,transform] duration-(--duration-fast) ease-(--ease-standard) focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:scale-[0.96] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-full border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none transition-[background-color,border-color,color,box-shadow,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring) focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:scale-[0.96] active:duration-(--duration-press) active:ease-out disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground hover:bg-primary/85 hover:shadow-sm",
+          "bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.18),0_1px_2px_rgb(0_0_0/0.12)] hover:bg-primary/88",
         outline:
-          "border-border bg-muted text-foreground hover:bg-accent hover:border-ring/30 aria-expanded:bg-accent aria-expanded:text-accent-foreground",
+          "bg-(--control) text-foreground hover:bg-(--control-hover) aria-expanded:bg-(--control-hover) aria-expanded:text-accent-foreground",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_6%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+          "bg-(--control) text-secondary-foreground hover:bg-(--control-hover) aria-expanded:bg-(--control-hover) aria-expanded:text-secondary-foreground",
         ghost:
-          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+          "hover:bg-(--control) hover:text-foreground aria-expanded:bg-(--control) aria-expanded:text-foreground",
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "rounded-sm text-foreground underline-offset-4 hover:underline",

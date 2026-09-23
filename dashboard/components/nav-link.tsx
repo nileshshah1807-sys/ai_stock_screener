@@ -6,20 +6,18 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 /**
- * Nav item that marks the current location for both sighted users (weight and
- * background) and assistive technology (aria-current), rather than relying on
- * colour alone.
+ * Nav item that marks the current location for both sighted users (weight,
+ * colour and the lens behind it) and assistive technology (aria-current),
+ * rather than relying on colour alone.
  *
+ * The item paints no fill of its own. The selection is the lens that
+ * GlassTrack slides beneath whichever item is current, so the item only has
+ * to state which one it is. Below `md` the nav is a floating tab bar, and each
+ * item stacks its icon over its label the way an iOS tab bar does; from `md`
+ * it is a horizontal capsule in the header.
  *
- * Presentation follows the Figma nav: a fully rounded pill, the active one
- * filled solid against a recessed track. The mock's active pill is black on a
- * near-white track, which is exactly what `bg-primary` resolves to in light
- * mode -- and it inverts correctly in dark mode rather than leaving a black
- * pill on a black rail.
- *
- * The icon carries a slide on hover. It is 2px of travel on a single element,
- * which reads as responsiveness on a target the user is already pointing at
- * without turning the sidebar into an animation.
+ * Press feedback is on pointer-down: the item dips the moment it is touched,
+ * in ~70ms, and springs back on release.
  */
 export function NavLink({
   href,
@@ -51,18 +49,17 @@ export function NavLink({
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group/nav relative flex items-center gap-3 rounded-full text-sm",
-        "transition-[background-color,color,box-shadow] duration-(--duration-base) ease-(--ease-standard)",
+        "group/nav relative flex flex-1 items-center justify-center rounded-full",
+        "flex-col gap-0.5 px-2 py-1.5 text-[0.6875rem] leading-none tracking-[0.01em]",
+        "md:flex-row xl:flex-none md:gap-2 md:px-4 md:py-2 md:text-sm md:tracking-normal",
+        "min-h-12 md:min-h-10",
+        "transition-[color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
+        "active:scale-[0.94] active:duration-(--duration-press) active:ease-out",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-        // The mock's pill is 36px tall. Rounded up to 40 so the target clears
-        // the platform minimum without a separate hit area, and so the row of
-        // pills still fits the header at the mock's own proportions.
-        "min-h-10 px-5 py-2",
         active
-          ? "bg-primary font-medium text-primary-foreground shadow-xs"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground",
-        "[&>svg]:transition-transform [&>svg]:duration-(--duration-base) [&>svg]:ease-(--ease-spring)",
-        !active && "hover:[&>svg]:translate-x-0.5",
+          ? "font-semibold text-foreground"
+          : "font-medium text-muted-foreground hover:text-foreground",
+        "[&>svg]:size-5 md:[&>svg]:size-4",
       )}
     >
       {children}

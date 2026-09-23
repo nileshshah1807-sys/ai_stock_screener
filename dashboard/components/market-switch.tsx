@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { cn } from "@/lib/utils";
+import { GlassTrack } from "@/components/glass-track";
 import { MARKET_LIST, switchMarketPath, type Market } from "@/lib/markets";
 
 /**
@@ -21,19 +22,16 @@ import { MARKET_LIST, switchMarketPath, type Market } from "@/lib/markets";
  * its own URL, so a middle click or a bookmark works, and the switch costs a
  * normal navigation rather than a client-side refetch.
  *
- * The track and filled active pill deliberately match NavLink, because both
- * are "one of these is current" controls and inventing a second visual
- * language for the same idea would make the header read as two unrelated
- * widgets.
+ * The glass track and its sliding lens deliberately match the primary nav,
+ * because both are "one of these is current" controls and inventing a second
+ * visual language for the same idea would make the header read as two
+ * unrelated widgets.
  */
 export function MarketSwitch({ current }: { current: Market }) {
   const pathname = usePathname();
 
   return (
-    <nav
-      aria-label="Market"
-      className="flex shrink-0 gap-1 rounded-full border bg-muted p-1"
-    >
+    <GlassTrack label="Market" className="shrink-0 gap-0.5 p-1">
       {MARKET_LIST.map((market) => {
         const active = market.slug === current.slug;
         return (
@@ -51,11 +49,12 @@ export function MarketSwitch({ current }: { current: Market }) {
               // their different widths.
               "inline-flex min-h-8 items-center justify-center rounded-full",
               "px-3.5 text-xs font-semibold leading-none",
-              "transition-[background-color,color] duration-(--duration-base) ease-(--ease-standard)",
+              "transition-[color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
+              "active:scale-[0.92] active:duration-(--duration-press) active:ease-out",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
               active
-                ? "bg-primary text-primary-foreground shadow-xs"
-                : "text-muted-foreground hover:bg-background hover:text-foreground",
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             {market.label}
@@ -63,6 +62,6 @@ export function MarketSwitch({ current }: { current: Market }) {
           </Link>
         );
       })}
-    </nav>
+    </GlassTrack>
   );
 }
