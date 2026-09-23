@@ -16,6 +16,12 @@ row is refreshed only when it is due:
 
 In steady state that is a few dozen symbols a day, not the whole universe.
 
+Runs are bounded by time, not only by count. A cold build (a new table, or a
+new market) keeps fetching until ``--time-budget-minutes`` is spent and then
+stops cleanly, so it fills as fast as the job allows without ever being cut
+off by the runner's timeout; the next scheduled run continues where it
+stopped, because never-fetched symbols always come first.
+
 The payload contract (``statements`` column)::
 
     {
@@ -298,6 +304,8 @@ def run(
     max_symbols: int = DEFAULT_MAX_SYMBOLS,
     max_age_days: int = DEFAULT_MAX_AGE_DAYS,
     pause_seconds: float = 0.25,
+    time_budget_seconds: float | None = None,
+    clock=time.monotonic,
     symbols: list[str] | None = None,
     dry_run: bool = False,
     today: date | None = None,
@@ -318,14 +326,22 @@ def run(
     )
 
     pending: list[dict[str, Any]] = []
-    counts = {"fetched": 0, "with_data": 0, "empty": 0, "written": 0}
+    counts = {"fetched": 0, "with_data": 0, "empty": 0, "written": 0, "deferred": 0}
 
     def flush():
         if pending and not dry_run:
             counts["written"] += repo.upsert_financial_statements(pending)
         pending.clear()
 
+    started = clock()
     for position, symbol in enumerate(todo, start=1):
+        if time_budget_seconds is not None and clock() - started >= time_budget_seconds:
+            counts["deferred"] = len(todo) - position + 1
+            logger.info(
+                "Time budget spent; %d due symbols left for the next run",
+                counts["deferred"],
+            )
+            break
         frames = fetch_frames(ticker_factory(ticker_for(symbol, profile)))
         payload = build_payload(frames)
         counts["fetched"] += 1
@@ -356,6 +372,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-symbols", type=int, default=DEFAULT_MAX_SYMBOLS)
     parser.add_argument("--max-age-days", type=int, default=DEFAULT_MAX_AGE_DAYS)
     parser.add_argument("--pause", type=float, default=0.25, help="seconds between symbols")
+    parser.add_argument(
+        "--time-budget-minutes",
+        type=float,
+        default=None,
+        help="stop fetching once this much time is spent (the rest waits for the next run)",
+    )
     parser.add_argument("--symbols", nargs="*", help="refresh exactly these, ignoring staleness")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
@@ -372,6 +394,9 @@ def main(argv: list[str] | None = None) -> int:
         max_symbols=args.max_symbols,
         max_age_days=args.max_age_days,
         pause_seconds=args.pause,
+        time_budget_seconds=(
+            args.time_budget_minutes * 60 if args.time_budget_minutes else None
+        ),
         symbols=args.symbols,
         dry_run=args.dry_run,
     )
