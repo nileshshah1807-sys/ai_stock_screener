@@ -40,10 +40,11 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       MARKET: "US"
-      # S&P Composite 1500. Widen to all_listed only after a real run has been
-      # measured against the 360-minute timeout; ~6,000 symbols is four times
-      # this universe.
-      US_UNIVERSE_SOURCE: "sp1500"
+      # Every US-listed operating company from the Nasdaq Trader directory
+      # (~5,100 after ETFs, funds and SPACs are dropped), cut to the liquid
+      # set by the research prefilter below before the slow fetches. The
+      # S&P 1500 was measured at 81 minutes cold and 4 warm.
+      US_UNIVERSE_SOURCE: "all_listed"
       # Wikipedia's robot policy rejects a generic User-Agent, and the S&P 400
       # and 600 constituent lists come from its API.
       WIKIPEDIA_USER_AGENT: "winnow-screener/1.0 (+https://github.com/${{ github.repository }})"
@@ -61,7 +62,11 @@ jobs:
       # names, and the dashboard footer repeats this verbatim.
       MODEL_VALIDATION_STATUS: "Research model; validated on NSE data only, US out-of-sample validation pending"
 
-      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ github.event_name == 'schedule' && '1600' || '400' }}
+      # Above the post-filter universe so a cold cache fills in one run. At
+      # 40 requests a minute a smaller budget would leave coverage under the
+      # 0.95 floor below, and the run fails rather than publish a ranking of
+      # whichever names happened to be fetched first.
+      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ github.event_name == 'schedule' && '6000' || '400' }}
       FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0.95"
 
       # --- Session calendar -------------------------------------------------
@@ -98,11 +103,15 @@ jobs:
 
       # --- Execution overlay ------------------------------------------------
       # Named *_INR for compatibility; read as market currency, so these are
-      # dollars here. A $50k median daily turnover floor is roughly the same
-      # liquidity bar as the Rs 50 lakh used on NSE.
-      MIN_MEDIAN_TURNOVER_20D_INR: "50000"
-      MIN_AVG_TURNOVER_INR: "50000"
-      PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY: "False"
+      # dollars here. On a listed-market universe the prefilter is what keeps
+      # the ranking to investable names: under $1 is Nasdaq's own deficiency
+      # line, and $1M median daily value keeps the thinly traded tail from
+      # filling the bottom of every percentile. These three floors are read
+      # only by the prefilter; position sizing below is unaffected.
+      MIN_PRICE_INR: "1"
+      MIN_MEDIAN_TURNOVER_20D_INR: "1000000"
+      MIN_AVG_TURNOVER_INR: "1000000"
+      PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY: "True"
       PORTFOLIO_TARGET_POSITION_INR: ${{ vars.US_PORTFOLIO_TARGET_POSITION || '10000' }}
       LIQUIDITY_POSITION_PARTICIPATION_RATE: ${{ vars.LIQUIDITY_POSITION_PARTICIPATION_RATE || '0.01' }}
 
