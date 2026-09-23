@@ -97,7 +97,7 @@ export function NewListingsList({ rows, market }: { rows: NewListingRow[]; marke
               href={href(row.symbol)}
               className="press flex gap-3 px-4 py-3.5 active:bg-(--control) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
             >
-              <CompanyLogo symbol={row.symbol} domain={null} />
+              <CompanyLogo symbol={row.symbol} domain={row.logo_domain} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="font-mono text-sm font-semibold">{row.symbol}</span>
@@ -150,7 +150,7 @@ export function NewListingsList({ rows, market }: { rows: NewListingRow[]; marke
                     href={href(row.symbol)}
                     className="flex items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <CompanyLogo symbol={row.symbol} domain={null} />
+                    <CompanyLogo symbol={row.symbol} domain={row.logo_domain} />
                     <span className="min-w-0">
                       <span className="block font-mono text-sm font-semibold">{row.symbol}</span>
                       <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">

@@ -127,7 +127,7 @@ class RunTests(unittest.TestCase):
             repo,
             fetch_master=lambda: frame,
             download=fake_download,
-            market_cap=lambda ticker: 5e10,
+            profile_lookup=lambda ticker: {"market_cap": 5e10, "logo_domain": "example.com"},
             as_of=AS_OF,
         )
         by_symbol = {row["symbol"]: row for row in repo.published}
@@ -137,6 +137,8 @@ class RunTests(unittest.TestCase):
         self.assertEqual(by_symbol["READY"]["status"], STATUS_PENDING_RUN)
         self.assertEqual(by_symbol["GHOST"]["status"], STATUS_NO_PRICE_DATA)
         self.assertIsNone(by_symbol["GHOST"]["market_cap"])
+        self.assertIsNone(by_symbol["GHOST"]["logo_domain"])
+        self.assertEqual(by_symbol["NEWCO"]["logo_domain"], "example.com")
         self.assertEqual(by_symbol["NEWCO"]["sessions_required"], 60)
         self.assertEqual(counts["published"], 3)
 
@@ -148,7 +150,7 @@ class RunTests(unittest.TestCase):
                 columns=["SYMBOL", " SERIES", " DATE OF LISTING"]
             ),
             download=fake_download,
-            market_cap=lambda ticker: None,
+            profile_lookup=lambda ticker: {},
             as_of=AS_OF,
         )
         self.assertIsNone(repo.published)
@@ -160,7 +162,7 @@ class RunTests(unittest.TestCase):
             repo,
             fetch_master=lambda: master([("NEWCO", "EQ", "01-SEP-2026")]),
             download=fake_download,
-            market_cap=lambda ticker: None,
+            profile_lookup=lambda ticker: {},
             as_of=AS_OF,
             dry_run=True,
         )

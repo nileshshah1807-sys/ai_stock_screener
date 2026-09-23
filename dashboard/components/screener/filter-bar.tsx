@@ -94,7 +94,24 @@ export function FilterBar({
     [pathname, router, searchParams],
   );
 
-  // Debounced text filter: one request per pause, not per keystroke.
+  // Instant pass, every keystroke: hide the rows already on screen that do not
+  // match, so typing answers on the next frame instead of after a server round
+  // trip. It is the same case-insensitive substring test the server applies to
+  // symbol and company, so the server's answer -- which also brings in matches
+  // from other pages -- only ever adds rows; it never contradicts this one.
+  // Re-run when the server's rows land, so a row that survives the re-render
+  // is judged against the current text, not the text it was hidden under.
+  useEffect(() => {
+    const term = query.trim().toLowerCase();
+    document
+      .querySelectorAll<HTMLTableRowElement>("[data-screener-rows] > tr[data-match]")
+      .forEach((row) => {
+        row.hidden = Boolean(term) && !row.dataset.match!.includes(term);
+      });
+  }, [query, searchParams]);
+
+  // Debounced server filter: one request per pause, not per keystroke. Short,
+  // because the instant pass above already answered what is on screen.
   useEffect(() => {
     const current = searchParams.get("q") ?? "";
     if (query === current) return;
@@ -104,7 +121,7 @@ export function FilterBar({
         if (query.trim()) params.set("q", query.trim());
         else params.delete("q");
       });
-    }, 300);
+    }, 150);
 
     return () => clearTimeout(timer);
   }, [query, push, searchParams]);

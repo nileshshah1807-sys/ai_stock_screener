@@ -194,7 +194,7 @@ def run(
     *,
     fetch_master: Callable[[], pd.DataFrame],
     download: Callable[..., pd.DataFrame],
-    market_cap: Callable[[str], float | None],
+    profile_lookup: Callable[[str], dict[str, Any]],
     as_of: date | None = None,
     window_days: int = DEFAULT_WINDOW_DAYS,
     dry_run: bool = False,
@@ -225,7 +225,11 @@ def run(
         summary = summarize_prices(prices.get(tickers[listing.symbol]))
         status = classify(summary, limits)
         counts[status] = counts.get(status, 0) + 1
-        cap = market_cap(tickers[listing.symbol]) if summary["sessions"] else None
+        # Issuer profile: market cap and the website the dashboard turns into a
+        # logo, from the same lookup the rated universe uses. Skipped for a
+        # listing with no bars -- the vendor has nothing on it yet either.
+        facts = profile_lookup(tickers[listing.symbol]) if summary["sessions"] else {}
+        cap = facts.get("market_cap")
         rows.append({
             "symbol": listing.symbol,
             "company": listing.company or None,
@@ -236,6 +240,7 @@ def run(
             "sessions_required": limits["sessions"],
             "turnover_floor": _money(limits["mean_turnover"]),
             "market_cap": _money(cap) if cap is not None else None,
+            "logo_domain": facts.get("logo_domain"),
             "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
             **summary,
         })
@@ -246,14 +251,28 @@ def run(
     return {"listings": len(listings), "published": len(rows), **counts}
 
 
-def _yahoo_market_cap(ticker: str) -> float | None:
+def _yahoo_profile(ticker: str) -> dict[str, Any]:
+    """Market cap and logo domain from Yahoo's quote profile.
+
+    ``Ticker.info`` rather than ``fast_info``: the fast path derives market cap
+    from a shares count Yahoo often lacks for a listing this new, so it came
+    back empty for most of them, and only the full profile carries the issuer
+    website. The website goes through the same normaliser the rated universe's
+    logo backfill uses, so both resolve to identical domains.
+    """
     import yfinance as yf
 
+    from workers.logo_domain_backfill import normalize_domain
+
     try:
-        value = safe_float(yf.Ticker(ticker).fast_info.get("marketCap"))
+        info = yf.Ticker(ticker).info or {}
     except Exception:  # vendor raises for thin or brand-new listings
-        return None
-    return value if value and value > 0 else None
+        return {}
+    cap = safe_float(info.get("marketCap"))
+    return {
+        "market_cap": cap if cap and cap > 0 else None,
+        "logo_domain": normalize_domain(info.get("website")),
+    }
 
 
 def _fetch_nse_master() -> pd.DataFrame:
@@ -285,7 +304,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         repo,
         fetch_master=_fetch_nse_master,
         download=yf.download,
-        market_cap=_yahoo_market_cap,
+        profile_lookup=_yahoo_profile,
         window_days=args.window_days,
         dry_run=args.dry_run,
     )
