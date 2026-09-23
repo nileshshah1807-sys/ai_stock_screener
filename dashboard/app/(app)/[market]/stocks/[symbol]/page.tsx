@@ -20,6 +20,10 @@ import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { StageSummary, stageMarkers } from "@/components/stock/stage-summary";
 import { Financials } from "@/components/stock/financials";
 import { StockTabs } from "@/components/stock/stock-tabs";
+import { HistoryBar, NotRatedBadge, listingDetail } from "@/components/new-listing";
+import { STATUS_LABEL } from "@/lib/new-listings.mjs";
+import type { FinancialStatementsRow, NewListingRow, PriceSeriesRow } from "@/lib/queries";
+import type { Market } from "@/lib/markets";
 import {
   Tabs,
   TabsContent,
@@ -47,6 +51,7 @@ import {
 import {
   getFinancialStatements,
   getLatestRun,
+  getNewListing,
   getPriceCalendar,
   getPriceSeries,
   getPriceTail,
@@ -184,7 +189,24 @@ export default async function StockPage({
     ? await getPriceTail(market.code, symbol, priceSeries.last_session)
     : [];
 
-  if (!row) notFound();
+  if (!row) {
+    // Not in the scored universe. A recent listing still gets a page -- its
+    // facts, why it is waiting, and its statements -- instead of a 404 that
+    // reads as "the screener has never heard of this company".
+    const listing = await getNewListing(market.code, symbol);
+    if (!listing) notFound();
+    return (
+      <NewListingView
+        listing={listing}
+        market={market}
+        financials={financials}
+        priceSeries={priceSeries}
+        sessions={sessions ?? []}
+        priceTail={priceTail}
+        asOf={run.price_bar_as_of}
+      />
+    );
+  }
 
   // The viewer's own lists, and which of them already hold this symbol. Both are
   // needed to render the Watch control's initial checked state, so they are
@@ -1061,6 +1083,98 @@ export default async function StockPage({
             },
           ]}
         />
+    </ZoomIn>
+  );
+}
+
+function NewListingView({
+  listing,
+  market,
+  financials,
+  priceSeries,
+  sessions,
+  priceTail,
+  asOf,
+}: {
+  listing: NewListingRow;
+  market: Market;
+  financials: FinancialStatementsRow | null;
+  priceSeries: PriceSeriesRow | null;
+  sessions: string[];
+  priceTail: Awaited<ReturnType<typeof getPriceTail>>;
+  asOf: string | null;
+}) {
+  const change = listing.change_since_first_pct;
+  const stats = [
+    { label: "Price", value: formatMoney(listing.last_close, market), tone: "" },
+    {
+      label: "Since first close",
+      value: formatPercent(change, 1, true),
+      tone: change == null || change === 0 ? "" : change > 0 ? "text-positive" : "text-negative",
+    },
+    { label: "Market cap", value: formatMoneyCompact(listing.market_cap, market), tone: "" },
+    { label: "20D turnover", value: formatMoneyCompact(listing.median_turnover_20d, market), tone: "" },
+  ];
+
+  return (
+    <ZoomIn className="space-y-4 px-4 py-5 sm:px-6">
+      <div className="panel p-5 sm:p-6">
+        <Link
+          href={marketPath(market.slug, "/new-listings")}
+          className="inline-flex items-center gap-1 rounded-full text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ArrowLeft className="size-3" aria-hidden />
+          New listings
+        </Link>
+
+        <div className="mt-3 flex items-center gap-3">
+          <CompanyLogo symbol={listing.symbol} domain={null} size="lg" />
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="font-mono text-[1.75rem] font-bold leading-tight tracking-tight">
+              {listing.symbol}
+            </h1>
+            <p className="text-heading text-muted-foreground">{listing.company ?? MISSING}</p>
+            <NotRatedBadge size="md" className="self-center" />
+          </div>
+        </div>
+
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Listed {formatDate(listing.listed_on)} · Series {listing.series ?? MISSING} · Bar{" "}
+          {formatDate(listing.last_session)}
+        </p>
+
+        <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border lg:grid-cols-4">
+          {stats.map((stat) => (
+            <div key={stat.label} className="bg-muted/40 px-4 py-3">
+              <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                {stat.label}
+              </dt>
+              <dd className={`tabular mt-0.5 text-lead font-semibold ${stat.tone}`}>{stat.value}</dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="mt-4 rounded-row border border-dashed border-border p-4">
+          <p className="text-sm font-medium">{STATUS_LABEL[listing.status]}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {listingDetail(listing, market)}
+          </p>
+          <HistoryBar row={listing} className="mt-3 max-w-sm" />
+        </div>
+
+        {priceSeries ? (
+          <div className="mt-4">
+            <PriceChart series={priceSeries} sessions={sessions} tail={priceTail} height={260} markers={[]} />
+          </div>
+        ) : null}
+      </div>
+
+      <Panel
+        title="Financials"
+        description="As reported so far. A new listing often has only its first one or two quarters at the source."
+      >
+        <Financials data={financials} market={market} symbol={listing.symbol} asOf={asOf} />
+      </Panel>
     </ZoomIn>
   );
 }

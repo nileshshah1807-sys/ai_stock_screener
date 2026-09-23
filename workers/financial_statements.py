@@ -297,6 +297,22 @@ def _as_date(value) -> date | None:
         return None
 
 
+def _universe(repo) -> list[str]:
+    """Rated symbols in rank order, then recent listings not yet rated.
+
+    New listings are included so their stock page has statements to show while
+    they wait for a rating. They come after every rated name, so a cold build
+    still reaches the most investable companies first.
+    """
+    rated = repo.latest_snapshot_symbols()
+    try:
+        pending = repo.new_listing_symbols()
+    except Exception as exc:  # table not deployed yet: rated names only
+        logger.warning("New listings unavailable (%s); covering rated names only", exc)
+        pending = []
+    return list(dict.fromkeys([*rated, *pending]))
+
+
 def run(
     repo,
     *,
@@ -313,9 +329,7 @@ def run(
 ) -> dict[str, int]:
     profile = resolve_market(repo.market)
     today = today or datetime.now(UTC).date()
-    wanted = (
-        [s.strip().upper() for s in symbols] if symbols else repo.latest_snapshot_symbols()
-    )
+    wanted = [s.strip().upper() for s in symbols] if symbols else _universe(repo)
     state = repo.financial_statement_state()
     todo = wanted if symbols else select_due(
         wanted, state, today, max_age_days=max_age_days, limit=max_symbols

@@ -3,7 +3,7 @@ import type {
   SnapshotRow,
   SnapshotRowWithPayload,
 } from "@/lib/types";
-import type { FinancialStatementsRow } from "@/lib/queries";
+import type { FinancialStatementsRow, NewListingRow } from "@/lib/queries";
 
 /**
  * Fixture data for the development-only design preview.
@@ -558,3 +558,36 @@ export const previewFinancials: FinancialStatementsRow = {
   "latest_quarter": "2026-06-30",
   "fetched_at": "2026-09-23T03:12:00+00:00"
 };
+
+/**
+ * New listings, shaped like the worker's live output on 23 Sep 2026: one on
+ * its listing day, a few building history, one below the liquidity floor.
+ */
+const listing = (row: Partial<NewListingRow>): NewListingRow => ({
+  symbol: "",
+  company: null,
+  series: "EQ",
+  listed_on: "2026-09-17",
+  status: "insufficient_history",
+  sessions: 5,
+  sessions_required: 60,
+  first_session: null,
+  first_close: null,
+  last_session: "2026-09-23",
+  last_close: null,
+  change_since_first_pct: null,
+  avg_turnover_20d: null,
+  median_turnover_20d: null,
+  turnover_floor: 5000000,
+  market_cap: null,
+  updated_at: "2026-09-23T03:40:00+00:00",
+  ...row,
+});
+
+export const previewNewListings: NewListingRow[] = [
+  listing({ symbol: "SSRETAIL", company: "SS Retail Limited", listed_on: "2026-09-23", sessions: 1, last_close: 748.8, market_cap: 55689601435, median_turnover_20d: 34246672952 }),
+  listing({ symbol: "RENTOMOJO", company: "Rentomojo Limited", sessions: 5, last_close: 521.35, change_since_first_pct: -2.41, median_turnover_20d: 10951487003 }),
+  listing({ symbol: "KARAMTARA", company: "Karamtara Engineering Limited", sessions: 5, last_close: 361.95, change_since_first_pct: 2.83, median_turnover_20d: 5367378738 }),
+  listing({ symbol: "VTMLTD", company: "VTM Limited", listed_on: "2026-09-23", sessions: 32, last_close: 44.5, change_since_first_pct: 93.9, market_cap: 4475320500, median_turnover_20d: 3807455 }),
+  listing({ symbol: "SLOWCO", company: "Slow Traders Limited", listed_on: "2026-03-02", status: "below_liquidity_floor", sessions: 140, last_close: 88.1, change_since_first_pct: -12.4, market_cap: 2100000000, median_turnover_20d: 1200000 }),
+];

@@ -651,6 +651,93 @@ export async function getFinancialStatements(
   return (data as FinancialStatementsRow | null) ?? null;
 }
 
+export type NewListingStatus =
+  | "insufficient_history"
+  | "below_liquidity_floor"
+  | "no_price_data"
+  | "pending_run";
+
+/** A recent listing the latest run has not rated. See workers/new_listings.py. */
+export type NewListingRow = {
+  symbol: string;
+  company: string | null;
+  series: string | null;
+  listed_on: string;
+  status: NewListingStatus;
+  sessions: number | null;
+  sessions_required: number;
+  first_session: string | null;
+  first_close: number | null;
+  last_session: string | null;
+  last_close: number | null;
+  change_since_first_pct: number | null;
+  avg_turnover_20d: number | null;
+  median_turnover_20d: number | null;
+  turnover_floor: number;
+  market_cap: number | null;
+  updated_at: string;
+};
+
+const NEW_LISTING_COLUMNS =
+  "symbol, company, series, listed_on, status, sessions, sessions_required, " +
+  "first_session, first_close, last_session, last_close, change_since_first_pct, " +
+  "avg_turnover_20d, median_turnover_20d, turnover_floor, market_cap, updated_at";
+
+/**
+ * Recent listings not yet rated, newest first. A few hundred rows at most, so
+ * one read. Empty (not an error) when the table is not deployed or the market
+ * has no listing dates.
+ */
+export const getNewListings = cache(
+  async (market: MarketCode): Promise<NewListingRow[]> => {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("new_listings")
+      .select(NEW_LISTING_COLUMNS)
+      .eq("market", market)
+      .order("listed_on", { ascending: false })
+      .order("symbol", { ascending: true })
+      .limit(1000);
+    if (error) {
+      console.error("getNewListings failed", error.message);
+      return [];
+    }
+    return (data as unknown as NewListingRow[]) ?? [];
+  },
+);
+
+/** Count only, for the screener's entry chip. */
+export const countNewListings = cache(async (market: MarketCode): Promise<number> => {
+  const supabase = await createClient();
+  const { count, error } = await supabase
+    .from("new_listings")
+    .select("symbol", { count: "exact", head: true })
+    .eq("market", market);
+  if (error) {
+    console.error("countNewListings failed", error.message);
+    return 0;
+  }
+  return count ?? 0;
+});
+
+export async function getNewListing(
+  market: MarketCode,
+  symbol: string,
+): Promise<NewListingRow | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("new_listings")
+    .select(NEW_LISTING_COLUMNS)
+    .eq("market", market)
+    .eq("symbol", symbol.toUpperCase())
+    .maybeSingle();
+  if (error) {
+    console.error("getNewListing failed", error.message);
+    return null;
+  }
+  return (data as unknown as NewListingRow | null) ?? null;
+}
+
 /**
  * Sessions observed after the published series ends.
  *

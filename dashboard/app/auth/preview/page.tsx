@@ -11,10 +11,17 @@ import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { Financials } from "@/components/stock/financials";
 import { StockTabs } from "@/components/stock/stock-tabs";
+import { NewListingsList, NotRatedBadge } from "@/components/new-listing";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { RATINGS } from "@/lib/types";
 
-import { previewDetailRow, previewFinancials, previewRows, previewRun } from "./fixtures";
+import {
+  previewDetailRow,
+  previewFinancials,
+  previewNewListings,
+  previewRows,
+  previewRun,
+} from "./fixtures";
 
 /**
  * Development-only design preview.
@@ -137,6 +144,15 @@ export default function PreviewPage() {
           <Panel title="How this score was produced">
             <ScoreWaterfall row={previewDetailRow} />
           </Panel>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading flex items-center gap-3">
+            New listings <NotRatedBadge size="md" />
+          </h2>
+          <div className="panel overflow-hidden">
+            <NewListingsList rows={previewNewListings} market={DEFAULT_MARKET} />
+          </div>
         </section>
 
         <section className="flex flex-col gap-3">

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getViewer } from "@/lib/auth";
 import { DEFAULT_MARKET, marketFromSlug } from "@/lib/markets";
-import { getLatestRun, getSearchIndex } from "@/lib/queries";
+import { getLatestRun, getNewListings, getSearchIndex } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +35,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ market: market.slug, runDate: null, entries: [] });
   }
 
-  const entries = await getSearchIndex(market.code, run.run_date, run.row_count);
+  const [rated, pending] = await Promise.all([
+    getSearchIndex(market.code, run.run_date, run.row_count),
+    market.code === "NSE" ? getNewListings(market.code) : Promise.resolve([]),
+  ]);
+  // Recent listings the run has not rated are searchable too, after every
+  // rated name and labelled NEW, so ⌘K never answers "no match" for a company
+  // that listed last week. Their page explains why there is no rating.
+  const seen = new Set(rated.map((entry) => entry.s));
+  const entries = [
+    ...rated,
+    ...pending
+      .filter((row) => !seen.has(row.symbol))
+      .map((row) => ({ s: row.symbol, c: row.company ?? "", r: null, g: "NEW", d: null })),
+  ];
 
   return NextResponse.json(
     { market: market.slug, runDate: run.run_date, entries },
