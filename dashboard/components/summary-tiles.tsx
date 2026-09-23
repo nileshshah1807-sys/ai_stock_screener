@@ -92,10 +92,22 @@ export function SummaryTiles({
      * the moment a column count changes; the gap is correct at every width by
      * construction.
      */
+    /*
+     * Phone: one swipeable row instead of a 2x3 block. Six tiles stacked three
+     * deep cost a full screen before the grid on a 440px phone; in a row they
+     * cost one tile's height, snap tile by tile, and the half-visible next tile
+     * says there is more.
+     */
     <Reveal
       selector="[data-kpi]"
       bounce
-      className="panel grid grid-cols-2 gap-px overflow-hidden bg-border sm:grid-cols-3 xl:grid-cols-6"
+      className={cn(
+        "panel gap-px overflow-hidden bg-border",
+        "max-sm:flex max-sm:snap-x max-sm:snap-mandatory max-sm:overflow-x-auto max-sm:overscroll-x-contain",
+        "max-sm:[scrollbar-width:none] max-sm:[&::-webkit-scrollbar]:hidden",
+        "max-sm:[&>[data-kpi]]:min-w-[9.75rem] max-sm:[&>[data-kpi]]:shrink-0 max-sm:[&>[data-kpi]]:snap-start",
+        "sm:grid sm:grid-cols-3 xl:grid-cols-6",
+      )}
     >
       <div data-kpi className="flex items-center gap-3 bg-card px-4 py-3">
         <AccentBar className="bg-muted-foreground/40 ring-muted-foreground/30" />
@@ -105,7 +117,7 @@ export function SummaryTiles({
             <CountUp
               locale={market.locale}
               value={total}
-              className="numeral text-3xl font-semibold sm:text-4xl"
+              className="numeral text-2xl font-semibold sm:text-4xl"
             />
           </p>
           <p className="text-[11px] text-muted-foreground">scored</p>
@@ -145,7 +157,7 @@ export function SummaryTiles({
                 <CountUp
                   locale={market.locale}
                   value={count}
-                  className="numeral text-3xl font-semibold sm:text-4xl"
+                  className="numeral text-2xl font-semibold sm:text-4xl"
                 />
               </p>
               <p className="tabular text-[11px] text-muted-foreground">

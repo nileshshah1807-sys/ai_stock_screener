@@ -12,6 +12,13 @@ import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { Financials } from "@/components/stock/financials";
 import { StockTabs } from "@/components/stock/stock-tabs";
 import { NewListingsList, NotRatedBadge } from "@/components/new-listing";
+import { Suspense } from "react";
+import { ActiveFilters } from "@/components/screener/active-filters";
+import { ExportLink } from "@/components/screener/export-link";
+import { FilterBar } from "@/components/screener/filter-bar";
+import { SavedViews } from "@/components/screener/saved-views";
+import { StockSearch } from "@/components/screener/stock-search";
+import { ViewOptions } from "@/components/screener/view-options";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { RATINGS } from "@/lib/types";
 
@@ -144,6 +151,28 @@ export default function PreviewPage() {
           <Panel title="How this score was produced">
             <ScoreWaterfall row={previewDetailRow} />
           </Panel>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Screener toolbar</h2>
+          {/* Same structure as (screener)/layout.tsx. Suspense because these
+              read the query string, which a static page only has on the client. */}
+          <Suspense>
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex-1">
+                  <FilterBar sectors={["Financials", "Information Technology", "Industrials"]} factorModel />
+                </div>
+                <ViewOptions factorModel />
+                <StockSearch />
+                <ExportLink />
+              </div>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+                <SavedViews factorModel />
+                <ActiveFilters />
+              </div>
+            </div>
+          </Suspense>
         </section>
 
         <section className="flex flex-col gap-3">

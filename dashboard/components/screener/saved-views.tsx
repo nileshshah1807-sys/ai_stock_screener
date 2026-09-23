@@ -8,11 +8,20 @@ import {
   useTransition,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BookmarkPlus, Link2, Star, Trash2 } from "lucide-react";
+import { BookmarkPlus, Check, ChevronDown, Link2, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -129,8 +138,95 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
     }
   };
 
+  const nameInput = naming ? (
+    <span className="flex items-center gap-1">
+      <Input
+        autoFocus
+        value={draftName}
+        onChange={(event) => setDraftName(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") saveCurrent();
+          if (event.key === "Escape") {
+            setNaming(false);
+            setDraftName("");
+          }
+        }}
+        placeholder="Name this view…"
+        aria-label="Name for the saved view"
+        className="h-8 w-40 text-xs"
+      />
+      <Button variant="outline" className="h-8 px-2.5 text-xs" onClick={saveCurrent}>
+        Save
+      </Button>
+    </span>
+  ) : null;
+
+  const activeView =
+    presets.find((preset) => viewIsActive(searchParams, preset.query)) ??
+    saved.find((view) => viewIsActive(searchParams, view.query));
+
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <>
+      {/*
+        Phone: one menu instead of a wrapping row of chips. Five presets plus
+        Save and Copy link took three rows above the grid; the trigger names the
+        active view, so what is applied is still visible at a glance.
+      */}
+      <div className="flex items-center gap-1.5 sm:hidden">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                className={cn(CHIP, activeView ? CHIP_ACTIVE : CHIP_IDLE, "max-w-[14rem]")}
+              />
+            }
+          >
+            <Star className="size-3 shrink-0" aria-hidden />
+            <span className="truncate">{activeView ? activeView.label : "Views"}</span>
+            <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-64">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Views</DropdownMenuLabel>
+              {presets.map((preset) => (
+                <DropdownMenuItem key={preset.id} onClick={() => apply(preset.query)}>
+                  <span className="flex-1">{preset.label}</span>
+                  {viewIsActive(searchParams, preset.query) ? (
+                    <Check className="size-3.5" aria-hidden />
+                  ) : null}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+            {saved.length ? (
+              <DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Saved</DropdownMenuLabel>
+                {saved.map((view) => (
+                  <DropdownMenuItem key={view.id} onClick={() => apply(view.query)}>
+                    <span className="flex-1 truncate">{view.label}</span>
+                    {viewIsActive(searchParams, view.query) ? (
+                      <Check className="size-3.5" aria-hidden />
+                    ) : null}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuGroup>
+            ) : null}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setNaming(true)}>
+              <BookmarkPlus aria-hidden />
+              Save current view
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={copyLink}>
+              <Link2 aria-hidden />
+              Copy link
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {nameInput}
+      </div>
+
+    <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
       <span className="mr-0.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         <Star className="size-3" aria-hidden />
         Views
@@ -193,26 +289,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
       })}
 
       {naming ? (
-        <span className="flex items-center gap-1">
-          <Input
-            autoFocus
-            value={draftName}
-            onChange={(event) => setDraftName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") saveCurrent();
-              if (event.key === "Escape") {
-                setNaming(false);
-                setDraftName("");
-              }
-            }}
-            placeholder="Name this view…"
-            aria-label="Name for the saved view"
-            className="h-8 w-40 text-xs"
-          />
-          <Button variant="outline" className="h-8 px-2.5 text-xs" onClick={saveCurrent}>
-            Save
-          </Button>
-        </span>
+        nameInput
       ) : (
         <button type="button" onClick={() => setNaming(true)} className={cn(CHIP, CHIP_IDLE)}>
           <BookmarkPlus className="size-3" aria-hidden />
@@ -225,5 +302,6 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
         Copy link
       </button>
     </div>
+    </>
   );
 }
