@@ -40,6 +40,9 @@ NASDAQ_LISTED = (
     "QQQ|Invesco QQQ Trust|Q|N|N|100|Y|N\n"
     "ZTEST|Nasdaq Test Stock|Q|Y|N|100|N|N\n"
     "ABCW|Some Corp - Warrant|Q|N|N|100|N|N\n"
+    "MILU|Miluna Acquisition Corp - Class A Ordinary Shares|G|N|N|100|N|N\n"
+    "GBDC|Golub Capital BDC, Inc. - Closed End Fund|Q|N|N|100|N|N\n"
+    "OPI|Office Properties Income Trust - Common Shares|Q|N|N|100|N|N\n"
     "File Creation Time: 0920202618:30|||||||\n"
 )
 
@@ -49,6 +52,9 @@ OTHER_LISTED = (
     "BRK.B|Berkshire Hathaway Inc. Class B Common Stock|N|BRK.B|N|100|N|BRK.B\n"
     "SPY|SPDR S&P 500 ETF Trust|P|SPY|Y|100|N|SPY\n"
     "ABC$A|Some Corp Preferred|N|ABC$A|N|100|N|ABC$A\n"
+    "NUV|Nuveen Municipal Value Fund, Inc. Common Stock|N|NUV|N|100|N|NUV\n"
+    "LEGO|Legato Merger Corp. IV Ordinary Shares|A|LEGO|N|100|N|LEGO\n"
+    "SBR|Sabine Royalty Trust Common Stock|N|SBR|N|100|N|SBR\n"
     "File Creation Time: 0920202618:30|||||||\n"
 )
 
@@ -185,6 +191,18 @@ class AllListedUniverseTests(unittest.TestCase):
         self.assertNotIn("ZTEST", symbols)    # Test Issue flag
         self.assertNotIn("ABCW", symbols)     # "Warrant" in security name
         self.assertNotIn("ABC$A", symbols)    # "$" marks a preferred line
+
+    def test_closed_end_funds_and_spacs_are_dropped(self):
+        symbols = self._fetch().symbols
+        self.assertNotIn("GBDC", symbols)     # Nasdaq's "Closed End Fund" label
+        self.assertNotIn("NUV", symbols)      # municipal fund
+        self.assertNotIn("MILU", symbols)     # "Acquisition Corp" SPAC
+        self.assertNotIn("LEGO", symbols)     # "Merger Corp" SPAC
+
+    def test_reits_and_royalty_trusts_named_trust_are_kept(self):
+        symbols = self._fetch().symbols
+        self.assertIn("OPI", symbols)
+        self.assertIn("SBR", symbols)
 
     def test_the_file_creation_trailer_is_not_a_symbol(self):
         for symbol in self._fetch().symbols:

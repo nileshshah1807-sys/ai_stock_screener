@@ -224,6 +224,21 @@ _NON_COMMON_MARKERS = (
     "%",
 )
 
+# Common shares that are not operating companies. Closed-end funds and SPACs
+# list as ordinary common stock with no ETF flag, so only the security name
+# identifies them: on the 2026-09-23 directory this matched 297 funds and 228
+# SPACs, and no S&P 1500 member. A fund's "fundamentals" are its portfolio and a
+# SPAC's are a trust account, so neither belongs in a cross-sectional ranking of
+# businesses. Word-bounded on purpose: "Income Trust" is also how several REITs
+# are named, so trusts are left to the liquidity and statement-coverage gates.
+_NON_OPERATING_PATTERN = re.compile(
+    r"\bfunds?\b"
+    r"|\bmunicipal|\bmuniyield"
+    r"|\bacquisition (?:corp|corporation|co|company|limited|ltd|inc)\b"
+    r"|\bmerger corp",
+    re.IGNORECASE,
+)
+
 
 def _parse_nasdaq_directory(text: str, symbol_column: str) -> pd.DataFrame:
     frame = pd.read_csv(io.StringIO(text), sep="|", dtype=str)
@@ -233,7 +248,13 @@ def _parse_nasdaq_directory(text: str, symbol_column: str) -> pd.DataFrame:
 
 
 def all_listed(config=None) -> UniverseResult:
-    """Every US-listed common stock, from the Nasdaq Trader symbol directory."""
+    """Every US-listed operating company, from the Nasdaq Trader symbol directory.
+
+    ETFs, test issues, non-common lines, closed-end funds and SPACs are
+    dropped here. Liquidity is not: the runtime's research prefilter applies
+    the price and turnover floors once prices are in, before the slow
+    fundamentals and statements fetches.
+    """
     symbols: set[str] = set()
     notes: list[str] = []
 
@@ -259,6 +280,7 @@ def all_listed(config=None) -> UniverseResult:
             lowered = frame["Security Name"].fillna("").str.lower()
             for marker in _NON_COMMON_MARKERS:
                 keep &= ~lowered.str.contains(marker, regex=False)
+            keep &= ~lowered.str.contains(_NON_OPERATING_PATTERN, regex=True)
 
         selected = frame.loc[keep, symbol_column].str.strip().str.upper().str.replace(
             ".", "-", regex=False

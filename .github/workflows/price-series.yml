@@ -133,9 +133,9 @@ jobs:
   publish-us:
     name: US (vendor-sourced)
     runs-on: ubuntu-latest
-    # No archive to restore and ~1,500 symbols of daily history to fetch in
-    # thirties; measured at a few minutes end to end.
-    timeout-minutes: 30
+    # No archive to restore and ~5,100 symbols of daily history to fetch in
+    # thirties; a few minutes for the S&P 1500, so allow for three times that.
+    timeout-minutes: 60
     concurrency:
       group: price-series-us
       cancel-in-progress: false
@@ -143,8 +143,10 @@ jobs:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       MARKET: "US"
-      # Charts for exactly the universe the screener publishes.
-      US_UNIVERSE_SOURCE: "sp1500"
+      # The screener's source universe. Charts are also built for names the
+      # liquidity prefilter drops that day, which costs a few MB and means a
+      # name that crosses the floor has its chart ready.
+      US_UNIVERSE_SOURCE: "all_listed"
       WIKIPEDIA_USER_AGENT: "winnow-screener/1.0 (+https://github.com/${{ github.repository }})"
 
     steps:
