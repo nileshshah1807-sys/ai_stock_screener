@@ -9,10 +9,12 @@ import { DecisionScore } from "@/components/stock/decision-score";
 import { FieldList, Panel } from "@/components/stock/field-list";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
+import { Financials } from "@/components/stock/financials";
+import { StockTabs } from "@/components/stock/stock-tabs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { RATINGS } from "@/lib/types";
 
-import { previewDetailRow, previewRows, previewRun } from "./fixtures";
+import { previewDetailRow, previewFinancials, previewRows, previewRun } from "./fixtures";
 
 /**
  * Development-only design preview.
@@ -134,6 +136,33 @@ export default function PreviewPage() {
           <h2 className="text-heading">Score waterfall</h2>
           <Panel title="How this score was produced">
             <ScoreWaterfall row={previewDetailRow} />
+          </Panel>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Stock page tabs</h2>
+          <StockTabs
+            initial="overview"
+            tabs={[
+              { key: "overview", label: "Overview", content: <div className="panel p-6 text-sm">Overview content</div> },
+              { key: "financials", label: "Financials", content: <div className="panel p-6 text-sm">Financials content</div> },
+              { key: "audit", label: "Audit", content: <div className="panel p-6 text-sm">Audit content</div> },
+            ]}
+          />
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Financials</h2>
+          <Panel
+            title="Financials"
+            description="Real TCS vendor output, including a quarter the source skips."
+          >
+            <Financials
+              data={previewFinancials}
+              market={DEFAULT_MARKET}
+              symbol="TCS"
+              asOf="2026-09-22"
+            />
           </Panel>
         </section>
 

@@ -385,6 +385,63 @@ class DashboardRepository:
             written += len(chunk)
         return written
 
+    # -- financial statements -----------------------------------------------
+
+    def _paged(self, path: str, params: dict[str, Any], page: int = 1000) -> list[dict[str, Any]]:
+        """Read every row of a filtered query, past PostgREST's row cap."""
+        rows: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            batch = self._request(
+                "GET",
+                path,
+                params=self._scoped({**params, "limit": str(page), "offset": str(offset)}),
+            ) or []
+            rows.extend(batch)
+            if len(batch) < page:
+                return rows
+            offset += page
+
+    def latest_snapshot_symbols(self) -> list[str]:
+        """Symbols in this market's newest published run, in rank order."""
+        run = self.latest_completed_run()
+        if not run:
+            return []
+        rows = self._paged(
+            "screener_snapshot",
+            {
+                "select": "symbol",
+                "run_date": f"eq.{run['run_date']}",
+                "order": "investment_rank.asc.nullslast,symbol.asc",
+            },
+        )
+        return [str(row["symbol"]) for row in rows if row.get("symbol")]
+
+    def financial_statement_state(self) -> dict[str, dict[str, Any]]:
+        """Per-symbol refresh state: when it was fetched and its latest quarter."""
+        rows = self._paged(
+            "financial_statements",
+            {"select": "symbol,fetched_at,latest_quarter", "order": "symbol.asc"},
+        )
+        return {str(row["symbol"]): row for row in rows}
+
+    def upsert_financial_statements(
+        self,
+        rows: list[dict[str, Any]],
+        chunk_size: int = 50,
+    ) -> int:
+        """Upsert per-symbol statement payloads (a few KB each)."""
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "financial_statements?on_conflict=market,symbol",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        return written
+
     def delete_stale_snapshot_rows(self, run_date: str, symbols: Iterable[str]) -> None:
         """Remove rows for a re-ingested date that the new run no longer covers.
 

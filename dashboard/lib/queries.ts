@@ -602,6 +602,55 @@ export async function getPriceSeries(
   return (data as PriceSeriesRow | null) ?? null;
 }
 
+export type FinancialStatementSeries = {
+  periods: string[];
+  rows: Record<string, (number | null)[]>;
+};
+
+export type FinancialStatementsRow = {
+  statements: {
+    v: number;
+    annual?: {
+      income?: FinancialStatementSeries;
+      balance?: FinancialStatementSeries;
+      cashflow?: FinancialStatementSeries;
+    };
+    quarterly?: { income?: FinancialStatementSeries };
+  };
+  has_data: boolean;
+  currency: string;
+  source: string;
+  latest_annual: string | null;
+  latest_quarter: string | null;
+  fetched_at: string;
+};
+
+/**
+ * Reported statements for the Financials tab: one small row per symbol,
+ * refreshed in the background by workers/financial_statements.py. Null means
+ * the worker has not reached this symbol yet (or the table is not deployed),
+ * which the tab distinguishes from `has_data: false` -- "the source reports
+ * nothing".
+ */
+export async function getFinancialStatements(
+  market: MarketCode,
+  symbol: string,
+): Promise<FinancialStatementsRow | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("financial_statements")
+    .select("statements, has_data, currency, source, latest_annual, latest_quarter, fetched_at")
+    .eq("market", market)
+    .eq("symbol", symbol.toUpperCase())
+    .maybeSingle();
+
+  if (error) {
+    console.error("getFinancialStatements failed", error.message);
+    return null;
+  }
+  return (data as FinancialStatementsRow | null) ?? null;
+}
+
 /**
  * Sessions observed after the published series ends.
  *

@@ -18,6 +18,8 @@ import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { PriceChart } from "@/components/stock/price-chart";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { StageSummary, stageMarkers } from "@/components/stock/stage-summary";
+import { Financials } from "@/components/stock/financials";
+import { StockTabs } from "@/components/stock/stock-tabs";
 import {
   Tabs,
   TabsContent,
@@ -43,6 +45,7 @@ import {
   stabilityStatus,
 } from "@/lib/labels";
 import {
+  getFinancialStatements,
   getLatestRun,
   getPriceCalendar,
   getPriceSeries,
@@ -147,9 +150,11 @@ export async function generateMetadata({
 
 export default async function StockPage({
   params,
+  searchParams,
 }: PageProps<"/[market]/stocks/[symbol]">) {
-  // Next.js 16: params is a Promise.
+  // Next.js 16: params and searchParams are Promises.
   const { market: marketSlug, symbol: rawSymbol } = await params;
+  const { tab } = await searchParams;
   const market = marketFromSlug(marketSlug)!;
   // Whether the host hands this back percent-encoded varies, and ten tickers
   // contain an ampersand. Decoding is idempotent here, so it is correct either
@@ -159,13 +164,17 @@ export default async function StockPage({
   const run = await getLatestRun(market.code);
   if (!run) notFound();
 
-  // The price series and its calendar are independent of the snapshot, so all
-  // four reads go out together rather than adding two round trips to the page.
-  const [row, history, priceSeries, sessions] = await Promise.all([
+  // The price series, its calendar and the statements are independent of the
+  // snapshot, so every read goes out together rather than adding round trips.
+  // Statements are fetched on every view, not only when the Financials tab is
+  // asked for: they are one small row, and having them in hand is what makes
+  // the tab switch instant instead of a server round trip.
+  const [row, history, priceSeries, sessions, financials] = await Promise.all([
     getStock(market.code, run.run_date, symbol),
     getStockHistory(market.code, symbol),
     getPriceSeries(market.code, symbol),
     getPriceCalendar(market.code),
+    getFinancialStatements(market.code, symbol),
   ]);
 
   // Sessions since the base series was last rebuilt. Fetched after it because
@@ -765,246 +774,293 @@ export default async function StockPage({
         </div>
 
         {/*
-          Directly under the hero, above the score breakdown. The reader has
-          just seen the score, the price and the chart; this is the first thing
-          that argues with them, and burying it below the factor panels would
-          make the disagreement something you have to go looking for.
+          The page's depth lives behind three tabs rather than one long scroll.
+          Overview answers "what does the model think"; Financials is the
+          company's reported numbers; Audit keeps every gate check and the
+          complete exported record -- essential for verifying a decision, but
+          not what a reader opens the page for, so it is one tap away rather
+          than the last 549 rows of the page. The hero above stays on every
+          tab: it is the context each of them is read against.
         */}
-        {/*
-          Directly under the chart it annotates: the chart's Stage 2 and S3/S4
-          markers are these dates, and the returns here are measured on the
-          same adjusted closes.
-        */}
-        {factorModel ? (
-          <Panel
-            title="Stage"
-            description="Where the stock is in its cycle, from the 50/150/200-day averages, and what it has done since."
-          >
-            <StageSummary
-              row={row}
-              asOf={row.price_bar_as_of ?? run.price_bar_as_of}
-              market={market}
-            />
-          </Panel>
-        ) : null}
+        <StockTabs
+          initial={typeof tab === "string" ? tab : "overview"}
+          tabs={[
+            {
+              key: "overview",
+              label: "Overview",
+              content: (
+                <>
 
-        <ExpectationsGap data={expectations} market={market} />
+                  {/*
+                    Directly under the hero, above the score breakdown. The reader has
+                    just seen the score, the price and the chart; this is the first thing
+                    that argues with them, and burying it below the factor panels would
+                    make the disagreement something you have to go looking for.
+                  */}
+                  {/*
+                    Directly under the chart it annotates: the chart's Stage 2 and S3/S4
+                    markers are these dates, and the returns here are measured on the
+                    same adjusted closes.
+                  */}
+                  {factorModel ? (
+                    <Panel
+                      title="Stage"
+                      description="Where the stock is in its cycle, from the 50/150/200-day averages, and what it has done since."
+                    >
+                      <StageSummary
+                        row={row}
+                        asOf={row.price_bar_as_of ?? run.price_bar_as_of}
+                        market={market}
+                      />
+                    </Panel>
+                  ) : null}
 
-        {/*
-          The ring gets a fixed narrow column and the waterfall gets the rest.
-          Previously they shared a 1.15:1 split, which left the ring floating in
-          a tall panel of empty space while the waterfall -- the widest graphic
-          on the page -- was squeezed.
-        */}
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-          <Panel
-            title="Published score"
-            description="The uncapped research evidence, against the 0-100 range. Ticks mark the REDUCE / HOLD / BUY / STRONG BUY boundaries; policy gates limit the rating, not the score."
-          >
-            <DecisionScore
-              score={row.final_score ?? row.evidence_score}
-              rating={row.rating}
-              caption={
-                capFlagged
-                  ? (gateWarning ??
-                    row.rating_cap_reason ??
-                    "Policy gates limit the rating below this score.")
-                  : undefined
-              }
-            />
-          </Panel>
+                  <ExpectationsGap data={expectations} market={market} />
 
-          <div className="space-y-4">
-            {factorModel ? (
-              <Panel
-                title="Factor blocks"
-                description="Model 5.0 ranks each economic concept separately, then blends them. Coverage says how much of a block was actually observed."
-              >
-                <FactorBlocks row={row} />
-              </Panel>
-            ) : null}
+                  {/*
+                    The ring gets a fixed narrow column and the waterfall gets the rest.
+                    Previously they shared a 1.15:1 split, which left the ring floating in
+                    a tall panel of empty space while the waterfall -- the widest graphic
+                    on the page -- was squeezed.
+                  */}
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
+                    <Panel
+                      title="Published score"
+                      description="The uncapped research evidence, against the 0-100 range. Ticks mark the REDUCE / HOLD / BUY / STRONG BUY boundaries; policy gates limit the rating, not the score."
+                    >
+                      <DecisionScore
+                        score={row.final_score ?? row.evidence_score}
+                        rating={row.rating}
+                        caption={
+                          capFlagged
+                            ? (gateWarning ??
+                              row.rating_cap_reason ??
+                              "Policy gates limit the rating below this score.")
+                            : undefined
+                        }
+                      />
+                    </Panel>
 
-            <Panel
-              title="How this score was produced"
-              description={
-                factorModel
-                  ? "The sequence starts with the published factor research score. Reverse DCF is already counted inside Value; later evidence and policy ceilings are then applied once."
-                  : "The finalizer runs this sequence once, after all evidence is present. A stage that is not eligible contributes exactly zero."
-              }
-            >
-              <ScoreWaterfall row={row} />
-            </Panel>
-          </div>
-        </div>
+                    <div className="space-y-4">
+                      {factorModel ? (
+                        <Panel
+                          title="Factor blocks"
+                          description="Model 5.0 ranks each economic concept separately, then blends them. Coverage says how much of a block was actually observed."
+                        >
+                          <FactorBlocks row={row} />
+                        </Panel>
+                      ) : null}
 
-        <Panel
-          title="Decision audit"
-          description="Every explanation below comes from this row's exported evidence and policy fields; no company-specific rules are used."
-        >
-          <Tabs defaultValue="policy" className="gap-4">
-            <TabsList variant="line" aria-label="Decision audit views">
-              <TabsTrigger value="policy">Policy ceiling</TabsTrigger>
-              <TabsTrigger value="gates">Gate checks</TabsTrigger>
-              <TabsTrigger value="coverage">Evidence coverage</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="policy" className="space-y-4">
-              <div
-                className={`rounded-row border p-4 ${
-                  capFlagged
-                    ? "border-caution/40 bg-caution/5"
-                    : "border-border bg-muted/20"
-                }`}
-              >
-                <p className="text-sm font-medium">
-                  {capFlagged
-                    ? capEnforced
-                      ? `${gate.label} limited the published decision.`
-                      : `${gate.label} would cap this at ${row.policy_eligible_rating ?? "a lower rating"}. Model 5.1 publishes research merit and reports the gate instead.`
-                    : "No policy ceiling reduced this decision."}
-                </p>
-                {capReasons.length ? (
-                  <ul className="mt-2 space-y-1 text-xs leading-relaxed text-muted-foreground">
-                    {capReasons.map((reason) => (
-                      <li key={reason} className="flex gap-2">
-                        <span aria-hidden>&bull;</span>
-                        <span>{reason}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    The exported row contains no active cap reason.
-                  </p>
-                )}
-              </div>
-              <FieldList fields={policyFields} columns={4} />
-            </TabsContent>
-
-            <TabsContent value="gates">
-              <FieldList fields={gateFields} columns={4} />
-            </TabsContent>
-
-            <TabsContent value="coverage" className="space-y-5">
-              <FieldList fields={coverageFields} columns={4} />
-              <div>
-                <h3 className="text-sm font-medium">Value evidence inputs</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Coverage counts only inputs applicable to this row&apos;s sector and evidence state.
-                </p>
-                {valueAudit.length ? (
-                  <div className="mt-3 overflow-x-auto rounded-row border border-border">
-                    <table className="w-full min-w-[640px] text-left text-xs">
-                      <thead className="bg-muted/40 text-muted-foreground">
-                        <tr>
-                          <th scope="col" className="px-3 py-2 font-medium">Input</th>
-                          <th scope="col" className="px-3 py-2 font-medium">Weight</th>
-                          <th scope="col" className="px-3 py-2 font-medium">Status</th>
-                          <th scope="col" className="px-3 py-2 font-medium">Source or reason</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {valueAudit.map((item) => (
-                          <tr key={item.input}>
-                            <th scope="row" className="px-3 py-2.5 font-medium">
-                              {VALUE_INPUT_LABELS[item.input] ?? item.input}
-                            </th>
-                            <td className="px-3 py-2.5 font-mono tabular-nums">
-                              {formatPercent(item.weight * 100, 0)}
-                            </td>
-                            <td className={`px-3 py-2.5 font-medium ${
-                              item.status === "available"
-                                ? "text-positive"
-                                : item.status === "missing"
-                                  ? "text-caution"
-                                  : "text-muted-foreground"
-                            }`}>
-                              {item.status === "not_applicable"
-                                ? "Not applicable"
-                                : item.status === "available"
-                                  ? "Available"
-                                  : "Missing"}
-                            </td>
-                            <td className="px-3 py-2.5 text-muted-foreground">
-                              {item.reason || item.source || MISSING}
-                              {item.reason && item.source ? ` Source: ${item.source}.` : ""}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                      <Panel
+                        title="How this score was produced"
+                        description={
+                          factorModel
+                            ? "The sequence starts with the published factor research score. Reverse DCF is already counted inside Value; later evidence and policy ceilings are then applied once."
+                            : "The finalizer runs this sequence once, after all evidence is present. A stage that is not eligible contributes exactly zero."
+                        }
+                      >
+                        <ScoreWaterfall row={row} />
+                      </Panel>
+                    </div>
                   </div>
-                ) : (
-                  <p className="mt-3 rounded-row border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
-                    Per-input availability will appear after the next snapshot is published.
-                  </p>
-                )}
-              </div>
-            </TabsContent>
-          </Tabs>
-        </Panel>
 
-        <Panel
-          title="Decision score history"
-          description="Slim daily history, retained beyond the full-snapshot window."
-        >
-          <HistoryChart history={history} />
-        </Panel>
+                  <Panel
+                    title="Decision score history"
+                    description="Slim daily history, retained beyond the full-snapshot window."
+                  >
+                    <HistoryChart history={history} />
+                  </Panel>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Panel
-            title="Fundamentals"
-            description="Scored by the sector-specific model named below, not a single generic ratio set."
-          >
-            <FieldList fields={fundamentalFields} columns={2} />
-          </Panel>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <Panel
+                      title="Fundamentals"
+                      description="Scored by the sector-specific model named below, not a single generic ratio set."
+                    >
+                      <FieldList fields={fundamentalFields} columns={2} />
+                    </Panel>
 
-          <Panel
-            title="Technicals"
-            description="All indicators computed on the same completed daily bar."
-          >
-            <FieldList fields={technicalFields} columns={2} />
-          </Panel>
+                    <Panel
+                      title="Technicals"
+                      description="All indicators computed on the same completed daily bar."
+                    >
+                      <FieldList fields={technicalFields} columns={2} />
+                    </Panel>
 
-          <Panel
-            title="Reverse DCF"
-            description="Solves the assumptions implied by today's market cap. Evidence, not a target price."
-          >
-            <FieldList fields={dcfFields} columns={2} />
-          </Panel>
+                    <Panel
+                      title="Reverse DCF"
+                      description="Solves the assumptions implied by today's market cap. Evidence, not a target price."
+                    >
+                      <FieldList fields={dcfFields} columns={2} />
+                    </Panel>
 
-          <Panel
-            title="Management transcript"
-            description="Downside-only evidence: a call can reduce conviction but never promote it."
-          >
-            <FieldList fields={transcriptFields} columns={2} />
-          </Panel>
+                    <Panel
+                      title="Management transcript"
+                      description="Downside-only evidence: a call can reduce conviction but never promote it."
+                    >
+                      <FieldList fields={transcriptFields} columns={2} />
+                    </Panel>
 
-          <Panel
-            title="Red-flag evidence (shadow)"
-            description="Counterfactual audit only. These never change the live score or rating."
-          >
-            <FieldList fields={redFlagFields} columns={2} />
-          </Panel>
+                    <Panel
+                      title="Red-flag evidence (shadow)"
+                      description="Counterfactual audit only. These never change the live score or rating."
+                    >
+                      <FieldList fields={redFlagFields} columns={2} />
+                    </Panel>
 
-          <Panel
-            title="Liquidity and execution"
-            description={
-              factorModel
-                ? "Execution evidence. It never changes the research score, but it can cap BUY eligibility and therefore affect the rating and eligibility-class rank."
-                : "An execution overlay. It never changes the score, rating, or investment rank."
-            }
-          >
-            <FieldList fields={liquidityFields} columns={2} />
-          </Panel>
-        </div>
+                    <Panel
+                      title="Liquidity and execution"
+                      description={
+                        factorModel
+                          ? "Execution evidence. It never changes the research score, but it can cap BUY eligibility and therefore affect the rating and eligibility-class rank."
+                          : "An execution overlay. It never changes the score, rating, or investment rank."
+                      }
+                    >
+                      <FieldList fields={liquidityFields} columns={2} />
+                    </Panel>
+                  </div>
+                </>
+              ),
+            },
+            {
+              key: "financials",
+              label: "Financials",
+              content: (
+                <Panel
+                  title="Financials"
+                  description="Quarterly results, profit and loss, balance sheet and cash flow as reported, with growth measured against the same period a quarter and a year earlier."
+                >
+                  <Financials
+                    data={financials}
+                    market={market}
+                    symbol={row.symbol}
+                    asOf={row.price_bar_as_of ?? run.price_bar_as_of}
+                  />
+                </Panel>
+              ),
+            },
+            {
+              key: "audit",
+              label: "Audit",
+              content: (
+                <>
+                  <Panel
+                    title="Decision audit"
+                    description="Every explanation below comes from this row's exported evidence and policy fields; no company-specific rules are used."
+                  >
+                    <Tabs defaultValue="policy" className="gap-4">
+                      <TabsList variant="line" aria-label="Decision audit views">
+                        <TabsTrigger value="policy">Policy ceiling</TabsTrigger>
+                        <TabsTrigger value="gates">Gate checks</TabsTrigger>
+                        <TabsTrigger value="coverage">Evidence coverage</TabsTrigger>
+                      </TabsList>
 
-        <Panel
-          title="Complete source record"
-          description="Every field the screener exported for this row, including audit columns not surfaced above."
-        >
-        <PayloadExplorer payload={payload} />
-      </Panel>
+                      <TabsContent value="policy" className="space-y-4">
+                        <div
+                          className={`rounded-row border p-4 ${
+                            capFlagged
+                              ? "border-caution/40 bg-caution/5"
+                              : "border-border bg-muted/20"
+                          }`}
+                        >
+                          <p className="text-sm font-medium">
+                            {capFlagged
+                              ? capEnforced
+                                ? `${gate.label} limited the published decision.`
+                                : `${gate.label} would cap this at ${row.policy_eligible_rating ?? "a lower rating"}. Model 5.1 publishes research merit and reports the gate instead.`
+                              : "No policy ceiling reduced this decision."}
+                          </p>
+                          {capReasons.length ? (
+                            <ul className="mt-2 space-y-1 text-xs leading-relaxed text-muted-foreground">
+                              {capReasons.map((reason) => (
+                                <li key={reason} className="flex gap-2">
+                                  <span aria-hidden>&bull;</span>
+                                  <span>{reason}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              The exported row contains no active cap reason.
+                            </p>
+                          )}
+                        </div>
+                        <FieldList fields={policyFields} columns={4} />
+                      </TabsContent>
+
+                      <TabsContent value="gates">
+                        <FieldList fields={gateFields} columns={4} />
+                      </TabsContent>
+
+                      <TabsContent value="coverage" className="space-y-5">
+                        <FieldList fields={coverageFields} columns={4} />
+                        <div>
+                          <h3 className="text-sm font-medium">Value evidence inputs</h3>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Coverage counts only inputs applicable to this row&apos;s sector and evidence state.
+                          </p>
+                          {valueAudit.length ? (
+                            <div className="mt-3 overflow-x-auto rounded-row border border-border">
+                              <table className="w-full min-w-[640px] text-left text-xs">
+                                <thead className="bg-muted/40 text-muted-foreground">
+                                  <tr>
+                                    <th scope="col" className="px-3 py-2 font-medium">Input</th>
+                                    <th scope="col" className="px-3 py-2 font-medium">Weight</th>
+                                    <th scope="col" className="px-3 py-2 font-medium">Status</th>
+                                    <th scope="col" className="px-3 py-2 font-medium">Source or reason</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border">
+                                  {valueAudit.map((item) => (
+                                    <tr key={item.input}>
+                                      <th scope="row" className="px-3 py-2.5 font-medium">
+                                        {VALUE_INPUT_LABELS[item.input] ?? item.input}
+                                      </th>
+                                      <td className="px-3 py-2.5 font-mono tabular-nums">
+                                        {formatPercent(item.weight * 100, 0)}
+                                      </td>
+                                      <td className={`px-3 py-2.5 font-medium ${
+                                        item.status === "available"
+                                          ? "text-positive"
+                                          : item.status === "missing"
+                                            ? "text-caution"
+                                            : "text-muted-foreground"
+                                      }`}>
+                                        {item.status === "not_applicable"
+                                          ? "Not applicable"
+                                          : item.status === "available"
+                                            ? "Available"
+                                            : "Missing"}
+                                      </td>
+                                      <td className="px-3 py-2.5 text-muted-foreground">
+                                        {item.reason || item.source || MISSING}
+                                        {item.reason && item.source ? ` Source: ${item.source}.` : ""}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          ) : (
+                            <p className="mt-3 rounded-row border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                              Per-input availability will appear after the next snapshot is published.
+                            </p>
+                          )}
+                        </div>
+                      </TabsContent>
+                    </Tabs>
+                  </Panel>
+
+                  <Panel
+                    title="Complete source record"
+                    description="Every field the screener exported for this row, including audit columns not surfaced above."
+                  >
+                    <PayloadExplorer payload={payload} />
+                  </Panel>
+                </>
+              ),
+            },
+          ]}
+        />
     </ZoomIn>
   );
 }
