@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { NavLink } from "@/components/nav-link";
 import { MarketProvider } from "@/components/market-provider";
 import { MarketSwitch } from "@/components/market-switch";
+import { GlassTrack } from "@/components/glass-track";
 import { formatDate } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
 import type { ScreenerRun } from "@/lib/types";
@@ -85,7 +86,7 @@ function Avatar({ viewer }: { viewer: Viewer }) {
   const initials = viewer.email.slice(0, 2).toUpperCase();
   return (
     <span
-      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground"
+      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-[0.6875rem] font-semibold tracking-[0.02em] text-primary-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.2)]"
       title={viewer.email}
       aria-label={`Signed in as ${viewer.email}`}
     >
@@ -101,7 +102,7 @@ function SignOut({ viewer }: { viewer: Viewer }) {
         type="submit"
         variant="ghost"
         size="icon"
-        className="rounded-full"
+        className="rounded-full hover:bg-(--control-hover)"
         aria-label={`Sign out ${viewer.email}`}
         title="Sign out"
       >
@@ -139,8 +140,16 @@ function SignOut({ viewer }: { viewer: Viewer }) {
  * than as four things that happen to be on the same line.
  *
  * The heights are deliberate and form a scale: the market switch and the
- * avatar are both 40px, bracketing the row at each end, while the nav track is
- * 52px because navigation is the primary control here and should dominate.
+ * account cluster are both 40px capsules, bracketing the row at each end,
+ * while the nav track is 48px because navigation is the primary control here
+ * and should dominate.
+ *
+ * Materials follow the Liquid Glass split. Content -- every panel and the
+ * grid -- sits on solid cards inside a translucent sheet; the controls float
+ * above it as glass. The header is sticky, so as the page scrolls the content
+ * passes *under* those capsules and softens behind a scroll-edge blur rather
+ * than meeting a hard rule. On a phone the primary nav leaves the header
+ * entirely and becomes a floating tab bar in thumb reach.
  */
 export function AppShell({
   run,
@@ -157,11 +166,19 @@ export function AppShell({
     /* lg:p-8 rather than p-10. The screener grid is bounded to the viewport so
        its header can stay pinned, which makes every rem of shell chrome a rem
        the rows do not get; 8 still reads as a floating sheet. */
-    <div className="min-h-dvh bg-background p-0 sm:p-6 lg:p-8">
+    /* No background here: the page ground and its ambient field are painted
+       by body, and an opaque fill on this wrapper would cover them. */
+    <div className="min-h-dvh p-0 sm:p-6 lg:p-8">
       <div
         className={cn(
-          "mx-auto flex min-h-dvh w-full max-w-[1440px] flex-col bg-workspace",
-          "sm:min-h-0 sm:rounded-workspace sm:elevate-workspace sm:overflow-hidden",
+          "workspace-sheet mx-auto flex min-h-dvh w-full max-w-[1440px] flex-col",
+          // overflow-clip, not overflow-hidden. Both round the corners, but
+          // `hidden` makes the sheet a scroll container, and a sticky header
+          // resolves against the nearest one -- it would pin to a box that
+          // never scrolls, which is the same as not pinning at all.
+          "sm:min-h-0 sm:rounded-workspace sm:overflow-clip",
+          // Room for the floating tab bar, so it never sits over the footer.
+          "max-md:pb-24",
         )}
       >
         {/*
@@ -174,7 +191,7 @@ export function AppShell({
           and shifted every time either changed width. Two equal side zones put
           the nav on the container's true centre and hold it there.
         */}
-        <header className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-8 sm:py-5">
+        <header className="scroll-edge sticky top-0 z-30 flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:px-8 sm:py-4">
           {/*
             Identity: what you are looking at. The market switch belongs here
             rather than out on its own, because it qualifies the brand the way
@@ -217,12 +234,16 @@ export function AppShell({
             shrink-0 there: the nav is the one element that must never compress,
             because its labels are the app's primary destinations.
           */}
-          <nav
-            aria-label="Primary"
+          <GlassTrack
+            label="Primary"
             className={cn(
-              "order-last flex w-full gap-1 overflow-x-auto rounded-full border bg-muted p-1.5",
-              "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-              "xl:order-none xl:w-auto xl:shrink-0 xl:overflow-visible",
+              "gap-0.5 p-1",
+              // Phone: a floating tab bar, thicker glass because it rides over
+              // the grid's figures rather than over the header.
+              "max-md:glass-thick max-md:fixed max-md:inset-x-3 max-md:z-40",
+              "max-md:bottom-[calc(0.75rem+env(safe-area-inset-bottom))]",
+              "md:order-last md:w-full",
+              "xl:order-none xl:w-auto xl:shrink-0",
             )}
           >
             {NAV.map(({ path, label, icon: Icon }) => (
@@ -237,7 +258,7 @@ export function AppShell({
                 <span className="whitespace-nowrap">{label}</span>
               </NavLink>
             ))}
-          </nav>
+          </GlassTrack>
 
           {/*
             Account. flex-1 only from xl, where the nav actually sits between
@@ -248,10 +269,12 @@ export function AppShell({
             the brand down to "W...". Natural width plus justify-end gives the
             identity zone everything the icons do not need.
           */}
-          <div className="flex shrink-0 items-center justify-end gap-1 xl:flex-1">
-            <ThemeToggle />
-            <SignOut viewer={viewer} />
-            <Avatar viewer={viewer} />
+          <div className="flex shrink-0 items-center justify-end xl:flex-1">
+            <div className="glass flex items-center gap-0.5 rounded-full p-0.5">
+              <ThemeToggle />
+              <SignOut viewer={viewer} />
+              <Avatar viewer={viewer} />
+            </div>
           </div>
         </header>
 

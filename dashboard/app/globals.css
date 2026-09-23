@@ -141,6 +141,9 @@
   --radius-panel: 1.5rem;
   --radius-row: 1rem;
   --radius-workspace: 2.5rem;
+  /* Floating glass: menus, popovers, the command palette. Concentric with the
+     panel radius once their 6px inner padding is taken off. */
+  --radius-glass: 1.25rem;
 
   /*
    * Motion. One duration ramp and one easing set for the whole interface, so
@@ -150,11 +153,39 @@
    */
   --ease-entrance: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
-  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  /*
+   * Springs, sampled into `linear()` so CSS transitions move like UIKit's
+   * spring animations rather than like a bezier.
+   *
+   * These are solved from Apple's two designer parameters, damping ratio and
+   * response, not hand-drawn:
+   *
+   *   --ease-spring-smooth  damping 1.0 -- critically damped, no overshoot.
+   *                         The default for anything that simply moves.
+   *   --ease-spring         damping 0.8 -- about 1.5% overshoot. Reserved for
+   *                         motion a press or a pointer set going: the nav
+   *                         lens, a button springing back from its press.
+   *
+   * A critically damped curve has the same shape at every response, so one
+   * curve serves both --duration-spring (response 0.3s) and
+   * --duration-spring-slow (0.4s); the durations are the settle times, to
+   * 0.1%, that those responses produce. A CSS transition interrupted mid-flight
+   * retargets from its current on-screen value, which is what lets the nav
+   * lens be redirected while it is still moving.
+   */
+  --ease-spring-smooth: linear(0, 0.0343, 0.1142, 0.2145, 0.3202, 0.4221, 0.5157, 0.5986, 0.6703, 0.7313, 0.7824, 0.8248, 0.8596, 0.8879, 0.9109, 0.9294, 0.9442, 0.956, 0.9654, 0.9729, 0.9788, 0.9834, 0.987, 0.9899, 0.9921, 0.9939, 0.9953, 0.9963, 0.9972, 0.9978, 0.9983, 0.9987, 1);
+  --ease-spring: linear(0, 0.0304, 0.1054, 0.2054, 0.3159, 0.4272, 0.5326, 0.6281, 0.7118, 0.783, 0.8419, 0.8894, 0.9268, 0.9555, 0.9768, 0.992, 1.0025, 1.0092, 1.013, 1.0148, 1.0151, 1.0145, 1.0132, 1.0117, 1.01, 1.0083, 1.0067, 1.0053, 1.0041, 1.0031, 1.0022, 1.0015, 1);
 
   --duration-fast: 120ms;
   --duration-base: 180ms;
   --duration-slow: 260ms;
+  /* The press itself. Short enough to land inside the frame the pointer went
+     down on at 60Hz plus one, which is what reads as "instant". */
+  --duration-press: 70ms;
+  --duration-spring: 440ms;
+  --duration-spring-bouncy: 470ms;
+  --duration-spring-slow: 590ms;
 
   --animate-rise: rise var(--duration-slow) var(--ease-entrance) both;
   --animate-fade: fade var(--duration-base) var(--ease-standard) both;
@@ -258,19 +289,24 @@
      logo, the ticker, and a truncated company name. */
   --sticky-col-w: 11.5rem;
 
-  --background: #f2f2f2;
+  /* iOS grouped-background grey, a touch cooler than the mock's #f2f2f2 so the
+     ambient colour field below reads as light rather than as a stain. */
+  --background: #eceef3;
   --foreground: #1c1b1b;
-  --card: #fdf8f8;
+  /* Content is solid. Glass is reserved for the control layer that floats
+     above it (nav, menus, sheets); a 100-row grid of figures on a translucent
+     card would lose contrast every time the colour behind it changed. */
+  --card: #ffffff;
   --card-foreground: #1c1b1b;
   --popover: #ffffff;
   --popover-foreground: #1c1b1b;
   --primary: #000000;
   --primary-foreground: #ffffff;
-  --secondary: #f7f8fa;
+  --secondary: #f4f5f8;
   --secondary-foreground: #1c1b1b;
-  --muted: #f7f8fa;
+  --muted: #f4f5f8;
   --muted-foreground: #5e5e63; /* 6.0:1 on card */
-  --accent: #f7f8fa;
+  --accent: #eef0f4;
   --accent-foreground: #1c1b1b;
   --destructive: #c62828;
   /* The reference design's hairline is #eee, which measures 1.10:1 against the
@@ -281,8 +317,57 @@
   --input: #d9d9de;
   --ring: #1c1b1b;
 
-  /* The mock's outermost surface: a white sheet floating over the grey page. */
-  --workspace: #ffffff;
+  /* The outermost sheet. Translucent over the ambient field so the page reads
+     as one pane of frosted material; the field behind it is already a soft
+     gradient, so no backdrop blur is needed to frost it -- which keeps a
+     3,000px-tall surface off the compositor's blur path entirely. */
+  --workspace: rgb(255 255 255 / 0.62);
+  --workspace-edge:
+    inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 0 0 1px rgb(255 255 255 / 0.5);
+
+  /* Ambient light. Three static, very low-chroma pools behind everything.
+     They never move: a drifting full-viewport background is a vestibular
+     trigger, and the glass only needs *something* to refract. */
+  --ambient-1: rgb(112 146 255 / 0.3);
+  --ambient-2: rgb(255 160 205 / 0.22);
+  --ambient-3: rgb(96 214 196 / 0.22);
+
+  /*
+   * Glass. Two weights, per Apple's rule that material weight encodes
+   * hierarchy: the lighter one for controls that sit in the page (nav track,
+   * account cluster), the thicker one for surfaces that float over content
+   * and must carry text (menus, popovers, sheets, the command palette).
+   *
+   * The specular edge is two inset strokes -- a brighter top line where light
+   * catches the rim, and a faint full-perimeter one -- plus a 0.5px outer
+   * hairline so the shape still holds over a white card.
+   */
+  --glass: rgb(255 255 255 / 0.56);
+  --glass-thick: rgb(252 252 254 / 0.76);
+  --glass-blur: blur(20px) saturate(180%);
+  --glass-blur-thick: blur(40px) saturate(190%);
+  --glass-edge:
+    inset 0 1px 0 rgb(255 255 255 / 0.85), inset 0 0 0 1px rgb(255 255 255 / 0.4),
+    0 0 0 0.5px rgb(15 23 42 / 0.08);
+  --glass-shadow:
+    0 1px 2px rgb(15 23 42 / 0.05), 0 8px 24px -10px rgb(15 23 42 / 0.16);
+  --glass-shadow-lg:
+    0 2px 6px rgb(15 23 42 / 0.06), 0 24px 56px -16px rgb(15 23 42 / 0.28);
+
+  /* The lens: the selected segment inside a glass track. A lit, near-solid
+     bead rather than a black fill, which is how a selection reads on glass. */
+  --lens: #ffffff;
+  --lens-shadow:
+    0 0 0 0.5px rgb(15 23 42 / 0.06), 0 1px 1px rgb(15 23 42 / 0.04),
+    0 3px 10px -2px rgb(15 23 42 / 0.14);
+
+  /* Recessed controls on a solid card: inputs, outline buttons. */
+  --control: rgb(118 118 128 / 0.1);
+  --control-hover: rgb(118 118 128 / 0.16);
+
+  /* The panel's rim, lighter than --border: a white card on a pale sheet
+     needs a hint of edge, not a rule. */
+  --panel-edge: rgb(15 23 42 / 0.07);
 
   /*
    * Rating ramp: a conventional diverging green -> neutral -> red, with the
@@ -339,9 +424,10 @@
      16px rows. This is the dense-control step; surfaces use --radius-panel. */
   --radius: 0.625rem;
 
-  --elevation-panel: 0 1px 1px rgba(0, 0, 0, 0.05);
+  --elevation-panel:
+    0 1px 2px rgb(15 23 42 / 0.04), 0 10px 30px -18px rgb(15 23 42 / 0.18);
   --elevation-workspace:
-    0 20px 40px -10px rgba(0, 0, 0, 0.05), 0 10px 20px -5px rgba(0, 0, 0, 0.02);
+    0 30px 60px -20px rgb(15 23 42 / 0.12), 0 10px 20px -8px rgb(15 23 42 / 0.04);
 
   --sidebar: #ffffff;
   --sidebar-foreground: #1c1b1b;
@@ -367,9 +453,9 @@
  * themes.
  */
 .dark {
-  --background: #0a0a0c;
+  --background: #060608;
   --foreground: #f5f5f5;
-  --card: #17161a;
+  --card: #151518;
   --card-foreground: #f5f5f5;
   --popover: #232228;
   --popover-foreground: #f5f5f5;
@@ -387,7 +473,31 @@
   --input: #3a3944;
   --ring: #d4d4d8;
 
-  --workspace: #111013;
+  --workspace: rgb(18 18 22 / 0.6);
+  --workspace-edge:
+    inset 0 1px 0 rgb(255 255 255 / 0.07), inset 0 0 0 1px rgb(255 255 255 / 0.04);
+
+  --ambient-1: rgb(76 96 255 / 0.2);
+  --ambient-2: rgb(176 70 210 / 0.13);
+  --ambient-3: rgb(20 170 150 / 0.12);
+
+  --glass: rgb(44 44 52 / 0.5);
+  --glass-thick: rgb(32 32 38 / 0.74);
+  --glass-edge:
+    inset 0 1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(255 255 255 / 0.06),
+    0 0 0 0.5px rgb(0 0 0 / 0.6);
+  --glass-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 28px -10px rgb(0 0 0 / 0.7);
+  --glass-shadow-lg: 0 2px 6px rgb(0 0 0 / 0.4), 0 28px 64px -16px rgb(0 0 0 / 0.85);
+
+  --lens: rgb(255 255 255 / 0.14);
+  --lens-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.14), 0 0 0 0.5px rgb(255 255 255 / 0.08),
+    0 3px 10px -2px rgb(0 0 0 / 0.5);
+
+  --control: rgb(118 118 128 / 0.22);
+  --control-hover: rgb(118 118 128 / 0.3);
+
+  --panel-edge: rgb(255 255 255 / 0.07);
 
   /* Same ramp, re-picked for a dark ground. Every fill must clear 3:1 against
      the panel to read as a component; the light ramp's #15803d measures 1.6:1
@@ -421,8 +531,7 @@
 
   --elevation-panel:
     inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.5);
-  --elevation-workspace:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 20px 40px -10px rgba(0, 0, 0, 0.7);
+  --elevation-workspace: 0 30px 60px -20px rgb(0 0 0 / 0.7);
 
   --sidebar: #111013;
   --sidebar-foreground: #f5f5f5;
@@ -443,6 +552,45 @@
   }
   html {
     @apply font-sans;
+    /* The grey flash mobile browsers paint on tap is a second, laggier press
+       state competing with the real one. */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /*
+   * The ambient field. A fixed layer rather than `background-attachment:
+   * fixed`, which repaints the whole viewport on every scroll frame in
+   * WebKit. At z-index -1 in the root stacking context it paints above the
+   * canvas colour and below everything else.
+   */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(55% 45% at 8% 0%, var(--ambient-1), transparent 70%),
+      radial-gradient(45% 40% at 92% 6%, var(--ambient-2), transparent 70%),
+      radial-gradient(60% 50% at 50% 104%, var(--ambient-3), transparent 70%);
+  }
+
+  /*
+   * Kill the double-tap-to-zoom wait on everything a finger can press, so a
+   * tap commits the moment it lifts rather than ~300ms later. Pinch zoom is
+   * unaffected.
+   */
+  a,
+  button,
+  input,
+  select,
+  label,
+  summary,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  [role="option"] {
+    touch-action: manipulation;
   }
 
   /*
@@ -624,6 +772,7 @@
    */
   .panel {
     @apply rounded-panel border bg-card;
+    border-color: var(--panel-edge);
     box-shadow: var(--elevation-panel);
   }
 
@@ -682,15 +831,116 @@
 
   /* Press feedback for card-sized targets. Scale only -- no layout property
      is touched, so a pressed tile cannot shift its neighbours. */
+  /* Asymmetric on purpose: the press lands in ~70ms so it is felt on the
+     frame the pointer goes down, and the release springs back, because the
+     release is the one half of the gesture that carries energy. */
   .press {
     transition:
-      transform var(--duration-fast) var(--ease-standard),
+      transform var(--duration-spring-bouncy) var(--ease-spring),
       background-color var(--duration-fast) var(--ease-standard),
       border-color var(--duration-fast) var(--ease-standard);
   }
 
   .press:active {
-    transform: scale(0.985);
+    transform: scale(0.98);
+    transition-duration: var(--duration-press), var(--duration-fast),
+      var(--duration-fast);
+    transition-timing-function: ease-out;
+  }
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * Materials
+ * ---------------------------------------------------------------------------
+ *
+ * Declared with @utility rather than inside @layer utilities so they take
+ * variants (`md:glass`, `data-open:glass-thick`) like any generated class.
+ *
+ * The rule these encode: glass is the *control* layer. Content -- panels, the
+ * grid, charts -- stays on solid --card, and glass floats above it. Stacking
+ * one light translucent surface on another is what makes glassmorphism
+ * illegible, so nothing here is meant to sit inside another glass surface.
+ */
+@utility glass {
+  background-color: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-edge), var(--glass-shadow);
+}
+
+@utility glass-thick {
+  background-color: var(--glass-thick);
+  -webkit-backdrop-filter: var(--glass-blur-thick);
+  backdrop-filter: var(--glass-blur-thick);
+  box-shadow: var(--glass-edge), var(--glass-shadow-lg);
+}
+
+/* The selected bead inside a glass track. */
+@utility lens {
+  background-color: var(--lens);
+  box-shadow: var(--lens-shadow);
+}
+
+/* The outer sheet: translucent fill plus a lit rim, no blur (see --workspace). */
+@utility workspace-sheet {
+  background-color: var(--workspace);
+  box-shadow: var(--workspace-edge), var(--elevation-workspace);
+}
+
+/*
+ * Scroll edge effect for floating chrome. Instead of a 1px rule under a
+ * sticky header, content passing beneath it softens: a blur that fades out
+ * over the bottom of the bar, plus a tint of the ground so text beneath never
+ * competes with the controls. Painted on ::before so the header's own
+ * children are not inside the blur's backdrop root.
+ */
+@utility scroll-edge {
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 -1.25rem 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--background) 70%, transparent) 0%,
+      transparent 100%
+    );
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    mask-image: linear-gradient(to bottom, #000 45%, transparent);
+  }
+}
+
+/*
+ * Reduce Transparency: frost everything solid. The glass tokens are
+ * overridden rather than every call site, so the whole control layer follows
+ * one switch.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  .dark {
+    --glass: var(--popover);
+    --glass-thick: var(--popover);
+    --glass-blur: none;
+    --glass-blur-thick: none;
+    --workspace: var(--card);
+  }
+  body::before {
+    display: none;
+  }
+}
+
+/* Increase Contrast: near-solid surfaces with a defined edge. */
+@media (prefers-contrast: more) {
+  :root,
+  .dark {
+    --glass: var(--popover);
+    --glass-thick: var(--popover);
+    --panel-edge: var(--border);
+    --glass-edge: 0 0 0 1px var(--foreground);
+    --control: var(--muted);
   }
 }
 

@@ -169,18 +169,18 @@ export function StockPicker({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[12vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 p-4 pt-[12vh] animate-in fade-in-0 duration-(--duration-spring) ease-(--ease-spring-smooth) dark:bg-black/45"
       onClick={onClose}
       role="presentation"
     >
       <div
-        className="w-full max-w-lg overflow-hidden rounded-xl border bg-popover shadow-2xl"
+        className="glass-thick w-full max-w-lg overflow-hidden rounded-[1.75rem] animate-in fade-in-0 zoom-in-[0.97] slide-in-from-top-2 duration-(--duration-spring) ease-(--ease-spring-smooth)"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
-        <div className="flex items-center gap-2 border-b px-3">
+        <div className="flex items-center gap-2.5 border-b border-(--panel-edge) px-4">
           <Search className="size-4 text-muted-foreground" aria-hidden />
           <input
             ref={inputRef}
@@ -194,7 +194,7 @@ export function StockPicker({
             aria-label={title}
             aria-autocomplete="list"
             aria-controls="stock-picker-results"
-            className="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="h-14 w-full bg-transparent text-base outline-none placeholder:text-muted-foreground"
           />
           <span className="tabular shrink-0 font-mono text-[11px] text-muted-foreground">
             {loading
@@ -235,8 +235,8 @@ export function StockPicker({
                   onMouseEnter={() => setCursor(index)}
                   onClick={() => pick(entry.s)}
                   className={cn(
-                    "flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left",
-                    index === cursor ? "bg-accent" : "hover:bg-muted",
+                    "flex w-full items-center gap-3 rounded-[1rem] px-3 py-2 text-left",
+                    index === cursor ? "bg-(--control-hover)" : "hover:bg-(--control)",
                   )}
                 >
                   <span className="tabular w-9 shrink-0 font-mono text-xs text-muted-foreground">

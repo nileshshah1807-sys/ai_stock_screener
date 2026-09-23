@@ -25,9 +25,17 @@ import { cn } from "@/lib/utils";
  *    effect here can trigger reflow or shift a neighbour mid-flight.
  */
 
-/** Shared easing. Overshoots slightly on settle -- this is the "bounce". */
-const EASE_BOUNCE = "back.out(1.6)";
-const EASE_OUT = "power3.out";
+/*
+ * Shared easing.
+ *
+ * Overshoot is reserved for motion the user's own gesture set going -- a card
+ * springing back from a press. Content that simply arrives settles without
+ * it: a panel that bounces into place on its own reads as the interface
+ * performing, not responding. EASE_OUT is expo rather than power3 because its
+ * long, soft tail is the closest bezier to a critically damped spring.
+ */
+const EASE_RELEASE = "back.out(1.2)";
+const EASE_OUT = "expo.out";
 
 const REDUCED_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -101,8 +109,8 @@ export function Reveal({
         gsap.from(targets, {
           opacity: 0,
           y,
-          duration: bounce ? 0.55 : 0.4,
-          ease: bounce ? EASE_BOUNCE : EASE_OUT,
+          duration: bounce ? 0.55 : 0.5,
+          ease: bounce ? EASE_RELEASE : EASE_OUT,
           stagger: each,
           delay,
           clearProps: "transform,opacity",
@@ -216,8 +224,8 @@ export function PressCard({
     <div
       ref={ref}
       className={className}
-      onPointerDown={() => to(0.975, EASE_OUT, 0.12)}
-      onPointerUp={() => to(1, EASE_BOUNCE, 0.4)}
+      onPointerDown={() => to(0.975, "power2.out", 0.07)}
+      onPointerUp={() => to(1, EASE_RELEASE, 0.45)}
       onPointerLeave={() => to(1, EASE_OUT, 0.2)}
       onPointerCancel={() => to(1, EASE_OUT, 0.2)}
       {...props}
@@ -232,8 +240,8 @@ export function PressCard({
  *
  * Used by the stock detail page so arriving from a grid row reads as pushing
  * *into* that row rather than as an unrelated page replacing it. Deliberately
- * short and slightly overshooting; a slow zoom on a page of financials is an
- * obstacle, not delight.
+ * short and without overshoot; a slow or bouncing zoom on a page of
+ * financials is an obstacle, not delight.
  */
 export function ZoomIn({
   children,
@@ -254,8 +262,8 @@ export function ZoomIn({
           opacity: 0,
           scale: 0.97,
           y: 8,
-          duration: 0.45,
-          ease: EASE_BOUNCE,
+          duration: 0.5,
+          ease: EASE_OUT,
           clearProps: "transform,opacity",
         });
       });
