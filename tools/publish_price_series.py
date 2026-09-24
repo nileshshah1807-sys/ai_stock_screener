@@ -138,6 +138,64 @@ class _UniverseConfig:
         self.US_UNIVERSE_SOURCE = os.getenv("US_UNIVERSE_SOURCE", "")
 
 
+def load_archive(root, *, start=None, end=None):
+    """Read the NSE archive into per-security observations.
+
+    Returns ``(sessions, observations, symbols, adjustment_table)``. Shared with
+    ``tools.publish_market_breadth``, which needs the same adjusted closes and
+    must not drift from what the chart draws.
+    """
+    from datetime import date
+
+    from backtest.bhavcopy import BhavcopyStore
+    from backtest.calendar import CalendarLedger
+    from backtest.corporate_actions import ActionStore, AdjustmentTable
+    from backtest.security_master import SecurityMaster
+    from workers.price_series_publisher import collect_observations
+
+    store = BhavcopyStore(root / "bhavcopy")
+    sessions = sorted(set(CalendarLedger(root / "calendar.csv").sessions())
+                      | set(store.cached_dates()))
+    if start:
+        first = date.fromisoformat(start)
+        sessions = [day for day in sessions if day >= first]
+    if end:
+        last = date.fromisoformat(end)
+        sessions = [day for day in sessions if day <= last]
+    if len(sessions) < 2:
+        raise SystemExit(
+            "Fewer than two sessions in the archive. Run "
+            "tools.backfill_backtest_archive first."
+        )
+    logger.info("Sessions: %d, %s -> %s", len(sessions), sessions[0], sessions[-1])
+
+    master_path = root / "security_master.csv"
+    if not master_path.exists():
+        raise SystemExit(f"No security master at {master_path}")
+    master = SecurityMaster.load(master_path)
+
+    actions_path = root / "corporate_actions.csv"
+    table = None
+    if actions_path.exists():
+        table = AdjustmentTable(ActionStore(actions_path).load(), master=master)
+        logger.info("Corporate actions: %s", table.summary())
+    else:
+        # Without it a split reads as a ~50% crash, which is worse than no chart.
+        raise SystemExit(
+            f"No corporate actions at {actions_path}. Publishing unadjusted "
+            "prices would draw every split as a crash; run "
+            "tools.backfill_backtest_archive first."
+        )
+
+    started = time.monotonic()
+    observations, symbols = collect_observations(store, sessions, master, table)
+    logger.info(
+        "Read %d sessions in %.0fs; %d securities observed",
+        len(sessions), time.monotonic() - started, len(observations),
+    )
+    return sessions, observations, symbols, table
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -199,52 +257,10 @@ def main(argv=None):
 
     from datetime import date
 
-    from backtest.bhavcopy import BhavcopyStore
-    from backtest.calendar import CalendarLedger
-    from backtest.corporate_actions import ActionStore, AdjustmentTable
-    from backtest.security_master import SecurityMaster
-    from workers.price_series_publisher import build_rows, collect_observations, publish
+    from workers.price_series_publisher import build_rows, publish
 
-    root = Path(args.root)
-    store = BhavcopyStore(root / "bhavcopy")
-    sessions = sorted(set(CalendarLedger(root / "calendar.csv").sessions())
-                      | set(store.cached_dates()))
-    if args.start:
-        first = date.fromisoformat(args.start)
-        sessions = [day for day in sessions if day >= first]
-    if args.end:
-        last = date.fromisoformat(args.end)
-        sessions = [day for day in sessions if day <= last]
-    if len(sessions) < 2:
-        raise SystemExit(
-            "Fewer than two sessions in the archive. Run "
-            "tools.backfill_backtest_archive first."
-        )
-    logger.info("Sessions: %d, %s -> %s", len(sessions), sessions[0], sessions[-1])
-
-    master_path = root / "security_master.csv"
-    if not master_path.exists():
-        raise SystemExit(f"No security master at {master_path}")
-    master = SecurityMaster.load(master_path)
-
-    actions_path = root / "corporate_actions.csv"
-    table = None
-    if actions_path.exists():
-        table = AdjustmentTable(ActionStore(actions_path).load(), master=master)
-        logger.info("Corporate actions: %s", table.summary())
-    else:
-        # Without it a split reads as a ~50% crash, which is worse than no chart.
-        raise SystemExit(
-            f"No corporate actions at {actions_path}. Publishing unadjusted "
-            "prices would draw every split as a crash; run "
-            "tools.backfill_backtest_archive first."
-        )
-
-    started = time.monotonic()
-    observations, symbols = collect_observations(store, sessions, master, table)
-    logger.info(
-        "Read %d sessions in %.0fs; %d securities observed",
-        len(sessions), time.monotonic() - started, len(observations),
+    sessions, observations, symbols, table = load_archive(
+        Path(args.root), start=args.start, end=args.end
     )
 
     rows = build_rows(sessions, observations, symbols, min_points=args.min_points)

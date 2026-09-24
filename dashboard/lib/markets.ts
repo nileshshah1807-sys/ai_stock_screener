@@ -48,6 +48,11 @@ export type Market = {
   listPriceDigits: number;
   /** Regulator line in the footer disclaimer. */
   advisor: string;
+  /**
+   * The index relative strength is measured against. Mirrors
+   * `benchmark_symbol` in `screener/markets.py`.
+   */
+  benchmark: string;
 };
 
 export const MARKETS: Record<MarketSlug, Market> = {
@@ -61,6 +66,7 @@ export const MARKETS: Record<MarketSlug, Market> = {
     scale: "indian",
     listPriceDigits: 0,
     advisor: "Consult a SEBI-registered advisor.",
+    benchmark: "Nifty 500",
   },
   us: {
     slug: "us",
@@ -72,6 +78,7 @@ export const MARKETS: Record<MarketSlug, Market> = {
     scale: "western",
     listPriceDigits: 2,
     advisor: "Consult a registered investment adviser.",
+    benchmark: "S&P 500",
   },
 };
 

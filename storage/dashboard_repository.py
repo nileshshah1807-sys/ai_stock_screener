@@ -442,6 +442,55 @@ class DashboardRepository:
             written += len(chunk)
         return written
 
+    # -- market breadth ---------------------------------------------------
+
+    def latest_snapshot_classification(self) -> dict[str, tuple[str | None, str | None]]:
+        """Symbol -> (sector, industry) for this market's newest published run."""
+        run = self.latest_completed_run()
+        if not run:
+            return {}
+        rows = self._paged(
+            "screener_snapshot",
+            {
+                "select": "symbol,sector,industry",
+                "run_date": f"eq.{run['run_date']}",
+                "order": "symbol.asc",
+            },
+        )
+        return {
+            str(row["symbol"]): (row.get("sector") or None, row.get("industry") or None)
+            for row in rows
+            if row.get("symbol")
+        }
+
+    def replace_market_breadth(self, rows: list[dict[str, Any]], chunk_size: int = 10) -> int:
+        """Make this market's breadth rows exactly ``rows``.
+
+        Upsert first, then delete the difference, as ``replace_new_listings``
+        does. A row runs ~90 KB, so chunks are small.
+        """
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "market_breadth?on_conflict=market,scope,name",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        keep = {(row["scope"], row["name"]) for row in rows}
+        stored = self._paged("market_breadth", {"select": "scope,name", "order": "scope,name"})
+        for row in stored:
+            if (row["scope"], row["name"]) in keep:
+                continue
+            self._request(
+                "DELETE",
+                "market_breadth",
+                params=self._scoped({"scope": f"eq.{row['scope']}", "name": f"eq.{row['name']}"}),
+                headers={"Prefer": "return=minimal"},
+            )
+        return written
+
     # -- new listings -----------------------------------------------------
 
     def new_listing_symbols(self) -> list[str]:
