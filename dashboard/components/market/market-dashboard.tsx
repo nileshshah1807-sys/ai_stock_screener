@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { BreadthChart, ScrubContext, type ChartPoint, type ChartTone } from "@/components/market/breadth-chart";
 import { GroupPicker, type GroupKey } from "@/components/market/group-picker";
+import { SegmentedControl } from "@/components/segmented-control";
 import {
   RANGES,
   decodeRow,
@@ -142,10 +143,10 @@ export function MarketDashboard({
           total={marketTotal}
           onSelect={select}
         />
-        <Segmented
+        <SegmentedControl<Unit>
           label="Measure"
           value={unit}
-          onChange={(value) => setUnit(value as Unit)}
+          onChange={setUnit}
           options={[
             { value: "share", label: "%", title: "Share of stocks" },
             { value: "count", label: "Count", title: "Number of stocks" },
@@ -153,7 +154,7 @@ export function MarketDashboard({
         />
         <div className="w-full sm:ml-auto sm:w-auto">
           <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <Segmented
+            <SegmentedControl
               label="Time range"
               value={range}
               onChange={setRange}
@@ -288,54 +289,5 @@ function Section({
       </div>
       <div className="grid gap-4 lg:grid-cols-2">{children}</div>
     </section>
-  );
-}
-
-/**
- * A small segmented control. The selected segment is a raised lens on a
- * recessed track, and it changes on pointer-down so the press is answered
- * before the click completes.
- */
-function Segmented({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string; title?: string }[];
-}) {
-  return (
-    <div role="radiogroup" aria-label={label} className="inline-flex w-max rounded-full bg-(--control) p-0.5">
-      {options.map((option) => {
-        const active = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            title={option.title}
-            onPointerDown={(event) => {
-              if (event.button === 0) onChange(option.value);
-            }}
-            onClick={() => onChange(option.value)}
-            className={cn(
-              "inline-flex h-8 min-w-10 items-center justify-center rounded-full px-3 text-[0.8125rem]",
-              "transition-[color,background-color,box-shadow,transform] duration-(--duration-base) ease-(--ease-standard)",
-              "active:scale-[0.95] active:duration-(--duration-press)",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              active
-                ? "lens font-semibold text-foreground"
-                : "font-medium text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
   );
 }

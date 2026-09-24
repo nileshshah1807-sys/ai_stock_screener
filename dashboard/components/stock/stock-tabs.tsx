@@ -1,9 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 
-import { cn } from "@/lib/utils";
-import { GlassTrack } from "@/components/glass-track";
+import { SegmentedControl } from "@/components/segmented-control";
 
 export type StockTab = {
   key: string;
@@ -35,12 +34,10 @@ export function StockTabs({
   const first = tabs.some((tab) => tab.key === initial) ? initial : tabs[0].key;
   const [active, setActive] = useState(first);
   const [visited, setVisited] = useState<Set<string>>(() => new Set([first]));
-  const buttons = useRef<Map<string, HTMLButtonElement>>(new Map());
 
-  const select = (key: string, focus = false) => {
+  const select = (key: string) => {
     setActive(key);
     setVisited((seen) => (seen.has(key) ? seen : new Set(seen).add(key)));
-    if (focus) buttons.current.get(key)?.focus();
     try {
       const url = new URL(window.location.href);
       if (key === tabs[0].key) url.searchParams.delete("tab");
@@ -51,67 +48,18 @@ export function StockTabs({
     }
   };
 
-  const onKeyDown = (event: React.KeyboardEvent) => {
-    const index = tabs.findIndex((tab) => tab.key === active);
-    const step =
-      event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-    if (event.key === "Home") {
-      event.preventDefault();
-      select(tabs[0].key, true);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      select(tabs[tabs.length - 1].key, true);
-    } else if (step) {
-      event.preventDefault();
-      select(tabs[(index + step + tabs.length) % tabs.length].key, true);
-    }
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex justify-center sm:justify-start">
-        <GlassTrack
+        <SegmentedControl
           label="Stock sections"
-          role="tablist"
-          className="gap-0.5 p-1"
-          onKeyDown={onKeyDown}
-        >
-          {tabs.map((tab) => {
-            const selected = tab.key === active;
-            return (
-              <button
-                key={tab.key}
-                ref={(node) => {
-                  if (node) buttons.current.set(tab.key, node);
-                  else buttons.current.delete(tab.key);
-                }}
-                type="button"
-                role="tab"
-                id={`stock-tab-${tab.key}`}
-                aria-selected={selected}
-                aria-controls={`stock-panel-${tab.key}`}
-                tabIndex={selected ? 0 : -1}
-                // Selection happens on pointer-down, the moment the finger
-                // lands; click stays as the keyboard/assistive path.
-                onPointerDown={(event) => {
-                  if (event.button === 0) select(tab.key);
-                }}
-                onClick={() => select(tab.key)}
-                className={cn(
-                  "relative inline-flex min-h-9 items-center justify-center rounded-full px-5 text-sm",
-                  "transition-[color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
-                  "active:scale-[0.95] active:duration-(--duration-press) active:ease-out",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-                  selected
-                    ? "font-semibold text-foreground"
-                    : "font-medium text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </GlassTrack>
+          kind="tabs"
+          size="md"
+          idPrefix="stock"
+          value={active}
+          onChange={select}
+          options={tabs.map((tab) => ({ value: tab.key, label: tab.label }))}
+        />
       </div>
 
       {tabs.map((tab) =>
