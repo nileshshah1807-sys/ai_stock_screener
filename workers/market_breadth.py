@@ -236,6 +236,28 @@ def aggregate(panels, columns) -> dict[str, np.ndarray]:
     return counts
 
 
+# Published metric key -> the panel whose latest-session flags list its stocks.
+LIST_PANELS = {**FLAG_METRICS, "hi": "high52", "lo": "low52"}
+
+
+def latest_members(symbols, panels) -> dict[str, list[str]]:
+    """The stocks behind each metric's count on the last session.
+
+    Exactly the stocks the market row's final count sums -- the same panels,
+    the same session -- so the page's "View list" shows 94 names under a chart
+    that reads 94. A stock that did not trade that session is in no list, as it
+    is in no count.
+    """
+    out: dict[str, list[str]] = {}
+    for key, name in LIST_PANELS.items():
+        panel = panels.get(name)
+        if panel is None or not len(panel):
+            continue
+        flagged = np.flatnonzero(panel[-1] == 1)
+        out[key] = [symbols[column] for column in flagged]
+    return out
+
+
 def _series_row(scope, name, parent, sessions, arrays, *, members=None, position=None):
     return {
         "scope": scope,
@@ -276,7 +298,12 @@ def index_row(label, points, position):
     return _series_row(SCOPE_INDEX, label, None, days, {"c": closes}, position=position)
 
 
-def build_rows(
+def build_rows(observations, sessions, classification, **kwargs):
+    """The breadth rows alone; see :func:`build_breadth`."""
+    return build_breadth(observations, sessions, classification, **kwargs)[0]
+
+
+def build_breadth(
     observations,
     sessions,
     classification,
@@ -285,7 +312,11 @@ def build_rows(
     index_points=None,
     min_industry_members=MIN_INDUSTRY_MEMBERS,
 ):
-    """Every row the Market page reads for one market.
+    """Every row the Market page reads for one market, and its latest lists.
+
+    Returns ``(rows, members)``: the encoded group and index rows, and
+    ``{metric: [symbol, ...]}`` for the final session (see
+    :func:`latest_members`).
 
     ``observations`` maps symbol -> {date: close or (close, volume)}.
     ``classification`` maps symbol -> (sector, industry) for the latest run; it
@@ -358,4 +389,4 @@ def build_rows(
         else:
             logger.warning("No history for index %s; its chart will be absent", label)
 
-    return rows
+    return rows, latest_members(symbols, panels)

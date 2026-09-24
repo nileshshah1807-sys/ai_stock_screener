@@ -1,8 +1,10 @@
 """Market breadth: definitions, denominators and the published row contract."""
 
 import json
+import re
 import unittest
 from datetime import date, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -157,9 +159,39 @@ class BuildRowsTests(unittest.TestCase):
         self.assertEqual(decoded(indices[0])["c"], [1001, 1100])
         self.assertEqual(indices[0]["position"], 0)
 
+    def test_each_list_is_exactly_the_stocks_behind_the_final_count(self):
+        benchmark = dict.fromkeys(SESSIONS, 100.0)
+        rows, members = mb.build_breadth(
+            self.observations,
+            SESSIONS,
+            self.classification,
+            benchmark_points=benchmark,
+            min_industry_members=2,
+        )
+        market = next(row for row in rows if row["scope"] == "market")
+        for key in ("e20", "e50", "e100", "e200", "s2", "rs", "bb", "hi", "lo"):
+            self.assertEqual(len(members[key]), last(market, key), key)
+            self.assertLessEqual(set(members[key]), set(self.classification), key)
+
+    def test_a_stock_that_did_not_trade_last_session_is_in_no_list(self):
+        del self.observations["UP"][SESSIONS[-1]]
+        _, members = mb.build_breadth(self.observations, SESSIONS, self.classification)
+        self.assertFalse(any("UP" in symbols for symbols in members.values()))
+
     def test_no_overlap_is_an_error_not_an_empty_publish(self):
         with self.assertRaises(ValueError):
             mb.build_rows(self.observations, SESSIONS, {"NOPE": ("X", "Y")})
+
+
+class DashboardContractTests(unittest.TestCase):
+    def test_the_page_accepts_exactly_the_lists_the_worker_publishes(self):
+        source = (
+            Path(__file__).resolve().parents[1] / "dashboard" / "lib" / "market-breadth.mjs"
+        ).read_text(encoding="utf-8")
+        match = re.search(r"export const LIST_METRICS = \[([^\]]*)\]", source)
+        self.assertIsNotNone(match)
+        keys = set(re.findall(r'"(\w+)"', match.group(1)))
+        self.assertEqual(keys, set(mb.LIST_PANELS))
 
 
 class ToolTests(unittest.TestCase):
@@ -201,6 +233,26 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(len(deletes), 1)
         self.assertEqual(deletes[0][2]["params"]["name"], "eq.Gone")
         self.assertEqual(deletes[0][2]["params"]["market"], "eq.NSE")
+
+    def test_lists_are_upserted_then_everything_older_is_deleted(self):
+        repository = RecordingDashboardRepository(market="US")
+        written = repository.replace_breadth_members(
+            {"hi": ["AAA", "BBB"], "lo": ["CCC"]}, "2026-09-23"
+        )
+
+        self.assertEqual(written, 3)
+        method, path, kwargs = repository.calls[0]
+        self.assertEqual(method, "POST")
+        self.assertIn("on_conflict=market,metric,symbol", path)
+        stamps = {row["published_at"] for row in kwargs["json"]}
+        self.assertEqual(len(stamps), 1)
+        self.assertTrue(all(row["market"] == "US" for row in kwargs["json"]))
+        self.assertTrue(all(row["session"] == "2026-09-23" for row in kwargs["json"]))
+
+        method, path, kwargs = repository.calls[-1]
+        self.assertEqual((method, path), ("DELETE", "market_breadth_members"))
+        self.assertEqual(kwargs["params"]["published_at"], f"lt.{stamps.pop()}")
+        self.assertEqual(kwargs["params"]["market"], "eq.US")
 
 
 if __name__ == "__main__":

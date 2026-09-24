@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Iterator
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -489,6 +490,42 @@ class DashboardRepository:
                 params=self._scoped({"scope": f"eq.{row['scope']}", "name": f"eq.{row['name']}"}),
                 headers={"Prefer": "return=minimal"},
             )
+        return written
+
+    def replace_breadth_members(
+        self,
+        members: dict[str, list[str]],
+        session: str,
+        chunk_size: int = 1000,
+    ) -> int:
+        """Make this market's latest-session breadth lists exactly ``members``.
+
+        Every written row is stamped with this call's time, and one DELETE then
+        removes anything older. A stock that dropped out of a list since the
+        last publish goes with it, and a failure between the two steps leaves
+        yesterday's extras for a day rather than empty lists.
+        """
+        stamp = datetime.now(UTC).isoformat(timespec="seconds")
+        rows = [
+            {"metric": metric, "symbol": symbol, "session": session, "published_at": stamp}
+            for metric, symbols in sorted(members.items())
+            for symbol in symbols
+        ]
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "market_breadth_members?on_conflict=market,metric,symbol",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        self._request(
+            "DELETE",
+            "market_breadth_members",
+            params=self._scoped({"published_at": f"lt.{stamp}"}),
+            headers={"Prefer": "return=minimal"},
+        )
         return written
 
     # -- new listings -----------------------------------------------------

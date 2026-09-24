@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { BreadthChart, ScrubContext, type ChartPoint, type ChartTone } from "@/components/market/breadth-chart";
+import { BreadthListSheet } from "@/components/market/breadth-list-sheet";
 import { GroupPicker, type GroupKey } from "@/components/market/group-picker";
 import { SegmentedControl } from "@/components/segmented-control";
 import {
@@ -42,6 +43,16 @@ const LEADERSHIP: MetricSpec[] = [
 
 const DEFAULT_RANGE = "1Y";
 
+/** URL keys that belong to the list view, cleared when it opens or closes. */
+const LIST_KEYS = ["list", "sort", "dir", "page"];
+
+export type BreadthList = {
+  metric: string;
+  total: number;
+  /** The screener table and its pagination, rendered on the server. */
+  content: React.ReactNode;
+};
+
 /**
  * The Market page: benchmark indices, then breadth for the selected group.
  *
@@ -56,16 +67,51 @@ export function MarketDashboard({
   group,
   indices,
   selected,
+  list,
 }: {
   market: Market;
   groups: BreadthGroup[];
   group: BreadthRow | null;
   indices: BreadthRow[];
   selected: GroupKey;
+  list: BreadthList | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
+  const [, startListTransition] = useTransition();
+
+  // Which list is open. Set on the press so the sheet rises immediately; the
+  // URL, and with it the server's rows, follow. When the server's list
+  // changes on its own -- Back, a shared link -- the sheet follows that.
+  const serverList = list?.metric ?? null;
+  const [openList, setOpenList] = useState<string | null>(serverList);
+  const [seenServerList, setSeenServerList] = useState<string | null>(serverList);
+  if (serverList !== seenServerList) {
+    setSeenServerList(serverList);
+    setOpenList(serverList);
+  }
+  // The last list shown, kept while the sheet slides away so it leaves with
+  // its content rather than emptying first.
+  const [lastList, setLastList] = useState<BreadthList | null>(list);
+  if (list && list !== lastList) setLastList(list);
+
+  const listUrl = (metric: string | null) => {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const key of LIST_KEYS) next.delete(key);
+    if (metric) next.set("list", metric);
+    const query = next.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  };
+  const openListFor = (metric: string) => {
+    setOpenList(metric);
+    startListTransition(() => router.push(listUrl(metric), { scroll: false }));
+  };
+  const closeList = () => {
+    setOpenList(null);
+    startListTransition(() => router.push(listUrl(null), { scroll: false }));
+  };
   const [range, setRange] = useState(DEFAULT_RANGE);
   const [unit, setUnit] = useState<Unit>("share");
   const [scrub, setScrub] = useState<string | null>(null);
@@ -133,6 +179,32 @@ export function MarketDashboard({
   const leadership = LEADERSHIP.filter((spec) => filtered || spec.key !== "rs").map((spec) =>
     spec.key === "bb" ? { ...spec, title: `Beating the ${market.benchmark} over 6 months` } : spec,
   );
+
+  // What the sheet shows. While a list loads, the count comes from the chart
+  // itself -- the same number the reader just pressed on.
+  const sheetKey = openList ?? lastList?.metric ?? null;
+  const sheetSpec =
+    leadership.find((entry) => entry.key === sheetKey) ??
+    [...TREND, ...EXTREMES].find((entry) => entry.key === sheetKey);
+  const sheetLoaded = openList !== null && list?.metric === openList;
+  const sheetCount = sheetLoaded
+    ? list.total
+    : sheetKey
+      ? (breadth?.series[sheetKey]?.at(-1) ?? null)
+      : null;
+  const lastDay = breadth?.dates.at(-1);
+  const sheet = {
+    title: sheetSpec?.title ?? "Stocks",
+    detail: [
+      sheetCount !== null ? `${sheetCount.toLocaleString(market.locale)} stocks` : null,
+      filtered ? selected.name : `All ${market.label} stocks`,
+      lastDay ? `as of ${formatListDay(lastDay)}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    loaded: sheetLoaded,
+    content: (sheetLoaded ? list : lastList)?.content ?? null,
+  };
 
   return (
     <ScrubContext.Provider value={{ time: scrub, setTime: setScrub }}>
@@ -202,6 +274,7 @@ export function MarketDashboard({
                   to={to}
                   unit={unit}
                   locale={market.locale}
+                  onExpand={() => openListFor(spec.key)}
                 />
               ))}
             </Section>
@@ -229,6 +302,7 @@ export function MarketDashboard({
                     to={to}
                     unit={unit}
                     locale={market.locale}
+                    onExpand={() => openListFor(spec.key)}
                   />
                 </div>
               ))}
@@ -245,6 +319,7 @@ export function MarketDashboard({
                   unit={unit}
                   locale={market.locale}
                   tone={spec.tone}
+                  onExpand={() => openListFor(spec.key)}
                 />
               ))}
             </Section>
@@ -264,8 +339,25 @@ export function MarketDashboard({
           </div>
         )}
       </div>
+
+      <BreadthListSheet
+        open={openList !== null}
+        onClose={closeList}
+        title={sheet.title}
+        detail={sheet.detail}
+        loading={openList !== null && !sheet.loaded}
+      >
+        {sheet.content}
+      </BreadthListSheet>
     </ScrubContext.Provider>
   );
+}
+
+const LIST_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatListDay(time: string) {
+  const [year, month, day] = time.split("-");
+  return `${Number(day)} ${LIST_MONTHS[Number(month) - 1]} ${year}`;
 }
 
 function subject(selected: GroupKey, market: Market) {

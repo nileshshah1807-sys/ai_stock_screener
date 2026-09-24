@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ChevronRight } from "lucide-react";
 
 import {
   niceScale,
@@ -66,6 +66,7 @@ export function BreadthChart({
   unit,
   locale,
   tone = "accent",
+  onExpand,
 }: {
   title: string;
   points: ChartPoint[];
@@ -75,6 +76,8 @@ export function BreadthChart({
   unit: ChartUnit;
   locale: string;
   tone?: ChartTone;
+  /** Opens the stocks behind the latest value; the button is absent without it. */
+  onExpand?: () => void;
 }) {
   const { time: scrubTime, setTime } = useContext(ScrubContext);
   const [container, width] = useWidth();
@@ -155,7 +158,26 @@ export function BreadthChart({
   return (
     <section className="panel flex min-w-0 flex-col p-4 sm:p-5">
       <header className="min-h-[4.75rem]">
-        <h3 className="text-[0.8125rem] font-medium text-muted-foreground">{title}</h3>
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="text-[0.8125rem] font-medium text-muted-foreground">{title}</h3>
+          {onExpand && latest ? (
+            <button
+              type="button"
+              onClick={onExpand}
+              aria-label={`View the stocks in “${title}”`}
+              className={cn(
+                "-mt-1 -mr-1 inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground",
+                "transition-[background-color,color,transform] duration-(--duration-fast) ease-(--ease-standard)",
+                "hover:bg-(--control-hover) hover:text-foreground",
+                "active:scale-[0.95] active:duration-(--duration-press)",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              )}
+            >
+              View list
+              <ChevronRight className="size-3.5" aria-hidden />
+            </button>
+          ) : null}
+        </div>
         {shown ? (
           <>
             <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2">

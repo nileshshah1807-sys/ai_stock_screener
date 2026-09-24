@@ -101,7 +101,7 @@ def main(argv=None):
     parser.add_argument("--dry-run", action="store_true",
                         help="build and report sizes without writing")
     parser.add_argument("--dump", default=None,
-                        help="also write the rows to this JSON file, for inspection")
+                        help="also write the rows and today's lists to this JSON file, for inspection")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -112,7 +112,7 @@ def main(argv=None):
     from screener.markets import NSE
     from screener.markets import resolve as resolve_market
     from storage.dashboard_repository import DashboardRepository
-    from workers.market_breadth import build_rows
+    from workers.market_breadth import build_breadth
 
     profile = resolve_market(args.market)
 
@@ -148,7 +148,7 @@ def main(argv=None):
     indices = fetch_index_points(tickers, start=args.start, end=args.end)
 
     started = time.monotonic()
-    rows = build_rows(
+    rows, members = build_breadth(
         observations,
         sessions,
         classification,
@@ -163,13 +163,18 @@ def main(argv=None):
     if args.dump:
         import json
 
-        Path(args.dump).write_text(json.dumps(rows), encoding="utf-8")
+        Path(args.dump).write_text(json.dumps({"rows": rows, "members": members}), encoding="utf-8")
         logger.info("Wrote rows to %s", args.dump)
     if args.dry_run:
         logger.info("Dry run: nothing written")
         return 0
     written = repository.replace_market_breadth(rows)
     logger.info("Published %d market breadth rows", written)
+    # After the rows, so a list never names a session the charts do not show yet.
+    market_row = next((row for row in rows if row["scope"] == "market"), None)
+    if market_row:
+        listed = repository.replace_breadth_members(members, market_row["last_session"])
+        logger.info("Published %d list memberships for %s", listed, market_row["last_session"])
     return 0
 
 
