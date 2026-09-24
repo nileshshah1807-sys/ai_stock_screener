@@ -135,8 +135,11 @@ export function MarketDashboard({
       .map((decoded) => decoded?.dates[0])
       .filter((date): date is string => Boolean(date));
     const end = lasts.sort().at(-1) ?? "";
-    const months = RANGES.find((entry) => entry.label === range)?.months ?? null;
-    return { from: rangeStart(end, months) ?? firsts.sort()[0] ?? "", to: end };
+    const entry = RANGES.find((item) => item.label === range);
+    return {
+      from: rangeStart(end, entry?.months ?? null, entry?.days ?? null) ?? firsts.sort()[0] ?? "",
+      to: end,
+    };
   }, [breadth, decodedIndices, range]);
 
   // Memoised as a whole so scrubbing -- which re-renders every chart to move
