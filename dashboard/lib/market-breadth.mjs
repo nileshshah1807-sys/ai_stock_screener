@@ -93,8 +93,13 @@ export function indexPoints(decoded) {
  */
 export const LIST_METRICS = ["e20", "e50", "e100", "e200", "s2", "bb", "rs", "hi", "lo"];
 
-/** Time range buttons, in calendar months. `null` means everything. */
+/**
+ * Time range buttons. Each is calendar days or calendar months (never both);
+ * `null` months means everything. Days come before months so a week reads as
+ * a proper trend line -- a single session has no shape to show.
+ */
 export const RANGES = [
+  { label: "1W", days: 7 },
   { label: "1M", months: 1 },
   { label: "3M", months: 3 },
   { label: "6M", months: 6 },
@@ -107,15 +112,22 @@ export const RANGES = [
 /**
  * First date of a range ending on `last`, as `YYYY-MM-DD`.
  *
- * Calendar months rather than a session count, so every chart on the page --
- * NSE sessions, an index on Yahoo's calendar -- shares one left edge and the
- * synced crosshair lines up across them.
+ * Calendar days or months rather than a session count, so every chart on the
+ * page -- NSE sessions, an index on Yahoo's calendar -- shares one left edge
+ * and the synced crosshair lines up across them.
  *
  * @param {string} last
  * @param {number | null} months
+ * @param {number | null} [days]
  */
-export function rangeStart(last, months) {
-  if (!last || !months) return null;
+export function rangeStart(last, months, days) {
+  if (!last) return null;
+  if (days) {
+    const date = new Date(`${last}T00:00:00Z`);
+    date.setUTCDate(date.getUTCDate() - days);
+    return date.toISOString().slice(0, 10);
+  }
+  if (!months) return null;
   const date = new Date(`${last}T00:00:00Z`);
   const day = date.getUTCDate();
   date.setUTCDate(1);

@@ -74,6 +74,11 @@ test("a range start steps back calendar months and clamps month ends", () => {
   assert.equal(rangeStart("2026-09-18", null), null);
 });
 
+test("a range start steps back calendar days when given a day count", () => {
+  assert.equal(rangeStart("2026-09-18", null, 7), "2026-09-11");
+  assert.equal(rangeStart("2026-09-18", 1, 7), "2026-09-11");
+});
+
 test("slicing keeps the range and never returns an empty chart", () => {
   const points = ["2026-01-01", "2026-02-01", "2026-03-01"].map((time) => ({ time }));
   assert.deepEqual(sliceFrom(points, "2026-01-15").map((p) => p.time), ["2026-02-01", "2026-03-01"]);
