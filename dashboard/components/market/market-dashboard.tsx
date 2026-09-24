@@ -254,6 +254,11 @@ export function MarketDashboard({
                 to={to}
                 unit="level"
                 locale={market.locale}
+                tone={
+                  points.length > 1 && points[points.length - 1].value < points[0].value
+                    ? "negative"
+                    : "positive"
+                }
               />
             ))}
           </Section>
