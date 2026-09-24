@@ -1118,3 +1118,68 @@ export async function getExportRows(
   }
   return rows.slice(0, maxRows);
 }
+
+export type BreadthScope = "market" | "sector" | "industry" | "index";
+
+export type BreadthGroup = {
+  scope: BreadthScope;
+  name: string;
+  parent: string | null;
+  members: number | null;
+};
+
+export type BreadthRow = BreadthGroup & {
+  position: number | null;
+  last_session: string;
+  sessions: string;
+  series: string;
+};
+
+const BREADTH_COLUMNS = "scope, name, parent, members, position, last_session, sessions, series";
+
+/**
+ * Everything the Market page draws: the groups a reader can filter to, the
+ * selected group's breadth history, and the headline indices.
+ *
+ * Three reads, issued together. The group list selects no series, so it stays
+ * a few KB however many industries there are; only the one group on screen
+ * pays for its ~90 KB history. Returns empty results rather than throwing when
+ * the table has not been deployed, so the page can explain itself instead of
+ * erroring.
+ */
+export async function getMarketBreadth(
+  market: MarketCode,
+  selected: { scope: BreadthScope; name: string },
+): Promise<{ groups: BreadthGroup[]; group: BreadthRow | null; indices: BreadthRow[] }> {
+  const supabase = await createClient();
+  const [groupsResult, groupResult, indicesResult] = await Promise.all([
+    supabase
+      .from("market_breadth")
+      .select("scope, name, parent, members")
+      .eq("market", market)
+      .in("scope", ["market", "sector", "industry"])
+      .order("name"),
+    supabase
+      .from("market_breadth")
+      .select(BREADTH_COLUMNS)
+      .eq("market", market)
+      .eq("scope", selected.scope)
+      .eq("name", selected.name)
+      .maybeSingle(),
+    supabase
+      .from("market_breadth")
+      .select(BREADTH_COLUMNS)
+      .eq("market", market)
+      .eq("scope", "index")
+      .order("position"),
+  ]);
+
+  for (const result of [groupsResult, groupResult, indicesResult]) {
+    if (result.error) console.error("getMarketBreadth failed", result.error.message);
+  }
+  return {
+    groups: (groupsResult.data as BreadthGroup[] | null) ?? [],
+    group: (groupResult.data as BreadthRow | null) ?? null,
+    indices: (indicesResult.data as BreadthRow[] | null) ?? [],
+  };
+}

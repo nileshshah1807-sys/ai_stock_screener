@@ -58,6 +58,10 @@ class MarketProfile:
     # the most liquid names rather than emptying it. On a healthy run these are
     # already in the fetched list and the union is a no-op.
     safety_net_symbols: tuple[str, ...]
+    # Headline indices for the Market page, as (yfinance symbol, label), in
+    # display order. Chosen from what Yahoo actually serves: Nifty Microcap 250
+    # has no Yahoo series, so the NSE set stops at Smallcap 250.
+    headline_indices: tuple[tuple[str, str], ...] = ()
 
 
 _NSE_PROFILE = MarketProfile(
@@ -88,6 +92,12 @@ _NSE_PROFILE = MarketProfile(
         "HEROMOTOCO", "UPL", "BANKBARODA", "LICI", "ETERNAL", "DELHIVERY",
         "HUDCO", "IREDA",
     ),
+    headline_indices=(
+        ("^NSEI", "Nifty 50"),
+        ("^CRSLDX", "Nifty 500"),
+        ("NIFTYMIDCAP150.NS", "Nifty Midcap 150"),
+        ("NIFTYSMLCAP250.NS", "Nifty Smallcap 250"),
+    ),
 )
 
 _US_PROFILE = MarketProfile(
@@ -117,6 +127,12 @@ _US_PROFILE = MarketProfile(
         "MRK", "KO", "PEP", "WMT", "COST", "CSCO", "ORCL", "CRM", "ADBE",
         "AMD", "INTC", "QCOM", "TXN", "CAT", "BA", "GE", "HON", "UNP",
         "T", "VZ", "DIS", "NFLX", "PFE", "TMO", "ABT", "MCD", "NKE",
+    ),
+    headline_indices=(
+        ("^GSPC", "S&P 500"),
+        ("^IXIC", "Nasdaq Composite"),
+        ("^DJI", "Dow Jones Industrial"),
+        ("^RUT", "Russell 2000"),
     ),
 )
 

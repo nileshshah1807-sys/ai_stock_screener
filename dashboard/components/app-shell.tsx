@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, ArrowLeftRight, Bookmark, LayoutGrid, LogOut } from "lucide-react";
+import { Activity, ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
@@ -18,9 +18,10 @@ import type { Viewer } from "@/lib/auth";
 import { signOut } from "@/app/login/actions";
 
 /*
- * Four destinations. The comment on AppShell notes this group stays comfortable
- * to about six before it needs an overflow menu; Watchlists is the fourth, so
- * there is room, but that ceiling is now closer than it was.
+ * Five destinations. The comment on AppShell notes this group stays comfortable
+ * to about six before it needs an overflow menu; Market is the fifth, which is
+ * also the most an iOS-style tab bar holds on a phone. The next destination
+ * needs that overflow menu, not a sixth tab.
  *
  * Markets are deliberately NOT in this list. Which market you are looking at
  * and which view you are looking at are independent axes -- every destination
@@ -30,6 +31,7 @@ import { signOut } from "@/app/login/actions";
  */
 const NAV = [
   { path: "", label: "Screener", icon: LayoutGrid },
+  { path: "/market", label: "Market", icon: ChartArea },
   { path: "/watchlists", label: "Watchlists", icon: Bookmark },
   { path: "/movers", label: "Movers", icon: ArrowLeftRight },
   { path: "/health", label: "Run health", icon: Activity },

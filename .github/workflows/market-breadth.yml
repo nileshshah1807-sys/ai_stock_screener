@@ -1,0 +1,154 @@
+name: Market breadth
+run-name: Market breadth (${{ github.event_name }})
+
+# Rebuilds the Market page: breadth history for the whole market, every sector
+# and every industry, plus the headline indices. See
+# tools/publish_market_breadth.py and workers/market_breadth.py.
+#
+# Daily rather than riding on price-series.yml's twice-weekly rebuild: breadth
+# is read as "what happened today", and a chart that stops four days short
+# reads as broken. Reading the published price_series back from Supabase
+# instead would cost ~50 MB of egress per market per day, so each job sources
+# closes the way price-series.yml does -- the NSE archive, or yfinance -- and
+# writes only the ~10 MB of breadth rows.
+#
+# Separate from the screener workflows for the same reason price-series.yml
+# is: this is a reading aid, and its failure must never touch the run that
+# publishes scores. It does read the latest published snapshot for the
+# universe and its sectors, so it is scheduled after both screener runs.
+
+on:
+  schedule:
+    # 20:00 IST, after NSE's bhavcopy is out and the 16:30/18:30 screener runs.
+    - cron: "30 14 * * 1-5"
+    # 18:45 ET (EDT), after the 17:30 ET US screener run.
+    - cron: "45 22 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      market:
+        description: Market to rebuild
+        required: true
+        default: both
+        type: choice
+        options: [both, NSE, US]
+      dry_run:
+        description: Build and report sizes without writing to Supabase
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  nse:
+    name: NSE
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '30 14 * * 1-5') ||
+      (github.event_name == 'workflow_dispatch' && inputs.market != 'US')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Shared with price-series.yml's NSE job: both restore, extend and save the
+    # same archive cache, and must not fetch from NSE at the same time.
+    concurrency:
+      group: price-series-nse
+      cancel-in-progress: false
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      ARCHIVE_ROOT: reports_advanced/backtest
+      TRANSCRIPT_ENABLE_FINBERT: "false"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Restore price archive
+        id: archive-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            reports_advanced/backtest/bhavcopy
+            reports_advanced/backtest/calendar.csv
+            reports_advanced/backtest/corporate_actions.csv
+            reports_advanced/backtest/security_master.csv
+          key: price-archive-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            price-archive-v1-${{ runner.os }}-
+
+      # A warm cache is at most a few sessions behind, so a small cap is
+      # plenty. A cold cache is price-series.yml's job to refill; breadth on a
+      # partial archive would under-count history, so that case fails below.
+      - name: Fetch new sessions and corporate actions
+        run: |
+          sessions=$(find "${ARCHIVE_ROOT}/bhavcopy" -name '*.csv.gz' 2>/dev/null | wc -l)
+          echo "Cached day-files: ${sessions}"
+          if [ "${sessions}" -lt 2000 ]; then
+            echo "::error::Archive has ${sessions} day-files. Run the Price series workflow until the archive is complete."
+            exit 1
+          fi
+          python -m tools.backfill_backtest_archive \
+            --root "${ARCHIVE_ROOT}" \
+            --start 2018-01-01 \
+            --max-fetches 40
+
+      - name: Save price archive
+        if: always() && steps.archive-cache.outcome == 'success'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            reports_advanced/backtest/bhavcopy
+            reports_advanced/backtest/calendar.csv
+            reports_advanced/backtest/corporate_actions.csv
+            reports_advanced/backtest/security_master.csv
+          key: ${{ steps.archive-cache.outputs.cache-primary-key }}
+
+      - name: Publish market breadth
+        run: |
+          python -m tools.publish_market_breadth \
+            --market NSE \
+            --root "${ARCHIVE_ROOT}" \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
+
+  us:
+    name: US
+    if: >-
+      (github.event_name == 'schedule' && github.event.schedule == '45 22 * * 1-5') ||
+      (github.event_name == 'workflow_dispatch' && inputs.market != 'NSE')
+    runs-on: ubuntu-latest
+    # ~3,400 symbols of daily history in thirties: about five minutes.
+    timeout-minutes: 45
+    concurrency:
+      group: market-breadth-us
+      cancel-in-progress: false
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MARKET: "US"
+      TRANSCRIPT_ENABLE_FINBERT: "false"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Publish market breadth
+        run: |
+          python -m tools.publish_market_breadth \
+            --market US \
+            ${{ inputs.dry_run && '--dry-run' || '' }}
