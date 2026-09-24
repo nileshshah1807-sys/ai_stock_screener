@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
 
-import { MarketDashboard } from "@/components/market/market-dashboard";
+import { MarketDashboard, type BreadthList } from "@/components/market/market-dashboard";
 import type { GroupKey } from "@/components/market/group-picker";
+import { Pagination } from "@/components/screener/pagination";
+import { ScreenerTable } from "@/components/screener/screener-table";
+import { parseFilters, toSearchParams } from "@/lib/filters";
 import { formatDate } from "@/lib/format";
-import { marketFromSlug } from "@/lib/markets";
-import { getMarketBreadth } from "@/lib/queries";
+import { LIST_METRICS } from "@/lib/market-breadth.mjs";
+import { marketFromSlug, type Market } from "@/lib/markets";
+import { getLatestRun, getMarketBreadth, getSnapshotPage, PAGE_SIZE } from "@/lib/queries";
 
 export const metadata: Metadata = { title: "Market" };
 export const dynamic = "force-dynamic";
@@ -30,8 +34,15 @@ function selectedGroup(query: Record<string, string | string[] | undefined>): Gr
  */
 export default async function MarketPage({ params, searchParams }: PageProps<"/[market]/market">) {
   const market = marketFromSlug((await params).market)!;
-  const selected = selectedGroup(await searchParams);
-  const { groups, group, indices } = await getMarketBreadth(market.code, selected);
+  const query = await searchParams;
+  const selected = selectedGroup(query);
+  const listed = Array.isArray(query.list) ? query.list[0] : query.list;
+  const metric = listed && LIST_METRICS.includes(listed) ? listed : null;
+
+  const [{ groups, group, indices }, list] = await Promise.all([
+    getMarketBreadth(market.code, selected),
+    metric ? breadthList(market, metric, selected, query) : Promise.resolve(null),
+  ]);
   const universe = groups.find((entry) => entry.scope === "market")?.members ?? null;
 
   return (
@@ -53,6 +64,7 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
         group={group}
         indices={indices}
         selected={selected}
+        list={list}
       />
 
       {group ? (
@@ -67,4 +79,58 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
       ) : null}
     </div>
   );
+}
+
+/**
+ * The stocks behind one breadth chart, as the screener's own table.
+ *
+ * The same `getSnapshotPage` and `ScreenerTable` the Screener and Watchlists
+ * use, restricted to the list through `breadth_snapshot`, so every column,
+ * sort and link matches. A sector view narrows through the grid's own
+ * `sector` filter -- the page's `?sector=` doubles as it -- and an industry
+ * view through the snapshot's industry column.
+ */
+async function breadthList(
+  market: Market,
+  metric: string,
+  selected: GroupKey,
+  query: Record<string, string | string[] | undefined>,
+): Promise<BreadthList | null> {
+  const run = await getLatestRun(market.code);
+  if (!run) return null;
+  const filters = parseFilters(query);
+  const urlParams = toSearchParams(query);
+  const { rows, total } = await getSnapshotPage(market.code, run.run_date, filters, {
+    breadth: metric,
+    industry: selected.scope === "industry" ? selected.name : undefined,
+  });
+  const sort = filters.sort ?? "investment_rank";
+
+  return {
+    metric,
+    total,
+    content: (
+      <>
+        <ScreenerTable
+          rows={rows}
+          params={urlParams}
+          sort={sort}
+          dir={filters.dir ?? (sort.endsWith("rank") ? "asc" : "desc")}
+          hiddenColumns={filters.hiddenColumns}
+          density={filters.density}
+          emptyState={
+            <div className="panel py-16 text-center">
+              <p className="text-sm font-medium">No stocks on this list today</p>
+              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                None of the stocks behind this count were in the latest screener run.
+              </p>
+            </div>
+          }
+        />
+        {total > PAGE_SIZE ? (
+          <Pagination page={filters.page ?? 1} pageSize={PAGE_SIZE} total={total} params={urlParams} />
+        ) : null}
+      </>
+    ),
+  };
 }

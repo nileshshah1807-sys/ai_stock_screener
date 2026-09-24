@@ -307,7 +307,17 @@ export async function getSnapshotPage(
   market: MarketCode,
   runDate: string,
   filters: ScreenerFilters,
-  options: { columns?: string; symbols?: readonly string[] } = {},
+  options: {
+    columns?: string;
+    symbols?: readonly string[];
+    /**
+     * Restrict to one Market-page breadth list (`hi`, `s2`, ...). Read
+     * through the `breadth_snapshot` function rather than an `in` filter: a
+     * list runs to ~2,000 symbols, well past what fits in a URL.
+     */
+    breadth?: string;
+    industry?: string;
+  } = {},
 ): Promise<{ rows: SnapshotRow[]; total: number }> {
   const supabase = await createClient();
   const projection =
@@ -316,11 +326,23 @@ export async function getSnapshotPage(
       ? gridProjection(filters.hiddenColumns)
       : GRID_COLUMNS);
 
-  let query = supabase
-    .from("screener_snapshot")
-    .select(projection, { count: "exact" })
-    .eq("market", market)
-    .eq("run_date", runDate);
+  // PostgREST applies the same select, filters, order and range to a
+  // set-returning function as to the table, so everything below is shared.
+  const source = options.breadth
+    ? supabase
+        .rpc(
+          "breadth_snapshot",
+          { p_market: market, p_metric: options.breadth },
+          { count: "exact" },
+        )
+        .select(projection)
+    : supabase.from("screener_snapshot").select(projection, { count: "exact" });
+
+  let query = source.eq("market", market).eq("run_date", runDate);
+
+  if (options.industry) {
+    query = query.eq("industry", options.industry);
+  }
 
   if (options.symbols) {
     // An empty restriction means "nothing", never "everything". Falling through

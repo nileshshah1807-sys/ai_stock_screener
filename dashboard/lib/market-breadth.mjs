@@ -87,6 +87,12 @@ export function indexPoints(decoded) {
   return decoded.dates.map((time, index) => ({ time, value: closes[index] / 100 }));
 }
 
+/**
+ * Metrics with a published list of today's stocks (`market_breadth_members`),
+ * i.e. the valid values of the page's `?list=` parameter.
+ */
+export const LIST_METRICS = ["e20", "e50", "e100", "e200", "s2", "bb", "rs", "hi", "lo"];
+
 /** Time range buttons, in calendar months. `null` means everything. */
 export const RANGES = [
   { label: "1M", months: 1 },
