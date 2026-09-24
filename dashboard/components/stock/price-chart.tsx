@@ -20,6 +20,7 @@ import {
   sliceRange,
   withTail,
 } from "@/lib/price-series.mjs";
+import { SegmentedControl } from "@/components/segmented-control";
 
 /**
  * Daily price, volume and the 50/200-day averages for one symbol.
@@ -260,30 +261,19 @@ export function PriceChart({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-1">
-        {RANGES.map((entry) => {
-          // A range longer than the series renders an identical chart under a
-          // different label, which reads as a bug. Max always stays.
-          const reachable =
-            entry.sessions === null || entry.sessions < points.length;
-          if (!reachable) return null;
-          const active = entry.label === rangeLabel;
-          return (
-            <button
-              key={entry.label}
-              type="button"
-              onClick={() => setRangeLabel(entry.label)}
-              aria-pressed={active}
-              className={`rounded-row px-2.5 py-1 text-xs font-medium transition-colors ${
-                active
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-muted/40"
-              }`}
-            >
-              {entry.label}
-            </button>
-          );
-        })}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {/* A range longer than the series renders an identical chart under a
+            different label, which reads as a bug. Max always stays. */}
+        <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <SegmentedControl
+            label="Chart range"
+            value={rangeLabel}
+            onChange={setRangeLabel}
+            options={RANGES.filter(
+              (entry) => entry.sessions === null || entry.sessions < points.length,
+            ).map((entry) => ({ value: entry.label, label: entry.label }))}
+          />
+        </div>
         {/* Right-aligned only when it shares the row; a wrapped legend pinned
             right reads as detached from the buttons above it. */}
         <span className="flex w-full items-center gap-3 pt-1 text-[11px] text-muted-foreground sm:ml-auto sm:w-auto sm:pt-0">

@@ -4,7 +4,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { GlassTrack } from "@/components/glass-track";
+import { SegmentedControl } from "@/components/segmented-control";
 import { formatDate, MISSING } from "@/lib/format";
 import { availableViews, buildView, periodLabel, VIEWS } from "@/lib/financials.mjs";
 import type { Market } from "@/lib/markets";
@@ -122,35 +122,21 @@ export function Financials({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <GlassTrack label="Statement" role="tablist" className="w-max gap-0.5 p-1">
-            {views.map((key) => {
-              const selected = key === current;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  onPointerDown={(event) => {
-                    if (event.button === 0) setView(key);
-                  }}
-                  onClick={() => setView(key)}
-                  className={cn(
-                    "inline-flex min-h-8 items-center whitespace-nowrap rounded-full px-3 text-[0.8125rem] sm:px-4",
-                    "transition-[color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
-                    "active:scale-[0.95] active:duration-(--duration-press) active:ease-out",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    selected
-                      ? "font-semibold text-foreground"
-                      : "font-medium text-muted-foreground hover:text-foreground",
-                  )}
-                >
+          <SegmentedControl<ViewKey>
+            label="Statement"
+            kind="tabs"
+            value={current}
+            onChange={setView}
+            options={views.map((key) => ({
+              value: key,
+              label: (
+                <>
                   <span className="sm:hidden">{VIEWS[key].short}</span>
                   <span className="hidden sm:inline">{VIEWS[key].label}</span>
-                </button>
-              );
-            })}
-          </GlassTrack>
+                </>
+              ),
+            }))}
+          />
         </div>
         <span className="rounded-full bg-(--control) px-3 py-1 text-xs font-medium text-muted-foreground">
           {unitFor(market).label}

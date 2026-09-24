@@ -3,9 +3,9 @@
 import { useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-import { GlassTrack } from "@/components/glass-track";
 import { BreadthChart, ScrubContext, type ChartPoint, type ChartTone } from "@/components/market/breadth-chart";
 import { GroupPicker, type GroupKey } from "@/components/market/group-picker";
+import { SegmentedControl } from "@/components/segmented-control";
 import {
   RANGES,
   decodeRow,
@@ -143,10 +143,10 @@ export function MarketDashboard({
           total={marketTotal}
           onSelect={select}
         />
-        <Segmented
+        <SegmentedControl<Unit>
           label="Measure"
           value={unit}
-          onChange={(value) => setUnit(value as Unit)}
+          onChange={setUnit}
           options={[
             { value: "share", label: "%", title: "Share of stocks" },
             { value: "count", label: "Count", title: "Number of stocks" },
@@ -154,7 +154,7 @@ export function MarketDashboard({
         />
         <div className="w-full sm:ml-auto sm:w-auto">
           <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <Segmented
+            <SegmentedControl
               label="Time range"
               value={range}
               onChange={setRange}
@@ -289,70 +289,5 @@ function Section({
       </div>
       <div className="grid gap-4 lg:grid-cols-2">{children}</div>
     </section>
-  );
-}
-
-/**
- * A segmented control on the same glass track as the header nav, so the
- * selection is a lens that glides between segments rather than a fill that
- * jumps. GlassTrack moves the lens on pointer-down and retargets it mid-flight
- * if a second segment is pressed before it lands.
- */
-function Segmented({
-  label,
-  value,
-  onChange,
-  options,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string; title?: string }[];
-}) {
-  // Arrow keys move the choice, as they do in a native radio group.
-  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
-    const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1
-      : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1
-      : 0;
-    if (!step) return;
-    event.preventDefault();
-    const index = options.findIndex((option) => option.value === value);
-    const next = options[(index + step + options.length) % options.length];
-    onChange(next.value);
-    const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=radio]");
-    buttons[(index + step + options.length) % options.length]?.focus();
-  };
-
-  return (
-    <GlassTrack label={label} role="radiogroup" className="w-max gap-0.5 p-1" onKeyDown={onKeyDown}>
-      {options.map((option) => {
-        const active = option.value === value;
-        return (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            tabIndex={active ? 0 : -1}
-            title={option.title}
-            onPointerDown={(event) => {
-              if (event.button === 0) onChange(option.value);
-            }}
-            onClick={() => onChange(option.value)}
-            className={cn(
-              "inline-flex min-h-8 min-w-10 items-center justify-center rounded-full px-3 text-[0.8125rem]",
-              "transition-[color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
-              "active:scale-[0.95] active:duration-(--duration-press) active:ease-out",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              active
-                ? "font-semibold text-foreground"
-                : "font-medium text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </GlassTrack>
   );
 }
