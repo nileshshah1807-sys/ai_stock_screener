@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
+import { GlassTrack } from "@/components/glass-track";
 import { BreadthChart, ScrubContext, type ChartPoint, type ChartTone } from "@/components/market/breadth-chart";
 import { GroupPicker, type GroupKey } from "@/components/market/group-picker";
 import {
@@ -292,9 +293,10 @@ function Section({
 }
 
 /**
- * A small segmented control. The selected segment is a raised lens on a
- * recessed track, and it changes on pointer-down so the press is answered
- * before the click completes.
+ * A segmented control on the same glass track as the header nav, so the
+ * selection is a lens that glides between segments rather than a fill that
+ * jumps. GlassTrack moves the lens on pointer-down and retargets it mid-flight
+ * if a second segment is pressed before it lands.
  */
 function Segmented({
   label,
@@ -307,8 +309,22 @@ function Segmented({
   onChange: (value: string) => void;
   options: { value: string; label: string; title?: string }[];
 }) {
+  // Arrow keys move the choice, as they do in a native radio group.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1
+      : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1
+      : 0;
+    if (!step) return;
+    event.preventDefault();
+    const index = options.findIndex((option) => option.value === value);
+    const next = options[(index + step + options.length) % options.length];
+    onChange(next.value);
+    const buttons = event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=radio]");
+    buttons[(index + step + options.length) % options.length]?.focus();
+  };
+
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex w-max rounded-full bg-(--control) p-0.5">
+    <GlassTrack label={label} role="radiogroup" className="w-max gap-0.5 p-1" onKeyDown={onKeyDown}>
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -317,18 +333,19 @@ function Segmented({
             type="button"
             role="radio"
             aria-checked={active}
+            tabIndex={active ? 0 : -1}
             title={option.title}
             onPointerDown={(event) => {
               if (event.button === 0) onChange(option.value);
             }}
             onClick={() => onChange(option.value)}
             className={cn(
-              "inline-flex h-8 min-w-10 items-center justify-center rounded-full px-3 text-[0.8125rem]",
-              "transition-[color,background-color,box-shadow,transform] duration-(--duration-base) ease-(--ease-standard)",
-              "active:scale-[0.95] active:duration-(--duration-press)",
+              "inline-flex min-h-8 min-w-10 items-center justify-center rounded-full px-3 text-[0.8125rem]",
+              "transition-[color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
+              "active:scale-[0.95] active:duration-(--duration-press) active:ease-out",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
-                ? "lens font-semibold text-foreground"
+                ? "font-semibold text-foreground"
                 : "font-medium text-muted-foreground hover:text-foreground",
             )}
           >
@@ -336,6 +353,6 @@ function Segmented({
           </button>
         );
       })}
-    </div>
+    </GlassTrack>
   );
 }

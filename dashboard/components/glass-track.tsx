@@ -26,13 +26,15 @@ type Box = { x: number; y: number; w: number; h: number };
  *    moving redirects it mid-flight rather than finishing the first trip.
  *
  * Items are the children; the current one is whichever carries
- * `aria-current` (links) or `aria-selected="true"` (tabs). The track watches
+ * `aria-current` (links), `aria-selected="true"` (tabs) or
+ * `aria-checked="true"` (a radio group, e.g. a segmented control). The track watches
  * those attributes, so it follows a selection that moves without a route
  * change -- a client-side tab switch -- as well as one that does. The very
  * first placement is made without a transition, so the lens appears under the
  * current item rather than sliding in from 0,0.
  */
-const SELECTED = '[aria-current]:not([aria-current="false"]), [aria-selected="true"]';
+const SELECTED =
+  '[aria-current]:not([aria-current="false"]), [aria-selected="true"], [aria-checked="true"]';
 
 export function GlassTrack({
   label,
@@ -43,8 +45,11 @@ export function GlassTrack({
   children,
 }: {
   label: string;
-  /** `tablist` when the items are tabs rather than navigation links. */
-  role?: "tablist";
+  /**
+   * `tablist` when the items are tabs, `radiogroup` when they are a
+   * segmented choice, rather than navigation links.
+   */
+  role?: "tablist" | "radiogroup";
   className?: string;
   lensClassName?: string;
   onKeyDown?: React.KeyboardEventHandler<HTMLElement>;
@@ -80,7 +85,7 @@ export function GlassTrack({
     mo.observe(root, {
       subtree: true,
       attributes: true,
-      attributeFilter: ["aria-current", "aria-selected"],
+      attributeFilter: ["aria-current", "aria-selected", "aria-checked"],
     });
     return () => {
       ro.disconnect();
