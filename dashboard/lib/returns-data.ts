@@ -6,7 +6,6 @@ import { getPriceCalendar } from "@/lib/queries";
 import type { Market, MarketCode } from "@/lib/markets";
 import { decodeRow, indexPoints } from "@/lib/market-breadth.mjs";
 import {
-  basketReturns,
   COST_PER_SIDE_PCT,
   decodeCloses,
   entrySessionAfter,
@@ -14,6 +13,9 @@ import {
   indexReturns,
   modelForDate,
   needsAdjustedPrice,
+  portfolioReturns,
+  rebalanceDates,
+  rebalanceOption,
   snapRankingDate,
 } from "@/lib/returns.mjs";
 import { withTail } from "@/lib/price-series.mjs";
@@ -283,9 +285,12 @@ async function getUniverseReturn(
 export type HoldingRow = {
   symbol: string;
   company: string | null;
+  /** Rank, rating and stage on the ranking the stock was last bought from. */
   rankThen: number | null;
   ratingThen: string | null;
   stageThen: string | null;
+  /** The entry session of the round that first bought this holding. */
+  heldSince: string | null;
   entry: Point | null;
   last: Point | null;
   delayedEntry: boolean;
@@ -295,6 +300,17 @@ export type HoldingRow = {
   ratingNow: string | null;
   stageNow: string | null;
   inLatestRun: boolean;
+};
+
+export type RebalanceSummary = {
+  option: string;
+  /** Rebalances after the first purchase. */
+  count: number;
+  bought: number;
+  sold: number;
+  /** Costs paid across every round, as points of the portfolio. */
+  costPct: number;
+  lastRankDate: string;
 };
 
 export type ReturnsReport =
@@ -310,6 +326,7 @@ export type ReturnsReport =
       model: string | null;
       topN: number;
       costs: boolean;
+      rebalance: RebalanceSummary;
       basket: { grossPct: number | null; netPct: number | null; curve: { time: string; value: number }[] };
       holdings: HoldingRow[];
       benchmark: {
@@ -321,9 +338,46 @@ export type ReturnsReport =
       universe: { returnPct: number | null; counted: number; total: number };
     };
 
+/**
+ * The top N of every ranking a portfolio is rebuilt from, in one paged read
+ * rather than a request per rebalance.
+ */
+async function getRankingTops(
+  supabase: Supabase,
+  market: MarketCode,
+  dates: string[],
+  topN: number,
+): Promise<Map<string, HistoryRow[]>> {
+  const tops = new Map<string, HistoryRow[]>(dates.map((date) => [date, []]));
+  for (let offset = 0; ; offset += FETCH_CHUNK) {
+    const { data, error } = await supabase
+      .from("screener_history")
+      .select("observed_on, symbol, company, investment_rank, rating, stage")
+      .eq("market", market)
+      .in("observed_on", dates)
+      .lte("investment_rank", topN)
+      .order("observed_on")
+      .order("investment_rank")
+      .range(offset, offset + FETCH_CHUNK - 1);
+    if (error) {
+      console.error("getRankingTops failed", error.message);
+      return tops;
+    }
+    for (const row of data ?? []) {
+      tops.get(row.observed_on as string)?.push(row as HistoryRow);
+    }
+    if (!data || data.length < FETCH_CHUNK) return tops;
+  }
+}
+
 export async function getReturnsReport(
   market: Market,
-  { from, topN, costs }: { from: string | null; topN: number; costs: boolean },
+  {
+    from,
+    topN,
+    costs,
+    rebalance,
+  }: { from: string | null; topN: number; costs: boolean; rebalance: string | null },
 ): Promise<ReturnsReport> {
   const dates = await getRankingDates(market.code);
   if (!dates.length) return { status: "no-history" };
@@ -334,23 +388,15 @@ export async function getReturnsReport(
   if (!rankingDates.length) return { status: "too-early", asOf };
 
   const rankDate = snapRankingDate(rankingDates, from)!;
+  const option = rebalanceOption(rebalance);
+  const schedule = rebalanceDates(rankingDates, rankDate, option);
   const supabase = await createClient();
 
-  const [sessions, basketRows, benchmarkLevels] = await Promise.all([
+  const [sessions, tops, benchmarkLevels] = await Promise.all([
     getPriceCalendar(market.code),
-    supabase
-      .from("screener_history")
-      .select("symbol, company, investment_rank, rating, stage")
-      .eq("market", market.code)
-      .eq("observed_on", rankDate)
-      .lte("investment_rank", topN)
-      .order("investment_rank"),
+    getRankingTops(supabase, market.code, schedule, topN),
     getBenchmarkLevels(supabase, market),
   ]);
-
-  if (basketRows.error) console.error("getReturnsReport basket failed", basketRows.error.message);
-  const basket = (basketRows.data ?? []) as HistoryRow[];
-  const symbols = basket.map((row) => row.symbol);
 
   // The market calendar can lag the latest run by a rebuild; the ranking dates
   // cover those sessions, so the union is the complete list.
@@ -359,27 +405,36 @@ export async function getReturnsReport(
   // The universe is priced from history, which has a row only on run days.
   const entryDay = dates.find((date) => date >= entrySession) ?? asOf;
 
+  const rounds = schedule.map((date) => ({
+    rankDate: date,
+    entrySession: entrySessionAfter(allSessions, date) ?? asOf,
+    symbols: (tops.get(date) ?? []).map((row) => row.symbol),
+  }));
+  const lastRound = rounds[rounds.length - 1];
+  const lastRows = tops.get(lastRound.rankDate) ?? [];
+  const symbols = [...new Set(rounds.flatMap((round) => round.symbols))];
+
   const [closes, nowResult, universe] = await Promise.all([
     getAdjustedCloses(supabase, market.code, symbols, rankDate),
-    symbols.length
+    lastRound.symbols.length
       ? supabase
           .from("screener_history")
           .select("symbol, investment_rank, rating, stage")
           .eq("market", market.code)
           .eq("observed_on", asOf)
-          .in("symbol", symbols)
+          .in("symbol", lastRound.symbols)
       : Promise.resolve({ data: [], error: null }),
     getUniverseReturn(supabase, market.code, rankDate, entryDay, asOf),
   ]);
   if (nowResult.error) console.error("getReturnsReport latest failed", nowResult.error.message);
   const now = new Map(((nowResult.data ?? []) as HistoryRow[]).map((row) => [row.symbol, row]));
 
-  const result = basketReturns(
-    symbols.map((symbol) => ({ symbol, points: closes.get(symbol) ?? [] })),
-    { entrySession, asOf, costPerSidePct: costs ? COST_PER_SIDE_PCT : 0 },
-  );
+  const result = portfolioReturns(rounds, closes, {
+    asOf,
+    costPerSidePct: costs ? COST_PER_SIDE_PCT : 0,
+  });
 
-  const holdings: HoldingRow[] = basket.map((row, index) => {
+  const holdings: HoldingRow[] = lastRows.map((row, index) => {
     const stock = result.stocks[index];
     const latest = now.get(row.symbol);
     return {
@@ -388,6 +443,7 @@ export async function getReturnsReport(
       rankThen: row.investment_rank ?? null,
       ratingThen: row.rating ?? null,
       stageThen: row.stage ?? null,
+      heldSince: stock?.heldSince ?? null,
       entry: stock?.entry ?? null,
       last: stock?.last ?? null,
       delayedEntry: stock?.delayedEntry ?? false,
@@ -399,6 +455,7 @@ export async function getReturnsReport(
     };
   });
 
+  const later = result.trades.slice(1);
   const benchmark = indexReturns(benchmarkLevels, { entrySession, asOf });
 
   return {
@@ -410,6 +467,14 @@ export async function getReturnsReport(
     model: modelForDate(market.code, rankDate),
     topN,
     costs,
+    rebalance: {
+      option: option.value,
+      count: later.length,
+      bought: later.reduce((sum, trade) => sum + trade.bought.length, 0),
+      sold: later.reduce((sum, trade) => sum + trade.sold.length, 0),
+      costPct: result.trades.reduce((sum, trade) => sum + trade.costPct, 0),
+      lastRankDate: lastRound.rankDate,
+    },
     basket: { grossPct: result.grossPct, netPct: result.netPct, curve: result.curve },
     holdings,
     benchmark: { name: market.benchmark, ...benchmark },

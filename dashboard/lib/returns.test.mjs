@@ -2,13 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
-  basketReturns,
+  addPeriod,
   decodeCloses,
   entrySessionAfter,
   equalWeightReturn,
   indexReturns,
   modelForDate,
   needsAdjustedPrice,
+  portfolioReturns,
+  rebalanceDates,
+  rebalanceOption,
   snapRankingDate,
 } from "./returns.mjs";
 
@@ -80,7 +83,16 @@ describe("entrySessionAfter", () => {
   });
 });
 
-describe("basketReturns", () => {
+/** Buy-and-hold is a portfolio with a single round. */
+function basketReturns(holdings, { entrySession, asOf, costPerSidePct = 0 }) {
+  return portfolioReturns(
+    [{ entrySession, symbols: holdings.map((holding) => holding.symbol) }],
+    new Map(holdings.map((holding) => [holding.symbol, holding.points])),
+    { asOf, costPerSidePct },
+  );
+}
+
+describe("portfolioReturns, buy and hold", () => {
   const options = { entrySession: "2026-09-01", asOf: "2026-09-03" };
 
   it("averages each holding's move from its entry close", () => {
@@ -93,7 +105,7 @@ describe("basketReturns", () => {
     );
     // The close before entry is ignored: that is the ranking's own session.
     assert.equal(result.stocks[0].entry.close, 100);
-    assert.equal(result.grossPct, 0);
+    assert.ok(Math.abs(result.grossPct) < 1e-9);
     assert.deepEqual(
       result.curve.map((point) => point.time),
       ["2026-09-01", "2026-09-02", "2026-09-03"],
@@ -110,7 +122,7 @@ describe("basketReturns", () => {
       ],
       options,
     );
-    assert.equal(result.curve[0].value, 0);
+    assert.ok(Math.abs(result.curve[0].value) < 1e-9);
     assert.equal(result.stocks[0].delayedEntry, true);
     assert.equal(result.stocks[1].delayedEntry, false);
     assert.ok(Math.abs(result.grossPct - 5) < 1e-9);
@@ -133,7 +145,7 @@ describe("basketReturns", () => {
       [{ symbol: "FLAT", points: [close("2026-09-01", 100), close("2026-09-03", 100)] }],
       { ...options, costPerSidePct: 0.3 },
     );
-    assert.equal(result.grossPct, 0);
+    assert.ok(Math.abs(result.grossPct) < 1e-9);
     assert.ok(Math.abs(result.netPct - ((0.997 ** 2 - 1) * 100)) < 1e-9);
     assert.ok(Math.abs(result.curve.at(-1).value - result.netPct) < 1e-9);
   });
@@ -152,6 +164,84 @@ describe("basketReturns", () => {
       basketReturns([{ symbol: "A", points: [] }], { entrySession: "2026-09-03", asOf: "2026-09-01" }).grossPct,
       null,
     );
+  });
+});
+
+describe("portfolioReturns, rebalanced", () => {
+  const closes = new Map([
+    ["A", [close("2026-09-01", 100), close("2026-09-08", 110), close("2026-09-15", 121)]],
+    ["B", [close("2026-09-01", 100), close("2026-09-08", 90), close("2026-09-15", 45)]],
+    ["C", [close("2026-09-01", 50), close("2026-09-08", 50), close("2026-09-15", 60)]],
+  ]);
+  const rounds = [
+    { entrySession: "2026-09-01", symbols: ["A", "B"] },
+    { entrySession: "2026-09-08", symbols: ["A", "C"] },
+  ];
+
+  it("sells what dropped out, buys what came in, and resets to equal weight", () => {
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15" });
+    // 09-08: A 0.55 + B 0.45 = 1.00, reset to A 0.50 + C 0.50.
+    // 09-15: A 0.50 x 1.10 + C 0.50 x 1.20 = 1.15. B's later halving is avoided.
+    assert.ok(Math.abs(result.grossPct - 15) < 1e-9);
+    assert.deepEqual(result.trades[1].bought, ["C"]);
+    assert.deepEqual(result.trades[1].sold, ["B"]);
+    assert.deepEqual(result.stocks.map((stock) => stock.symbol), ["A", "C"]);
+    // A has been held since the first round; C since the second.
+    assert.equal(result.stocks[0].heldSince, "2026-09-01");
+    assert.equal(result.stocks[1].heldSince, "2026-09-08");
+    assert.ok(Math.abs(result.stocks[0].returnPct - 21) < 1e-9);
+  });
+
+  it("charges costs only on the value traded", () => {
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
+    // Round 1 buys 1.00 of stock: cost 0.01. Round 2 trims A 0.5445 -> 0.49005,
+    // sells B 0.4455 and buys C 0.49005: 0.99 of value traded, cost 0.0099.
+    assert.ok(Math.abs(result.trades[0].costPct - 1) < 1e-9);
+    assert.ok(Math.abs(result.trades[1].costPct - 1) < 1e-9);
+    const expected = (0.99 - 0.0099) / 2 * (1.1 + 1.2) * 0.99;
+    assert.ok(Math.abs(result.netPct - (expected - 1) * 100) < 1e-9);
+  });
+
+  it("an unchanged basket only pays to restore equal weight", () => {
+    const same = [
+      { entrySession: "2026-09-01", symbols: ["A", "C"] },
+      { entrySession: "2026-09-08", symbols: ["A", "C"] },
+    ];
+    const result = portfolioReturns(same, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
+    assert.deepEqual(result.trades[1].bought, []);
+    assert.deepEqual(result.trades[1].sold, []);
+    // A grew to 0.5445 and C stayed 0.495: 0.02475 moves each way.
+    assert.ok(result.trades[1].costPct > 0 && result.trades[1].costPct < 0.1);
+  });
+});
+
+describe("rebalance schedule", () => {
+  const dates = ["2026-08-11", "2026-08-12", "2026-08-18", "2026-08-19", "2026-08-25", "2026-09-11", "2026-09-14"];
+
+  it("never rebalances by default", () => {
+    assert.deepEqual(rebalanceDates(dates, "2026-08-11", rebalanceOption("never")), ["2026-08-11"]);
+    assert.equal(rebalanceOption("bogus").value, "never");
+  });
+
+  it("takes the first ranking on or after each boundary", () => {
+    assert.deepEqual(
+      rebalanceDates(dates, "2026-08-11", rebalanceOption("1w")),
+      ["2026-08-11", "2026-08-18", "2026-08-25", "2026-09-11"],
+    );
+  });
+
+  it("measures the next boundary from the ranking actually used", () => {
+    // 1M from 08-11 is 09-11; from there the next boundary is 10-11.
+    assert.deepEqual(
+      rebalanceDates(dates, "2026-08-11", rebalanceOption("1m")),
+      ["2026-08-11", "2026-09-11"],
+    );
+  });
+
+  it("clamps a month step to the month's last day", () => {
+    assert.equal(addPeriod("2026-01-31", { months: 1 }), "2026-02-28");
+    assert.equal(addPeriod("2026-08-24", { days: 14 }), "2026-09-07");
+    assert.equal(addPeriod("2026-08-24", { months: 3 }), "2026-11-24");
   });
 });
 

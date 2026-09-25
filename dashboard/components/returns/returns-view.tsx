@@ -2,17 +2,25 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 
 import { RatingBadge } from "@/components/rating-badge";
 import { ReturnsChart } from "@/components/returns/returns-chart";
 import { SegmentedControl } from "@/components/segmented-control";
 import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 import { formatDate, formatMoney, formatPercent, MISSING } from "@/lib/format";
 import { rangeStart } from "@/lib/market-breadth.mjs";
 import { marketPath, type Market } from "@/lib/markets";
-import { COST_PER_SIDE_PCT, START_PRESETS, TOP_N_OPTIONS, snapRankingDate } from "@/lib/returns.mjs";
+import {
+  COST_PER_SIDE_PCT,
+  REBALANCE_OPTIONS,
+  START_PRESETS,
+  TOP_N_OPTIONS,
+  modelForDate,
+  snapRankingDate,
+} from "@/lib/returns.mjs";
 import type { HoldingRow, ReturnsReport } from "@/lib/returns-data";
 import { STAGES } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -73,6 +81,8 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
   const excess =
     headline !== null && report.benchmark.returnPct !== null ? headline - report.benchmark.returnPct : null;
   const sessionsHeld = report.basket.curve.length;
+  const rebalanceLabel = REBALANCE_PERIOD_WORDS[report.rebalance.option] ?? null;
+  const lastModel = modelForDate(market.code, report.rebalance.lastRankDate);
 
   return (
     <div className="space-y-4">
@@ -110,6 +120,14 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
             options={TOP_N_OPTIONS.map((size) => ({ value: String(size), label: `Top ${size}` }))}
           />
         </Field>
+        <Field label="Rebalance">
+          <RebalanceSlider
+            value={report.rebalance.option}
+            onCommit={(value) =>
+              push((params) => (value === "never" ? params.delete("rebalance") : params.set("rebalance", value)))
+            }
+          />
+        </Field>
         <Field label="Costs">
           <SegmentedControl
             label="Trading costs"
@@ -135,7 +153,21 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
         <p className="text-sm text-muted-foreground">
           The top {report.topN} of the{" "}
           <span className="font-medium text-foreground">{formatDate(report.rankDate)}</span> ranking
-          {report.model ? ` (${report.model})` : ""}, bought at the close on {formatDate(report.entrySession)} and
+          {report.model ? ` (${report.model})` : ""}, bought at the close on {formatDate(report.entrySession)}
+          {rebalanceLabel ? (
+            report.rebalance.count ? (
+              <>
+                , rebuilt every {rebalanceLabel} from the latest ranking &mdash; {report.rebalance.count}{" "}
+                {report.rebalance.count === 1 ? "rebalance" : "rebalances"}, {report.rebalance.bought}{" "}
+                {report.rebalance.bought === 1 ? "name" : "names"} swapped
+                {lastModel && lastModel !== report.model ? `, latest ranking ${lastModel}` : ""} &mdash; and
+              </>
+            ) : (
+              <> (no rebalance falls inside this window) and</>
+            )
+          ) : (
+            " and"
+          )}{" "}
           held for {sessionsHeld} {sessionsHeld === 1 ? "session" : "sessions"} to {formatDate(report.asOf)}.
         </p>
 
@@ -143,7 +175,13 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           <Tile
             label={`Top ${report.topN}`}
             value={headline}
-            note={report.costs ? `after ${COST_PER_SIDE_PCT}% costs each way` : "before costs"}
+            note={
+              report.costs
+                ? report.rebalance.count
+                  ? `after ${report.rebalance.costPct.toFixed(2)} pts of trading costs`
+                  : `after ${COST_PER_SIDE_PCT}% costs each way`
+                : "before costs"
+            }
             emphasis
           />
           <Tile
@@ -175,8 +213,61 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           benchmarkLabel={report.benchmark.name}
         />
 
-        <Holdings holdings={report.holdings} market={market} topN={report.topN} rankDate={report.rankDate} />
+        <Holdings
+          holdings={report.holdings}
+          market={market}
+          topN={report.topN}
+          rankDate={report.rebalance.lastRankDate}
+          rebalanced={report.rebalance.count > 0}
+          firstEntry={report.entrySession}
+        />
       </div>
+    </div>
+  );
+}
+
+/** How a rebalance period reads inside a sentence. */
+const REBALANCE_PERIOD_WORDS: Record<string, string> = {
+  "1w": "week",
+  "2w": "two weeks",
+  "1m": "month",
+  "3m": "three months",
+};
+
+/**
+ * A stepped slider over the fixed rebalance periods.
+ *
+ * The label follows the thumb while it moves; the page is asked for only when
+ * it is let go, so dragging across four stops costs one server round trip,
+ * not four.
+ */
+function firstValue(value: number | readonly number[]) {
+  return typeof value === "number" ? value : value[0];
+}
+
+function RebalanceSlider({ value, onCommit }: { value: string; onCommit: (value: string) => void }) {
+  const committed = Math.max(0, REBALANCE_OPTIONS.findIndex((option) => option.value === value));
+  const [dragging, setDragging] = useState<number | null>(null);
+  const index = dragging ?? committed;
+  return (
+    <div className="flex h-9 w-56 items-center gap-3">
+      <Slider
+        aria-label="Rebalance every"
+        min={0}
+        max={REBALANCE_OPTIONS.length - 1}
+        step={1}
+        // An array, not a number: the shared Slider renders one thumb per
+        // value and falls back to a two-thumb range when given a bare number.
+        value={[index]}
+        onValueChange={(next) => setDragging(firstValue(next))}
+        onValueCommitted={(next) => {
+          setDragging(null);
+          const stop = firstValue(next);
+          if (stop !== committed) onCommit(REBALANCE_OPTIONS[stop].value);
+        }}
+        className="flex-1"
+      />
+      <span className="tabular w-12 text-sm font-semibold">{REBALANCE_OPTIONS[index].label}</span>
     </div>
   );
 }
@@ -275,11 +366,16 @@ function Holdings({
   market,
   topN,
   rankDate,
+  rebalanced,
+  firstEntry,
 }: {
   holdings: HoldingRow[];
   market: Market;
   topN: number;
+  /** The ranking the current holdings were last bought from. */
   rankDate: string;
+  rebalanced: boolean;
+  firstEntry: string;
 }) {
   const priced = holdings.filter((row) => row.returnPct !== null);
   const winners = priced.filter((row) => row.returnPct! > 0).length;
@@ -289,8 +385,18 @@ function Holdings({
       <div className="border-b px-4 py-3">
         <h2 className="text-base font-semibold tracking-[-0.011em]">Holdings</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {winners} of {priced.length} up. Rank, stage and rating as of {formatDate(rankDate)} and today; a name
-          that has left the top {topN} is still held, because the basket is bought once and not rebalanced.
+          {winners} of {priced.length} up.{" "}
+          {rebalanced ? (
+            <>
+              The basket after its last rebalance, on the {formatDate(rankDate)} ranking. Each return runs from
+              when that stock was bought; rank, stage and rating are shown as of that ranking and today.
+            </>
+          ) : (
+            <>
+              Rank, stage and rating as of {formatDate(rankDate)} and today; a name that has left the top {topN}{" "}
+              is still held, because the basket is bought once and not rebalanced.
+            </>
+          )}
         </p>
       </div>
       <div className="overflow-x-auto">
@@ -325,6 +431,10 @@ function Holdings({
                   {row.delayedEntry && row.entry ? (
                     <span className="block whitespace-nowrap text-[10px] text-caution" title="Did not trade on the entry session">
                       bought {formatDate(row.entry.time)}
+                    </span>
+                  ) : row.entry && row.heldSince && row.heldSince !== firstEntry ? (
+                    <span className="block whitespace-nowrap text-[10px] text-muted-foreground">
+                      since {formatDate(row.heldSince)}
                     </span>
                   ) : null}
                 </td>
