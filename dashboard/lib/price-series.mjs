@@ -141,8 +141,13 @@ export function sliceRange(points, sessions) {
  * duplicate timestamp makes lightweight-charts throw on an unordered series.
  * The base wins that overlap because it is the adjusted one.
  *
- * @param {{time: string, close: number, volume: number}[]} base
- * @param {{time: string, close: number, volume: number}[]} tail
+ * Only `time` is read, so any point shape passes through -- the Returns page
+ * merges closes without volumes.
+ *
+ * @template {{time: string}} T
+ * @param {T[]} base
+ * @param {T[]} tail
+ * @returns {T[]}
  */
 export function withTail(base, tail) {
   if (!tail?.length) return base ?? [];

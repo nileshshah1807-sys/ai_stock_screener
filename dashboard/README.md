@@ -49,7 +49,9 @@ A new audit column therefore appears in drill-down with no migration. Only a new
 Full snapshots are pruned to the most recent runs (`prune_screener_snapshots`,
 default: keep 2). `screener_history` keeps 15 fields per stock per day forever
 at roughly 0.4 MB/day, which is what makes the movers view work after snapshot
-pruning.
+pruning. It is also the Returns page's record of every published ranking: that
+page prices a past day's top N forward from it, so its history starts on the
+first day this table was written (2026-08-11 for NSE, 2026-09-18 for US).
 
 ## Access control
 
