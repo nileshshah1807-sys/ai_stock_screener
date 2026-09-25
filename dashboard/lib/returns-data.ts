@@ -7,12 +7,11 @@ import type { Market, MarketCode } from "@/lib/markets";
 import { decodeRow, indexPoints } from "@/lib/market-breadth.mjs";
 import {
   COST_PER_SIDE_PCT,
+  compoundIndex,
   decodeCloses,
   entrySessionAfter,
-  equalWeightReturn,
   indexReturns,
   modelForDate,
-  needsAdjustedPrice,
   portfolioReturns,
   rebalanceDates,
   rebalanceOption,
@@ -27,27 +26,23 @@ import { createClient } from "@/lib/supabase/server";
  *
  * Separate from `lib/queries.ts` because every read here serves one
  * calculation and only makes sense in its order -- the ranking picks the
- * symbols, the symbols pick the price series, the entry session picks the
- * universe day. The arithmetic itself is in `returns.mjs`, where it is tested.
+ * symbols, the symbols pick the price series. The arithmetic itself is in
+ * `returns.mjs`, where it is tested.
  *
- * Nothing here writes, and nothing needs a new table: rankings and daily
- * closes come from `screener_history`, adjusted history from `price_series`,
- * index levels from `market_breadth`.
+ * Rankings come from two tables that must never be confused. Published ones
+ * are in `screener_history`, from the first live run on. Before that the page
+ * reaches back with `simulated_rankings`, which the point-in-time backtest
+ * reconstructed with today's weights over the period they were fitted on, and
+ * every figure built on one is labelled as backtest. Prices come from
+ * `price_series`, index levels from `market_breadth`, and the equal-weight
+ * universe from `universe_index`.
  */
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 type Point = { time: string; close: number };
 
-/** PostgREST caps a single response; anything universe-wide must be paged. */
+/** PostgREST caps a single response; anything longer must be paged. */
 const FETCH_CHUNK = 1000;
-
-/**
- * At most this many universe members are re-read from the adjusted series.
- * Measured on NSE: ~100 over six weeks (splits, bonuses, and names that left
- * the universe). The cap only bounds a pathological day; members past it are
- * left out of the equal-weight figure and counted as such.
- */
-const MAX_ADJUSTED_REREADS = 250;
 
 /** Symbols per `price_series` request, so no single response is several MB. */
 const SERIES_CHUNK = 50;
@@ -58,87 +53,46 @@ type HistoryRow = {
   investment_rank?: number | null;
   rating?: string | null;
   stage?: string | null;
-  current_price?: number | null;
+  logo_domain?: string | null;
 };
 
 /**
- * Every date with a published ranking, ascending.
+ * Every date with a ranking in `table`, ascending.
  *
- * Rank 1 exists exactly once per published run, so filtering on it turns a
+ * Rank 1 exists exactly once per ranking, so filtering on it turns a
  * universe-per-day table into one row per day without a DISTINCT, which
  * PostgREST cannot express.
  */
-export const getRankingDates = cache(async (market: MarketCode): Promise<string[]> => {
+async function rankingDatesIn(
+  table: "screener_history" | "simulated_rankings",
+  market: MarketCode,
+): Promise<string[]> {
   const supabase = await createClient();
   const dates: string[] = [];
   for (let offset = 0; ; offset += FETCH_CHUNK) {
     const { data, error } = await supabase
-      .from("screener_history")
+      .from(table)
       .select("observed_on")
       .eq("market", market)
       .eq("investment_rank", 1)
       .order("observed_on", { ascending: true })
       .range(offset, offset + FETCH_CHUNK - 1);
     if (error) {
-      console.error("getRankingDates failed", error.message);
+      // simulated_rankings is an optional migration; its absence only means
+      // the page starts at the live record.
+      console.error(`rankingDatesIn(${table}) failed`, error.message);
       return dates;
     }
     for (const row of data ?? []) dates.push(row.observed_on as string);
     if (!data || data.length < FETCH_CHUNK) return dates;
   }
-});
-
-/**
- * One day of `screener_history`, every row, in symbol order.
- *
- * `expectedRows` -- the latest run's row count, which the layout has already
- * read -- sizes the chunks up front so they all go out at once, instead of a
- * first request that only asks how many there are. A day with more rows than
- * expected (the universe grew) is finished off one chunk at a time.
- */
-async function readHistoryDay(
-  supabase: Supabase,
-  market: MarketCode,
-  date: string,
-  columns: string,
-  expectedRows: number,
-): Promise<HistoryRow[]> {
-  const chunk = (offset: number) =>
-    supabase
-      .from("screener_history")
-      .select(columns)
-      .eq("market", market)
-      .eq("observed_on", date)
-      .order("symbol")
-      .range(offset, offset + FETCH_CHUNK - 1);
-
-  const chunks = Math.max(1, Math.ceil(expectedRows / FETCH_CHUNK));
-  const results = await Promise.all(
-    Array.from({ length: chunks }, (_, index) => chunk(index * FETCH_CHUNK)),
-  );
-  const rows: HistoryRow[] = [];
-  let lastFull = false;
-  for (const result of results) {
-    if (result.error) {
-      console.error("readHistoryDay failed", result.error.message);
-      return rows;
-    }
-    const data = (result.data ?? []) as unknown as HistoryRow[];
-    rows.push(...data);
-    lastFull = data.length === FETCH_CHUNK;
-  }
-  for (let offset = chunks * FETCH_CHUNK; lastFull; offset += FETCH_CHUNK) {
-    const result = await chunk(offset);
-    if (result.error) {
-      console.error("readHistoryDay failed", result.error.message);
-      break;
-    }
-    const data = (result.data ?? []) as unknown as HistoryRow[];
-    rows.push(...data);
-    lastFull = data.length === FETCH_CHUNK;
-  }
-  return rows;
 }
+
+/** Dates the dashboard actually published a ranking on. */
+export const getRankingDates = cache((market: MarketCode) => rankingDatesIn("screener_history", market));
+
+/** Dates the backtest reconstructed a ranking for. */
+const getSimulatedDates = cache((market: MarketCode) => rankingDatesIn("simulated_rankings", market));
 
 /**
  * Split-adjusted daily closes for a set of symbols, through the latest run.
@@ -267,55 +221,37 @@ async function getBenchmarkLevels(
 }
 
 /**
- * Equal-weight return of every stock the ranking scored, over the same window.
+ * The daily equal-weight universe index over a window, compounded.
  *
- * The comparison the research uses: did picking the top N beat simply owning
- * everything the model ranked that day? Priced from two days of raw closes,
- * with the members whose pair looks like a corporate action, or who have no
- * price on one of the two days, re-read from the adjusted series.
+ * One narrow read -- a row per session -- instead of pricing ~2,400 stocks on
+ * two days, and it covers backtest-era windows, where no published history
+ * exists to price them from. Before `storage/returns_backfill_schema.sql` is
+ * applied the read fails and the comparison reads as unavailable.
  */
-async function getUniverseReturn(
+async function getUniverseIndex(
   supabase: Supabase,
   market: MarketCode,
-  rankDate: string,
-  entryDay: string,
+  entrySession: string,
   asOf: string,
-  expectedRows: number,
-  sessions: string[],
-): Promise<{ returnPct: number | null; counted: number; total: number }> {
-  const [ranked, entryRows, lastRows] = await Promise.all([
-    readHistoryDay(supabase, market, rankDate, "symbol, investment_rank", expectedRows),
-    readHistoryDay(supabase, market, entryDay, "symbol, current_price", expectedRows),
-    readHistoryDay(supabase, market, asOf, "symbol, current_price", expectedRows),
-  ]);
-  const members = ranked
-    .filter((row) => row.investment_rank !== null && row.investment_rank !== undefined)
-    .map((row) => row.symbol);
-  const entryPrice = new Map(entryRows.map((row) => [row.symbol, Number(row.current_price)]));
-  const lastPrice = new Map(lastRows.map((row) => [row.symbol, Number(row.current_price)]));
-
-  const pairs: { entry: number; last: number }[] = [];
-  const reread: string[] = [];
-  for (const symbol of members) {
-    const entry = entryPrice.get(symbol);
-    const last = lastPrice.get(symbol);
-    if (needsAdjustedPrice(entry, last)) reread.push(symbol);
-    else pairs.push({ entry: entry!, last: last! });
+): Promise<{ returnPct: number | null; through: string | null; sessions: number }> {
+  const rows: { observed_on: string; ew_return_pct: number }[] = [];
+  for (let offset = 0; ; offset += FETCH_CHUNK) {
+    const { data, error } = await supabase
+      .from("universe_index")
+      .select("observed_on, ew_return_pct")
+      .eq("market", market)
+      .gt("observed_on", entrySession)
+      .lte("observed_on", asOf)
+      .order("observed_on")
+      .range(offset, offset + FETCH_CHUNK - 1);
+    if (error) {
+      console.error("getUniverseIndex failed", error.message);
+      break;
+    }
+    rows.push(...((data ?? []) as { observed_on: string; ew_return_pct: number }[]));
+    if (!data || data.length < FETCH_CHUNK) break;
   }
-
-  const adjusted = await getAdjustedCloses(
-    supabase,
-    market,
-    reread.slice(0, MAX_ADJUSTED_REREADS),
-    rankDate,
-    sessions,
-  );
-  for (const points of adjusted.values()) {
-    const window = points.filter((point) => point.time >= entryDay && point.time <= asOf);
-    if (window.length) pairs.push({ entry: window[0].close, last: window[window.length - 1].close });
-  }
-
-  return { returnPct: equalWeightReturn(pairs), counted: pairs.length, total: members.length };
+  return compoundIndex(rows, { entrySession, asOf });
 }
 
 export type HoldingRow = {
@@ -360,6 +296,10 @@ export type ReturnsReport =
       rankDate: string;
       entrySession: string;
       asOf: string;
+      /** The first published ranking; every earlier one is a backtest. */
+      liveFrom: string;
+      /** Rounds, of all rounds bought, that used a backtest ranking. */
+      backtestRounds: number;
       model: string | null;
       topN: number;
       costs: boolean;
@@ -378,49 +318,77 @@ export type ReturnsReport =
         through: string | null;
         curve: { time: string; value: number }[];
       };
-      universe: { returnPct: number | null; counted: number; total: number };
+      universe: { returnPct: number | null; through: string | null; sessions: number };
     };
 
 /**
- * The top N of every ranking a portfolio is rebuilt from, in one paged read
- * rather than a request per rebalance.
+ * The top N of every ranking a portfolio is rebuilt from.
+ *
+ * Dates before the live record are read from `simulated_rankings`, the rest
+ * from `screener_history`, in parallel. Each table is paged in one wave: the
+ * row count is at most dates x N, so every chunk goes out at once.
  */
 async function getRankingTops(
   supabase: Supabase,
   market: MarketCode,
   dates: string[],
   topN: number,
+  liveFrom: string,
 ): Promise<Map<string, HistoryRow[]>> {
   const tops = new Map<string, HistoryRow[]>(dates.map((date) => [date, []]));
-  for (let offset = 0; ; offset += FETCH_CHUNK) {
-    const { data, error } = await supabase
-      .from("screener_history")
-      .select("observed_on, symbol, company, investment_rank, rating, stage")
-      .eq("market", market)
-      .in("observed_on", dates)
-      .lte("investment_rank", topN)
-      .order("observed_on")
-      .order("investment_rank")
-      .range(offset, offset + FETCH_CHUNK - 1);
-    if (error) {
-      console.error("getRankingTops failed", error.message);
-      return tops;
+  const read = async (
+    table: "screener_history" | "simulated_rankings",
+    wanted: string[],
+    columns: string,
+  ) => {
+    if (!wanted.length) return;
+    const chunks = Math.max(1, Math.ceil((wanted.length * topN) / FETCH_CHUNK));
+    const results = await Promise.all(
+      Array.from({ length: chunks }, (_, index) =>
+        supabase
+          .from(table)
+          .select(columns)
+          .eq("market", market)
+          .in("observed_on", wanted)
+          .lte("investment_rank", topN)
+          .order("observed_on")
+          .order("investment_rank")
+          .range(index * FETCH_CHUNK, (index + 1) * FETCH_CHUNK - 1),
+      ),
+    );
+    for (const result of results) {
+      if (result.error) {
+        console.error(`getRankingTops(${table}) failed`, result.error.message);
+        continue;
+      }
+      for (const row of (result.data ?? []) as unknown as (HistoryRow & { observed_on: string })[]) {
+        tops.get(row.observed_on)?.push(row);
+      }
     }
-    for (const row of data ?? []) {
-      tops.get(row.observed_on as string)?.push(row as HistoryRow);
-    }
-    if (!data || data.length < FETCH_CHUNK) return tops;
-  }
+  };
+  await Promise.all([
+    read(
+      "simulated_rankings",
+      dates.filter((date) => date < liveFrom),
+      "observed_on, symbol, investment_rank, stage",
+    ),
+    read(
+      "screener_history",
+      dates.filter((date) => date >= liveFrom),
+      "observed_on, symbol, company, investment_rank, rating, stage",
+    ),
+  ]);
+  return tops;
 }
 
-/** Rank, rating, stage and logo for the current holdings, from the latest run. */
+/** Rank, rating, stage, company and logo for the current holdings. */
 async function getLatestState(
   supabase: Supabase,
   market: MarketCode,
   asOf: string,
   latestRunDate: string | null,
   symbols: string[],
-): Promise<Map<string, HistoryRow & { logo_domain?: string | null }>> {
+): Promise<Map<string, HistoryRow>> {
   if (!symbols.length) return new Map();
   // The snapshot carries the logo domain; history does not. They describe the
   // same run whenever the latest run is the latest ranking, which is always
@@ -429,13 +397,13 @@ async function getLatestState(
   const { data, error } = fromSnapshot
     ? await supabase
         .from("screener_snapshot")
-        .select("symbol, investment_rank, rating, stage, logo_domain")
+        .select("symbol, company, investment_rank, rating, stage, logo_domain")
         .eq("market", market)
         .eq("run_date", asOf)
         .in("symbol", symbols)
     : await supabase
         .from("screener_history")
-        .select("symbol, investment_rank, rating, stage")
+        .select("symbol, company, investment_rank, rating, stage")
         .eq("market", market)
         .eq("observed_on", asOf)
         .in("symbol", symbols);
@@ -444,10 +412,10 @@ async function getLatestState(
 }
 
 /**
- * Two waves of reads after the ranking dates, instead of five: the basket's
- * rankings, prices and current state on one branch, and the universe
- * comparison -- which needs only the start date -- on the other, in parallel.
- * Costs are computed both ways every time, so toggling them needs no request.
+ * Two waves of reads: the ranking dates, calendar, benchmark and run
+ * metadata, then the basket branch (its rankings, prices and current state)
+ * beside the universe index. Costs are computed both ways every time, so
+ * toggling them needs no request.
  */
 export async function getReturnsReport(
   market: Market,
@@ -459,13 +427,17 @@ export async function getReturnsReport(
   }: { from: string | null; topN: number; costs: boolean; rebalance: string | null },
 ): Promise<ReturnsReport> {
   const supabase = await createClient();
-  const [dates, calendar, benchmarkLevels, latestRun] = await Promise.all([
+  const [liveDates, simulatedDates, calendar, benchmarkLevels, latestRun] = await Promise.all([
     getRankingDates(market.code),
+    getSimulatedDates(market.code),
     getPriceCalendar(market.code),
     getBenchmarkLevels(supabase, market),
     getLatestRun(market.code),
   ]);
-  if (!dates.length) return { status: "no-history" };
+  if (!liveDates.length) return { status: "no-history" };
+  const liveFrom = liveDates[0];
+  // A backtest ranking is used only where no published one exists.
+  const dates = [...simulatedDates.filter((date) => date < liveFrom), ...liveDates];
   const asOf = dates[dates.length - 1];
   // The latest ranking has no session after it yet, so nothing it lists has
   // been buyable. It stays out of the picker rather than showing a 0% return.
@@ -480,15 +452,9 @@ export async function getReturnsReport(
   // cover those sessions, so the union is the complete list.
   const allSessions = [...new Set([...sessions, ...dates])].sort();
   const entrySession = entrySessionAfter(allSessions, rankDate) ?? asOf;
-  // The universe is priced from history, which has a row only on run days:
-  // the first ranking after the start, known without any further read.
-  const entryDay = dates.find((date) => date > rankDate) ?? asOf;
-  // Headroom over the latest count, so a slightly larger past universe still
-  // arrives in the first wave.
-  const expectedRows = Math.ceil((latestRun?.row_count ?? FETCH_CHUNK) * 1.1);
 
   const basketBranch = async () => {
-    const tops = await getRankingTops(supabase, market.code, schedule, topN);
+    const tops = await getRankingTops(supabase, market.code, schedule, topN, liveFrom);
     const rounds = schedule.map((date) => ({
       rankDate: date,
       entrySession: entrySessionAfter(allSessions, date) ?? asOf,
@@ -505,7 +471,7 @@ export async function getReturnsReport(
 
   const [{ tops, rounds, lastRound, closes, now }, universe] = await Promise.all([
     basketBranch(),
-    getUniverseReturn(supabase, market.code, rankDate, entryDay, asOf, expectedRows, sessions),
+    getUniverseIndex(supabase, market.code, entrySession, asOf),
   ]);
 
   const result = portfolioReturns(rounds, closes, { asOf, costPerSidePct: COST_PER_SIDE_PCT });
@@ -516,7 +482,8 @@ export async function getReturnsReport(
     const latest = now.get(row.symbol);
     return {
       symbol: row.symbol,
-      company: row.company ?? null,
+      // Backtest rankings carry no company name; today's run supplies it.
+      company: row.company ?? latest?.company ?? null,
       logoDomain: latest?.logo_domain ?? null,
       rankThen: row.investment_rank ?? null,
       ratingThen: row.rating ?? null,
@@ -542,7 +509,9 @@ export async function getReturnsReport(
     rankDate,
     entrySession,
     asOf,
-    model: modelForDate(market.code, rankDate),
+    liveFrom,
+    backtestRounds: rounds.filter((round) => round.rankDate < liveFrom).length,
+    model: modelForDate(market.code, rankDate, rankDate < liveFrom),
     topN,
     costs,
     rebalance: {

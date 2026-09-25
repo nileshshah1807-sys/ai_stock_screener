@@ -75,11 +75,12 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
         </p>
         <p>
           Prices are adjusted for splits and bonuses but not dividends, and the {market.benchmark} is its price
-          index, so both sides leave dividends out. &ldquo;All ranked stocks&rdquo; owns every stock ranked that
-          day in equal weight over the same sessions. The record starts when the dashboard began storing daily
-          rankings, and the model changed during it; the ranking&rsquo;s model is named beside its date.
-          Past returns over a few weeks say little about the next few, and the model has not been validated
-          out of sample.
+          index, so both sides leave dividends out. &ldquo;All ranked stocks&rdquo; is an equal-weight index of
+          every stock the model ranked, rebalanced daily. Published rankings start when the dashboard began
+          storing them; earlier dates use point-in-time backtest rankings, reconstructed with today&rsquo;s
+          weights over the period those weights were fitted on, and are marked as such. The model changed during
+          the live record too; each ranking&rsquo;s model is named beside its date. Past returns say little about
+          future ones, and the model has not been validated out of sample.
         </p>
       </div>
     </div>

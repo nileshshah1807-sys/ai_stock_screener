@@ -125,6 +125,12 @@ class RecordingDashboardRepository:
             raise RuntimeError('relation "estimate_history" does not exist')
         return len(rows)
 
+    def upsert_universe_index(self, rows):
+        self.calls.append(("universe_index", {"rows": rows}))
+        if self.fail_at == "universe_index":
+            raise RuntimeError('relation "universe_index" does not exist')
+        return len(rows)
+
 
 class CoercionTests(unittest.TestCase):
     def test_numeric_out_of_range_is_dropped_not_wrapped(self):
@@ -634,6 +640,34 @@ class PublishTests(unittest.TestCase):
         self.assertIn("publish_run", labels)
         self.assertEqual(summary["estimate_rows_written"], 0)
         self.assertIn("estimate_history", summary["estimate_error"])
+
+    def test_universe_index_records_the_ranked_equal_weight_move(self):
+        repository = RecordingDashboardRepository()
+        frame = pd.concat(
+            [
+                minimal_frame(Pct_Change_1D=2.0),
+                minimal_frame(Symbol="TCS", Investment_Rank=4, Pct_Change_1D=-1.0),
+                # Unranked rows are not in the universe the comparison describes.
+                minimal_frame(Symbol="NEWCO", Investment_Rank=None, Pct_Change_1D=30.0),
+            ],
+            ignore_index=True,
+        )
+
+        summary = self.publish_frame(repository, frame)
+
+        rows = next(details["rows"] for name, details in repository.calls if name == "universe_index")
+        self.assertEqual(rows, [
+            {"observed_on": "2026-08-11", "ew_return_pct": 0.5, "members": 2, "source": "publisher"}
+        ])
+        self.assertEqual(summary["universe_index_written"], 1)
+
+    def test_universe_index_failure_is_non_fatal(self):
+        repository = RecordingDashboardRepository(fail_at="universe_index")
+
+        summary = self.publish_frame(repository, minimal_frame(Pct_Change_1D=1.5))
+
+        self.assertIn("publish_run", [name for name, _ in repository.calls])
+        self.assertIn("universe_index", summary["universe_index_error"])
 
     def test_prune_failure_is_non_fatal_after_completed_publish(self):
         repository = RecordingDashboardRepository(fail_at="prune")

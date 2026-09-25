@@ -50,11 +50,14 @@ export function ReturnsChart({
   benchmark,
   basketLabel,
   benchmarkLabel,
+  liveFrom = null,
 }: {
   basket: ReturnPoint[];
   benchmark: ReturnPoint[];
   basketLabel: string;
   benchmarkLabel: string;
+  /** Where backtest rankings give way to published ones, when inside the range. */
+  liveFrom?: string | null;
 }) {
   const [container, width] = useWidth();
   const [hover, setHover] = useState<string | null>(null);
@@ -159,6 +162,27 @@ export function ReturnsChart({
                 </text>
               );
             })}
+
+            {liveFrom && liveFrom > from && liveFrom < to ? (
+              <g aria-hidden>
+                <line
+                  x1={geometry.x(liveFrom)}
+                  x2={geometry.x(liveFrom)}
+                  y1={PAD.top}
+                  y2={PAD.top + plotH}
+                  stroke="var(--caution)"
+                  strokeOpacity={0.7}
+                  strokeDasharray="4 4"
+                />
+                <text
+                  x={geometry.x(liveFrom) + 6}
+                  y={PAD.top + 10}
+                  className="fill-caution text-[0.6875rem]"
+                >
+                  live →
+                </text>
+              </g>
+            ) : null}
 
             <path
               d={geometry.benchmarkLine}
