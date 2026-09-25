@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 
+import { CompanyLogo } from "@/components/company-logo";
 import { RatingBadge } from "@/components/rating-badge";
 import { ReturnsChart } from "@/components/returns/returns-chart";
 import { SegmentedControl } from "@/components/segmented-control";
@@ -44,18 +45,51 @@ const STAGE_TONE: Record<string, string> = {
  * Every control is in the URL, so a result can be linked and Back undoes a
  * change. The server does the pricing; while it works the body dims rather
  * than blanking, as the Market page does for a group change.
+ *
+ * Three things keep that wait from being felt:
+ *
+ * - Every control moves on the press (`useOptimistic`), not when the server
+ *   answers, so a click is acknowledged in the same frame.
+ * - Costs never ask the server: both curves arrive with every report, and the
+ *   toggle swaps between them and rewrites the URL in place.
+ * - The dim waits 150ms before it starts, so a quick answer does not flash.
  */
 export function ReturnsView({ report, market }: { report: Report; market: Market }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
+  const [costs, setCosts] = useState(report.costs);
+  const [shown, setShown] = useOptimistic(
+    { from: report.rankDate, top: String(report.topN), rebalance: report.rebalance.option },
+    (current, patch: Partial<{ from: string; top: string; rebalance: string }>) => ({ ...current, ...patch }),
+  );
 
-  const push = (mutate: (params: URLSearchParams) => void) => {
+  const urlFor = (mutate: (params: URLSearchParams) => void) => {
     const next = new URLSearchParams(searchParams.toString());
     mutate(next);
     const query = next.toString();
-    startTransition(() => router.push(query ? `${pathname}?${query}` : pathname, { scroll: false }));
+    return query ? `${pathname}?${query}` : pathname;
+  };
+  const push = (
+    patch: Partial<{ from: string; top: string; rebalance: string }>,
+    mutate: (params: URLSearchParams) => void,
+  ) => {
+    const url = urlFor(mutate);
+    startTransition(() => {
+      setShown(patch);
+      router.push(url, { scroll: false });
+    });
+  };
+  const toggleCosts = (next: boolean) => {
+    setCosts(next);
+    // Next keeps useSearchParams in step with a native replaceState, so the
+    // next navigation carries the choice without this one costing a request.
+    window.history.replaceState(
+      null,
+      "",
+      urlFor((params) => (next ? params.delete("costs") : params.set("costs", "gross"))),
+    );
   };
 
   const first = report.rankingDates[0];
@@ -71,13 +105,13 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
     if (!start || start < first) return [];
     return [{ label: preset.label, date: snapRankingDate(report.rankingDates, start)! }];
   });
-  const activePreset = presets.find((preset) => preset.date === report.rankDate)?.label ?? CUSTOM;
+  const activePreset = presets.find((preset) => preset.date === shown.from)?.label ?? CUSTOM;
   const presetOptions = [
     ...presets.map((preset) => ({ value: preset.label, label: preset.label })),
     ...(activePreset === CUSTOM ? [{ value: CUSTOM, label: "Custom" }] : []),
   ];
 
-  const headline = report.costs ? report.basket.netPct : report.basket.grossPct;
+  const headline = costs ? report.basket.netPct : report.basket.grossPct;
   const excess =
     headline !== null && report.benchmark.returnPct !== null ? headline - report.benchmark.returnPct : null;
   const sessionsHeld = report.basket.curve.length;
@@ -94,7 +128,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
               value={activePreset}
               onChange={(value) => {
                 const preset = presets.find((item) => item.label === value);
-                if (preset) push((params) => params.set("from", preset.date));
+                if (preset) push({ from: preset.date }, (params) => params.set("from", preset.date));
               }}
               options={presetOptions}
             />
@@ -104,10 +138,10 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
               className="h-9 w-40 tabular"
               min={first}
               max={last}
-              value={report.rankDate}
+              value={shown.from}
               onChange={(event) => {
                 const value = event.target.value;
-                if (value) push((params) => params.set("from", value));
+                if (value) push({ from: value }, (params) => params.set("from", value));
               }}
             />
           </div>
@@ -115,39 +149,48 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
         <Field label="Basket">
           <SegmentedControl
             label="Basket size"
-            value={String(report.topN)}
-            onChange={(value) => push((params) => params.set("top", value))}
+            value={shown.top}
+            onChange={(value) => push({ top: value }, (params) => params.set("top", value))}
             options={TOP_N_OPTIONS.map((size) => ({ value: String(size), label: `Top ${size}` }))}
           />
         </Field>
         <Field label="Rebalance">
           <RebalanceSlider
-            value={report.rebalance.option}
+            value={shown.rebalance}
             onCommit={(value) =>
-              push((params) => (value === "never" ? params.delete("rebalance") : params.set("rebalance", value)))
+              push({ rebalance: value }, (params) =>
+                value === "never" ? params.delete("rebalance") : params.set("rebalance", value),
+              )
             }
           />
         </Field>
         <Field label="Costs">
           <SegmentedControl
             label="Trading costs"
-            value={report.costs ? "net" : "gross"}
-            onChange={(value) =>
-              push((params) => (value === "gross" ? params.set("costs", "gross") : params.delete("costs")))
-            }
+            value={costs ? "net" : "gross"}
+            onChange={(value) => toggleCosts(value === "net")}
             options={[
               { value: "net", label: `${COST_PER_SIDE_PCT}% a side`, title: "Charged on the buy and on the sale" },
               { value: "gross", label: "None" },
             ]}
           />
         </Field>
+        <span
+          role="status"
+          className={cn(
+            "flex h-9 items-center text-xs text-muted-foreground transition-opacity duration-(--duration-fast)",
+            pending ? "opacity-100 delay-150" : "opacity-0",
+          )}
+        >
+          {pending ? "Updating…" : ""}
+        </span>
       </div>
 
       <div
         aria-busy={pending}
         className={cn(
           "space-y-4 transition-opacity duration-(--duration-fast) ease-(--ease-standard)",
-          pending && "opacity-60",
+          pending && "opacity-60 delay-150",
         )}
       >
         <p className="text-sm text-muted-foreground">
@@ -176,7 +219,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
             label={`Top ${report.topN}`}
             value={headline}
             note={
-              report.costs
+              costs
                 ? report.rebalance.count
                   ? `after ${report.rebalance.costPct.toFixed(2)} pts of trading costs`
                   : `after ${COST_PER_SIDE_PCT}% costs each way`
@@ -207,7 +250,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
         </section>
 
         <ReturnsChart
-          basket={report.basket.curve}
+          basket={costs ? report.basket.curve : report.basket.grossCurve}
           benchmark={report.benchmark.curve}
           basketLabel={`Top ${report.topN}`}
           benchmarkLabel={report.benchmark.name}
@@ -417,14 +460,25 @@ function Holdings({
             {holdings.map((row) => (
               <tr key={row.symbol} className="hover:bg-muted/50">
                 <td className="tabular px-4 py-2 font-mono text-xs text-muted-foreground">{row.rankThen ?? MISSING}</td>
-                <td className="max-w-[16rem] px-2 py-2">
+                <td className="max-w-[18rem] px-2 py-2">
                   <Link
                     href={marketPath(market.slug, `/stocks/${encodeURIComponent(row.symbol)}`)}
-                    className="block font-mono text-xs font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    // Off, as in the screener grid: up to 50 rows would each
+                    // prefetch a stock page the reader will mostly never open,
+                    // competing with this page's own reads.
+                    prefetch={false}
+                    className="group flex items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    {row.symbol}
+                    <CompanyLogo symbol={row.symbol} domain={row.logoDomain} />
+                    <span className="min-w-0">
+                      <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
+                        {row.symbol}
+                      </span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {row.company ?? MISSING}
+                      </span>
+                    </span>
                   </Link>
-                  <span className="block truncate text-[11px] text-muted-foreground">{row.company ?? MISSING}</span>
                 </td>
                 <td className="tabular hidden px-2 py-2 text-right font-mono text-xs sm:table-cell">
                   {row.entry ? formatMoney(row.entry.close, market, market.listPriceDigits) : MISSING}

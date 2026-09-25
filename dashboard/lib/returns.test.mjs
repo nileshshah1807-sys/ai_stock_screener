@@ -146,6 +146,8 @@ describe("portfolioReturns, buy and hold", () => {
       { ...options, costPerSidePct: 0.3 },
     );
     assert.ok(Math.abs(result.grossPct) < 1e-9);
+    // The gross curve rides along, so the page can drop costs without a request.
+    assert.ok(Math.abs(result.grossCurve.at(-1).value - result.grossPct) < 1e-9);
     assert.ok(Math.abs(result.netPct - ((0.997 ** 2 - 1) * 100)) < 1e-9);
     assert.ok(Math.abs(result.curve.at(-1).value - result.netPct) < 1e-9);
   });

@@ -321,7 +321,7 @@ function simulate(rounds, series, asOf, cost) {
 export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
   const usable = (rounds ?? []).filter((round) => round.entrySession && round.entrySession <= asOf);
   if (!usable.length || !usable[0].symbols.length) {
-    return { curve: [], trades: [], stocks: [], grossPct: null, netPct: null };
+    return { curve: [], grossCurve: [], trades: [], stocks: [], grossPct: null, netPct: null };
   }
   const series = new Map();
   for (const round of usable) {
@@ -354,6 +354,8 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
 
   return {
     curve: net.curve,
+    // Both, so a reader can switch costs on and off without another request.
+    grossCurve: gross.curve,
     trades: net.trades,
     stocks,
     grossPct: (gross.value - 1) * 100,
