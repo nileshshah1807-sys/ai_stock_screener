@@ -115,6 +115,13 @@ class GateFailureTests(unittest.TestCase):
         self.assertEqual(buy, [])
         self.assertIn("price/MA50/MA200 not stacked bullishly", strong)
 
+    def test_price_within_two_percent_of_ma50_keeps_the_stack(self):
+        # MA50 = 110; 108 is inside the 2% band (>= 107.80), 107 is not.
+        _buy, inside = gate_failures(clean_row(Close=108.0), self.config)
+        self.assertNotIn("price/MA50/MA200 not stacked bullishly", inside)
+        _buy, outside = gate_failures(clean_row(Close=107.0), self.config)
+        self.assertIn("price/MA50/MA200 not stacked bullishly", outside)
+
     def test_buy_failures_propagate_into_strong_failures(self):
         """Failing a BUY gate must never leave a name STRONG BUY eligible."""
         buy, strong = gate_failures(clean_row(Close=90.0), self.config)
@@ -176,6 +183,7 @@ class GateFailureTests(unittest.TestCase):
         self.assertEqual(config.REGIME_RISK_OFF_MIN_MOMENTUM_PCT, 90.0)
         self.assertEqual(config.BUY_MA200_TOLERANCE, 0.98)
         self.assertTrue(config.STRONG_BUY_REQUIRE_MA50_ABOVE_MA200)
+        self.assertEqual(config.STRONG_BUY_MA50_TOLERANCE, 0.98)
 
         # A weak-momentum name in a neutral regime now clears the overlay.
         _buy, strong = gate_failures(
