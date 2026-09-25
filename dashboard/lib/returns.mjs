@@ -42,9 +42,13 @@ export const MODEL_ERAS = {
 /**
  * @param {string} market
  * @param {string} date ISO date of the ranking
+ * @param {boolean} [backtest] the ranking came from `simulated_rankings`
  * @returns {string | null}
  */
-export function modelForDate(market, date) {
+export function modelForDate(market, date, backtest = false) {
+  // Backtest rankings were all produced by today's weights, over the period
+  // those weights were fitted on; the label has to say both.
+  if (backtest) return "Model 5.1 backtest";
   const eras = MODEL_ERAS[market];
   if (!eras || !date) return null;
   for (const era of eras) {
@@ -382,36 +386,29 @@ export function indexReturns(points, { entrySession, asOf }) {
 }
 
 /**
- * Whether an unadjusted entry/exit pair cannot be trusted as it stands.
+ * Compound the daily equal-weight universe index over a holding window.
  *
- * `screener_history` holds each day's raw close, so a split or bonus inside
- * the window reads as a crash (1:1 bonus, ratio 0.5) and a consolidation as a
- * surge. Anything missing, or outside a band no ordinary month's move reaches
- * for most stocks, is re-read from the adjusted series instead. A genuine
- * large move re-reads to the same answer, so the band only needs to be wide
- * enough to keep the re-read small, not to separate the two cases.
+ * Returns accrue on sessions after the entry session, matching a basket bought
+ * at that session's close. `through` is the last session the index covers,
+ * which trails `asOf` only when the latest run has not been indexed yet.
  *
- * @param {number | null | undefined} entry
- * @param {number | null | undefined} last
+ * @param {{observed_on: string, ew_return_pct: number}[]} rows ascending
+ * @param {{entrySession: string, asOf: string}} window
+ * @returns {{returnPct: number | null, through: string | null, sessions: number}}
  */
-export function needsAdjustedPrice(entry, last) {
-  if (!(entry > 0) || !(last > 0)) return true;
-  const ratio = last / entry;
-  return ratio < 0.7 || ratio > 1.5;
-}
-
-/**
- * Equal-weight return across many entry/exit pairs, in percent.
- *
- * @param {{entry: number, last: number}[]} pairs
- * @returns {number | null}
- */
-export function equalWeightReturn(pairs) {
-  const usable = (pairs ?? []).filter((pair) => pair.entry > 0 && pair.last > 0);
-  if (!usable.length) return null;
-  let sum = 0;
-  for (const pair of usable) sum += pair.last / pair.entry;
-  return (sum / usable.length - 1) * 100;
+export function compoundIndex(rows, { entrySession, asOf }) {
+  let growth = 1;
+  let through = null;
+  let sessions = 0;
+  for (const row of rows ?? []) {
+    if (row.observed_on <= entrySession || row.observed_on > asOf) continue;
+    const move = Number(row.ew_return_pct);
+    if (!Number.isFinite(move)) continue;
+    growth *= 1 + move / 100;
+    through = row.observed_on;
+    sessions += 1;
+  }
+  return { returnPct: sessions ? (growth - 1) * 100 : null, through, sessions };
 }
 
 /**
@@ -424,5 +421,7 @@ export const START_PRESETS = [
   { label: "3M", months: 3 },
   { label: "6M", months: 6 },
   { label: "1Y", months: 12 },
+  { label: "3Y", months: 36 },
+  { label: "5Y", months: 60 },
   { label: "All", months: null },
 ];

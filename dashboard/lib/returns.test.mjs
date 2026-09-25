@@ -4,11 +4,10 @@ import { describe, it } from "node:test";
 import {
   addPeriod,
   decodeCloses,
+  compoundIndex,
   entrySessionAfter,
-  equalWeightReturn,
   indexReturns,
   modelForDate,
-  needsAdjustedPrice,
   portfolioReturns,
   rebalanceDates,
   rebalanceOption,
@@ -266,31 +265,33 @@ describe("indexReturns", () => {
   });
 });
 
-describe("needsAdjustedPrice", () => {
-  it("accepts an ordinary move", () => {
-    assert.equal(needsAdjustedPrice(100, 112), false);
-    assert.equal(needsAdjustedPrice(100, 75), false);
+describe("compoundIndex", () => {
+  const rows = [
+    { observed_on: "2026-08-12", ew_return_pct: 5 },
+    { observed_on: "2026-08-13", ew_return_pct: 10 },
+    { observed_on: "2026-08-14", ew_return_pct: -10 },
+    { observed_on: "2026-08-17", ew_return_pct: 50 },
+  ];
+
+  it("compounds the sessions after entry, through the as-of date", () => {
+    const result = compoundIndex(rows, { entrySession: "2026-08-12", asOf: "2026-08-14" });
+    assert.ok(Math.abs(result.returnPct - (1.1 * 0.9 - 1) * 100) < 1e-9);
+    assert.equal(result.through, "2026-08-14");
+    assert.equal(result.sessions, 2);
   });
 
-  it("re-reads a split-sized jump or a missing price", () => {
-    assert.equal(needsAdjustedPrice(100, 50), true);
-    assert.equal(needsAdjustedPrice(100, 200), true);
-    assert.equal(needsAdjustedPrice(null, 100), true);
-    assert.equal(needsAdjustedPrice(100, 0), true);
+  it("reports where a lagging index stops", () => {
+    const result = compoundIndex(rows.slice(0, 2), { entrySession: "2026-08-12", asOf: "2026-08-17" });
+    assert.equal(result.through, "2026-08-13");
+  });
+
+  it("is null with no indexed session in the window", () => {
+    assert.equal(compoundIndex([], { entrySession: "2026-08-12", asOf: "2026-08-14" }).returnPct, null);
   });
 });
 
-describe("equalWeightReturn", () => {
-  it("averages ratios and skips unusable pairs", () => {
-    const value = equalWeightReturn([
-      { entry: 100, last: 110 },
-      { entry: 50, last: 45 },
-      { entry: 0, last: 10 },
-    ]);
-    assert.ok(Math.abs(value - 0) < 1e-9);
-  });
-
-  it("is null with nothing usable", () => {
-    assert.equal(equalWeightReturn([]), null);
+describe("modelForDate, backtest", () => {
+  it("labels every backtest ranking as the fitted model", () => {
+    assert.equal(modelForDate("NSE", "2019-03-01", true), "Model 5.1 backtest");
   });
 });

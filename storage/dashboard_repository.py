@@ -637,6 +637,40 @@ class DashboardRepository:
             written += len(chunk)
         return written
 
+    def upsert_simulated_rankings(
+        self,
+        rows: list[dict[str, Any]],
+        chunk_size: int = 1000,
+    ) -> int:
+        """Backtest rankings for the Returns page; written only by the backfill tool."""
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "simulated_rankings?on_conflict=market,observed_on,symbol",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        return written
+
+    def upsert_universe_index(
+        self,
+        rows: list[dict[str, Any]],
+        chunk_size: int = 1000,
+    ) -> int:
+        """Daily equal-weight universe returns, one row per session."""
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "universe_index?on_conflict=market,observed_on",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        return written
+
     # -- retention ----------------------------------------------------------
 
     def prune_snapshots(self, keep_runs: int = 2) -> int:

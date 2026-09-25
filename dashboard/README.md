@@ -50,8 +50,13 @@ Full snapshots are pruned to the most recent runs (`prune_screener_snapshots`,
 default: keep 2). `screener_history` keeps 15 fields per stock per day forever
 at roughly 0.4 MB/day, which is what makes the movers view work after snapshot
 pruning. It is also the Returns page's record of every published ranking: that
-page prices a past day's top N forward from it, so its history starts on the
-first day this table was written (2026-08-11 for NSE, 2026-09-18 for US).
+page prices a past day's top N forward from it, from the first day this table
+was written (2026-08-11 for NSE, 2026-09-18 for US). Before that date the page
+reads `simulated_rankings`, weekly point-in-time backtest rankings from November
+2018 written once by `tools/backfill_returns_history.py`, and labels every
+figure built on them as backtest. Its "all ranked stocks" comparison is
+`universe_index`, a daily equal-weight index the publisher appends to each run.
+Both tables are in `storage/returns_backfill_schema.sql`.
 
 ## Access control
 

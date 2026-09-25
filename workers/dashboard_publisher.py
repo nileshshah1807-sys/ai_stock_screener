@@ -500,6 +500,27 @@ def map_row(
     return mapped
 
 
+def universe_index_row(df: pd.DataFrame, run_date: str) -> dict[str, Any] | None:
+    """This session's equal-weight return across every ranked stock.
+
+    Feeds the Returns page's "all ranked stocks" comparison. `Pct_Change_1D`
+    is already on adjusted closes and in percent. None when the run carries no
+    ranked one-day returns (a first run, or a pre-2026-08 export).
+    """
+    if "Pct_Change_1D" not in df.columns or "Investment_Rank" not in df.columns:
+        return None
+    ranked = df[pd.to_numeric(df["Investment_Rank"], errors="coerce").notna()]
+    moves = pd.to_numeric(ranked["Pct_Change_1D"], errors="coerce").dropna()
+    if moves.empty:
+        return None
+    return {
+        "observed_on": run_date,
+        "ew_return_pct": coerce_numeric(float(moves.mean()), 10, 4),
+        "members": int(moves.size),
+        "source": "publisher",
+    }
+
+
 def estimate_row(record: dict[str, Any], run_date: str, report: CoercionReport) -> dict[str, Any] | None:
     """One estimate observation, or None when there is nothing to record."""
     row = map_row(record, ESTIMATE_COLUMNS, report)
@@ -902,6 +923,21 @@ def publish(
             exc,
         )
 
+    # Same footing as estimates: the table is an optional migration, and a
+    # missing day in the index is a gap in a comparison, not a bad publish.
+    universe_error = None
+    universe_row = universe_index_row(df, run_date)
+    try:
+        universe_written = repository.upsert_universe_index([universe_row] if universe_row else [])
+    except Exception as exc:  # noqa: BLE001 - optional history must not invalidate a publish
+        universe_written = 0
+        universe_error = str(exc)
+        logger.warning(
+            "Universe index write failed after publish (apply "
+            "storage/returns_backfill_schema.sql if the table is missing): %s",
+            exc,
+        )
+
     summary.update(
         {
             "snapshot_rows_written": written,
@@ -910,6 +946,8 @@ def publish(
             "prune_error": prune_error,
             "estimate_rows_written": estimates_written,
             "estimate_error": estimate_error,
+            "universe_index_written": universe_written,
+            "universe_index_error": universe_error,
         }
     )
     return summary

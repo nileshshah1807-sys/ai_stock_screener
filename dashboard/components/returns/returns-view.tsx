@@ -214,6 +214,18 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           held for {sessionsHeld} {sessionsHeld === 1 ? "session" : "sessions"} to {formatDate(report.asOf)}.
         </p>
 
+        {report.backtestRounds ? (
+          <p className="rounded-xl border border-caution/40 bg-caution/10 px-3 py-2 text-xs leading-relaxed text-foreground">
+            <span className="font-semibold">Backtest.</span>{" "}
+            {report.backtestRounds === report.rebalance.count + 1
+              ? "Every ranking used here is"
+              : `${report.backtestRounds} of the ${report.rebalance.count + 1} rankings used here are`}{" "}
+            a point-in-time backtest, not one the dashboard published; published rankings begin{" "}
+            {formatDate(report.liveFrom)}. The model&rsquo;s weights were fitted on this same period, so
+            these returns are in-sample and flatter what to expect going forward.
+          </p>
+        ) : null}
+
         <section className="panel grid grid-cols-2 divide-border lg:grid-cols-4 lg:divide-x">
           <Tile
             label={`Top ${report.topN}`}
@@ -239,7 +251,11 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           <Tile
             label="All ranked stocks"
             value={report.universe.returnPct}
-            note={`equal weight, ${report.universe.counted.toLocaleString(market.locale)} of ${report.universe.total.toLocaleString(market.locale)}`}
+            note={
+              report.universe.through && report.universe.through !== report.asOf
+                ? `equal weight, daily; through ${formatDate(report.universe.through)}`
+                : "equal weight, rebalanced daily"
+            }
           />
           <Tile
             label={`Top ${report.topN} vs ${report.benchmark.name}`}
@@ -254,6 +270,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           benchmark={report.benchmark.curve}
           basketLabel={`Top ${report.topN}`}
           benchmarkLabel={report.benchmark.name}
+          liveFrom={report.rankDate < report.liveFrom ? report.liveFrom : null}
         />
 
         <Holdings
