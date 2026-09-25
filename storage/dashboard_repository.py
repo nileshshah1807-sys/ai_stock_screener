@@ -615,6 +615,28 @@ class DashboardRepository:
             written += len(chunk)
         return written
 
+    def upsert_estimate_rows(
+        self,
+        rows: list[dict[str, Any]],
+        chunk_size: int = 500,
+    ) -> int:
+        """Record analyst-estimate observations, first sighting wins.
+
+        Keyed on the vendor fetch, and ignore-duplicates rather than merge: a
+        cached fetch reaches several daily runs, and the row must keep the
+        run date it was first published under.
+        """
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "estimate_history?on_conflict=market,symbol,fetched_at",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=ignore-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        return written
+
     # -- retention ----------------------------------------------------------
 
     def prune_snapshots(self, keep_runs: int = 2) -> int:

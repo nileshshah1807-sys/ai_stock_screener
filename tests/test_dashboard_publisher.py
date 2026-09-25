@@ -18,6 +18,7 @@ from workers.dashboard_publisher import (
     coerce_bool,
     coerce_int,
     coerce_numeric,
+    estimate_row,
     map_row,
     publish,
     resolve_run_date,
@@ -117,6 +118,12 @@ class RecordingDashboardRepository:
         if self.fail_at == "prune":
             raise RuntimeError("snapshot prune failed")
         return 0
+
+    def upsert_estimate_rows(self, rows):
+        self.calls.append(("estimates", {"rows": rows}))
+        if self.fail_at == "estimates":
+            raise RuntimeError('relation "estimate_history" does not exist')
+        return len(rows)
 
 
 class CoercionTests(unittest.TestCase):
@@ -403,6 +410,22 @@ class RunRowTests(unittest.TestCase):
         self.assertEqual(run["row_count"], 4)
 
 
+class EstimateRowTests(unittest.TestCase):
+    def test_no_row_without_a_fetch_time(self):
+        record = {"Symbol": "INFY", "Forward_PE": 22.2}
+        self.assertIsNone(estimate_row(record, "2026-08-11", CoercionReport()))
+
+    def test_no_row_when_the_vendor_reports_no_estimate(self):
+        # Trailing EPS alone is not consensus; an uncovered stock records nothing.
+        record = {
+            "Symbol": "SMALLCO",
+            "Fundamental_Fetched_At": "2026-08-10T21:53:45+05:30",
+            "EPS": 4.2,
+            "Forward_PE": float("nan"),
+        }
+        self.assertIsNone(estimate_row(record, "2026-08-11", CoercionReport()))
+
+
 class PublishTests(unittest.TestCase):
     @staticmethod
     def publish_with(repository, **publish_kwargs):
@@ -558,6 +581,59 @@ class PublishTests(unittest.TestCase):
         for name, details in cleanups.items():
             with self.subTest(cleanup=name):
                 self.assertEqual(details["params"]["market"], "eq.US")
+
+    @staticmethod
+    def publish_frame(repository, frame):
+        with TemporaryDirectory() as tmp:
+            csv_path = Path(tmp) / "advanced_analysis_20260811.csv"
+            frame.to_csv(csv_path, index=False)
+            with patch(
+                "workers.dashboard_publisher.DashboardRepository.from_environment",
+                return_value=repository,
+            ):
+                return publish(csv_path=csv_path)
+
+    def test_estimates_are_recorded_after_the_run_is_complete(self):
+        repository = RecordingDashboardRepository()
+        frame = minimal_frame(
+            Fundamental_Fetched_At="2026-08-10T21:53:45+05:30",
+            Forward_EPS=68.4,
+            Forward_PE=22.2,
+            EPS=61.9,
+            Analyst_Count=41,
+            Target_Mean_Price=1710.0,
+            Recommendation_Mean=2.1,
+        )
+
+        summary = self.publish_frame(repository, frame)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertLess(labels.index("publish_run"), labels.index("estimates"))
+        rows = next(details["rows"] for name, details in repository.calls if name == "estimates")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["symbol"], "INFY")
+        self.assertEqual(rows[0]["observed_on"], "2026-08-11")
+        self.assertEqual(rows[0]["fetched_at"], "2026-08-10T16:23:45+00:00")
+        self.assertEqual(rows[0]["forward_eps"], 68.4)
+        self.assertEqual(rows[0]["analyst_count"], 41)
+        self.assertEqual(rows[0]["price"], 1520.5)
+        self.assertEqual(summary["estimate_rows_written"], 1)
+        self.assertIsNone(summary["estimate_error"])
+
+    def test_estimate_failure_is_non_fatal_after_completed_publish(self):
+        # Before storage/estimate_history_schema.sql is applied the table is
+        # missing; the run must still publish.
+        repository = RecordingDashboardRepository(fail_at="estimates")
+        frame = minimal_frame(
+            Fundamental_Fetched_At="2026-08-10T21:53:45+05:30", Forward_PE=22.2
+        )
+
+        summary = self.publish_frame(repository, frame)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertIn("publish_run", labels)
+        self.assertEqual(summary["estimate_rows_written"], 0)
+        self.assertIn("estimate_history", summary["estimate_error"])
 
     def test_prune_failure_is_non_fatal_after_completed_publish(self):
         repository = RecordingDashboardRepository(fail_at="prune")

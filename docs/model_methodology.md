@@ -73,6 +73,13 @@ transaction costs, and no look-ahead data.
   make it a size proxy inside a block score, and it cannot be reconstructed
   point-in-time for the backtest archive. News keywords and the FII/DII placeholder do not
   enter the score.
+- Since 2026-09-25 each vendor fetch of analyst consensus (forward EPS and PE,
+  analyst count, mean target price, mean recommendation) is recorded in
+  `estimate_history` (`storage/estimate_history_schema.sql`), keyed on the
+  fetch time. Nothing scores it. It exists so that estimate revisions -- the
+  forward-looking evidence the score lacks -- can be tested once enough of the
+  history has accumulated, since no free source supplies it retrospectively.
+  Coverage on 2026-09-24: 47% of the NSE universe, 95% of the US.
 
 ## Legacy Model v4 score and decision contract
 
