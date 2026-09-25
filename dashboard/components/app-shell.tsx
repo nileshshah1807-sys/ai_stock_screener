@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Activity, ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut } from "lucide-react";
+import { Activity, ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut, TrendingUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
@@ -34,6 +34,7 @@ const NAV = [
   { path: "/market", label: "Market", icon: ChartArea },
   { path: "/watchlists", label: "Watchlists", icon: Bookmark },
   { path: "/movers", label: "Movers", icon: ArrowLeftRight },
+  { path: "/returns", label: "Returns", icon: TrendingUp },
   { path: "/health", label: "Run health", icon: Activity },
 ] as const;
 
