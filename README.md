@@ -161,6 +161,18 @@ limits are in
 Both thresholds remain env-overridable, so the previous policy is one variable
 away.
 
+**Recommendation policy 5.3.0 gives the STRONG BUY stack a 2% band**
+(`STRONG_BUY_MA50_TOLERANCE` 0.98). The stack required `price > MA50 > MA200`
+exactly, so a stock sitting on its 50-day average flipped between STRONG BUY and
+BUY every few sessions while its score and rank stood still -- VENUSREM, ranked
+first throughout, changed rating five times in fifteen runs. Price may now sit
+up to 2% under its MA50, the same band the BUY test already applies to the
+MA200; `MA50 > MA200` stays strict. On the 2026-09-24 runs this moves about 7
+NSE and 8 US names to STRONG BUY (57 -> ~64, 46 -> ~54). `MODEL_VERSION` stays
+5.1.0 and ranks are untouched. `STRONG_BUY_MA50_TOLERANCE=1.0` restores the
+exact boundary. Evidence and the rest of the audit are in
+[`docs/Review/p6_rank_hygiene_preregistration.md`](docs/Review/p6_rank_hygiene_preregistration.md).
+
 So a row can read **99.8 / BUY**, and that is not a contradiction: the score
 says how strong the evidence is, the rating says whether policy will act on it.
 `Decision_Score` (the ceiling), `Decision_Score_Ceiling`,

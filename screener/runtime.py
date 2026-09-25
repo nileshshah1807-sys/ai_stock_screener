@@ -445,6 +445,9 @@ class Config:
     STRONG_BUY_REQUIRE_MA50_ABOVE_MA200 = _env_bool(
         "STRONG_BUY_REQUIRE_MA50_ABOVE_MA200", True
     )
+    # Policy 5.3.0: price may sit up to 2% under its MA50 and still count as
+    # stacked, mirroring BUY_MA200_TOLERANCE. 1.0 restores the exact boundary.
+    STRONG_BUY_MA50_TOLERANCE = _env_float("STRONG_BUY_MA50_TOLERANCE", 0.98)
     STRONG_BUY_MIN_RS_6M = _env_float("STRONG_BUY_MIN_RS_6M", 0.0)
     STRONG_BUY_MIN_RS_12M = _env_float("STRONG_BUY_MIN_RS_12M", 0.0)
     BUY_MIN_RS_6M = _env_float("BUY_MIN_RS_6M", 0.0)

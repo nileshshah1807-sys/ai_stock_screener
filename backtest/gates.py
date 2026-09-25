@@ -83,6 +83,7 @@ class GateConfig:
     STRONG_BUY_MIN_MOMENTUM_PCT = 0.0        # policy 5.2.0, was 70.0
     STRONG_BUY_MIN_RS_12M = 0.0
     STRONG_BUY_REQUIRE_MA50_ABOVE_MA200 = True
+    STRONG_BUY_MA50_TOLERANCE = 0.98          # policy 5.3.0, was exact
     REGIME_RISK_OFF_DISABLES_STRONG_BUY = True
     REGIME_RISK_OFF_MIN_MOMENTUM_PCT = 90.0
     REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY = 0.0  # policy 5.2.0, was 85.0
@@ -197,9 +198,10 @@ def gate_failures(row, config=None, *, regime=None):
         strong.append("momentum percentile below STRONG BUY floor")
 
     if bool(config.STRONG_BUY_REQUIRE_MA50_ABOVE_MA200):
+        ma50_tolerance = float(config.STRONG_BUY_MA50_TOLERANCE)
         if ma50 is None or ma200 is None or price is None:
             strong.append("MA50/MA200 stack unavailable")
-        elif not (price > ma50 > ma200):
+        elif not (price >= ma50_tolerance * ma50 and ma50 > ma200):
             strong.append("price/MA50/MA200 not stacked bullishly")
 
     if ma200_slope is not None and ma200_slope <= 0:

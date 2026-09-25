@@ -344,9 +344,16 @@ class RecommendationPolicy:
         if _as_bool(
             getattr(config, "STRONG_BUY_REQUIRE_MA50_ABOVE_MA200", True), True
         ):
+            # The same tolerance band the BUY test applies to the MA200. Price
+            # against its own 50-day average is the noisiest comparison in the
+            # policy: an exact boundary flipped a stock hovering on its MA50
+            # between STRONG BUY and BUY every few sessions while its evidence
+            # and rank did not move. The averages' own order stays strict --
+            # MA50 against MA200 moves slowly and does not flicker.
+            ma50_tolerance = float(getattr(config, "STRONG_BUY_MA50_TOLERANCE", 0.98))
             if ma50 is None or ma200 is None or price is None:
                 strong_failures.append("MA50/MA200 stack unavailable")
-            elif not (price > ma50 > ma200):
+            elif not (price >= ma50_tolerance * ma50 and ma50 > ma200):
                 strong_failures.append("price/MA50/MA200 not stacked bullishly")
         if ma200_slope is not None and ma200_slope <= 0:
             strong_failures.append("MA200 not rising")

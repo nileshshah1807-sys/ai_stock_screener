@@ -98,6 +98,7 @@ class ReproducibilityManifestTests(unittest.TestCase):
             "BUY_MA200_TOLERANCE",
             "BUY_MIN_MA200_SLOPE_PCT",
             "STRONG_BUY_REQUIRE_MA50_ABOVE_MA200",
+            "STRONG_BUY_MA50_TOLERANCE",
             "STRONG_BUY_MIN_RS_6M",
             "STRONG_BUY_MIN_RS_12M",
             "BUY_MIN_RS_6M",

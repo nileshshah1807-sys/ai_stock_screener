@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-08-25
 Scheduled production model: 5.1.0
-Scheduled recommendation policy: 5.2.0
+Scheduled recommendation policy: 5.3.0
 Output schema: 4.2.0
 Local/manual-daily model: 4.0.0-candidate (`FACTOR_MODEL_ENABLED=false`)
 

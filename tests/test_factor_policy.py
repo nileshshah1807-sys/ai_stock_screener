@@ -42,6 +42,7 @@ class Config:
     BUY_MA200_TOLERANCE = 0.98
     BUY_MIN_MA200_SLOPE_PCT = 0.0
     STRONG_BUY_REQUIRE_MA50_ABOVE_MA200 = True
+    STRONG_BUY_MA50_TOLERANCE = 0.98
     BUY_MIN_RS_6M = 0.0
     STRONG_BUY_MIN_RS_12M = 0.0
     BREAKDOWN_CONFIRM_SESSIONS = 10
@@ -199,6 +200,33 @@ class TrendGateTests(unittest.TestCase):
             "price/MA50/MA200 not stacked bullishly", failures(result, "ALPHA")
         )
         self.assertEqual(result.iloc[0]["Decision_Score_Ceiling"], 69.99)
+
+    def test_price_just_under_ma50_keeps_the_stack(self):
+        # MA50 is 110, so the 2% band reaches down to 107.80. A stock
+        # hovering on its average must not flip STRONG BUY / BUY daily.
+        inside = finalize([clean_row(Technical_Price=108.0)])
+        self.assertTrue(bool(inside.iloc[0]["Strong_Buy_Eligible"]))
+        self.assertNotIn(
+            "price/MA50/MA200 not stacked bullishly", failures(inside, "ALPHA")
+        )
+
+    def test_price_beyond_the_ma50_band_breaks_the_stack(self):
+        outside = finalize([clean_row(Technical_Price=107.0)])
+        self.assertFalse(bool(outside.iloc[0]["Strong_Buy_Eligible"]))
+        self.assertIn(
+            "price/MA50/MA200 not stacked bullishly", failures(outside, "ALPHA")
+        )
+
+    def test_unit_tolerance_restores_the_exact_boundary(self):
+        class ExactBoundaryConfig(Config):
+            STRONG_BUY_MA50_TOLERANCE = 1.0
+
+        result = finalize_recommendations(
+            pd.DataFrame([clean_row(Technical_Price=108.0)]), ExactBoundaryConfig
+        )
+        self.assertIn(
+            "price/MA50/MA200 not stacked bullishly", failures(result, "ALPHA")
+        )
 
 
 class RelativeStrengthTests(unittest.TestCase):
