@@ -2,7 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
-import { getPriceCalendar } from "@/lib/queries";
+import { getLatestRun, getPriceCalendar } from "@/lib/queries";
 import type { Market, MarketCode } from "@/lib/markets";
 import { decodeRow, indexPoints } from "@/lib/market-breadth.mjs";
 import {
@@ -91,40 +91,51 @@ export const getRankingDates = cache(async (market: MarketCode): Promise<string[
 /**
  * One day of `screener_history`, every row, in symbol order.
  *
- * The first chunk asks for the exact count, and the remaining chunks then go
- * out together rather than one after another.
+ * `expectedRows` -- the latest run's row count, which the layout has already
+ * read -- sizes the chunks up front so they all go out at once, instead of a
+ * first request that only asks how many there are. A day with more rows than
+ * expected (the universe grew) is finished off one chunk at a time.
  */
 async function readHistoryDay(
   supabase: Supabase,
   market: MarketCode,
   date: string,
   columns: string,
+  expectedRows: number,
 ): Promise<HistoryRow[]> {
-  const chunk = (offset: number, count = false) =>
+  const chunk = (offset: number) =>
     supabase
       .from("screener_history")
-      .select(columns, count ? { count: "exact" } : undefined)
+      .select(columns)
       .eq("market", market)
       .eq("observed_on", date)
       .order("symbol")
       .range(offset, offset + FETCH_CHUNK - 1);
 
-  const first = await chunk(0, true);
-  if (first.error) {
-    console.error("readHistoryDay failed", first.error.message);
-    return [];
-  }
-  const rows = [...((first.data ?? []) as unknown as HistoryRow[])];
-  const total = first.count ?? rows.length;
-  const offsets: number[] = [];
-  for (let offset = FETCH_CHUNK; offset < total; offset += FETCH_CHUNK) offsets.push(offset);
-  const rest = await Promise.all(offsets.map((offset) => chunk(offset)));
-  for (const result of rest) {
+  const chunks = Math.max(1, Math.ceil(expectedRows / FETCH_CHUNK));
+  const results = await Promise.all(
+    Array.from({ length: chunks }, (_, index) => chunk(index * FETCH_CHUNK)),
+  );
+  const rows: HistoryRow[] = [];
+  let lastFull = false;
+  for (const result of results) {
     if (result.error) {
       console.error("readHistoryDay failed", result.error.message);
-      continue;
+      return rows;
     }
-    rows.push(...((result.data ?? []) as unknown as HistoryRow[]));
+    const data = (result.data ?? []) as unknown as HistoryRow[];
+    rows.push(...data);
+    lastFull = data.length === FETCH_CHUNK;
+  }
+  for (let offset = chunks * FETCH_CHUNK; lastFull; offset += FETCH_CHUNK) {
+    const result = await chunk(offset);
+    if (result.error) {
+      console.error("readHistoryDay failed", result.error.message);
+      break;
+    }
+    const data = (result.data ?? []) as unknown as HistoryRow[];
+    rows.push(...data);
+    lastFull = data.length === FETCH_CHUNK;
   }
   return rows;
 }
@@ -136,12 +147,19 @@ async function readHistoryDay(
  * base, then `screener_history`'s raw closes for the sessions since the base
  * was last rebuilt. A symbol with no base at all -- a new listing the
  * publisher has not reached -- falls back to raw closes from `since`.
+ *
+ * The base and the tail are read together. Every base is rebuilt in one pass
+ * against the shared calendar, so the tail starts at the calendar's last
+ * session without waiting to see each base; only symbols with no base at all
+ * cost a second read. A base that ends before the calendar does belongs to a
+ * stock that stopped trading, which has no later closes to miss.
  */
 async function getAdjustedCloses(
   supabase: Supabase,
   market: MarketCode,
   symbols: string[],
   since: string,
+  sessions: string[],
 ): Promise<Map<string, Point[]>> {
   const out = new Map<string, Point[]>();
   if (!symbols.length) return out;
@@ -150,16 +168,20 @@ async function getAdjustedCloses(
   for (let index = 0; index < symbols.length; index += SERIES_CHUNK) {
     chunks.push(symbols.slice(index, index + SERIES_CHUNK));
   }
-  const [sessions, ...seriesResults] = await Promise.all([
-    getPriceCalendar(market),
-    ...chunks.map((part) =>
-      supabase
-        .from("price_series")
-        // No volumes: this page never reads them, and they are a third of the row.
-        .select("symbol, session_deltas, closes, last_session")
-        .eq("market", market)
-        .in("symbol", part),
+  const calendarEnd = sessions[sessions.length - 1] ?? since;
+  const tails = new Map<string, Point[]>();
+  const [seriesResults] = await Promise.all([
+    Promise.all(
+      chunks.map((part) =>
+        supabase
+          .from("price_series")
+          // No volumes: this page never reads them, and they are a third of the row.
+          .select("symbol, session_deltas, closes, last_session")
+          .eq("market", market)
+          .in("symbol", part),
+      ),
     ),
+    readTails(supabase, market, symbols, calendarEnd, tails),
   ]);
 
   const bases = new Map<string, { points: Point[]; last: string }>();
@@ -176,35 +198,12 @@ async function getAdjustedCloses(
     }
   }
 
-  // One tail read for every symbol, from the earliest point any of them needs.
-  let tailFrom = since;
-  if (symbols.every((symbol) => bases.has(symbol))) {
-    tailFrom = [...bases.values()].map((base) => base.last).sort()[0] ?? since;
-  }
-  const tails = new Map<string, Point[]>();
-  for (let offset = 0; ; offset += FETCH_CHUNK) {
-    const { data, error } = await supabase
-      .from("screener_history")
-      .select("symbol, observed_on, current_price")
-      .eq("market", market)
-      .in("symbol", symbols)
-      .gt("observed_on", tailFrom)
-      .order("symbol")
-      .order("observed_on")
-      .range(offset, offset + FETCH_CHUNK - 1);
-    if (error) {
-      // A stale tail loses the last session or two; it must not blank the page.
-      console.error("getAdjustedCloses tail failed", error.message);
-      break;
-    }
-    for (const row of data ?? []) {
-      const price = Number(row.current_price);
-      if (!(price > 0)) continue;
-      const symbol = row.symbol as string;
-      if (!tails.has(symbol)) tails.set(symbol, []);
-      tails.get(symbol)!.push({ time: row.observed_on as string, close: price });
-    }
-    if (!data || data.length < FETCH_CHUNK) break;
+  // A symbol with no adjusted base needs raw closes from the start of the
+  // window, not just since the last rebuild.
+  const unbased = symbols.filter((symbol) => !bases.has(symbol));
+  if (unbased.length) {
+    for (const symbol of unbased) tails.delete(symbol);
+    await readTails(supabase, market, unbased, since, tails);
   }
 
   for (const symbol of symbols) {
@@ -212,6 +211,40 @@ async function getAdjustedCloses(
     out.set(symbol, withTail(bases.get(symbol)?.points ?? [], tails.get(symbol) ?? []));
   }
   return out;
+}
+
+/** Raw daily closes after `after` for each symbol, added to `into`. */
+async function readTails(
+  supabase: Supabase,
+  market: MarketCode,
+  symbols: string[],
+  after: string,
+  into: Map<string, Point[]>,
+): Promise<void> {
+  for (let offset = 0; ; offset += FETCH_CHUNK) {
+    const { data, error } = await supabase
+      .from("screener_history")
+      .select("symbol, observed_on, current_price")
+      .eq("market", market)
+      .in("symbol", symbols)
+      .gt("observed_on", after)
+      .order("symbol")
+      .order("observed_on")
+      .range(offset, offset + FETCH_CHUNK - 1);
+    if (error) {
+      // A stale tail loses the last session or two; it must not blank the page.
+      console.error("getAdjustedCloses tail failed", error.message);
+      return;
+    }
+    for (const row of data ?? []) {
+      const price = Number(row.current_price);
+      if (!(price > 0)) continue;
+      const symbol = row.symbol as string;
+      if (!into.has(symbol)) into.set(symbol, []);
+      into.get(symbol)!.push({ time: row.observed_on as string, close: price });
+    }
+    if (!data || data.length < FETCH_CHUNK) return;
+  }
 }
 
 /** The market's benchmark index levels, from the Market page's own rows. */
@@ -247,11 +280,13 @@ async function getUniverseReturn(
   rankDate: string,
   entryDay: string,
   asOf: string,
+  expectedRows: number,
+  sessions: string[],
 ): Promise<{ returnPct: number | null; counted: number; total: number }> {
   const [ranked, entryRows, lastRows] = await Promise.all([
-    readHistoryDay(supabase, market, rankDate, "symbol, investment_rank"),
-    readHistoryDay(supabase, market, entryDay, "symbol, current_price"),
-    readHistoryDay(supabase, market, asOf, "symbol, current_price"),
+    readHistoryDay(supabase, market, rankDate, "symbol, investment_rank", expectedRows),
+    readHistoryDay(supabase, market, entryDay, "symbol, current_price", expectedRows),
+    readHistoryDay(supabase, market, asOf, "symbol, current_price", expectedRows),
   ]);
   const members = ranked
     .filter((row) => row.investment_rank !== null && row.investment_rank !== undefined)
@@ -273,6 +308,7 @@ async function getUniverseReturn(
     market,
     reread.slice(0, MAX_ADJUSTED_REREADS),
     rankDate,
+    sessions,
   );
   for (const points of adjusted.values()) {
     const window = points.filter((point) => point.time >= entryDay && point.time <= asOf);
@@ -285,6 +321,7 @@ async function getUniverseReturn(
 export type HoldingRow = {
   symbol: string;
   company: string | null;
+  logoDomain: string | null;
   /** Rank, rating and stage on the ranking the stock was last bought from. */
   rankThen: number | null;
   ratingThen: string | null;
@@ -327,7 +364,13 @@ export type ReturnsReport =
       topN: number;
       costs: boolean;
       rebalance: RebalanceSummary;
-      basket: { grossPct: number | null; netPct: number | null; curve: { time: string; value: number }[] };
+      basket: {
+        grossPct: number | null;
+        netPct: number | null;
+        /** Net of costs, and without: the page switches between them locally. */
+        curve: { time: string; value: number }[];
+        grossCurve: { time: string; value: number }[];
+      };
       holdings: HoldingRow[];
       benchmark: {
         name: string;
@@ -370,6 +413,42 @@ async function getRankingTops(
   }
 }
 
+/** Rank, rating, stage and logo for the current holdings, from the latest run. */
+async function getLatestState(
+  supabase: Supabase,
+  market: MarketCode,
+  asOf: string,
+  latestRunDate: string | null,
+  symbols: string[],
+): Promise<Map<string, HistoryRow & { logo_domain?: string | null }>> {
+  if (!symbols.length) return new Map();
+  // The snapshot carries the logo domain; history does not. They describe the
+  // same run whenever the latest run is the latest ranking, which is always
+  // true outside the minutes a publish is in flight.
+  const fromSnapshot = latestRunDate === asOf;
+  const { data, error } = fromSnapshot
+    ? await supabase
+        .from("screener_snapshot")
+        .select("symbol, investment_rank, rating, stage, logo_domain")
+        .eq("market", market)
+        .eq("run_date", asOf)
+        .in("symbol", symbols)
+    : await supabase
+        .from("screener_history")
+        .select("symbol, investment_rank, rating, stage")
+        .eq("market", market)
+        .eq("observed_on", asOf)
+        .in("symbol", symbols);
+  if (error) console.error("getLatestState failed", error.message);
+  return new Map(((data ?? []) as HistoryRow[]).map((row) => [row.symbol, row]));
+}
+
+/**
+ * Two waves of reads after the ranking dates, instead of five: the basket's
+ * rankings, prices and current state on one branch, and the universe
+ * comparison -- which needs only the start date -- on the other, in parallel.
+ * Costs are computed both ways every time, so toggling them needs no request.
+ */
 export async function getReturnsReport(
   market: Market,
   {
@@ -379,7 +458,13 @@ export async function getReturnsReport(
     rebalance,
   }: { from: string | null; topN: number; costs: boolean; rebalance: string | null },
 ): Promise<ReturnsReport> {
-  const dates = await getRankingDates(market.code);
+  const supabase = await createClient();
+  const [dates, calendar, benchmarkLevels, latestRun] = await Promise.all([
+    getRankingDates(market.code),
+    getPriceCalendar(market.code),
+    getBenchmarkLevels(supabase, market),
+    getLatestRun(market.code),
+  ]);
   if (!dates.length) return { status: "no-history" };
   const asOf = dates[dates.length - 1];
   // The latest ranking has no session after it yet, so nothing it lists has
@@ -390,49 +475,41 @@ export async function getReturnsReport(
   const rankDate = snapRankingDate(rankingDates, from)!;
   const option = rebalanceOption(rebalance);
   const schedule = rebalanceDates(rankingDates, rankDate, option);
-  const supabase = await createClient();
-
-  const [sessions, tops, benchmarkLevels] = await Promise.all([
-    getPriceCalendar(market.code),
-    getRankingTops(supabase, market.code, schedule, topN),
-    getBenchmarkLevels(supabase, market),
-  ]);
-
+  const sessions = calendar ?? [];
   // The market calendar can lag the latest run by a rebuild; the ranking dates
   // cover those sessions, so the union is the complete list.
-  const allSessions = [...new Set([...(sessions ?? []), ...dates])].sort();
+  const allSessions = [...new Set([...sessions, ...dates])].sort();
   const entrySession = entrySessionAfter(allSessions, rankDate) ?? asOf;
-  // The universe is priced from history, which has a row only on run days.
-  const entryDay = dates.find((date) => date >= entrySession) ?? asOf;
+  // The universe is priced from history, which has a row only on run days:
+  // the first ranking after the start, known without any further read.
+  const entryDay = dates.find((date) => date > rankDate) ?? asOf;
+  // Headroom over the latest count, so a slightly larger past universe still
+  // arrives in the first wave.
+  const expectedRows = Math.ceil((latestRun?.row_count ?? FETCH_CHUNK) * 1.1);
 
-  const rounds = schedule.map((date) => ({
-    rankDate: date,
-    entrySession: entrySessionAfter(allSessions, date) ?? asOf,
-    symbols: (tops.get(date) ?? []).map((row) => row.symbol),
-  }));
-  const lastRound = rounds[rounds.length - 1];
-  const lastRows = tops.get(lastRound.rankDate) ?? [];
-  const symbols = [...new Set(rounds.flatMap((round) => round.symbols))];
+  const basketBranch = async () => {
+    const tops = await getRankingTops(supabase, market.code, schedule, topN);
+    const rounds = schedule.map((date) => ({
+      rankDate: date,
+      entrySession: entrySessionAfter(allSessions, date) ?? asOf,
+      symbols: (tops.get(date) ?? []).map((row) => row.symbol),
+    }));
+    const lastRound = rounds[rounds.length - 1];
+    const symbols = [...new Set(rounds.flatMap((round) => round.symbols))];
+    const [closes, now] = await Promise.all([
+      getAdjustedCloses(supabase, market.code, symbols, rankDate, sessions),
+      getLatestState(supabase, market.code, asOf, latestRun?.run_date ?? null, lastRound.symbols),
+    ]);
+    return { tops, rounds, lastRound, closes, now };
+  };
 
-  const [closes, nowResult, universe] = await Promise.all([
-    getAdjustedCloses(supabase, market.code, symbols, rankDate),
-    lastRound.symbols.length
-      ? supabase
-          .from("screener_history")
-          .select("symbol, investment_rank, rating, stage")
-          .eq("market", market.code)
-          .eq("observed_on", asOf)
-          .in("symbol", lastRound.symbols)
-      : Promise.resolve({ data: [], error: null }),
-    getUniverseReturn(supabase, market.code, rankDate, entryDay, asOf),
+  const [{ tops, rounds, lastRound, closes, now }, universe] = await Promise.all([
+    basketBranch(),
+    getUniverseReturn(supabase, market.code, rankDate, entryDay, asOf, expectedRows, sessions),
   ]);
-  if (nowResult.error) console.error("getReturnsReport latest failed", nowResult.error.message);
-  const now = new Map(((nowResult.data ?? []) as HistoryRow[]).map((row) => [row.symbol, row]));
 
-  const result = portfolioReturns(rounds, closes, {
-    asOf,
-    costPerSidePct: costs ? COST_PER_SIDE_PCT : 0,
-  });
+  const result = portfolioReturns(rounds, closes, { asOf, costPerSidePct: COST_PER_SIDE_PCT });
+  const lastRows = tops.get(lastRound.rankDate) ?? [];
 
   const holdings: HoldingRow[] = lastRows.map((row, index) => {
     const stock = result.stocks[index];
@@ -440,6 +517,7 @@ export async function getReturnsReport(
     return {
       symbol: row.symbol,
       company: row.company ?? null,
+      logoDomain: latest?.logo_domain ?? null,
       rankThen: row.investment_rank ?? null,
       ratingThen: row.rating ?? null,
       stageThen: row.stage ?? null,
@@ -475,7 +553,12 @@ export async function getReturnsReport(
       costPct: result.trades.reduce((sum, trade) => sum + trade.costPct, 0),
       lastRankDate: lastRound.rankDate,
     },
-    basket: { grossPct: result.grossPct, netPct: result.netPct, curve: result.curve },
+    basket: {
+      grossPct: result.grossPct,
+      netPct: result.netPct,
+      curve: result.curve,
+      grossCurve: result.grossCurve,
+    },
     holdings,
     benchmark: { name: market.benchmark, ...benchmark },
     universe,
