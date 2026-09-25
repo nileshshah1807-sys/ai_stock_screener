@@ -19,8 +19,9 @@ on:
     # slot retries. Cron is UTC and does not observe US daylight saving, so
     # these fire an hour earlier in local terms over winter -- still well clear
     # of the close -- and the completed-session guard refuses a duplicate
-    # rebuild either way. The 21:30 ET slot is 01:30 UTC the next day, which is
-    # why the dedupe step below compares ET dates, not UTC ones.
+    # rebuild either way. The 21:30 ET slot is 01:30 UTC the next day, and
+    # GitHub often starts it hours late, past midnight ET, which is why the
+    # dedupe step below keys runs to the ET session, not to any calendar date.
     - cron: "30 21,23 * * *"
     - cron: "30 1 * * *"
   workflow_dispatch:
@@ -126,15 +127,35 @@ jobs:
         if: github.event_name == 'schedule'
         shell: bash
         run: |
-          # The ET trading date, not the UTC one: evening ET runs are created
-          # after 00:00 UTC, so a UTC comparison makes one evening's success
-          # skip the next evening's runs: the 21 Sept 2026 run was created at
-          # 00:13 UTC on the 22nd and would have skipped both 22 Sept slots.
-          today="$(TZ=America/New_York date +%F)"
-          successful_days="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow daily-us-screener.yml --event schedule --status success --limit 20 --json createdAt --jq '.[].createdAt' | while read -r created; do TZ=America/New_York date -d "${created}" +%F; done)"
-          if grep -qx "${today}" <<< "${successful_days}"; then
+          # A run is keyed to the session it could build -- the ET date of the
+          # most recent close -- not to the calendar date it was created on.
+          # GitHub routinely starts the 01:30 UTC fallback hours late, after
+          # midnight ET, and keying on the calendar date let that no-op
+          # fallback count as the *next* day's success: the 23 Sept 2026
+          # 02:14 ET run skipped the 23 Sept evening build, the late rebuild
+          # at 02:24 ET on the 24th then skipped the 24th, and the dashboard
+          # stayed a session behind.
+          #
+          # Only a run that reached the session guard counts. A run skipped
+          # here is also a "success", and counting it would let one mis-keyed
+          # skip propagate. Any lookup failure falls through to the guard,
+          # which checks Supabase itself.
+          IFS=: read -r cutoff_h cutoff_m _ <<< "${MARKET_BAR_COMPLETE_AFTER_IST}"
+          cutoff_seconds=$(( 10#${cutoff_h} * 3600 + 10#${cutoff_m} * 60 ))
+          session_day() { TZ=America/New_York date -d "@$(( $(date -d "$1" +%s) - cutoff_seconds ))" +%F; }
+          session="$(session_day now)"
+          published=false
+          while read -r run_id created; do
+            [ "$(session_day "${created}")" = "${session}" ] || continue
+            guard="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs" --jq '[.jobs[].steps[]? | select(.name == "Check whether completed US session is already published") | .conclusion][0] // ""')" || guard=""
+            if [ "${guard}" = "success" ]; then
+              published=true
+              break
+            fi
+          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow daily-us-screener.yml --event schedule --status success --limit 20 --json databaseId,createdAt --jq '.[] | "\(.databaseId) \(.createdAt)"')
+          if [ "${published}" = "true" ]; then
             echo "skip=true" >> "${GITHUB_OUTPUT}"
-            echo "A scheduled US screener run already succeeded on ${today}; skipping fallback."
+            echo "A scheduled US screener run already covered the ${session} session; skipping fallback."
           else
             echo "skip=false" >> "${GITHUB_OUTPUT}"
           fi
