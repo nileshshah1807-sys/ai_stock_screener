@@ -29,7 +29,12 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
   const topN = TOP_N_OPTIONS.includes(requestedTop) ? requestedTop : DEFAULT_TOP_N;
   const costs = first(query.costs) !== "gross";
 
-  const report = await getReturnsReport(market, { from: first(query.from), topN, costs });
+  const report = await getReturnsReport(market, {
+    from: first(query.from),
+    topN,
+    costs,
+    rebalance: first(query.rebalance),
+  });
 
   return (
     <div className="space-y-5 px-4 py-5 sm:px-6">
@@ -61,10 +66,12 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
           <span className="font-medium text-foreground">How this is measured.</span> The basket is the top N by
           Investment Rank on the chosen date, in equal weight, bought at each stock&rsquo;s close on the next
           session &mdash; never the close that produced the ranking, which no reader could have traded at. A
-          stock that did not trade that session is bought at its first close after it. The basket is held without
-          rebalancing; a stock that has since left the universe is kept at its last price rather than dropped.
-          Costs, when on, are {COST_PER_SIDE_PCT}% of value on the purchase and again on a sale at the latest
-          close.
+          stock that did not trade that session is bought at its first close after it. With rebalancing off the
+          basket is held as bought. With it on, at each step the basket is rebuilt from that day&rsquo;s
+          ranking: names that left the top N are sold, new ones bought, and every holding reset to equal
+          weight, again at the next session&rsquo;s close. A stock that has since left the universe is kept at
+          its last price rather than dropped. Costs, when on, are {COST_PER_SIDE_PCT}% of the value actually
+          traded &mdash; at each purchase, each rebalance and a final sale at the latest close.
         </p>
         <p>
           Prices are adjusted for splits and bonuses but not dividends, and the {market.benchmark} is its price

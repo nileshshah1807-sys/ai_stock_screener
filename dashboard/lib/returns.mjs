@@ -127,76 +127,237 @@ export function entrySessionAfter(sessions, rankDate) {
 }
 
 /**
- * Equal-weight, buy-and-hold basket value from the entry session to `asOf`.
- *
- * Each holding gets 1/N of the money. A holding buys at its close on the entry
- * session, or at its first close after it when it did not trade that day --
- * its slice waits in cash until then rather than being assumed invested. From
- * entry it is marked at its latest close on or before each date, so a thin
- * stock that skips a session keeps its last price instead of dropping to zero.
- * A holding with no close in the window stays in cash throughout and is
- * flagged: dropping it would quietly shrink the basket to the names that kept
- * trading, which is the survivorship the backtest exists to avoid.
- *
- * Costs, when given, are charged once to buy and once to sell, and the curve
- * shows each date's value *as if sold that day*, so the last point is the
- * headline number.
- *
- * @param {{symbol: string, points: {time: string, close: number}[]}[]} holdings
- * @param {{entrySession: string, asOf: string, costPerSidePct?: number}} options
+ * Rebalance frequencies offered, as stops on a slider. Fixed stops rather than
+ * a free number of days: a free slider invites trying periods until one looks
+ * good, which is choosing a result after seeing it. Monthly and quarterly are
+ * the horizons the research studies tested; the weekly stops show what faster
+ * turnover costs.
  */
-export function basketReturns(holdings, { entrySession, asOf, costPerSidePct = 0 }) {
-  const count = holdings.length;
-  const retained = (1 - costPerSidePct / 100) ** 2;
-  if (!count || !entrySession || !asOf || asOf < entrySession) {
-    return { curve: [], stocks: [], grossPct: null, netPct: null };
+export const REBALANCE_OPTIONS = [
+  { value: "never", label: "Never" },
+  { value: "1w", label: "1W", days: 7 },
+  { value: "2w", label: "2W", days: 14 },
+  { value: "1m", label: "1M", months: 1 },
+  { value: "3m", label: "3M", months: 3 },
+];
+
+/**
+ * @param {string | null | undefined} value
+ */
+export function rebalanceOption(value) {
+  return REBALANCE_OPTIONS.find((option) => option.value === value) ?? REBALANCE_OPTIONS[0];
+}
+
+/**
+ * `date` moved forward by an option's period, as `YYYY-MM-DD`. A month step
+ * clamps to the month's last day, so 31 Jan + 1M is 28/29 Feb, not 3 Mar.
+ *
+ * @param {string} date
+ * @param {{days?: number, months?: number}} option
+ */
+export function addPeriod(date, option) {
+  const next = new Date(`${date}T00:00:00Z`);
+  if (option.days) {
+    next.setUTCDate(next.getUTCDate() + option.days);
+    return next.toISOString().slice(0, 10);
   }
+  const day = next.getUTCDate();
+  next.setUTCDate(1);
+  next.setUTCMonth(next.getUTCMonth() + (option.months ?? 0));
+  const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
+  next.setUTCDate(Math.min(day, lastDay));
+  return next.toISOString().slice(0, 10);
+}
 
-  const inWindow = holdings.map(({ symbol, points }) => ({
-    symbol,
-    points: (points ?? []).filter(
-      (point) => point.time >= entrySession && point.time <= asOf && point.close > 0,
-    ),
-  }));
+/**
+ * The rankings a rebalanced basket is rebuilt from: the start, then the first
+ * published ranking on or after each period boundary. The next boundary is
+ * measured from the ranking actually used, so a missed run shifts the rest of
+ * the schedule instead of bunching two rebalances together.
+ *
+ * @param {string[]} rankingDates ascending
+ * @param {string} start the chosen ranking date
+ * @param {{days?: number, months?: number}} option
+ * @returns {string[]}
+ */
+export function rebalanceDates(rankingDates, start, option) {
+  const dates = [start];
+  if (!option?.days && !option?.months) return dates;
+  let next = addPeriod(start, option);
+  for (const date of rankingDates ?? []) {
+    if (date <= start || date < next) continue;
+    dates.push(date);
+    next = addPeriod(date, option);
+  }
+  return dates;
+}
 
-  const times = new Set([entrySession]);
-  for (const { points } of inWindow) for (const point of points) times.add(point.time);
-  const timeline = [...times].sort();
+/**
+ * One pass of the portfolio simulation at a single cost rate.
+ *
+ * @param {{entrySession: string, symbols: string[]}[]} rounds
+ * @param {Map<string, {time: string, close: number}[]>} series
+ * @param {string} asOf
+ * @param {number} cost fraction of traded value, per side
+ */
+function simulate(rounds, series, asOf, cost) {
+  const start = rounds[0].entrySession;
+  const times = new Set(rounds.map((round) => round.entrySession));
+  for (const points of series.values()) {
+    for (const point of points) if (point.time >= start && point.time <= asOf) times.add(point.time);
+  }
+  const timeline = [...times].filter((time) => time <= asOf).sort();
+  const roundAt = new Map(rounds.map((round) => [round.entrySession, round]));
 
-  // One cursor per holding: the timeline and every series are ascending, so
+  // One cursor per series: the timeline and every series are ascending, so
   // each series is walked once rather than searched per date.
-  const cursors = inWindow.map(() => -1);
+  const cursors = new Map([...series.keys()].map((symbol) => [symbol, -1]));
+  const lastClose = (symbol) => {
+    const index = cursors.get(symbol) ?? -1;
+    return index < 0 ? null : series.get(symbol)[index];
+  };
+  const valueOf = (symbol, position) =>
+    position.pending !== null ? position.pending : position.units * lastClose(symbol).close;
+
+  /** @type {Map<string, {units: number | null, pending: number | null, since: string, entry: {time: string, close: number} | null}>} */
+  let positions = new Map();
+  let cash = 1;
   const curve = [];
-  let lastMultiple = 1;
+  const trades = [];
+  let value = 1;
+
   for (const time of timeline) {
-    let sum = 0;
-    inWindow.forEach(({ points }, holding) => {
-      while (cursors[holding] + 1 < points.length && points[cursors[holding] + 1].time <= time) {
-        cursors[holding] += 1;
+    for (const [symbol, points] of series) {
+      let index = cursors.get(symbol);
+      while (index + 1 < points.length && points[index + 1].time <= time) index += 1;
+      cursors.set(symbol, index);
+    }
+
+    // A name that had no close when it was bought is filled at its first
+    // close after; until then its slice waits in cash.
+    for (const [symbol, position] of positions) {
+      const close = lastClose(symbol);
+      if (position.pending !== null && close && close.time === time) {
+        position.units = position.pending / close.close;
+        position.pending = null;
+        position.entry = close;
       }
-      sum += cursors[holding] < 0 ? 1 : points[cursors[holding]].close / points[0].close;
-    });
-    lastMultiple = sum / count;
-    curve.push({ time, value: (lastMultiple * retained - 1) * 100 });
+    }
+
+    const round = roundAt.get(time);
+    if (round && round.symbols.length) {
+      let before = cash;
+      const current = new Map();
+      for (const [symbol, position] of positions) {
+        const held = valueOf(symbol, position);
+        current.set(symbol, held);
+        before += held;
+      }
+      const targets = new Set(round.symbols);
+      const share = before / targets.size;
+      // Cash is not a position: moving into or out of it is the trade.
+      let traded = 0;
+      for (const symbol of new Set([...targets, ...current.keys()])) {
+        traded += Math.abs((targets.has(symbol) ? share : 0) - (current.get(symbol) ?? 0));
+      }
+      const charged = traded * cost;
+      const each = (before - charged) / targets.size;
+
+      const next = new Map();
+      for (const symbol of round.symbols) {
+        const held = positions.get(symbol);
+        const close = lastClose(symbol);
+        if (held && held.pending === null) {
+          next.set(symbol, { ...held, units: each / close.close });
+        } else if (held) {
+          next.set(symbol, { ...held, pending: each });
+        } else if (close && close.time === time) {
+          next.set(symbol, { units: each / close.close, pending: null, since: time, entry: close });
+        } else {
+          next.set(symbol, { units: null, pending: each, since: time, entry: null });
+        }
+      }
+      trades.push({
+        entrySession: time,
+        bought: round.symbols.filter((symbol) => !positions.has(symbol)),
+        sold: [...positions.keys()].filter((symbol) => !targets.has(symbol)),
+        costPct: before > 0 ? (charged / before) * 100 : 0,
+      });
+      positions = next;
+      cash = 0;
+    }
+
+    value = cash;
+    for (const [symbol, position] of positions) value += valueOf(symbol, position);
+    // As if sold that day, so the last point is the headline number.
+    curve.push({ time, value: (value * (1 - cost) - 1) * 100 });
   }
 
-  const stocks = inWindow.map(({ symbol, points }) => {
-    const entry = points[0] ?? null;
-    const last = points[points.length - 1] ?? null;
+  return { curve, trades, positions, value, lastClose };
+}
+
+/**
+ * Equal-weight basket value from the first round's entry session to `asOf`,
+ * rebuilt at each later round.
+ *
+ * Each round buys the given names at their close on its entry session (the
+ * session after the ranking), selling what dropped out and resetting every
+ * holding to equal weight. A name that did not trade that session is bought at
+ * its first close after it; its slice waits in cash rather than being assumed
+ * invested. Holdings are marked at their latest close, so a thin stock that
+ * skips a session keeps its last price instead of dropping to zero, and a name
+ * that stops trading is carried, never dropped -- dropping it would quietly
+ * shrink the basket to the names that kept trading, which is the survivorship
+ * the backtest exists to avoid.
+ *
+ * With one round this is buy-and-hold. Costs, when given, are charged on the
+ * value actually traded at each round and once more on a final sale, so a
+ * rebalance that keeps most names costs only its turnover.
+ *
+ * @param {{entrySession: string, symbols: string[]}[]} rounds ascending
+ * @param {Map<string, {time: string, close: number}[]>} closes ascending points per symbol
+ * @param {{asOf: string, costPerSidePct?: number}} options
+ */
+export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
+  const usable = (rounds ?? []).filter((round) => round.entrySession && round.entrySession <= asOf);
+  if (!usable.length || !usable[0].symbols.length) {
+    return { curve: [], trades: [], stocks: [], grossPct: null, netPct: null };
+  }
+  const series = new Map();
+  for (const round of usable) {
+    for (const symbol of round.symbols) {
+      if (series.has(symbol)) continue;
+      series.set(
+        symbol,
+        (closes.get(symbol) ?? []).filter((point) => point.close > 0 && point.time <= asOf),
+      );
+    }
+  }
+
+  const gross = simulate(usable, series, asOf, 0);
+  const net = simulate(usable, series, asOf, costPerSidePct / 100);
+
+  const holdings = usable[usable.length - 1].symbols;
+  const stocks = holdings.map((symbol) => {
+    const position = net.positions.get(symbol);
+    const entry = position?.entry ?? null;
+    const last = net.lastClose(symbol);
     return {
       symbol,
+      heldSince: position?.since ?? null,
       entry,
-      last,
-      delayedEntry: Boolean(entry && entry.time > entrySession),
+      last: entry ? last : null,
+      delayedEntry: Boolean(entry && position && entry.time > position.since),
       returnPct: entry && last ? (last.close / entry.close - 1) * 100 : null,
     };
   });
 
   return {
-    curve,
+    curve: net.curve,
+    trades: net.trades,
     stocks,
-    grossPct: (lastMultiple - 1) * 100,
-    netPct: (lastMultiple * retained - 1) * 100,
+    grossPct: (gross.value - 1) * 100,
+    netPct: net.curve.length ? net.curve[net.curve.length - 1].value : null,
   };
 }
 
