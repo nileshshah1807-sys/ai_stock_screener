@@ -113,6 +113,25 @@ class MarketScopingTests(unittest.TestCase):
         rows = repository.calls[0][2]["json"]
         self.assertEqual(rows[0]["market"], "US")
 
+    def test_estimate_writes_keep_the_first_sighting(self):
+        repository = RecordingDashboardRepository(market="US")
+
+        written = repository.upsert_estimate_rows(
+            [{"symbol": "NVDA", "fetched_at": "2026-09-24T07:08:35+00:00"}]
+        )
+
+        self.assertEqual(written, 1)
+        method, path, kwargs = repository.calls[0]
+        self.assertEqual(method, "POST")
+        self.assertEqual(path, "estimate_history?on_conflict=market,symbol,fetched_at")
+        self.assertIn("resolution=ignore-duplicates", kwargs["headers"]["Prefer"])
+        self.assertEqual(kwargs["json"][0]["market"], "US")
+
+    def test_no_estimate_rows_sends_nothing(self):
+        repository = RecordingDashboardRepository()
+        self.assertEqual(repository.upsert_estimate_rows([]), 0)
+        self.assertEqual(repository.calls, [])
+
     def test_history_writes_are_stamped(self):
         repository = RecordingDashboardRepository(market="US")
 

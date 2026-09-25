@@ -1190,6 +1190,13 @@ class StockDataCollector:
                     "Fundamental_Source": "Yahoo Finance quote metadata",
                     "PE_Ratio": info.get("trailingPE"),
                     "Forward_PE": info.get("forwardPE"),
+                    # Analyst consensus, recorded for estimate_history only.
+                    # Nothing scores these: there is no point-in-time history
+                    # of them yet, which is what recording them builds.
+                    "Forward_EPS": info.get("forwardEps"),
+                    "Analyst_Count": info.get("numberOfAnalystOpinions"),
+                    "Target_Mean_Price": info.get("targetMeanPrice"),
+                    "Recommendation_Mean": info.get("recommendationMean"),
                     "PB_Ratio": info.get("priceToBook"),
                     "ROE": info.get("returnOnEquity"),
                     "ROA": info.get("returnOnAssets"),

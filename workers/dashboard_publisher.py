@@ -264,6 +264,23 @@ HISTORY_COLUMNS: list[tuple[str, str, str]] = [
 ]
 
 
+# Analyst consensus as the vendor served it on the fetch, for estimate_history.
+# A row is written only when the fetch time and at least one estimate exist.
+ESTIMATE_COLUMNS: list[tuple[str, str, str]] = [
+    ("symbol", "Symbol", "text"),
+    ("fetched_at", "Fundamental_Fetched_At", "timestamp"),
+    ("forward_eps", "Forward_EPS", "num:18,4"),
+    ("forward_pe", "Forward_PE", "num:18,4"),
+    ("trailing_eps", "EPS", "num:18,4"),
+    ("analyst_count", "Analyst_Count", "int"),
+    ("target_mean_price", "Target_Mean_Price", "num:18,4"),
+    ("recommendation_mean", "Recommendation_Mean", "num:8,4"),
+    ("price", "Current_Price", "num:14,2"),
+]
+ESTIMATE_FIELDS = ("forward_eps", "forward_pe", "analyst_count", "target_mean_price")
+
+
+
 class CoercionReport:
     """Counts values dropped during coercion.
 
@@ -481,6 +498,15 @@ def map_row(
             continue
         mapped[db_column] = coerce(row[csv_column], kind, csv_column, report)
     return mapped
+
+
+def estimate_row(record: dict[str, Any], run_date: str, report: CoercionReport) -> dict[str, Any] | None:
+    """One estimate observation, or None when there is nothing to record."""
+    row = map_row(record, ESTIMATE_COLUMNS, report)
+    if not row["fetched_at"] or all(row[field] is None for field in ESTIMATE_FIELDS):
+        return None
+    row["observed_on"] = run_date
+    return row
 
 
 def _existing_run(repository: DashboardRepository, run_date: str) -> dict[str, Any] | None:
@@ -745,6 +771,7 @@ def publish(
 
     snapshot_rows: list[dict[str, Any]] = []
     history_rows: list[dict[str, Any]] = []
+    estimate_rows: list[dict[str, Any]] = []
     seen_symbols: set[str] = set()
     duplicate_symbols: list[str] = []
 
@@ -769,6 +796,10 @@ def publish(
         history["observed_on"] = run_date
         history_rows.append(history)
 
+        estimate = estimate_row(record, run_date, report)
+        if estimate is not None:
+            estimate_rows.append(estimate)
+
     summary: dict[str, Any] = {
         "csv": str(csv_path),
         "run_date": run_date,
@@ -782,6 +813,7 @@ def publish(
             if csv_column not in df.columns
         ),
         "payload_columns": len(df.columns),
+        "estimate_rows": len(estimate_rows),
         "dry_run": dry_run,
         "market": market,
     }
@@ -855,12 +887,29 @@ def publish(
         prune_error = str(exc)
         logger.warning("Dashboard snapshot pruning failed after publish: %s", exc)
 
+    # Estimates are recorded after the run is complete and, like retention,
+    # never fail it: the table is an optional migration, and a missing row of
+    # consensus is a gap in a history no score reads yet, not a bad publish.
+    estimate_error = None
+    try:
+        estimates_written = repository.upsert_estimate_rows(estimate_rows)
+    except Exception as exc:  # noqa: BLE001 - optional history must not invalidate a publish
+        estimates_written = 0
+        estimate_error = str(exc)
+        logger.warning(
+            "Estimate history write failed after publish (apply "
+            "storage/estimate_history_schema.sql if the table is missing): %s",
+            exc,
+        )
+
     summary.update(
         {
             "snapshot_rows_written": written,
             "history_rows_written": history_written,
             "runs_pruned": pruned,
             "prune_error": prune_error,
+            "estimate_rows_written": estimates_written,
+            "estimate_error": estimate_error,
         }
     )
     return summary
