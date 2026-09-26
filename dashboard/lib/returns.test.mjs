@@ -193,6 +193,21 @@ describe("portfolioReturns, rebalanced", () => {
     assert.ok(Math.abs(result.stocks[0].returnPct - 21) < 1e-9);
   });
 
+  it("logs each round's own period return", () => {
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15" });
+    // Round 1 (A, B): 1.00 -> 1.00 by 09-08. Round 2 (A, C): 1.00 -> 1.15.
+    assert.equal(result.trades[0].periodEnd, "2026-09-08");
+    assert.ok(Math.abs(result.trades[0].returnPct) < 1e-9);
+    assert.equal(result.trades[1].periodEnd, "2026-09-15");
+    assert.ok(Math.abs(result.trades[1].returnPct - 15) < 1e-9);
+  });
+
+  it("keeps a round's cost out of its period return", () => {
+    const net = portfolioReturns(rounds, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
+    assert.ok(Math.abs(net.trades[1].returnPct - 15) < 1e-9);
+    assert.ok(net.trades[1].costPct > 0);
+  });
+
   it("charges costs only on the value traded", () => {
     const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
     // Round 1 buys 1.00 of stock: cost 0.01. Round 2 trims A 0.5445 -> 0.49005,

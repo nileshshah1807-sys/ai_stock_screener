@@ -275,6 +275,20 @@ export type HoldingRow = {
   inLatestRun: boolean;
 };
 
+export type TradeRound = {
+  /** The ranking this round bought from. */
+  rankDate: string;
+  /** True when that ranking is a backtest, not a published one. */
+  backtest: boolean;
+  entrySession: string;
+  periodEnd: string;
+  bought: string[];
+  sold: string[];
+  costPct: number;
+  /** What the basket did from this round to the next, before the round's cost. */
+  returnPct: number | null;
+};
+
 export type RebalanceSummary = {
   option: string;
   /** Rebalances after the first purchase. */
@@ -312,6 +326,8 @@ export type ReturnsReport =
         grossCurve: { time: string; value: number }[];
       };
       holdings: HoldingRow[];
+      /** Every round, oldest first: the initial purchase, then each rebalance. */
+      trades: TradeRound[];
       benchmark: {
         name: string;
         returnPct: number | null;
@@ -529,6 +545,16 @@ export async function getReturnsReport(
       grossCurve: result.grossCurve,
     },
     holdings,
+    trades: result.trades.map((trade) => ({
+      rankDate: trade.rankDate as string,
+      backtest: (trade.rankDate as string) < liveFrom,
+      entrySession: trade.entrySession,
+      periodEnd: trade.periodEnd,
+      bought: trade.bought,
+      sold: trade.sold,
+      costPct: trade.costPct,
+      returnPct: trade.returnPct,
+    })),
     benchmark: { name: market.benchmark, ...benchmark },
     universe,
   };

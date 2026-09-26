@@ -8,6 +8,7 @@ import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 import { CompanyLogo } from "@/components/company-logo";
 import { RatingBadge } from "@/components/rating-badge";
 import { ReturnsChart } from "@/components/returns/returns-chart";
+import { TradeLog } from "@/components/returns/trade-log";
 import { SegmentedControl } from "@/components/segmented-control";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -281,6 +282,8 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           rebalanced={report.rebalance.count > 0}
           firstEntry={report.entrySession}
         />
+
+        {report.trades.length > 1 ? <TradeLog trades={report.trades} market={market} /> : null}
       </div>
     </div>
   );
