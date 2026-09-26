@@ -1,3 +1,5 @@
+import gzip
+import json
 import unittest
 
 from storage.dashboard_repository import DashboardRepository
@@ -15,6 +17,22 @@ class RecordingDashboardRepository(DashboardRepository):
     def _request(self, method, path, **kwargs):
         self.calls.append((method, path, kwargs))
         return self.responses.pop(0) if self.responses else None
+
+
+class StorageRecordingRepository(RecordingDashboardRepository):
+    """Keeps uploaded objects in memory instead of Supabase Storage."""
+
+    def __init__(self, market="NSE"):
+        super().__init__(market=market)
+        self.objects = {}
+        self.transfers = []
+
+    def _storage(self, method, path, body=None):
+        self.transfers.append((method, path, body))
+        if method == "POST":
+            self.objects[path] = body
+            return None
+        return self.objects.get(path)
 
 
 class DashboardRepositoryLogoTests(unittest.TestCase):
@@ -149,14 +167,26 @@ class MarketScopingTests(unittest.TestCase):
 
         self.assertEqual(repository.calls[0][2]["json"]["p_market"], "US")
 
-    def test_the_calendar_is_one_row_per_market(self):
-        repository = RecordingDashboardRepository(market="US")
+    def test_the_calendar_is_one_object_per_market(self):
+        repository = StorageRecordingRepository(market="US")
 
         repository.upsert_price_calendar({"sessions": "x", "session_count": 1})
 
-        method, path, kwargs = repository.calls[0]
-        self.assertEqual(path, "price_calendar?on_conflict=market")
-        self.assertEqual(kwargs["json"][0]["market"], "US")
+        method, path, body = repository.transfers[0]
+        self.assertEqual((method, path), ("POST", "price-series/US/calendar.json.gz"))
+        self.assertEqual(json.loads(gzip.decompress(body))["market"], "US")
+
+    def test_series_round_trip_through_storage_objects(self):
+        repository = StorageRecordingRepository(market="NSE")
+        row = {"symbol": "M&M", "session_deltas": "[0,1]", "closes": "[100,5]", "volumes": "[1,1]"}
+
+        self.assertEqual(repository.upsert_price_series([row]), 1)
+        self.assertEqual(repository.transfers[0][1], "price-series/NSE/symbols/M&M.json.gz")
+        found = repository.read_price_series(["M&M", "MISSING"])
+
+        self.assertEqual(list(found), ["M&M"])
+        self.assertEqual(found["M&M"]["closes"], "[100,5]")
+        self.assertEqual(repository.published_calendar_size(), None)
 
     def test_an_unknown_market_is_rejected_at_construction(self):
         with self.assertRaises(ValueError):

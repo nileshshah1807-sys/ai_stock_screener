@@ -8,10 +8,14 @@ only means the site serves the previous run behind a staleness banner.
 
 from __future__ import annotations
 
+import gzip
+import json
 import os
 from collections.abc import Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import quote
 
 import requests
 
@@ -26,6 +30,17 @@ DEFAULT_CHUNK_SIZE = 200
 # A price-series row carries three encoded arrays and runs 20-30 KB, so the
 # snapshot chunk size would produce a ~6 MB request body.
 PRICE_SERIES_CHUNK_SIZE = 25
+
+#: Private Supabase Storage bucket for bulky, file-shaped market data. Chart
+#: price series live here rather than in Postgres: the free database stops
+#: accepting writes at 500 MB, while storage has 1 GB of its own, under the
+#: same auth and the same dashboard_has_access() rule
+#: (storage/market_data_storage.sql).
+MARKET_DATA_BUCKET = "market-data"
+
+#: Parallel object transfers. One series is one object, so a full publish is a
+#: few thousand small requests; sixteen at a time keeps it to about a minute.
+STORAGE_WORKERS = 16
 
 
 def chunked(rows: list[dict[str, Any]], size: int) -> Iterator[list[dict[str, Any]]]:
@@ -53,6 +68,7 @@ class DashboardRepository:
         if not url or not service_role_key:
             raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
         self.base_url = f"{url.rstrip('/')}/rest/v1"
+        self.storage_url = f"{url.rstrip('/')}/storage/v1"
         # Raises on an unknown code, so a typo cannot publish a US run into the
         # NSE market.
         self.market = resolve_market(market).code
@@ -340,51 +356,99 @@ class DashboardRepository:
             headers={"Prefer": "return=minimal"},
         )
 
-    def upsert_price_calendar(self, calendar: dict[str, Any]) -> None:
-        """Replace this market's trading calendar row.
+    # -- price series (Supabase Storage) ------------------------------------
+    #
+    # One gzip JSON object per symbol, plus one calendar object per market,
+    # each holding exactly the fields the price_series / price_calendar rows
+    # held, so the readers decode them unchanged.
 
-        One row per market rather than one row overall: NSE and NYSE sessions
-        do not line up, so a shared calendar would misindex every US series.
-        """
-        self._request(
-            "POST",
-            "price_calendar?on_conflict=market",
-            json=[{**calendar, "market": self.market}],
-            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+    def _price_path(self, name: str) -> str:
+        return f"price-series/{self.market}/{name}.json.gz"
+
+    def _series_path(self, symbol: str) -> str:
+        return self._price_path(f"symbols/{symbol}")
+
+    def _storage(self, method: str, path: str, body: bytes | None = None) -> bytes | None:
+        """One object transfer. Returns the body of a read; None when absent."""
+        headers = {
+            "apikey": self.headers["apikey"],
+            "Authorization": self.headers["Authorization"],
+        }
+        if body is not None:
+            headers.update({"Content-Type": "application/gzip", "x-upsert": "true"})
+        # A fresh request per call rather than the shared session: transfers
+        # run on a thread pool, and a requests.Session is not thread-safe.
+        response = requests.request(
+            method,
+            f"{self.storage_url}/object/{MARKET_DATA_BUCKET}/{quote(path, safe='/')}",
+            headers=headers,
+            data=body,
+            timeout=self.timeout_seconds,
         )
+        if method == "GET" and response.status_code in (400, 404) and "not_found" in response.text.lower().replace(" ", "_"):
+            return None
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            raise requests.HTTPError(
+                f"{exc} | {method} storage:{path} | {(response.text or '').strip()[:400]}",
+                response=response,
+            ) from exc
+        return response.content if method == "GET" else None
+
+    def _put_json(self, path: str, payload: dict[str, Any]) -> None:
+        # mtime=0 keeps an unchanged payload byte-identical across publishes.
+        body = gzip.compress(json.dumps(payload, separators=(",", ":")).encode(), mtime=0)
+        self._storage("POST", path, body)
+
+    def _get_json(self, path: str) -> dict[str, Any] | None:
+        body = self._storage("GET", path)
+        return None if body is None else json.loads(gzip.decompress(body))
+
+    def upsert_price_calendar(self, calendar: dict[str, Any]) -> None:
+        """Replace this market's trading calendar.
+
+        One per market: NSE and NYSE sessions do not line up, so a shared
+        calendar would misindex every US series.
+        """
+        self._put_json(self._price_path("calendar"), {**calendar, "market": self.market})
+
+    def read_price_calendar(self) -> dict[str, Any] | None:
+        """This market's calendar object, or None if none is published."""
+        return self._get_json(self._price_path("calendar"))
 
     def published_calendar_size(self) -> int | None:
         """Session count of the live calendar, or None if none is published."""
-        rows = self._request(
-            "GET",
-            "price_calendar",
-            params=self._scoped({"select": "session_count"}),
-        )
-        if not rows:
+        calendar = self.read_price_calendar()
+        if not calendar:
             return None
-        return int(rows[0].get("session_count") or 0) or None
+        return int(calendar.get("session_count") or 0) or None
 
     def upsert_price_series(
         self,
         rows: list[dict[str, Any]],
         chunk_size: int = PRICE_SERIES_CHUNK_SIZE,
     ) -> int:
-        """Upsert encoded per-symbol series.
+        """Write each encoded series as its own object; returns the count.
 
-        Chunked far smaller than the snapshot writer: a snapshot row is a few
-        hundred bytes, while a series row carries three encoded arrays and runs
-        20-30 KB, so 200 of them would be a ~6 MB request body.
+        ``chunk_size`` is kept for the old signature; objects are written one
+        per request, sixteen at a time.
         """
-        written = 0
-        for chunk in chunked(rows, chunk_size):
-            self._request(
-                "POST",
-                "price_series?on_conflict=market,symbol",
-                json=self._stamped(chunk),
-                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
-            )
-            written += len(chunk)
-        return written
+        del chunk_size
+
+        def write(row: dict[str, Any]) -> None:
+            self._put_json(self._series_path(row["symbol"]), {**row, "market": self.market})
+
+        with ThreadPoolExecutor(STORAGE_WORKERS) as pool:
+            list(pool.map(write, rows))
+        return len(rows)
+
+    def read_price_series(self, symbols: Iterable[str]) -> dict[str, dict[str, Any]]:
+        """Symbol -> series object, for the symbols that have one."""
+        symbols = list(dict.fromkeys(symbols))
+        with ThreadPoolExecutor(STORAGE_WORKERS) as pool:
+            found = pool.map(lambda symbol: self._get_json(self._series_path(symbol)), symbols)
+        return {symbol: row for symbol, row in zip(symbols, found) if row is not None}
 
     # -- financial statements -----------------------------------------------
 

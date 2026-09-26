@@ -163,9 +163,9 @@ class AnnotateLiveTests(unittest.TestCase):
             for day, close in zip(days[:-1], closes[:-1])
         ] + [{"observed_on": days[-1].date().isoformat(), "symbol": "UP", "stage": "Stage 2", "current_price": closes[-1]}]
         repository = MagicMock()
-        repository._paged.side_effect = [frame_rows, []]
-        repository._request.return_value = [{"sessions": "[]"}]
-        repository._scoped.side_effect = lambda params: params
+        repository._paged.return_value = frame_rows
+        repository.read_price_calendar.return_value = {"sessions": "[]"}
+        repository.read_price_series.return_value = {}
 
         fill_stage, age_only = _annotate_market(repository, "NSE")
 

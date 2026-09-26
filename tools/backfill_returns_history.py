@@ -373,21 +373,14 @@ def _live_index(repository, first_live_entry):
     frame["observed_on"] = pd.to_datetime(frame["observed_on"]).dt.date
     run_days = sorted(frame["observed_on"].unique())
 
-    calendar = repository._request(
-        "GET", "price_calendar", params=repository._scoped({"select": "sessions"})
-    )
-    calendar_days = decode_calendar(calendar[0]["sessions"])
+    calendar_days = decode_calendar(repository.read_price_calendar()["sessions"])
     sessions = sorted(set(calendar_days) | set(run_days))
 
-    # About 12 KB a row, so a small page keeps each response a manageable size.
-    series = repository._paged(
-        "price_series",
-        {"select": "symbol,session_deltas,closes,volumes,last_session", "order": "symbol"},
-        page=100,
-    )
+    # Only the names that were ever in a published ranking are needed.
+    series = repository.read_price_series(sorted(frame["symbol"].unique()))
     closes_by_day = {}
     base_last = {}
-    for row in series:
+    for row in series.values():
         for point in decode_series(row, calendar_days):
             if point["date"] >= first_live_entry.isoformat():
                 day = dt.date.fromisoformat(point["date"])
@@ -434,22 +427,9 @@ def _annotate_market(repository, market):
         return [], []
     frame = pd.DataFrame(rows)
     symbols = sorted(frame["symbol"].unique())
-    calendar = repository._request(
-        "GET", "price_calendar", params=repository._scoped({"select": "sessions"})
-    )
-    sessions = decode_calendar(calendar[0]["sessions"]) if calendar else []
-    base = {}
-    for index in range(0, len(symbols), 100):
-        part = symbols[index:index + 100]
-        for row in repository._paged(
-            "price_series",
-            {
-                "select": "symbol,session_deltas,closes,volumes,last_session",
-                "symbol": "in.(" + ",".join(f'"{symbol}"' for symbol in part) + ")",
-            },
-            page=100,
-        ):
-            base[row["symbol"]] = row
+    calendar = repository.read_price_calendar()
+    sessions = decode_calendar(calendar["sessions"]) if calendar else []
+    base = repository.read_price_series(symbols)
 
     fill_stage, age_only = [], []
     for symbol, group in frame.groupby("symbol"):
@@ -523,10 +503,8 @@ def publish(args):
 
     # The archive index runs until the live membership takes over: sessions up
     # to and including the first live ranking's entry session.
-    calendar = repository._request(
-        "GET", "price_calendar", params=repository._scoped({"select": "sessions"})
-    )
-    sessions = sorted(dt.date.fromisoformat(day) for day in json.loads(calendar[0]["sessions"]))
+    calendar = repository.read_price_calendar()
+    sessions = sorted(dt.date.fromisoformat(day) for day in json.loads(calendar["sessions"]))
     first_live_entry = next_session(sessions, first_live_day)
     archive_rows = [
         row

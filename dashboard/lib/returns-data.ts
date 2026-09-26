@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import { priceSeriesPath, readMarketObjects } from "@/lib/market-data";
 import { getLatestRun, getPriceCalendar } from "@/lib/queries";
 import type { Market, MarketCode } from "@/lib/markets";
 import { decodeRow, indexPoints } from "@/lib/market-breadth.mjs";
@@ -37,7 +38,7 @@ import { createClient } from "@/lib/supabase/server";
  * reaches back with `simulated_rankings`, which the point-in-time backtest
  * reconstructed with today's weights over the period they were fitted on, and
  * every figure built on one is labelled as backtest. Prices come from
- * `price_series`, index levels from `market_breadth`, and the equal-weight
+ * the `market-data` Storage bucket, index levels from `market_breadth`, and the equal-weight
  * universe from `universe_index`.
  */
 
@@ -46,9 +47,6 @@ type Point = { time: string; close: number };
 
 /** PostgREST caps a single response; anything longer must be paged. */
 const FETCH_CHUNK = 1000;
-
-/** Symbols per `price_series` request, so no single response is several MB. */
-const SERIES_CHUNK = 50;
 
 /** Symbols per current-state request, to keep each URL well under its limit. */
 const STATE_CHUNK = 150;
@@ -103,7 +101,7 @@ const getSimulatedDates = cache((market: MarketCode) => rankingDatesIn("simulate
 /**
  * Split-adjusted daily closes for a set of symbols, through the latest run.
  *
- * The same composition the stock chart uses: the back-adjusted `price_series`
+ * The same composition the stock chart uses: the back-adjusted price-series object
  * base, then `screener_history`'s raw closes for the sessions since the base
  * was last rebuilt. A symbol with no base at all -- a new listing the
  * publisher has not reached -- falls back to raw closes from `since`.
@@ -124,38 +122,19 @@ async function getAdjustedCloses(
   const out = new Map<string, Point[]>();
   if (!symbols.length) return out;
 
-  const chunks: string[][] = [];
-  for (let index = 0; index < symbols.length; index += SERIES_CHUNK) {
-    chunks.push(symbols.slice(index, index + SERIES_CHUNK));
-  }
   const calendarEnd = sessions[sessions.length - 1] ?? since;
   const tails = new Map<string, Point[]>();
-  const [seriesResults] = await Promise.all([
-    Promise.all(
-      chunks.map((part) =>
-        supabase
-          .from("price_series")
-          // No volumes: this page never reads them, and they are a third of the row.
-          .select("symbol, session_deltas, closes, last_session")
-          .eq("market", market)
-          .in("symbol", part),
-      ),
+  const [objects] = await Promise.all([
+    readMarketObjects<{ session_deltas: string; closes: string; last_session: string }>(
+      supabase,
+      new Map(symbols.map((symbol) => [symbol, priceSeriesPath(market, symbol)])),
     ),
     readTails(supabase, market, symbols, calendarEnd, tails),
   ]);
 
   const bases = new Map<string, { points: Point[]; last: string }>();
-  for (const result of seriesResults) {
-    if (result.error) {
-      console.error("getAdjustedCloses failed", result.error.message);
-      continue;
-    }
-    for (const row of result.data ?? []) {
-      bases.set(row.symbol as string, {
-        points: decodeCloses(row as { session_deltas: string; closes: string }, sessions ?? []),
-        last: row.last_session as string,
-      });
-    }
+  for (const [symbol, row] of objects) {
+    bases.set(symbol, { points: decodeCloses(row, sessions ?? []), last: row.last_session });
   }
 
   // A symbol with no adjusted base needs raw closes from the start of the

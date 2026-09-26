@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { gridProjection } from "@/lib/columns";
+import { priceCalendarPath, priceSeriesPath, readMarketObject } from "@/lib/market-data";
 import { createClient } from "@/lib/supabase/server";
 import type { MarketCode } from "@/lib/markets";
 import type {
@@ -563,33 +564,21 @@ export async function getStock(
 /**
  * The encoded daily price series for one symbol, plus the shared calendar.
  *
- * Two reads rather than a join: the calendar is one row shared by every symbol
- * and is `cache()`d per request, so a page that renders several charts pays for
- * it once. PostgREST cannot express "give me this series and that singleton" in
- * one round trip anyway.
+ * Both are objects in the `market-data` Storage bucket (lib/market-data.ts),
+ * not table rows. The calendar is one object per market -- NSE and NYSE
+ * sessions do not line up -- and is `cache()`d per request, so a page that
+ * renders several charts pays for it once.
  *
- * Returns null rather than throwing when the tables do not exist yet, so a
- * deployment that has not run the price-series migration renders the rest of
- * the stock page normally.
+ * Returns null rather than throwing when an object is missing, so the rest of
+ * the stock page renders normally without a chart.
  */
 export const getPriceCalendar = cache(
   async (market: MarketCode): Promise<string[] | null> => {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("price_calendar")
-    .select("sessions")
-    // One calendar row per market: NSE and NYSE sessions do not line up, so a
-    // shared calendar would misindex every series on one of them.
-    .eq("market", market)
-    .maybeSingle();
-
-  if (error) {
-    console.error("getPriceCalendar failed", error.message);
-    return null;
-  }
-  if (!data?.sessions) return null;
+  const calendar = await readMarketObject<{ sessions?: string }>(supabase, priceCalendarPath(market));
+  if (!calendar?.sessions) return null;
   try {
-    return JSON.parse(data.sessions as string) as string[];
+    return JSON.parse(calendar.sessions) as string[];
   } catch {
     console.error("getPriceCalendar: sessions is not valid JSON");
     return null;
@@ -610,18 +599,7 @@ export async function getPriceSeries(
   symbol: string,
 ): Promise<PriceSeriesRow | null> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("price_series")
-    .select("session_deltas, closes, volumes, points, first_session, last_session")
-    .eq("market", market)
-    .eq("symbol", symbol.toUpperCase())
-    .maybeSingle();
-
-  if (error) {
-    console.error("getPriceSeries failed", error.message);
-    return null;
-  }
-  return (data as PriceSeriesRow | null) ?? null;
+  return readMarketObject<PriceSeriesRow>(supabase, priceSeriesPath(market, symbol.toUpperCase()));
 }
 
 export type FinancialStatementSeries = {
