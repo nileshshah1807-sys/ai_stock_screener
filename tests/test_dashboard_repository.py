@@ -132,6 +132,18 @@ class MarketScopingTests(unittest.TestCase):
         self.assertEqual(repository.upsert_estimate_rows([]), 0)
         self.assertEqual(repository.calls, [])
 
+    def test_previous_run_is_read_from_history_which_is_never_pruned(self):
+        repository = RecordingDashboardRepository([[{"observed_on": "2026-09-24"}]], market="US")
+
+        previous = repository.previous_completed_run_date("2026-09-25")
+
+        self.assertEqual(previous, "2026-09-24")
+        method, path, kwargs = repository.calls[0]
+        self.assertEqual(path, "screener_history")
+        self.assertEqual(kwargs["params"]["observed_on"], "lt.2026-09-25")
+        self.assertEqual(kwargs["params"]["investment_rank"], "eq.1")
+        self.assertEqual(kwargs["params"]["market"], "eq.US")
+
     def test_history_writes_are_stamped(self):
         repository = RecordingDashboardRepository(market="US")
 

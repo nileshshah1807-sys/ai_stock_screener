@@ -764,7 +764,7 @@ def publish(
     csv_path: Path,
     manifest_path: Path | None = None,
     run_date_override: str | None = None,
-    keep_runs: int = 2,
+    keep_runs: int = 1,
     chunk_size: int = 200,
     dry_run: bool = False,
     if_exists: str = "error",
@@ -1009,8 +1009,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--keep-runs",
         type=int,
-        default=2,
-        help="Full snapshots to retain after loading (default: 2)",
+        # One full snapshot per market. The free database stops accepting
+        # writes at 500 MB and each snapshot is ~90 MB; nothing reads the
+        # previous one -- Movers and the session-move backfill use
+        # screener_history, which keeps every day.
+        default=1,
+        help="Full snapshots to retain after loading (default: 1)",
     )
     parser.add_argument("--chunk-size", type=int, default=200)
     parser.add_argument(

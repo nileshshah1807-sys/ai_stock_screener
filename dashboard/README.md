@@ -46,8 +46,8 @@ column would break the schema on every model revision, so each row is split:
 A new audit column therefore appears in drill-down with no migration. Only a new
 *filterable* field needs one.
 
-Full snapshots are pruned to the most recent runs (`prune_screener_snapshots`,
-default: keep 2). `screener_history` keeps 15 fields per stock per day forever
+Full snapshots are pruned to the latest run per market (`prune_screener_snapshots`,
+publisher default: keep 1 -- each is ~90 MB against the free plan's 500 MB). `screener_history` keeps 15 fields per stock per day forever
 at roughly 0.4 MB/day, which is what makes the movers view work after snapshot
 pruning. It is also the Returns page's record of every published ranking: that
 page prices a past day's top N forward from it, from the first day this table

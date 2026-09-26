@@ -669,6 +669,15 @@ class PublishTests(unittest.TestCase):
         self.assertIn("publish_run", [name for name, _ in repository.calls])
         self.assertIn("universe_index", summary["universe_index_error"])
 
+    def test_only_the_latest_snapshot_is_kept_by_default(self):
+        # Each full snapshot is ~90 MB against the free plan's 500 MB.
+        repository = RecordingDashboardRepository()
+
+        self.publish_with(repository)
+
+        prune = next(details for name, details in repository.calls if name == "prune")
+        self.assertEqual(prune["keep_runs"], 1)
+
     def test_prune_failure_is_non_fatal_after_completed_publish(self):
         repository = RecordingDashboardRepository(fail_at="prune")
 
