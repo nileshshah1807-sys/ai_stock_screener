@@ -13,10 +13,12 @@ import { rangeStart } from "@/lib/market-breadth.mjs";
 import type { Market } from "@/lib/markets";
 import {
   COST_PER_SIDE_PCT,
+  PICK_OPTIONS,
   REBALANCE_OPTIONS,
   START_PRESETS,
   TOP_N_OPTIONS,
   modelForDate,
+  pickOption,
   snapRankingDate,
 } from "@/lib/returns.mjs";
 import type { ReturnsReport } from "@/lib/returns-data";
@@ -50,8 +52,8 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
   const [pending, startTransition] = useTransition();
   const [costs, setCosts] = useState(report.costs);
   const [shown, setShown] = useOptimistic(
-    { from: report.rankDate, top: String(report.topN), rebalance: report.rebalance.option },
-    (current, patch: Partial<{ from: string; top: string; rebalance: string }>) => ({ ...current, ...patch }),
+    { from: report.rankDate, top: String(report.topN), rebalance: report.rebalance.option, pick: report.pick },
+    (current, patch: Partial<{ from: string; top: string; rebalance: string; pick: string }>) => ({ ...current, ...patch }),
   );
 
   const urlFor = (mutate: (params: URLSearchParams) => void) => {
@@ -61,7 +63,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
     return query ? `${pathname}?${query}` : pathname;
   };
   const push = (
-    patch: Partial<{ from: string; top: string; rebalance: string }>,
+    patch: Partial<{ from: string; top: string; rebalance: string; pick: string }>,
     mutate: (params: URLSearchParams) => void,
   ) => {
     const url = urlFor(mutate);
@@ -106,6 +108,8 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
   const sessionsHeld = report.basket.curve.length;
   const rebalanceLabel = REBALANCE_PERIOD_WORDS[report.rebalance.option] ?? null;
   const lastModel = modelForDate(market.code, report.rebalance.lastRankDate);
+  const pickPhrase = pickOption(report.pick).phrase ?? null;
+  const rounds = report.rebalance.count + 1;
 
   return (
     <div className="space-y-4">
@@ -141,6 +145,20 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
             value={shown.top}
             onChange={(value) => push({ top: value }, (params) => params.set("top", value))}
             options={TOP_N_OPTIONS.map((size) => ({ value: String(size), label: `Top ${size}` }))}
+          />
+        </Field>
+        <Field label="Pick from">
+          <SegmentedControl
+            label="Pick from"
+            value={shown.pick}
+            onChange={(value) =>
+              push({ pick: value }, (params) => (value === "all" ? params.delete("pick") : params.set("pick", value)))
+            }
+            options={PICK_OPTIONS.map((option) => ({
+              value: option.value,
+              label: option.label,
+              title: option.title,
+            }))}
           />
         </Field>
         <Field label="Rebalance">
@@ -183,7 +201,8 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
         )}
       >
         <p className="text-sm text-muted-foreground">
-          The top {report.topN} of the{" "}
+          The top {report.topN}
+          {pickPhrase ? ` ${pickPhrase} stocks` : ""} of the{" "}
           <span className="font-medium text-foreground">{formatDate(report.rankDate)}</span> ranking
           {report.model ? ` (${report.model})` : ""}, bought at the close on {formatDate(report.entrySession)}
           {rebalanceLabel ? (
@@ -203,6 +222,33 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           held for {sessionsHeld} {sessionsHeld === 1 ? "session" : "sessions"} to {formatDate(report.asOf)}.
         </p>
 
+        {report.hold ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {report.hold === "advancing"
+              ? "A stock is bought from this list, then held while it stays in Stage 2 or a pullback within it, and sold at the next rebalance after it breaks into Stage 3 or 4 — so it is not sold merely for no longer being on the list. "
+              : "A stock is bought from this list, then held while it stays rated BUY or better, and sold at the next rebalance after its rating falls below that. "}
+            Each rebalance refills the free slots from the list, best first.
+          </p>
+        ) : null}
+
+        {report.pickStartMovedFrom || report.shortRounds ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {report.pickStartMovedFrom ? (
+              <>
+                The start moved from {formatDate(report.pickStartMovedFrom)} to {formatDate(report.rankDate)}: ratings
+                exist in the backtest only once its filings carry enough fundamentals to rate, from 2023.{" "}
+              </>
+            ) : null}
+            {report.shortRounds ? (
+              <>
+                On {report.shortRounds === rounds ? "every" : `${report.shortRounds} of ${rounds}`}{" "}
+                {rounds === 1 ? "purchase" : "rounds"}, fewer than {report.topN} stocks passed the pick; the basket
+                held the ones that did in equal weight, and cash when none did.
+              </>
+            ) : null}
+          </p>
+        ) : null}
+
         {report.backtestRounds ? (
           <p className="rounded-xl border border-caution/40 bg-caution/10 px-3 py-2 text-xs leading-relaxed text-foreground">
             <span className="font-semibold">Backtest.</span>{" "}
@@ -212,6 +258,9 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
             a point-in-time backtest, not one the dashboard published; published rankings begin{" "}
             {formatDate(report.liveFrom)}. The model&rsquo;s weights were fitted on this same period, so
             these returns are in-sample and flatter what to expect going forward.
+            {pickOption(report.pick).ratings
+              ? " Backtest ratings are reconstructed from a copy of the production gates, which leaves out a few data checks, so they can be slightly more generous than the ratings the dashboard publishes."
+              : ""}
           </p>
         ) : null}
 

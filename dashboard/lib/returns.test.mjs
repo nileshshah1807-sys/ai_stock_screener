@@ -8,7 +8,9 @@ import {
   entrySessionAfter,
   indexReturns,
   modelForDate,
+  pickOption,
   portfolioReturns,
+  selectBaskets,
   rebalanceDates,
   rebalanceOption,
   snapRankingDate,
@@ -231,6 +233,19 @@ describe("portfolioReturns, rebalanced", () => {
     assert.ok(Math.abs(result.netPct - (expected - 1) * 100) < 1e-9);
   });
 
+  it("a round with no names sells to cash until names return", () => {
+    const empty = [
+      { entrySession: "2026-09-01", symbols: ["A"] },
+      { entrySession: "2026-09-08", symbols: [] },
+    ];
+    const result = portfolioReturns(empty, closes, { asOf: "2026-09-15" });
+    // A rose 10% to 09-08, then the basket sat in cash while A rose again.
+    assert.ok(Math.abs(result.grossPct - 10) < 1e-9);
+    assert.deepEqual(result.trades[1].sold, ["A"]);
+    assert.deepEqual(result.stocks, []);
+    assert.ok(Math.abs(result.trades[1].returnPct) < 1e-9);
+  });
+
   it("an unchanged basket only pays to restore equal weight", () => {
     const same = [
       { entrySession: "2026-09-01", symbols: ["A", "C"] },
@@ -321,5 +336,67 @@ describe("compoundIndex", () => {
 describe("modelForDate, backtest", () => {
   it("labels every backtest ranking as the fitted model", () => {
     assert.equal(modelForDate("NSE", "2019-03-01", true), "Model 5.1 backtest");
+  });
+});
+
+describe("pickOption", () => {
+  it("falls back to the whole ranking", () => {
+    assert.equal(pickOption(undefined).value, "all");
+    assert.equal(pickOption("nonsense").value, "all");
+  });
+
+  it("names the stored column for each filtered pick", () => {
+    assert.equal(pickOption("strong_buy").column, "rank_strong_buy");
+    assert.deepEqual(pickOption("buy").ratings, ["BUY", "STRONG BUY"]);
+    assert.equal(pickOption("fresh_stage2").maxAdvanceAge, 30);
+  });
+});
+
+describe("selectBaskets", () => {
+  it("without a hold rule, each round is its buy list's top N", () => {
+    const baskets = selectBaskets(
+      [
+        { candidates: ["A", "B", "C"], keep: null },
+        { candidates: ["C", "D", "A"], keep: null },
+      ],
+      2,
+    );
+    assert.deepEqual(baskets, [["A", "B"], ["C", "D"]]);
+  });
+
+  it("keeps holdings that pass the hold rule and fills free slots in rank order", () => {
+    const baskets = selectBaskets(
+      [
+        // Bought fresh: A and B.
+        { candidates: ["A", "B", "C"], keep: new Set() },
+        // A and B are no longer fresh, so off the buy list -- but A is still
+        // advancing and stays; B broke down and goes. D fills B's slot.
+        { candidates: ["D", "E"], keep: new Set(["A", "C", "D"]) },
+        // A now breaks too; the basket refills from the new list.
+        { candidates: ["E", "F", "D"], keep: new Set(["D", "E"]) },
+      ],
+      2,
+    );
+    assert.deepEqual(baskets, [["A", "B"], ["A", "D"], ["D", "E"]]);
+  });
+
+  it("holds fewer than N when too few names pass, and nothing when none do", () => {
+    const baskets = selectBaskets(
+      [
+        { candidates: ["A"], keep: new Set() },
+        { candidates: [], keep: new Set() },
+      ],
+      3,
+    );
+    assert.deepEqual(baskets, [["A"], []]);
+  });
+});
+
+describe("pick hold rules", () => {
+  it("stage picks hold while advancing, rating picks while BUY or better", () => {
+    assert.equal(pickOption("fresh_stage2").hold, "advancing");
+    assert.equal(pickOption("stage2").hold, "advancing");
+    assert.equal(pickOption("strong_buy").hold, "buy_plus");
+    assert.equal(pickOption("all").hold, undefined);
   });
 });

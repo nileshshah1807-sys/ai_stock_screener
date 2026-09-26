@@ -654,6 +654,23 @@ class DashboardRepository:
             written += len(chunk)
         return written
 
+    def upsert_simulated_states(
+        self,
+        rows: list[dict[str, Any]],
+        chunk_size: int = 50,
+    ) -> int:
+        """Weekly hold-rule sets for the Returns page; a few KB a row, so small chunks."""
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "simulated_states?on_conflict=market,observed_on",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        return written
+
     def upsert_universe_index(
         self,
         rows: list[dict[str, Any]],

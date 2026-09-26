@@ -11,6 +11,104 @@
 
 import { decodeDeltas } from "./price-series.mjs";
 
+/**
+ * What the basket picks from: the whole ranking, or one filtered list of it,
+ * taking the top N of that list. Backtest rankings store each list's own rank
+ * (`column`); published ones are filtered at read time by the same rule, which
+ * matches `PICKS` in tools/backfill_returns_history.py.
+ *
+ * P0 found gating by rating cost 5-16 points a year as a selection rule, and
+ * P4 found a fresh-Stage-2 tilt negative in both halves; these picks exist to
+ * let a reader see that, not because they are expected to do better.
+ */
+export const FRESH_STAGE2_DAYS = 30;
+export const PICK_OPTIONS = [
+  { value: "all", label: "All", title: "The whole ranking" },
+  {
+    value: "buy",
+    label: "Buy+",
+    title: "Only stocks rated BUY or STRONG BUY",
+    column: "rank_buy",
+    ratings: ["BUY", "STRONG BUY"],
+    hold: "buy_plus",
+    phrase: "BUY-or-better",
+  },
+  {
+    value: "strong_buy",
+    label: "Strong Buy",
+    title: "Only stocks rated STRONG BUY",
+    column: "rank_strong_buy",
+    ratings: ["STRONG BUY"],
+    hold: "buy_plus",
+    phrase: "STRONG BUY",
+  },
+  {
+    value: "stage2",
+    label: "Stage 2",
+    title: "Only stocks in Stage 2",
+    column: "rank_stage2",
+    stage: "Stage 2",
+    hold: "advancing",
+    phrase: "Stage 2",
+  },
+  {
+    value: "fresh_stage2",
+    label: "Fresh S2",
+    title: `Stage 2, with the advance begun within ${FRESH_STAGE2_DAYS} days`,
+    column: "rank_fresh_stage2",
+    stage: "Stage 2",
+    maxAdvanceAge: FRESH_STAGE2_DAYS,
+    hold: "advancing",
+    phrase: "fresh Stage 2",
+  },
+];
+
+/**
+ * @param {string | null | undefined} value
+ */
+export function pickOption(value) {
+  return PICK_OPTIONS.find((option) => option.value === value) ?? PICK_OPTIONS[0];
+}
+
+/** Stages a stock may stay held in under a stage pick: the advance, pullbacks included. */
+export const ADVANCING_STAGES = ["Stage 2", "S2 Candidate"];
+
+/**
+ * Which stocks the basket holds at each round, given buy lists and hold rules.
+ *
+ * A pick says what to *buy*; its hold rule says what may be *kept*. So each
+ * round keeps every holding that still passes the hold rule (a stage pick
+ * keeps a stock while it is advancing and sells it on a break into Stage 3 or
+ * 4; a rating pick keeps it while it is rated BUY or better), then fills the
+ * free slots from the round's buy list in rank order. Without that split, a
+ * "fresh Stage 2" basket sold every name the week it stopped being fresh.
+ *
+ * `keep` is the set of symbols allowed to stay that round; null means no hold
+ * rule, and the round is simply its buy list's top N -- which is also what the
+ * whole-ranking pick does. Holdings depend only on these lists, never on
+ * prices, so the baskets are settled before any price is read.
+ *
+ * @param {{candidates: string[], keep: Set<string> | null}[]} rounds oldest first
+ * @param {number} topN
+ * @returns {string[][]} each round's basket, kept names first
+ */
+export function selectBaskets(rounds, topN) {
+  const baskets = [];
+  let held = [];
+  for (const { candidates, keep } of rounds) {
+    if (!keep) {
+      held = candidates.slice(0, topN);
+    } else {
+      const kept = held.filter((symbol) => keep.has(symbol));
+      const taken = new Set(kept);
+      const fresh = candidates.filter((symbol) => !taken.has(symbol)).slice(0, Math.max(0, topN - kept.length));
+      held = [...kept, ...fresh];
+    }
+    baskets.push(held);
+  }
+  return baskets;
+}
+
 /** Basket sizes offered. The research studies hold the top 20. */
 export const TOP_N_OPTIONS = [10, 20, 50];
 export const DEFAULT_TOP_N = 20;
@@ -250,7 +348,10 @@ function simulate(rounds, series, asOf, cost) {
     }
 
     const round = roundAt.get(time);
-    if (round && round.symbols.length) {
+    // A round with no names -- a filter nothing passed that day -- sells
+    // everything and holds cash until a later round has names again, rather
+    // than silently keeping stocks the filter no longer selects.
+    if (round) {
       let before = cash;
       const current = new Map();
       for (const [symbol, position] of positions) {
@@ -259,14 +360,14 @@ function simulate(rounds, series, asOf, cost) {
         before += held;
       }
       const targets = new Set(round.symbols);
-      const share = before / targets.size;
+      const share = targets.size ? before / targets.size : 0;
       // Cash is not a position: moving into or out of it is the trade.
       let traded = 0;
       for (const symbol of new Set([...targets, ...current.keys()])) {
         traded += Math.abs((targets.has(symbol) ? share : 0) - (current.get(symbol) ?? 0));
       }
       const charged = traded * cost;
-      const each = (before - charged) / targets.size;
+      const each = targets.size ? (before - charged) / targets.size : 0;
 
       const next = new Map();
       for (const symbol of round.symbols) {
@@ -300,13 +401,15 @@ function simulate(rounds, series, asOf, cost) {
         valueAfter: before - charged,
       });
       positions = next;
-      cash = 0;
+      cash = targets.size ? 0 : before - charged;
     }
 
-    value = cash;
-    for (const [symbol, position] of positions) value += valueOf(symbol, position);
-    // As if sold that day, so the last point is the headline number.
-    curve.push({ time, value: (value * (1 - cost) - 1) * 100 });
+    let invested = 0;
+    for (const [symbol, position] of positions) invested += valueOf(symbol, position);
+    value = cash + invested;
+    // As if sold that day, so the last point is the headline number. Cash
+    // needs no sale, so only the invested part pays the exit cost.
+    curve.push({ time, value: (cash + invested * (1 - cost) - 1) * 100 });
   }
 
   return { curve, trades, closed, positions, value, lastClose };

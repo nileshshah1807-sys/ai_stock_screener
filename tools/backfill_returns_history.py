@@ -18,6 +18,7 @@ publishing should not have to repeat it::
     python -m tools.backfill_returns_history build --out reports_advanced/returns_backfill
     python -m tools.backfill_returns_history publish --from reports_advanced/returns_backfill --dry-run
     python -m tools.backfill_returns_history publish --from reports_advanced/returns_backfill
+    python -m tools.backfill_returns_history annotate-live --dry-run
 
 ``build`` needs the local backtest archive (``reports_advanced/backtest``).
 ``publish`` reads the live record from Supabase to extend the index past the
@@ -72,17 +73,77 @@ def next_session(sessions, day):
     return None
 
 
-def top_rankings(fills, current_symbol, top_n=TOP_N):
-    """Rows for ``simulated_rankings``: each week's top N by research score.
+#: A week is rated only when at least this share of its ranked names has a
+#: sufficient quality block. The archive's filings carry too little balance
+#: sheet before FY2023 to clear it, and without it every name fails the BUY
+#: gate on coverage -- an artefact of the archive, not a rating production
+#: would have published -- so those weeks carry no rating at all.
+MIN_RATED_COVERAGE = 0.5
 
-    ``current_symbol`` maps Security_ID to today's ticker. A security it cannot
+#: A Stage 2 advance at most this many calendar days old counts as fresh --
+#: the same `Advance_Age_Days` production publishes, so both eras agree.
+FRESH_STAGE2_DAYS = 30
+
+#: Picks the Returns page offers, each a predicate on one ranked row. Every
+#: filter's own top N is stored with its rank inside that filter, so a
+#: filtered top 10 is as cheap to read as the plain one.
+PICKS = {
+    "rank_buy": lambda row: row["rating"] in ("BUY", "STRONG BUY"),
+    "rank_strong_buy": lambda row: row["rating"] == "STRONG BUY",
+    "rank_stage2": lambda row: row["stage"] == "Stage 2",
+    "rank_fresh_stage2": lambda row: row["stage"] == "Stage 2"
+    and row["advance_age_days"] is not None
+    and row["advance_age_days"] <= FRESH_STAGE2_DAYS,
+}
+
+
+def gated_rating(row, regime, config=None):
+    """The rating production would publish, from the backtest's gate mirror.
+
+    `backtest.gates` omits a few BUY-side gates the archive cannot support
+    (coverage floors, data-integrity and liquidity checks), so this is the
+    same or more generous than production -- never stricter.
+    """
+    from backtest.gates import CEILING_BUY_FAILED, CEILING_CLEAR, CEILING_STRONG_FAILED, gate_failures
+    from screener.recommendation import rating_from_score
+
+    buy, strong = gate_failures(row, config, regime=regime)
+    ceiling = CEILING_BUY_FAILED if buy else CEILING_STRONG_FAILED if strong else CEILING_CLEAR
+    return rating_from_score(min(float(row["Research_Score"]), ceiling))
+
+
+def _int_or_none(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if number != number else int(round(number))
+
+
+def top_rankings(fills, current_symbol, top_n=TOP_N, rate=None):
+    """Rows for ``simulated_rankings``: each week's top N, overall and per pick.
+
+    Walks each week's ranking once, best first, giving every row its overall
+    ``investment_rank`` and, for each pick in ``PICKS`` it satisfies, its rank
+    inside that pick. A row is kept when it is inside the top N overall or of
+    any pick, so every filtered top N can be read back exactly.
+
+    ``current_symbol`` maps Security_ID to today's ticker; a security it cannot
     map is skipped rather than published under a stale ticker that no
-    ``price_series`` row would match.
+    ``price_series`` row would match. ``rate(row, signal_date)`` gives the
+    rating; without it, or in a week below ``MIN_RATED_COVERAGE``, no rating
+    is recorded and the rating picks stay empty that week.
     """
     rows = []
     scored = fills[fills["Research_Score"].notna()]
     for signal_date, group in scored.groupby("Signal_Date"):
+        day = str(signal_date)[:10]
+        coverage = group.get("Quality_Coverage_Sufficient")
+        rated = rate is not None and (
+            coverage is None or coverage.fillna(False).astype(bool).mean() >= MIN_RATED_COVERAGE
+        )
         ordered = group.sort_values(["Research_Score", "Security_ID"], ascending=[False, True])
+        counts = dict.fromkeys(PICKS, 0)
         rank = 0
         for _, row in ordered.iterrows():
             symbol = current_symbol.get(str(row["Security_ID"]))
@@ -90,19 +151,71 @@ def top_rankings(fills, current_symbol, top_n=TOP_N):
                 continue
             rank += 1
             stage = row.get("Stage")
-            rows.append(
-                {
-                    "observed_on": str(signal_date)[:10],
-                    "symbol": symbol,
-                    "investment_rank": rank,
-                    "research_score": round_half_up(float(row["Research_Score"]), 2),
-                    "stage": stage if isinstance(stage, str) and stage else None,
-                    "model_version": MODEL_VERSION,
-                }
-            )
-            if rank >= top_n:
+            record = {
+                "observed_on": day,
+                "symbol": symbol,
+                "investment_rank": rank,
+                "research_score": round_half_up(float(row["Research_Score"]), 2),
+                "stage": stage if isinstance(stage, str) and stage else None,
+                "advance_age_days": _int_or_none(row.get("Advance_Age_Days")),
+                "rating": rate(row, day) if rated else None,
+                "model_version": MODEL_VERSION,
+            }
+            keep = rank <= top_n
+            for column, pick in PICKS.items():
+                record[column] = None
+                if counts[column] < top_n and pick(record):
+                    counts[column] += 1
+                    record[column] = counts[column]
+                    keep = True
+            if keep:
+                rows.append(record)
+            if rank >= top_n and all(count >= top_n for count in counts.values()):
                 break
     return rows
+
+
+#: Stages a holding may stay in under a stage pick: the advance, including a
+#: pullback under MA50. Leaving it -- a break into Stage 3 or 4 -- is the exit
+#: P5 found improved risk-adjusted return.
+ADVANCING = ("Stage 2", "S2 Candidate")
+BUY_PLUS = ("BUY", "STRONG BUY")
+
+
+def weekly_states(fills, current_symbol, rate=None):
+    """Per week, the ranked names a held stock may stay in the basket as.
+
+    ``advancing`` is every ranked name in Stage 2 or S2 Candidate; ``buy_plus``
+    every name rated BUY or better, or None in a week too thin to rate. The
+    Returns page reads these for the names it holds at each rebalance, so a
+    stock bought as "fresh Stage 2" is kept while its advance runs rather than
+    sold the week it stops being fresh.
+    """
+    states = []
+    scored = fills[fills["Research_Score"].notna()]
+    for signal_date, group in scored.groupby("Signal_Date"):
+        day = str(signal_date)[:10]
+        coverage = group.get("Quality_Coverage_Sufficient")
+        rated = rate is not None and (
+            coverage is None or coverage.fillna(False).astype(bool).mean() >= MIN_RATED_COVERAGE
+        )
+        advancing, buy_plus = [], []
+        for _, row in group.iterrows():
+            symbol = current_symbol.get(str(row["Security_ID"]))
+            if not symbol:
+                continue
+            if row.get("Stage") in ADVANCING:
+                advancing.append(symbol)
+            if rated and rate(row, day) in BUY_PLUS:
+                buy_plus.append(symbol)
+        states.append(
+            {
+                "observed_on": day,
+                "advancing": sorted(set(advancing)),
+                "buy_plus": sorted(set(buy_plus)) if rated else None,
+            }
+        )
+    return states
 
 
 def equal_weight_index(closes_by_day, memberships, sessions):
@@ -176,9 +289,30 @@ def build(args):
 
     master = pd.read_csv(Path(args.root) / "security_master.csv", dtype=str)
     current_symbol = dict(zip(master["Security_ID"], master["Current_Symbol"]))
-    rankings = top_rankings(fills, current_symbol, args.top)
+
+    # The regime overlay is a real gate, so each week is rated in the regime
+    # it was actually in, read point-in-time from the archive's index history.
+    from backtest.benchmarks import IndexStore, regime_provider
+    from backtest.gates import GateConfig
+
+    regime_for = regime_provider(IndexStore(Path(args.root) / "indices.csv").load())
+    gate_config = GateConfig.from_runtime()
+    rankings = top_rankings(
+        fills,
+        current_symbol,
+        args.top,
+        rate=lambda row, day: gated_rating(row, regime_for(day), gate_config),
+    )
     pd.DataFrame(rankings).to_csv(out / "simulated_rankings.csv", index=False)
     logger.info("simulated_rankings: %d rows", len(rankings))
+
+    states = weekly_states(
+        fills,
+        current_symbol,
+        rate=lambda row, day: gated_rating(row, regime_for(day), gate_config),
+    )
+    (out / "simulated_states.json").write_text(json.dumps(states))
+    logger.info("simulated_states: %d weeks", len(states))
 
     # Every scored security is a member of that week's universe.
     scored = fills[fills["Research_Score"].notna()]
@@ -274,6 +408,98 @@ def _live_index(repository, first_live_entry):
     return equal_weight_index(closes_by_day, memberships, window)
 
 
+def _annotate_market(repository, market):
+    """Stage and advance age for every published ranked row that lacks them.
+
+    Runs published before the publisher recorded `advance_age_days` get it
+    reconstructed here, with `screener.stage.stage_features` over the stored
+    split-adjusted closes -- the archive prices the backtest era also uses.
+    Production computes stage from its own vendor bars, so the two disagree for
+    about one stock in five near a moving-average boundary; a published stage
+    is therefore never overwritten, only a missing one filled.
+    """
+    from screener.stage import stage_features
+    from workers.price_series import decode_calendar, decode_series
+
+    rows = repository._paged(
+        "screener_history",
+        {
+            "select": "observed_on,symbol,stage,current_price",
+            "investment_rank": "not.is.null",
+            "advance_age_days": "is.null",
+            "order": "symbol,observed_on",
+        },
+    )
+    if not rows:
+        return [], []
+    frame = pd.DataFrame(rows)
+    symbols = sorted(frame["symbol"].unique())
+    calendar = repository._request(
+        "GET", "price_calendar", params=repository._scoped({"select": "sessions"})
+    )
+    sessions = decode_calendar(calendar[0]["sessions"]) if calendar else []
+    base = {}
+    for index in range(0, len(symbols), 100):
+        part = symbols[index:index + 100]
+        for row in repository._paged(
+            "price_series",
+            {
+                "select": "symbol,session_deltas,closes,volumes,last_session",
+                "symbol": "in.(" + ",".join(f'"{symbol}"' for symbol in part) + ")",
+            },
+            page=100,
+        ):
+            base[row["symbol"]] = row
+
+    fill_stage, age_only = [], []
+    for symbol, group in frame.groupby("symbol"):
+        points = []
+        last = ""
+        if symbol in base:
+            points = [(point["date"], point["close"]) for point in decode_series(base[symbol], sessions)]
+            last = base[symbol]["last_session"]
+        # Raw closes after the base's last rebuild, as the dashboard does.
+        for record in group.itertuples():
+            if record.observed_on > last and record.current_price:
+                points.append((record.observed_on, float(record.current_price)))
+        if not points:
+            continue
+        closes = pd.Series(
+            [close for _, close in points], index=pd.to_datetime([day for day, _ in points])
+        ).sort_index()
+        closes = closes[~closes.index.duplicated(keep="first")]
+        for record in group.itertuples():
+            features = stage_features(closes[closes.index <= pd.Timestamp(record.observed_on)])
+            age = _int_or_none(features.get("Advance_Age_Days"))
+            base_row = {"observed_on": record.observed_on, "symbol": symbol, "advance_age_days": age}
+            # A missing stage reads back from the frame as NaN, which is truthy.
+            if isinstance(record.stage, str) and record.stage:
+                age_only.append(base_row)
+            else:
+                fill_stage.append({**base_row, "stage": features.get("Stage")})
+    logger.info(
+        "%s: %d rows lacked annotations (%d need a stage too)",
+        market, len(age_only) + len(fill_stage), len(fill_stage),
+    )
+    return fill_stage, age_only
+
+
+def annotate_live(args):
+    from storage.dashboard_repository import DashboardRepository
+
+    load_env_file()
+    for market in args.markets:
+        repository = DashboardRepository.from_environment(market)
+        fill_stage, age_only = _annotate_market(repository, market)
+        if args.dry_run:
+            continue
+        # PostgREST wants every object in one request to carry the same keys,
+        # and an upsert touches only the columns sent -- so the two shapes go
+        # separately, and a published stage is never sent at all.
+        written = repository.upsert_history_rows(fill_stage) + repository.upsert_history_rows(age_only)
+        logger.info("%s: annotated %d rows", market, written)
+
+
 def publish(args):
     from storage.dashboard_repository import DashboardRepository
 
@@ -327,12 +553,23 @@ def publish(args):
     )
     if args.dry_run:
         return
+    # CSV round trip: blank text reads back as NaN, and an integer column with
+    # blanks as floats. Postgres wants nulls and integers.
+    integer_columns = ("investment_rank", "advance_age_days", *PICKS)
     for row in rankings:
-        if isinstance(row.get("stage"), float):
-            row["stage"] = None
+        for column in ("stage", "rating"):
+            if isinstance(row.get(column), float):
+                row[column] = None
+        for column in integer_columns:
+            row[column] = _int_or_none(row.get(column))
+    states = json.loads((source / "simulated_states.json").read_text())
+    states = [row for row in states if row["observed_on"] < first_live_day.isoformat()]
     written = repository.upsert_simulated_rankings(rankings)
+    repository.upsert_simulated_states(states)
     indexed = repository.upsert_universe_index(index_rows)
-    logger.info("Published %d ranking rows and %d index rows", written, indexed)
+    logger.info(
+        "Published %d ranking rows, %d weekly states and %d index rows", written, len(states), indexed
+    )
 
 
 def main(argv=None):
@@ -348,8 +585,11 @@ def main(argv=None):
     p = sub.add_parser("publish", help="upload a build to Supabase")
     p.add_argument("--from", dest="source", required=True)
     p.add_argument("--dry-run", action="store_true")
+    a = sub.add_parser("annotate-live", help="fill stage/advance age on published runs lacking them")
+    a.add_argument("--markets", nargs="+", default=["NSE", "US"])
+    a.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    (build if args.stage == "build" else publish)(args)
+    {"build": build, "publish": publish, "annotate-live": annotate_live}[args.stage](args)
 
 
 if __name__ == "__main__":
