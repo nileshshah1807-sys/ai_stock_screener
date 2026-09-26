@@ -10,7 +10,7 @@ import { SegmentedControl } from "@/components/segmented-control";
 import { formatDate, formatMoney, formatPercent, MISSING } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
 import { modelForDate } from "@/lib/returns.mjs";
-import type { ClosedTrade, HoldingRow, TradeRound } from "@/lib/returns-data";
+import type { ClosedTrade, HoldingRow, ReturnSplit, TradeRound } from "@/lib/returns-data";
 import { STAGES } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -58,7 +58,8 @@ export function Portfolio({
   firstEntry,
   rebalances,
   swapped,
-  costPct,
+  costs,
+  split,
 }: {
   holdings: HoldingRow[];
   trades: TradeRound[];
@@ -69,7 +70,9 @@ export function Portfolio({
   firstEntry: string;
   rebalances: number;
   swapped: number;
-  costPct: number;
+  /** Whether figures are after trading costs; the gain columns follow it. */
+  costs: boolean;
+  split: ReturnSplit | null;
 }) {
   const [tab, setTab] = useState<Tab>("holdings");
   const hasHistory = trades.length > 1;
@@ -129,17 +132,21 @@ export function Portfolio({
         {view === "holdings" ? (
           <>
             <p className="px-4 pt-3 text-xs text-muted-foreground">
-              {winners} of {priced.length} up. Each return runs from the day that stock was bought.
+              {winners} of {priced.length} up
+              {split ? <>, {formatPoints(split.openPct)} open in all</> : null}. Each return runs from the day that
+              stock was bought; its open gain, in points of the starting capital, is what it adds to the headline
+              today.
+
               {hasHistory
                 ? ` These are the stocks held after the last rebalance, on the ${formatDate(lastRankDate)} ranking.`
                 : ` Bought once and held, so a stock that has since left the top ${topN} is still here.`}
             </p>
-            <HoldingsTable holdings={holdings} market={market} topN={topN} firstEntry={firstEntry} />
+            <HoldingsTable holdings={holdings} market={market} topN={topN} firstEntry={firstEntry} costs={costs} />
           </>
         ) : view === "closed" ? (
-          <Closed trades={closed} market={market} />
+          <Closed trades={closed} market={market} costs={costs} split={split} />
         ) : (
-          <History trades={trades} market={market} swapped={swapped} costPct={costPct} />
+          <History trades={trades} market={market} swapped={swapped} paidPct={split?.paidPct ?? 0} />
         )}
       </div>
     </section>
@@ -187,6 +194,20 @@ function ReturnText({ value, size = "xs" }: { value: number | null; size?: "xs" 
   );
 }
 
+/** Points of the starting capital, signed: "+1.24 pts". */
+function formatPoints(value: number) {
+  return `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value).toFixed(2)} pts`;
+}
+
+function PointsText({ value }: { value: number | null }) {
+  if (value === null) return <span className="text-muted-foreground">{MISSING}</span>;
+  return (
+    <span className={cn("tabular font-mono text-xs", value >= 0 ? "text-positive" : "text-negative")}>
+      {formatPoints(value)}
+    </span>
+  );
+}
+
 function RankNow({ row, topN }: { row: HoldingRow; topN: number }) {
   if (!row.inLatestRun || row.rankNow === null) {
     return <span className="whitespace-nowrap text-[11px] text-muted-foreground">not ranked</span>;
@@ -217,11 +238,13 @@ function HoldingsTable({
   market,
   topN,
   firstEntry,
+  costs,
 }: {
   holdings: HoldingRow[];
   market: Market;
   topN: number;
   firstEntry: string;
+  costs: boolean;
 }) {
   return (
     <div className="mt-2 overflow-x-auto">
@@ -233,6 +256,9 @@ function HoldingsTable({
             <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Bought at</th>
             <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Latest</th>
             <th className="px-2 py-2 text-right font-medium">Return</th>
+            <th className="px-2 py-2 text-right font-medium" title="Gain still open, in points of the starting capital">
+              Open gain
+            </th>
             <th className="px-2 py-2 font-medium">Rank now</th>
             <th className="hidden px-2 py-2 font-medium sm:table-cell">Stage</th>
             <th className="px-4 py-2 font-medium">Rating now</th>
@@ -277,6 +303,9 @@ function HoldingsTable({
               <td className="px-2 py-2 text-right">
                 <ReturnText value={row.returnPct} />
               </td>
+              <td className="px-2 py-2 text-right">
+                <PointsText value={costs ? row.openPts : row.grossOpenPts} />
+              </td>
               <td className="px-2 py-2">
                 <RankNow row={row} topN={topN} />
               </td>
@@ -304,12 +333,12 @@ function History({
   trades,
   market,
   swapped,
-  costPct,
+  paidPct,
 }: {
   trades: TradeRound[];
   market: Market;
   swapped: number;
-  costPct: number;
+  paidPct: number;
 }) {
   const [shown, setShown] = useState(FIRST_PAGE);
   const newestFirst = [...trades].reverse();
@@ -326,7 +355,7 @@ function History({
     <>
       <p className="px-4 pt-3 pb-1 text-xs text-muted-foreground">
         {trades.length - 1} {trades.length === 2 ? "rebalance" : "rebalances"}, {swapped}{" "}
-        {swapped === 1 ? "stock" : "stocks"} swapped, {costPct.toFixed(2)} pts of trading costs. Each return is the
+        {swapped === 1 ? "stock" : "stocks"} swapped, {paidPct.toFixed(2)} pts paid in trading costs. Each return is the
         whole basket&rsquo;s move until the next rebalance.
       </p>
       <ol>
@@ -495,13 +524,27 @@ function median(values: number[]) {
  * order switch surfaces the outliers without a sortable-header affordance on
  * every column.
  */
-function Closed({ trades, market }: { trades: ClosedTrade[]; market: Market }) {
+function Closed({
+  trades,
+  market,
+  costs,
+  split,
+}: {
+  trades: ClosedTrade[];
+  market: Market;
+  costs: boolean;
+  split: ReturnSplit | null;
+}) {
   const [order, setOrder] = useState<ClosedOrder>("recent");
   const [shown, setShown] = useState(CLOSED_PAGE);
   const returns = trades.map((trade) => trade.returnPct).filter((value): value is number => value !== null);
   const won = returns.filter((value) => value > 0).length;
   const average = returns.length ? returns.reduce((sum, value) => sum + value, 0) / returns.length : null;
   const middle = median(returns);
+  const booked = (trade: ClosedTrade) => (costs ? trade.bookedPts : trade.grossBookedPts);
+  const bookedHere = trades.reduce((sum, trade) => sum + booked(trade), 0);
+  // The rest of the booked total came from trimming stocks still held.
+  const bookedOnTrims = split ? split.bookedPct - bookedHere : null;
 
   const ordered = [...trades].sort((a, b) => {
     if (order === "recent") return a.soldOn < b.soldOn ? 1 : a.soldOn > b.soldOn ? -1 : 0;
@@ -526,7 +569,12 @@ function Closed({ trades, market }: { trades: ClosedTrade[]; market: Market }) {
         <p className="text-xs text-muted-foreground">
           {trades.length} closed, {won} of {returns.length} won ({returns.length ? Math.round((won / returns.length) * 100) : 0}
           %). Average {formatPercent(average, 2, true)}, median {formatPercent(middle, 2, true)}. Each return is that
-          stock&rsquo;s own, from purchase to sale, before costs.
+          stock&rsquo;s own, from purchase to sale, before costs. Booked is what the position added to the basket, in
+          points of the starting capital: {formatPoints(bookedHere)} here
+          {bookedOnTrims !== null && Math.abs(bookedOnTrims) >= 0.005 ? (
+            <>, and {formatPoints(bookedOnTrims)} more from trimming stocks still held</>
+          ) : null}
+          .
         </p>
         <SegmentedControl
           label="Order closed positions"
@@ -550,7 +598,10 @@ function Closed({ trades, market }: { trades: ClosedTrade[]; market: Market }) {
               <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Bought</th>
               <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Sold</th>
               <th className="px-2 py-2 text-right font-medium">Held</th>
-              <th className="px-4 py-2 text-right font-medium">Return</th>
+              <th className="px-2 py-2 text-right font-medium">Return</th>
+              <th className="px-4 py-2 text-right font-medium" title="Gain booked, in points of the starting capital">
+                Booked
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y">
@@ -590,8 +641,11 @@ function Closed({ trades, market }: { trades: ClosedTrade[]; market: Market }) {
                 <td className="tabular px-2 py-2 text-right font-mono text-xs text-muted-foreground">
                   {trade.boughtOn ? `${daysBetween(trade.boughtOn, trade.soldOn)}d` : MISSING}
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="px-2 py-2 text-right">
                   <ReturnText value={trade.returnPct} />
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <PointsText value={booked(trade)} />
                 </td>
               </tr>
             ))}

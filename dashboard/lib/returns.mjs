@@ -321,9 +321,14 @@ function simulate(rounds, series, asOf, cost) {
   const valueOf = (symbol, position) =>
     position.pending !== null ? position.pending : position.units * lastClose(symbol).close;
 
-  /** @type {Map<string, {units: number | null, pending: number | null, since: string, entry: {time: string, close: number} | null}>} */
+  // Each position carries its cost basis (average cost) and the gains it has
+  // booked while held: a rebalance that trims a winner back to equal weight
+  // sells part of it, which books that part's gain. Together they split the
+  // return into booked and open without changing it.
+  /** @type {Map<string, {units: number | null, pending: number | null, since: string, entry: {time: string, close: number} | null, basis: number, booked: number}>} */
   let positions = new Map();
   let cash = 1;
+  let costsPaid = 0;
   const curve = [];
   const trades = [];
   const closed = [];
@@ -367,6 +372,7 @@ function simulate(rounds, series, asOf, cost) {
         traded += Math.abs((targets.has(symbol) ? share : 0) - (current.get(symbol) ?? 0));
       }
       const charged = traded * cost;
+      costsPaid += charged;
       const each = targets.size ? (before - charged) / targets.size : 0;
 
       const next = new Map();
@@ -374,20 +380,31 @@ function simulate(rounds, series, asOf, cost) {
         const held = positions.get(symbol);
         const close = lastClose(symbol);
         if (held && held.pending === null) {
-          next.set(symbol, { ...held, units: each / close.close });
+          const units = each / close.close;
+          let { basis, booked } = held;
+          if (units < held.units) {
+            const kept = units / held.units;
+            booked += (held.units - units) * close.close - basis * (1 - kept);
+            basis *= kept;
+          } else {
+            basis += (units - held.units) * close.close;
+          }
+          next.set(symbol, { ...held, units, basis, booked });
         } else if (held) {
-          next.set(symbol, { ...held, pending: each });
+          // Still waiting in cash: nothing was bought, so nothing is booked.
+          next.set(symbol, { ...held, pending: each, basis: each });
         } else if (close && close.time === time) {
-          next.set(symbol, { units: each / close.close, pending: null, since: time, entry: close });
+          next.set(symbol, { units: each / close.close, pending: null, since: time, entry: close, basis: each, booked: 0 });
         } else {
-          next.set(symbol, { units: null, pending: each, since: time, entry: null });
+          next.set(symbol, { units: null, pending: each, since: time, entry: null, basis: each, booked: 0 });
         }
       }
       // A name the new round drops is sold at its latest close; that is the
       // end of one position, whatever weight resets it went through while held.
       for (const [symbol, position] of positions) {
         if (targets.has(symbol)) continue;
-        closed.push({ symbol, since: position.since, entry: position.entry, exit: lastClose(symbol), soldOn: time });
+        const booked = position.booked + current.get(symbol) - position.basis;
+        closed.push({ symbol, since: position.since, entry: position.entry, exit: lastClose(symbol), soldOn: time, booked });
       }
       trades.push({
         rankDate: round.rankDate ?? null,
@@ -412,7 +429,25 @@ function simulate(rounds, series, asOf, cost) {
     curve.push({ time, value: (cash + invested * (1 - cost) - 1) * 100 });
   }
 
-  return { curve, trades, closed, positions, value, lastClose };
+  // Every figure in points of the starting capital, so they add up:
+  // booked + open - costs is the curve's last point. Booked is every sale's
+  // gain over its average cost, trims included; open is what the holdings
+  // are up on theirs; costs are the ones paid plus selling everything today.
+  let open = 0;
+  let booked = 0;
+  for (const position of closed) booked += position.booked;
+  for (const [symbol, position] of positions) {
+    open += valueOf(symbol, position) - position.basis;
+    booked += position.booked;
+  }
+  const pnl = {
+    bookedPct: booked * 100,
+    openPct: open * 100,
+    costsPct: (costsPaid + (value - cash) * cost) * 100,
+    paidPct: costsPaid * 100,
+  };
+
+  return { curve, trades, closed, positions, value, lastClose, pnl };
 }
 
 /**
@@ -440,7 +475,17 @@ function simulate(rounds, series, asOf, cost) {
 export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
   const usable = (rounds ?? []).filter((round) => round.entrySession && round.entrySession <= asOf);
   if (!usable.length || !usable[0].symbols.length) {
-    return { curve: [], grossCurve: [], trades: [], closedTrades: [], stocks: [], grossPct: null, netPct: null };
+    return {
+      curve: [],
+      grossCurve: [],
+      trades: [],
+      closedTrades: [],
+      stocks: [],
+      grossPct: null,
+      netPct: null,
+      pnl: null,
+      grossPnl: null,
+    };
   }
   const series = new Map();
   for (const round of usable) {
@@ -457,6 +502,14 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
   const net = simulate(usable, series, asOf, costPerSidePct / 100);
 
   const holdings = usable[usable.length - 1].symbols;
+  // A position's gain still open, in points of the starting capital. Both
+  // runs', so the column adds up to the summary with costs on or off.
+  const openGain = (run, symbol) => {
+    const position = run.positions.get(symbol);
+    if (!position) return null;
+    const value = position.pending !== null ? position.pending : position.units * run.lastClose(symbol).close;
+    return (value - position.basis) * 100;
+  };
   const stocks = holdings.map((symbol) => {
     const position = net.positions.get(symbol);
     const entry = position?.entry ?? null;
@@ -468,6 +521,8 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
       last: entry ? last : null,
       delayedEntry: Boolean(entry && position && entry.time > position.since),
       returnPct: entry && last ? (last.close / entry.close - 1) * 100 : null,
+      openPts: openGain(net, symbol),
+      grossOpenPts: openGain(gross, symbol),
     };
   });
 
@@ -492,8 +547,12 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
   // A price-to-price return, like a broker's contract note: it ignores the
   // equal-weight trims and top-ups in between and the trading costs, both of
   // which the basket-level figures carry.
-  const closedTrades = net.closed.map((position) => ({
+  // Both runs close the same positions in the same order, so the gross
+  // booked gain of a position is the gross run's entry at the same index.
+  const closedTrades = net.closed.map((position, index) => ({
     symbol: position.symbol,
+    bookedPts: position.booked * 100,
+    grossBookedPts: gross.closed[index].booked * 100,
     boughtRound: position.since,
     entry: position.entry,
     exit: position.entry ? position.exit : null,
@@ -511,6 +570,8 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
     stocks,
     grossPct: (gross.value - 1) * 100,
     netPct: net.curve.length ? net.curve[net.curve.length - 1].value : null,
+    pnl: net.pnl,
+    grossPnl: gross.pnl,
   };
 }
 
