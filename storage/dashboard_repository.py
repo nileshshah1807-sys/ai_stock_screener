@@ -135,19 +135,23 @@ class DashboardRepository:
         already-published session. So the previous run is normally the previous
         session -- but not if a scheduled run was missed, which is why callers
         that care about adjacency must check the gap themselves.
+
+        Read from ``screener_history`` rather than ``screener_runs``: runs are
+        pruned to the latest one, while history keeps every published day, and
+        rank 1 appears exactly once per published run.
         """
         rows = self._request(
             "GET",
-            "screener_runs",
+            "screener_history",
             params=self._scoped({
-                "select": "run_date",
-                "run_date": f"lt.{before}",
-                "row_count": "gt.0",
-                "order": "run_date.desc",
+                "select": "observed_on",
+                "observed_on": f"lt.{before}",
+                "investment_rank": "eq.1",
+                "order": "observed_on.desc",
                 "limit": "1",
             }),
         )
-        return str(rows[0]["run_date"]) if rows else None
+        return str(rows[0]["observed_on"]) if rows else None
 
     def latest_completed_run(self) -> dict[str, Any] | None:
         """Return the newest published run, ignoring in-flight reservations."""
