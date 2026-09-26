@@ -8,6 +8,7 @@ import {
   entrySessionAfter,
   indexReturns,
   modelForDate,
+  pickOption,
   portfolioReturns,
   rebalanceDates,
   rebalanceOption,
@@ -231,6 +232,19 @@ describe("portfolioReturns, rebalanced", () => {
     assert.ok(Math.abs(result.netPct - (expected - 1) * 100) < 1e-9);
   });
 
+  it("a round with no names sells to cash until names return", () => {
+    const empty = [
+      { entrySession: "2026-09-01", symbols: ["A"] },
+      { entrySession: "2026-09-08", symbols: [] },
+    ];
+    const result = portfolioReturns(empty, closes, { asOf: "2026-09-15" });
+    // A rose 10% to 09-08, then the basket sat in cash while A rose again.
+    assert.ok(Math.abs(result.grossPct - 10) < 1e-9);
+    assert.deepEqual(result.trades[1].sold, ["A"]);
+    assert.deepEqual(result.stocks, []);
+    assert.ok(Math.abs(result.trades[1].returnPct) < 1e-9);
+  });
+
   it("an unchanged basket only pays to restore equal weight", () => {
     const same = [
       { entrySession: "2026-09-01", symbols: ["A", "C"] },
@@ -321,5 +335,18 @@ describe("compoundIndex", () => {
 describe("modelForDate, backtest", () => {
   it("labels every backtest ranking as the fitted model", () => {
     assert.equal(modelForDate("NSE", "2019-03-01", true), "Model 5.1 backtest");
+  });
+});
+
+describe("pickOption", () => {
+  it("falls back to the whole ranking", () => {
+    assert.equal(pickOption(undefined).value, "all");
+    assert.equal(pickOption("nonsense").value, "all");
+  });
+
+  it("names the stored column for each filtered pick", () => {
+    assert.equal(pickOption("strong_buy").column, "rank_strong_buy");
+    assert.deepEqual(pickOption("buy").ratings, ["BUY", "STRONG BUY"]);
+    assert.equal(pickOption("fresh_stage2").maxAdvanceAge, 30);
   });
 });

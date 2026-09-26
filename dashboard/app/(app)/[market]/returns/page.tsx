@@ -34,6 +34,7 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
     topN,
     costs,
     rebalance: first(query.rebalance),
+    pick: first(query.pick),
   });
 
   return (

@@ -577,6 +577,11 @@ alter table screener_history
     add column if not exists rs_rating numeric(5,1),
     add column if not exists action_rank integer;
 
+-- Advance age, for the Returns page's "fresh Stage 2" pick. Runs before this
+-- column existed were annotated once by tools/backfill_returns_history.py.
+alter table screener_history
+    add column if not exists advance_age_days integer;
+
 create index if not exists screener_history_symbol_date_idx
     on screener_history (market, symbol, observed_on desc);
 create index if not exists screener_history_date_idx

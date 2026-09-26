@@ -261,6 +261,9 @@ HISTORY_COLUMNS: list[tuple[str, str, str]] = [
     ("stage", "Stage", "text"),
     ("rs_rating", "RS_Rating", "num:5,1"),
     ("action_rank", "Action_Rank", "int"),
+    # Days since the current Stage 2 advance began, so the Returns page can
+    # pick "fresh Stage 2" names from any past ranking.
+    ("advance_age_days", "Advance_Age_Days", "int"),
 ]
 
 
