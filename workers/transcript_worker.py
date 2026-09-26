@@ -154,6 +154,37 @@ class TranscriptWorker:
             raise ValueError("NSE attachment is not a valid PDF")
         return downloaded_path
 
+    def _with_text(self, pending: list[dict]) -> list[dict]:
+        """Restore archived text; drop, and count, any transcript that has none.
+
+        A scored call's text is moved to Storage, leaving the column empty. It
+        is offered again only when the analysis is re-run under a new model or
+        version, and must then be scored on its real text -- never on "".
+        """
+        ready, self._missing_text = [], 0
+        for transcript in pending:
+            if not transcript.get("cleaned_text"):
+                restored = self.repository.restore_transcript_text(transcript)
+                if not restored:
+                    self._missing_text += 1
+                    logger.warning(
+                        "Transcript %s has no text in the table or the archive; skipped",
+                        transcript.get("id"),
+                    )
+                    continue
+                transcript = {**transcript, "cleaned_text": restored}
+            ready.append(transcript)
+        return ready
+
+    def _archive_text(self, transcript: dict) -> None:
+        """Move a scored call's text to Storage; a failure leaves it in place."""
+        if self.repository.read_only:
+            return
+        try:
+            self.repository.archive_transcript_text(transcript)
+        except Exception as exc:  # noqa: BLE001 - archiving must never lose a saved sentiment
+            logger.warning("Could not archive text for transcript %s: %s", transcript.get("id"), exc)
+
     def _analyze_pending_transcripts(self) -> dict[str, int]:
         summary = {"analyzed": 0, "deferred": 0}
         pending = self.repository.list_transcripts_for_analysis(
@@ -161,7 +192,8 @@ class TranscriptWorker:
             ANALYSIS_VERSION,
             self.settings.max_analyses_per_run,
         )
-        pending = pending[:self.settings.max_analyses_per_run]
+        pending = self._with_text(pending[:self.settings.max_analyses_per_run])
+        summary["deferred"] += self._missing_text
         for start in range(0, len(pending), self.settings.analysis_batch_size):
             batch = pending[start:start + self.settings.analysis_batch_size]
             started_at = time.perf_counter()
@@ -200,6 +232,7 @@ class TranscriptWorker:
                     "estimated_cost_usd": 0,
                 })
                 summary["analyzed"] += 1
+                self._archive_text(transcript)
                 logger.info(
                     "Saved transcript sentiment: transcript_id=%s sentiment_id=%s symbol=%s overall_score=%s guidance=%s",
                     transcript["id"],

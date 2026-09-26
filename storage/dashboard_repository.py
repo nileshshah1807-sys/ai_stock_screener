@@ -15,12 +15,12 @@ from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import quote
 
 import requests
 
 from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
+from storage.object_store import ObjectStore
 
 # The snapshot row carries the full source record in `payload`, so a batch of
 # rows is large in bytes even though the row count is modest. Chunks are sized
@@ -30,13 +30,6 @@ DEFAULT_CHUNK_SIZE = 200
 # A price-series row carries three encoded arrays and runs 20-30 KB, so the
 # snapshot chunk size would produce a ~6 MB request body.
 PRICE_SERIES_CHUNK_SIZE = 25
-
-#: Private Supabase Storage bucket for bulky, file-shaped market data. Chart
-#: price series live here rather than in Postgres: the free database stops
-#: accepting writes at 500 MB, while storage has 1 GB of its own, under the
-#: same auth and the same dashboard_has_access() rule
-#: (storage/market_data_storage.sql).
-MARKET_DATA_BUCKET = "market-data"
 
 #: Parallel object transfers. One series is one object, so a full publish is a
 #: few thousand small requests; sixteen at a time keeps it to about a minute.
@@ -68,7 +61,7 @@ class DashboardRepository:
         if not url or not service_role_key:
             raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
         self.base_url = f"{url.rstrip('/')}/rest/v1"
-        self.storage_url = f"{url.rstrip('/')}/storage/v1"
+        self._objects = ObjectStore(url, service_role_key, timeout_seconds)
         # Raises on an unknown code, so a typo cannot publish a US run into the
         # NSE market.
         self.market = resolve_market(market).code
@@ -370,31 +363,10 @@ class DashboardRepository:
 
     def _storage(self, method: str, path: str, body: bytes | None = None) -> bytes | None:
         """One object transfer. Returns the body of a read; None when absent."""
-        headers = {
-            "apikey": self.headers["apikey"],
-            "Authorization": self.headers["Authorization"],
-        }
-        if body is not None:
-            headers.update({"Content-Type": "application/gzip", "x-upsert": "true"})
-        # A fresh request per call rather than the shared session: transfers
-        # run on a thread pool, and a requests.Session is not thread-safe.
-        response = requests.request(
-            method,
-            f"{self.storage_url}/object/{MARKET_DATA_BUCKET}/{quote(path, safe='/')}",
-            headers=headers,
-            data=body,
-            timeout=self.timeout_seconds,
-        )
-        if method == "GET" and response.status_code in (400, 404) and "not_found" in response.text.lower().replace(" ", "_"):
-            return None
-        try:
-            response.raise_for_status()
-        except requests.HTTPError as exc:
-            raise requests.HTTPError(
-                f"{exc} | {method} storage:{path} | {(response.text or '').strip()[:400]}",
-                response=response,
-            ) from exc
-        return response.content if method == "GET" else None
+        if method == "GET":
+            return self._objects.get(path)
+        self._objects.put(path, body or b"")
+        return None
 
     def _put_json(self, path: str, payload: dict[str, Any]) -> None:
         # mtime=0 keeps an unchanged payload byte-identical across publishes.
