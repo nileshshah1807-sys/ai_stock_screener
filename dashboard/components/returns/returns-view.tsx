@@ -222,6 +222,15 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           held for {sessionsHeld} {sessionsHeld === 1 ? "session" : "sessions"} to {formatDate(report.asOf)}.
         </p>
 
+        {report.hold ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {report.hold === "advancing"
+              ? "A stock is bought from this list, then held while it stays in Stage 2 or a pullback within it, and sold at the next rebalance after it breaks into Stage 3 or 4 — so it is not sold merely for no longer being on the list. "
+              : "A stock is bought from this list, then held while it stays rated BUY or better, and sold at the next rebalance after its rating falls below that. "}
+            Each rebalance refills the free slots from the list, best first.
+          </p>
+        ) : null}
+
         {report.pickStartMovedFrom || report.shortRounds ? (
           <p className="text-xs leading-relaxed text-muted-foreground">
             {report.pickStartMovedFrom ? (

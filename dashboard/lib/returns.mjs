@@ -30,6 +30,7 @@ export const PICK_OPTIONS = [
     title: "Only stocks rated BUY or STRONG BUY",
     column: "rank_buy",
     ratings: ["BUY", "STRONG BUY"],
+    hold: "buy_plus",
     phrase: "BUY-or-better",
   },
   {
@@ -38,6 +39,7 @@ export const PICK_OPTIONS = [
     title: "Only stocks rated STRONG BUY",
     column: "rank_strong_buy",
     ratings: ["STRONG BUY"],
+    hold: "buy_plus",
     phrase: "STRONG BUY",
   },
   {
@@ -46,6 +48,7 @@ export const PICK_OPTIONS = [
     title: "Only stocks in Stage 2",
     column: "rank_stage2",
     stage: "Stage 2",
+    hold: "advancing",
     phrase: "Stage 2",
   },
   {
@@ -55,6 +58,7 @@ export const PICK_OPTIONS = [
     column: "rank_fresh_stage2",
     stage: "Stage 2",
     maxAdvanceAge: FRESH_STAGE2_DAYS,
+    hold: "advancing",
     phrase: "fresh Stage 2",
   },
 ];
@@ -64,6 +68,45 @@ export const PICK_OPTIONS = [
  */
 export function pickOption(value) {
   return PICK_OPTIONS.find((option) => option.value === value) ?? PICK_OPTIONS[0];
+}
+
+/** Stages a stock may stay held in under a stage pick: the advance, pullbacks included. */
+export const ADVANCING_STAGES = ["Stage 2", "S2 Candidate"];
+
+/**
+ * Which stocks the basket holds at each round, given buy lists and hold rules.
+ *
+ * A pick says what to *buy*; its hold rule says what may be *kept*. So each
+ * round keeps every holding that still passes the hold rule (a stage pick
+ * keeps a stock while it is advancing and sells it on a break into Stage 3 or
+ * 4; a rating pick keeps it while it is rated BUY or better), then fills the
+ * free slots from the round's buy list in rank order. Without that split, a
+ * "fresh Stage 2" basket sold every name the week it stopped being fresh.
+ *
+ * `keep` is the set of symbols allowed to stay that round; null means no hold
+ * rule, and the round is simply its buy list's top N -- which is also what the
+ * whole-ranking pick does. Holdings depend only on these lists, never on
+ * prices, so the baskets are settled before any price is read.
+ *
+ * @param {{candidates: string[], keep: Set<string> | null}[]} rounds oldest first
+ * @param {number} topN
+ * @returns {string[][]} each round's basket, kept names first
+ */
+export function selectBaskets(rounds, topN) {
+  const baskets = [];
+  let held = [];
+  for (const { candidates, keep } of rounds) {
+    if (!keep) {
+      held = candidates.slice(0, topN);
+    } else {
+      const kept = held.filter((symbol) => keep.has(symbol));
+      const taken = new Set(kept);
+      const fresh = candidates.filter((symbol) => !taken.has(symbol)).slice(0, Math.max(0, topN - kept.length));
+      held = [...kept, ...fresh];
+    }
+    baskets.push(held);
+  }
+  return baskets;
 }
 
 /** Basket sizes offered. The research studies hold the top 20. */

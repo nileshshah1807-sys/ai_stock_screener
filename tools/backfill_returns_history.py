@@ -175,6 +175,49 @@ def top_rankings(fills, current_symbol, top_n=TOP_N, rate=None):
     return rows
 
 
+#: Stages a holding may stay in under a stage pick: the advance, including a
+#: pullback under MA50. Leaving it -- a break into Stage 3 or 4 -- is the exit
+#: P5 found improved risk-adjusted return.
+ADVANCING = ("Stage 2", "S2 Candidate")
+BUY_PLUS = ("BUY", "STRONG BUY")
+
+
+def weekly_states(fills, current_symbol, rate=None):
+    """Per week, the ranked names a held stock may stay in the basket as.
+
+    ``advancing`` is every ranked name in Stage 2 or S2 Candidate; ``buy_plus``
+    every name rated BUY or better, or None in a week too thin to rate. The
+    Returns page reads these for the names it holds at each rebalance, so a
+    stock bought as "fresh Stage 2" is kept while its advance runs rather than
+    sold the week it stops being fresh.
+    """
+    states = []
+    scored = fills[fills["Research_Score"].notna()]
+    for signal_date, group in scored.groupby("Signal_Date"):
+        day = str(signal_date)[:10]
+        coverage = group.get("Quality_Coverage_Sufficient")
+        rated = rate is not None and (
+            coverage is None or coverage.fillna(False).astype(bool).mean() >= MIN_RATED_COVERAGE
+        )
+        advancing, buy_plus = [], []
+        for _, row in group.iterrows():
+            symbol = current_symbol.get(str(row["Security_ID"]))
+            if not symbol:
+                continue
+            if row.get("Stage") in ADVANCING:
+                advancing.append(symbol)
+            if rated and rate(row, day) in BUY_PLUS:
+                buy_plus.append(symbol)
+        states.append(
+            {
+                "observed_on": day,
+                "advancing": sorted(set(advancing)),
+                "buy_plus": sorted(set(buy_plus)) if rated else None,
+            }
+        )
+    return states
+
+
 def equal_weight_index(closes_by_day, memberships, sessions):
     """Daily equal-weight returns of a changing membership.
 
@@ -262,6 +305,14 @@ def build(args):
     )
     pd.DataFrame(rankings).to_csv(out / "simulated_rankings.csv", index=False)
     logger.info("simulated_rankings: %d rows", len(rankings))
+
+    states = weekly_states(
+        fills,
+        current_symbol,
+        rate=lambda row, day: gated_rating(row, regime_for(day), gate_config),
+    )
+    (out / "simulated_states.json").write_text(json.dumps(states))
+    logger.info("simulated_states: %d weeks", len(states))
 
     # Every scored security is a member of that week's universe.
     scored = fills[fills["Research_Score"].notna()]
@@ -510,9 +561,14 @@ def publish(args):
                 row[column] = None
         for column in integer_columns:
             row[column] = _int_or_none(row.get(column))
+    states = json.loads((source / "simulated_states.json").read_text())
+    states = [row for row in states if row["observed_on"] < first_live_day.isoformat()]
     written = repository.upsert_simulated_rankings(rankings)
+    repository.upsert_simulated_states(states)
     indexed = repository.upsert_universe_index(index_rows)
-    logger.info("Published %d ranking rows and %d index rows", written, indexed)
+    logger.info(
+        "Published %d ranking rows, %d weekly states and %d index rows", written, len(states), indexed
+    )
 
 
 def main(argv=None):

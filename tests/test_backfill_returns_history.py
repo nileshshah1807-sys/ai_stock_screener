@@ -8,6 +8,7 @@ from tools.backfill_returns_history import (
     next_session,
     top_rankings,
     weekly_signal_dates,
+    weekly_states,
 )
 
 D = dt.date
@@ -106,6 +107,24 @@ class PickRankTests(unittest.TestCase):
         rows = top_rankings(self.fills(), {key: key for key in "ABCDE"}, top_n=5)
         self.assertTrue(all(row["rank_buy"] is None for row in rows))
         self.assertTrue(any(row["rank_stage2"] for row in rows))
+
+
+class WeeklyStateTests(unittest.TestCase):
+    def test_advancing_and_buy_plus_sets(self):
+        fills = PickRankTests().fills()
+        ratings = {"A": "HOLD", "B": "BUY", "C": "STRONG BUY", "D": "SELL", "E": "BUY"}
+        [state] = weekly_states(
+            fills, {key: key for key in "ABCDE"}, rate=lambda row, day: ratings[row["Security_ID"]]
+        )
+        self.assertEqual(state["observed_on"], "2026-08-07")
+        # Stage 2 and S2 Candidate both count as advancing; Stage 3 does not.
+        self.assertEqual(state["advancing"], ["B", "C", "D", "E"])
+        self.assertEqual(state["buy_plus"], ["B", "C", "E"])
+
+    def test_an_unrated_week_has_no_buy_plus_set(self):
+        fills = PickRankTests().fills().assign(Quality_Coverage_Sufficient=False)
+        [state] = weekly_states(fills, {key: key for key in "ABCDE"}, rate=lambda row, day: "BUY")
+        self.assertIsNone(state["buy_plus"])
 
 
 class GatedRatingTests(unittest.TestCase):

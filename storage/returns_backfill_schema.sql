@@ -62,6 +62,25 @@ alter table simulated_rankings
     add column if not exists rank_stage2 integer,
     add column if not exists rank_fresh_stage2 integer;
 
+-- Hold rules: a pick decides what to buy; these sets decide what may be kept.
+-- One row per backtest week: every ranked name that is advancing (Stage 2 or
+-- S2 Candidate) and every name rated BUY or better (null in a week too thin
+-- to rate). The page reads them for the names it holds at each rebalance.
+create table if not exists simulated_states (
+    market text not null default 'NSE' check (market in ('NSE', 'US')),
+    observed_on date not null,
+    advancing text[] not null,
+    buy_plus text[],
+    primary key (market, observed_on)
+);
+
+alter table simulated_states enable row level security;
+
+drop policy if exists simulated_states_read on simulated_states;
+create policy simulated_states_read
+    on simulated_states for select
+    using (dashboard_has_access());
+
 alter table simulated_rankings enable row level security;
 alter table universe_index enable row level security;
 
