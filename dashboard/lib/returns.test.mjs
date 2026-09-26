@@ -259,6 +259,64 @@ describe("portfolioReturns, rebalanced", () => {
   });
 });
 
+describe("portfolioReturns, booked and open gains", () => {
+  const closes = new Map([
+    ["A", [close("2026-09-01", 100), close("2026-09-08", 110), close("2026-09-15", 121)]],
+    ["B", [close("2026-09-01", 100), close("2026-09-08", 90), close("2026-09-15", 45)]],
+    ["C", [close("2026-09-01", 50), close("2026-09-08", 50), close("2026-09-15", 60)]],
+  ]);
+  const rounds = [
+    { entrySession: "2026-09-01", symbols: ["A", "B"] },
+    { entrySession: "2026-09-08", symbols: ["A", "C"] },
+  ];
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+
+  it("splits the return into gains booked on sales and gains still open", () => {
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15" });
+    // 09-08: B sold at 0.45 on a 0.50 cost, booking -0.05. A is trimmed from
+    // 0.55 to 0.50: the 1/11 sold was worth 0.05 on a cost of 0.5/11, booking
+    // 0.05/11 of gain. 09-15: A is 0.55 on its remaining 0.5 x 10/11 cost and C
+    // 0.60 on 0.50, so 0.55 - 5/11 + 0.10 is open.
+    near(result.grossPnl.bookedPct, (0.05 / 11 - 0.05) * 100);
+    near(result.grossPnl.openPct, (0.55 - 5 / 11 + 0.1) * 100);
+    near(result.grossPnl.costsPct, 0);
+    near(result.grossPnl.bookedPct + result.grossPnl.openPct, result.grossPct);
+  });
+
+  it("adds up to the net return once costs are taken out", () => {
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
+    const { bookedPct, openPct, costsPct, paidPct } = result.pnl;
+    near(bookedPct + openPct - costsPct, result.netPct);
+    // Paid on the two rounds; the rest is selling everything today.
+    near(paidPct, 1 + 0.99 * 1);
+    assert.ok(costsPct > paidPct);
+  });
+
+  it("gives each holding and each closed position its share", () => {
+    for (const costPerSidePct of [0, 1]) {
+      const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15", costPerSidePct });
+      const pnl = costPerSidePct ? result.pnl : result.grossPnl;
+      const open = result.stocks.reduce(
+        (sum, stock) => sum + (costPerSidePct ? stock.openPts : stock.grossOpenPts),
+        0,
+      );
+      near(open, pnl.openPct);
+    }
+    const [sold] = portfolioReturns(rounds, closes, { asOf: "2026-09-15" }).closedTrades;
+    near(sold.grossBookedPts, -5);
+  });
+
+  it("books nothing while a round sits in cash", () => {
+    const empty = [
+      { entrySession: "2026-09-01", symbols: ["A"] },
+      { entrySession: "2026-09-08", symbols: [] },
+    ];
+    const result = portfolioReturns(empty, closes, { asOf: "2026-09-15" });
+    near(result.grossPnl.bookedPct, 10);
+    near(result.grossPnl.openPct, 0);
+  });
+});
+
 describe("rebalance schedule", () => {
   const dates = ["2026-08-11", "2026-08-12", "2026-08-18", "2026-08-19", "2026-08-25", "2026-09-11", "2026-09-14"];
 

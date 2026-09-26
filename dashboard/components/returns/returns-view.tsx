@@ -21,7 +21,7 @@ import {
   pickOption,
   snapRankingDate,
 } from "@/lib/returns.mjs";
-import type { ReturnsReport } from "@/lib/returns-data";
+import type { ReturnSplit, ReturnsReport } from "@/lib/returns-data";
 import { cn } from "@/lib/utils";
 
 type Report = Extract<ReturnsReport, { status: "ok" }>;
@@ -103,6 +103,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
   ];
 
   const headline = costs ? report.basket.netPct : report.basket.grossPct;
+  const split = costs ? report.basket.split : report.basket.grossSplit;
   const excess =
     headline !== null && report.benchmark.returnPct !== null ? headline - report.benchmark.returnPct : null;
   const sessionsHeld = report.basket.curve.length;
@@ -270,8 +271,8 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
             value={headline}
             note={
               costs
-                ? report.rebalance.count
-                  ? `after ${report.rebalance.costPct.toFixed(2)} pts of trading costs`
+                ? split
+                  ? `after ${split.costsPct.toFixed(2)} pts of trading costs`
                   : `after ${COST_PER_SIDE_PCT}% costs each way`
                 : "before costs"
             }
@@ -301,6 +302,9 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
             unit="pts"
             note="difference in return"
           />
+          {split && headline !== null ? (
+            <SplitRow split={split} total={headline} holdings={report.holdings.length} costs={costs} />
+          ) : null}
         </section>
 
         <ReturnsChart
@@ -321,7 +325,8 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           firstEntry={report.entrySession}
           rebalances={report.rebalance.count}
           swapped={report.rebalance.bought}
-          costPct={report.rebalance.costPct}
+          costs={costs}
+          split={split}
         />
       </div>
     </div>
@@ -370,6 +375,100 @@ function RebalanceSlider({ value, onCommit }: { value: string; onCommit: (value:
         className="flex-1"
       />
       <span className="tabular w-12 text-sm font-semibold">{REBALANCE_OPTIONS[index].label}</span>
+    </div>
+  );
+}
+
+/**
+ * The headline return taken apart: what was booked by selling, what is still
+ * open on the holdings, and what trading cost. All three are points of the
+ * starting capital, so they add up to the headline exactly -- the row is a
+ * check on the number as much as a breakdown of it.
+ *
+ * Booked includes the trims: each rebalance cuts a winner back to equal
+ * weight, which sells part of it and books that part's gain. So with frequent
+ * rebalancing most of a return is booked long before a stock is sold outright.
+ */
+function SplitRow({
+  split,
+  total,
+  holdings,
+  costs,
+}: {
+  split: ReturnSplit;
+  total: number;
+  holdings: number;
+  costs: boolean;
+}) {
+  return (
+    <div className="col-span-full border-t px-4 py-3 sm:px-5">
+      <dl className="flex flex-wrap items-end gap-x-3 gap-y-2">
+        <SplitTerm label="Booked" value={split.bookedPct} note="on sales and trims" />
+        <SplitSign>{split.openPct < 0 ? "−" : "+"}</SplitSign>
+        <SplitTerm
+          label="Open"
+          value={Math.abs(split.openPct)}
+          tone={split.openPct}
+          note={`on ${holdings} ${holdings === 1 ? "holding" : "holdings"}, at the latest close`}
+        />
+        {costs ? (
+          <>
+            <SplitSign>−</SplitSign>
+            <SplitTerm
+              label="Costs"
+              value={split.costsPct}
+              tone={-1}
+              note={`${split.paidPct.toFixed(2)} paid, the rest to sell today`}
+            />
+          </>
+        ) : null}
+        <SplitSign>=</SplitSign>
+        <SplitTerm label="Return" value={total} unit="%" note="the headline" strong />
+      </dl>
+    </div>
+  );
+}
+
+function SplitSign({ children }: { children: React.ReactNode }) {
+  return (
+    <span aria-hidden className="pb-4 text-sm text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+function SplitTerm({
+  label,
+  value,
+  note,
+  tone = value,
+  unit = "pts",
+  strong = false,
+}: {
+  label: string;
+  value: number;
+  note: string;
+  tone?: number;
+  unit?: "pts" | "%";
+  strong?: boolean;
+}) {
+  const text =
+    unit === "%"
+      ? formatPercent(value, 2, true)
+      : `${label === "Booked" && value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value).toFixed(2)} pts`;
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] font-medium text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          "numeral tabular text-sm leading-tight",
+          strong ? "font-semibold" : "font-medium",
+          tone >= 0 ? "text-positive" : "text-negative",
+        )}
+      >
+        {text}
+      </dd>
+      <dd className="text-[11px] text-muted-foreground">{note}</dd>
     </div>
   );
 }

@@ -253,6 +253,9 @@ export type HoldingRow = {
   last: Point | null;
   delayedEntry: boolean;
   returnPct: number | null;
+  /** Gain still open on this holding, in points of the starting capital, with and without costs. */
+  openPts: number | null;
+  grossOpenPts: number | null;
   /** Null when the symbol is not in the latest run at all. */
   rankNow: number | null;
   ratingNow: string | null;
@@ -283,8 +286,25 @@ export type ClosedTrade = {
   soldOn: string;
   soldAt: number | null;
   returnPct: number | null;
+  /** Gain booked over the whole position, trims included, in points of the starting capital. */
+  bookedPts: number;
+  grossBookedPts: number;
   /** Bought from a backtest ranking rather than a published one. */
   backtest: boolean;
+};
+
+/**
+ * The return split three ways, each in points of the starting capital so the
+ * three add up to it: gains booked on sales (a rebalance trimming a winner
+ * books part of its gain), gains still open on the holdings, and trading
+ * costs (paid, plus selling everything today).
+ */
+export type ReturnSplit = {
+  bookedPct: number;
+  openPct: number;
+  costsPct: number;
+  /** The part of `costsPct` already paid, leaving out today's sale. */
+  paidPct: number;
 };
 
 export type RebalanceSummary = {
@@ -293,8 +313,6 @@ export type RebalanceSummary = {
   count: number;
   bought: number;
   sold: number;
-  /** Costs paid across every round, as points of the portfolio. */
-  costPct: number;
   lastRankDate: string;
 };
 
@@ -330,6 +348,8 @@ export type ReturnsReport =
         /** Net of costs, and without: the page switches between them locally. */
         curve: { time: string; value: number }[];
         grossCurve: { time: string; value: number }[];
+        split: ReturnSplit | null;
+        grossSplit: ReturnSplit | null;
       };
       holdings: HoldingRow[];
       /** Every round, oldest first: the initial purchase, then each rebalance. */
@@ -698,6 +718,8 @@ export async function getReturnsReport(
       last: stock?.last ?? null,
       delayedEntry: stock?.delayedEntry ?? false,
       returnPct: stock?.returnPct ?? null,
+      openPts: stock?.openPts ?? null,
+      grossOpenPts: stock?.grossOpenPts ?? null,
       rankNow: latest?.investment_rank ?? null,
       ratingNow: latest?.rating ?? null,
       stageNow: latest?.stage ?? null,
@@ -728,7 +750,6 @@ export async function getReturnsReport(
       count: later.length,
       bought: later.reduce((sum, trade) => sum + trade.bought.length, 0),
       sold: later.reduce((sum, trade) => sum + trade.sold.length, 0),
-      costPct: result.trades.reduce((sum, trade) => sum + trade.costPct, 0),
       lastRankDate: lastRound.rankDate,
     },
     basket: {
@@ -736,6 +757,8 @@ export async function getReturnsReport(
       netPct: result.netPct,
       curve: result.curve,
       grossCurve: result.grossCurve,
+      split: result.pnl,
+      grossSplit: result.grossPnl,
     },
     holdings,
     closed: result.closedTrades.map((trade) => {
@@ -750,6 +773,8 @@ export async function getReturnsReport(
         soldOn: trade.exit?.time ?? trade.soldOn,
         soldAt: trade.exit?.close ?? null,
         returnPct: trade.returnPct,
+        bookedPts: trade.bookedPts,
+        grossBookedPts: trade.grossBookedPts,
         backtest: round ? round.rankDate < liveFrom : false,
       };
     }),
