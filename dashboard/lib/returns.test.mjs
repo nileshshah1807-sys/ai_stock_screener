@@ -202,6 +202,19 @@ describe("portfolioReturns, rebalanced", () => {
     assert.ok(Math.abs(result.trades[1].returnPct - 15) < 1e-9);
   });
 
+  it("records each sold position from its fill to its sale", () => {
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15" });
+    // B was bought at 100 on 09-01 and sold at 90 on 09-08; A and C stay open.
+    assert.equal(result.closedTrades.length, 1);
+    const [trade] = result.closedTrades;
+    assert.equal(trade.symbol, "B");
+    assert.equal(trade.boughtRound, "2026-09-01");
+    assert.deepEqual(trade.entry, close("2026-09-01", 100));
+    assert.deepEqual(trade.exit, close("2026-09-08", 90));
+    assert.equal(trade.soldOn, "2026-09-08");
+    assert.ok(Math.abs(trade.returnPct - -10) < 1e-9);
+  });
+
   it("keeps a round's cost out of its period return", () => {
     const net = portfolioReturns(rounds, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
     assert.ok(Math.abs(net.trades[1].returnPct - 15) < 1e-9);
