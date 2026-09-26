@@ -147,6 +147,34 @@ class GatedRatingTests(unittest.TestCase):
         self.assertEqual(gated_rating(row.copy().replace({120.0: 90.0}), None, GateConfig()), "HOLD")
 
 
+class AnnotateLiveTests(unittest.TestCase):
+    def test_a_missing_stage_is_filled_and_a_published_one_is_not(self):
+        from unittest.mock import MagicMock
+
+        from tools.backfill_returns_history import _annotate_market
+
+        # 260 sessions rising steadily: Stage 2 at the end.
+        days = pd.bdate_range("2025-09-01", periods=260)
+        closes = [100 + index for index in range(260)]
+        # No price_series base, so the prices come from the published closes:
+        # every session blank except the last, whose stage was published.
+        frame_rows = [
+            {"observed_on": day.date().isoformat(), "symbol": "UP", "stage": None, "current_price": close}
+            for day, close in zip(days[:-1], closes[:-1])
+        ] + [{"observed_on": days[-1].date().isoformat(), "symbol": "UP", "stage": "Stage 2", "current_price": closes[-1]}]
+        repository = MagicMock()
+        repository._paged.side_effect = [frame_rows, []]
+        repository._request.return_value = [{"sessions": "[]"}]
+        repository._scoped.side_effect = lambda params: params
+
+        fill_stage, age_only = _annotate_market(repository, "NSE")
+
+        self.assertEqual(len(fill_stage), 259)
+        self.assertEqual(len(age_only), 1)
+        self.assertNotIn("stage", age_only[0])
+        self.assertEqual(fill_stage[-1]["stage"], "Stage 2")
+
+
 class EqualWeightIndexTests(unittest.TestCase):
     sessions = [D(2026, 8, 3), D(2026, 8, 4), D(2026, 8, 5), D(2026, 8, 6)]
 

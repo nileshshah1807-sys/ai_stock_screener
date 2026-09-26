@@ -472,7 +472,8 @@ def _annotate_market(repository, market):
             features = stage_features(closes[closes.index <= pd.Timestamp(record.observed_on)])
             age = _int_or_none(features.get("Advance_Age_Days"))
             base_row = {"observed_on": record.observed_on, "symbol": symbol, "advance_age_days": age}
-            if record.stage:
+            # A missing stage reads back from the frame as NaN, which is truthy.
+            if isinstance(record.stage, str) and record.stage:
                 age_only.append(base_row)
             else:
                 fill_stage.append({**base_row, "stage": features.get("Stage")})
