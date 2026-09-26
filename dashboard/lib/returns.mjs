@@ -228,6 +228,7 @@ function simulate(rounds, series, asOf, cost) {
   let cash = 1;
   const curve = [];
   const trades = [];
+  const closed = [];
   let value = 1;
 
   for (const time of timeline) {
@@ -281,6 +282,12 @@ function simulate(rounds, series, asOf, cost) {
           next.set(symbol, { units: null, pending: each, since: time, entry: null });
         }
       }
+      // A name the new round drops is sold at its latest close; that is the
+      // end of one position, whatever weight resets it went through while held.
+      for (const [symbol, position] of positions) {
+        if (targets.has(symbol)) continue;
+        closed.push({ symbol, since: position.since, entry: position.entry, exit: lastClose(symbol), soldOn: time });
+      }
       trades.push({
         rankDate: round.rankDate ?? null,
         entrySession: time,
@@ -302,7 +309,7 @@ function simulate(rounds, series, asOf, cost) {
     curve.push({ time, value: (value * (1 - cost) - 1) * 100 });
   }
 
-  return { curve, trades, positions, value, lastClose };
+  return { curve, trades, closed, positions, value, lastClose };
 }
 
 /**
@@ -330,7 +337,7 @@ function simulate(rounds, series, asOf, cost) {
 export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
   const usable = (rounds ?? []).filter((round) => round.entrySession && round.entrySession <= asOf);
   if (!usable.length || !usable[0].symbols.length) {
-    return { curve: [], grossCurve: [], trades: [], stocks: [], grossPct: null, netPct: null };
+    return { curve: [], grossCurve: [], trades: [], closedTrades: [], stocks: [], grossPct: null, netPct: null };
   }
   const series = new Map();
   for (const round of usable) {
@@ -378,11 +385,26 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
     };
   });
 
+  // Finished positions: bought at one round's fill, sold at a later round.
+  // A price-to-price return, like a broker's contract note: it ignores the
+  // equal-weight trims and top-ups in between and the trading costs, both of
+  // which the basket-level figures carry.
+  const closedTrades = net.closed.map((position) => ({
+    symbol: position.symbol,
+    boughtRound: position.since,
+    entry: position.entry,
+    exit: position.entry ? position.exit : null,
+    soldOn: position.soldOn,
+    returnPct:
+      position.entry && position.exit ? (position.exit.close / position.entry.close - 1) * 100 : null,
+  }));
+
   return {
     curve: net.curve,
     // Both, so a reader can switch costs on and off without another request.
     grossCurve: gross.curve,
     trades,
+    closedTrades,
     stocks,
     grossPct: (gross.value - 1) * 100,
     netPct: net.curve.length ? net.curve[net.curve.length - 1].value : null,

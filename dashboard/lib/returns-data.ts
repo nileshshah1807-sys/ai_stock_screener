@@ -47,6 +47,9 @@ const FETCH_CHUNK = 1000;
 /** Symbols per `price_series` request, so no single response is several MB. */
 const SERIES_CHUNK = 50;
 
+/** Symbols per current-state request, to keep each URL well under its limit. */
+const STATE_CHUNK = 150;
+
 type HistoryRow = {
   symbol: string;
   company?: string | null;
@@ -289,6 +292,19 @@ export type TradeRound = {
   returnPct: number | null;
 };
 
+export type ClosedTrade = {
+  symbol: string;
+  company: string | null;
+  logoDomain: string | null;
+  boughtOn: string | null;
+  boughtAt: number | null;
+  soldOn: string;
+  soldAt: number | null;
+  returnPct: number | null;
+  /** Bought from a backtest ranking rather than a published one. */
+  backtest: boolean;
+};
+
 export type RebalanceSummary = {
   option: string;
   /** Rebalances after the first purchase. */
@@ -328,6 +344,8 @@ export type ReturnsReport =
       holdings: HoldingRow[];
       /** Every round, oldest first: the initial purchase, then each rebalance. */
       trades: TradeRound[];
+      /** Every position the basket has sold, oldest sale first. */
+      closed: ClosedTrade[];
       benchmark: {
         name: string;
         returnPct: number | null;
@@ -410,21 +428,35 @@ async function getLatestState(
   // same run whenever the latest run is the latest ranking, which is always
   // true outside the minutes a publish is in flight.
   const fromSnapshot = latestRunDate === asOf;
-  const { data, error } = fromSnapshot
-    ? await supabase
-        .from("screener_snapshot")
-        .select("symbol, company, investment_rank, rating, stage, logo_domain")
-        .eq("market", market)
-        .eq("run_date", asOf)
-        .in("symbol", symbols)
-    : await supabase
-        .from("screener_history")
-        .select("symbol, company, investment_rank, rating, stage")
-        .eq("market", market)
-        .eq("observed_on", asOf)
-        .in("symbol", symbols);
-  if (error) console.error("getLatestState failed", error.message);
-  return new Map(((data ?? []) as HistoryRow[]).map((row) => [row.symbol, row]));
+  // A long rebalanced window can name several hundred symbols, which would
+  // not fit one request's URL; the chunks go out together.
+  const chunks: string[][] = [];
+  for (let index = 0; index < symbols.length; index += STATE_CHUNK) {
+    chunks.push(symbols.slice(index, index + STATE_CHUNK));
+  }
+  const results = await Promise.all(
+    chunks.map((part) =>
+      fromSnapshot
+        ? supabase
+            .from("screener_snapshot")
+            .select("symbol, company, investment_rank, rating, stage, logo_domain")
+            .eq("market", market)
+            .eq("run_date", asOf)
+            .in("symbol", part)
+        : supabase
+            .from("screener_history")
+            .select("symbol, company, investment_rank, rating, stage")
+            .eq("market", market)
+            .eq("observed_on", asOf)
+            .in("symbol", part),
+    ),
+  );
+  const state = new Map<string, HistoryRow>();
+  for (const { data, error } of results) {
+    if (error) console.error("getLatestState failed", error.message);
+    for (const row of (data ?? []) as HistoryRow[]) state.set(row.symbol, row);
+  }
+  return state;
 }
 
 /**
@@ -480,7 +512,9 @@ export async function getReturnsReport(
     const symbols = [...new Set(rounds.flatMap((round) => round.symbols))];
     const [closes, now] = await Promise.all([
       getAdjustedCloses(supabase, market.code, symbols, rankDate, sessions),
-      getLatestState(supabase, market.code, asOf, latestRun?.run_date ?? null, lastRound.symbols),
+      // Every symbol the basket ever held: current holdings, and the names on
+      // closed positions, which need their company and logo too.
+      getLatestState(supabase, market.code, asOf, latestRun?.run_date ?? null, symbols),
     ]);
     return { tops, rounds, lastRound, closes, now };
   };
@@ -545,6 +579,21 @@ export async function getReturnsReport(
       grossCurve: result.grossCurve,
     },
     holdings,
+    closed: result.closedTrades.map((trade) => {
+      const state = now.get(trade.symbol);
+      const round = rounds.find((item) => item.entrySession === trade.boughtRound);
+      return {
+        symbol: trade.symbol,
+        company: state?.company ?? null,
+        logoDomain: state?.logo_domain ?? null,
+        boughtOn: trade.entry?.time ?? null,
+        boughtAt: trade.entry?.close ?? null,
+        soldOn: trade.exit?.time ?? trade.soldOn,
+        soldAt: trade.exit?.close ?? null,
+        returnPct: trade.returnPct,
+        backtest: round ? round.rankDate < liveFrom : false,
+      };
+    }),
     trades: result.trades.map((trade) => ({
       rankDate: trade.rankDate as string,
       backtest: (trade.rankDate as string) < liveFrom,
