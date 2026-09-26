@@ -282,10 +282,15 @@ function simulate(rounds, series, asOf, cost) {
         }
       }
       trades.push({
+        rankDate: round.rankDate ?? null,
         entrySession: time,
         bought: round.symbols.filter((symbol) => !positions.has(symbol)),
         sold: [...positions.keys()].filter((symbol) => !targets.has(symbol)),
         costPct: before > 0 ? (charged / before) * 100 : 0,
+        // Portfolio value either side of the round's trades, so each period's
+        // return can be measured from one rebalance to the next.
+        valueBefore: before,
+        valueAfter: before - charged,
       });
       positions = next;
       cash = 0;
@@ -356,11 +361,28 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0 }) {
     };
   });
 
+  // Each round's period runs from just after its trades to just before the
+  // next round's, so it measures what that basket did in the market; the
+  // round's trading cost is reported beside it rather than inside it.
+  const trades = net.trades.map((trade, index) => {
+    const end = index + 1 < net.trades.length ? net.trades[index + 1].valueBefore : net.value;
+    const periodEnd = index + 1 < net.trades.length ? net.trades[index + 1].entrySession : asOf;
+    return {
+      rankDate: trade.rankDate,
+      entrySession: trade.entrySession,
+      periodEnd,
+      bought: trade.bought,
+      sold: trade.sold,
+      costPct: trade.costPct,
+      returnPct: trade.valueAfter > 0 ? (end / trade.valueAfter - 1) * 100 : null,
+    };
+  });
+
   return {
     curve: net.curve,
     // Both, so a reader can switch costs on and off without another request.
     grossCurve: gross.curve,
-    trades: net.trades,
+    trades,
     stocks,
     grossPct: (gross.value - 1) * 100,
     netPct: net.curve.length ? net.curve[net.curve.length - 1].value : null,
