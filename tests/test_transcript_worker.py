@@ -134,6 +134,99 @@ class TranscriptWorkerTests(unittest.TestCase):
         self.assertEqual(repository.save_sentiment.call_count, 5)
         self.assertEqual(summary, {"analyzed": 5, "deferred": 0})
 
+    def _worker_with(self, pending):
+        repository = MagicMock()
+        repository.read_only = False
+        repository.list_transcripts_for_analysis.return_value = pending
+        repository.save_sentiment.side_effect = lambda payload: {"id": "s"}
+        return repository, TranscriptWorker(repository, TranscriptSettings(max_analyses_per_run=5))
+
+    RESULT = {
+        "overall_score": 60, "optimism": 60, "guidance_strength": 60, "risk_intensity": 20,
+        "confidence_score": 60, "analyst_pressure": 30, "management_confidence": 60,
+        "answer_quality": 60, "guidance_direction": "maintained",
+    }
+
+    def test_archived_text_is_restored_before_scoring_never_scored_as_empty(self):
+        repository, worker = self._worker_with([
+            {"id": "t1", "symbol": "A", "cleaned_text": ""},
+            {"id": "t2", "symbol": "B", "cleaned_text": ""},
+        ])
+        repository.restore_transcript_text.side_effect = (
+            lambda transcript: "Revenue grew." if transcript["id"] == "t1" else None
+        )
+
+        with patch(
+            "workers.transcript_worker.analyze_transcripts",
+            side_effect=lambda texts: [dict(self.RESULT) for _ in texts],
+        ) as analyze:
+            summary = worker._analyze_pending_transcripts()
+
+        # t1 is scored on its archived text; t2 has none anywhere and is skipped.
+        self.assertEqual(analyze.call_args_list[0].args[0], ["Revenue grew."])
+        self.assertEqual(summary, {"analyzed": 1, "deferred": 1})
+
+    def test_a_scored_transcript_has_its_text_archived(self):
+        repository, worker = self._worker_with([{"id": "t1", "symbol": "A", "cleaned_text": "Margins rose."}])
+
+        with patch(
+            "workers.transcript_worker.analyze_transcripts",
+            side_effect=lambda texts: [dict(self.RESULT) for _ in texts],
+        ):
+            worker._analyze_pending_transcripts()
+
+        archived = repository.archive_transcript_text.call_args.args[0]
+        self.assertEqual((archived["id"], archived["cleaned_text"]), ("t1", "Margins rose."))
+
+    def test_an_archive_failure_keeps_the_saved_sentiment(self):
+        repository, worker = self._worker_with([{"id": "t1", "symbol": "A", "cleaned_text": "Margins rose."}])
+        repository.archive_transcript_text.side_effect = RuntimeError("storage down")
+
+        with patch(
+            "workers.transcript_worker.analyze_transcripts",
+            side_effect=lambda texts: [dict(self.RESULT) for _ in texts],
+        ):
+            summary = worker._analyze_pending_transcripts()
+
+        self.assertEqual(summary, {"analyzed": 1, "deferred": 0})
+        self.assertEqual(repository.save_sentiment.call_count, 1)
+
+
+class ArchiveTranscriptTextTests(unittest.TestCase):
+    """The repository side: never clear a column the archive does not match."""
+
+    def repository(self, stored_text):
+        from storage.supabase_repository import SupabaseRepository
+
+        repository = SupabaseRepository("https://x.test", "key")
+        repository.objects = MagicMock()
+        repository.objects.get_gzip_text.return_value = stored_text
+        repository._request = MagicMock()
+        return repository
+
+    def transcript(self, text):
+        import hashlib
+
+        return {"id": "t1", "market": "NSE", "cleaned_text": text,
+                "text_hash": hashlib.sha256(text.encode("utf-8")).hexdigest()}
+
+    def test_clears_the_column_only_after_a_verified_upload(self):
+        repository = self.repository("Revenue grew.")
+
+        self.assertTrue(repository.archive_transcript_text(self.transcript("Revenue grew.")))
+        path = repository.objects.put_gzip_text.call_args.args[0]
+        self.assertEqual(path, "transcripts/NSE/t1.txt.gz")
+        method, url = repository._request.call_args.args[:2]
+        self.assertEqual((method, url), ("PATCH", "transcripts?id=eq.t1"))
+        self.assertEqual(repository._request.call_args.kwargs["json"], {"cleaned_text": ""})
+
+    def test_a_mismatched_upload_leaves_the_text_in_place(self):
+        repository = self.repository("corrupted")
+
+        with self.assertRaises(ValueError):
+            repository.archive_transcript_text(self.transcript("Revenue grew."))
+        repository._request.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import UTC, datetime
 from typing import Any
@@ -10,6 +11,7 @@ import requests
 
 from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
+from storage.object_store import ObjectStore
 
 READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
@@ -42,6 +44,7 @@ class SupabaseRepository:
             "Authorization": f"Bearer {service_role_key}",
             "Content-Type": "application/json",
         }
+        self.objects = ObjectStore(url, service_role_key, timeout_seconds, read_only=self.read_only)
 
     @classmethod
     def from_environment(cls, market: str | None = None) -> SupabaseRepository:
@@ -142,6 +145,43 @@ class SupabaseRepository:
             },
         )
         return rows[0] if rows else None
+
+    # -- archived transcript text --------------------------------------------
+    #
+    # Once a call has been scored, its text is needed again only if the
+    # analysis is re-run under a new model or version. It is moved to Storage
+    # (transcripts/{MARKET}/{id}.txt.gz) and the column left empty, which the
+    # free database's 500 MB cannot otherwise afford: ~50 MB for 2,300 calls.
+
+    def _transcript_path(self, transcript: dict[str, Any]) -> str:
+        return f"transcripts/{transcript.get('market') or self.market}/{transcript['id']}.txt.gz"
+
+    def archive_transcript_text(self, transcript: dict[str, Any]) -> bool:
+        """Move one transcript's text to Storage; True when the column was emptied.
+
+        Lossless by construction: the object is read back and its SHA-256
+        compared with the row's ``text_hash`` before the column is cleared, so
+        a failed or corrupted upload leaves the text where it was.
+        """
+        text = transcript.get("cleaned_text") or ""
+        if not text:
+            return False
+        path = self._transcript_path(transcript)
+        self.objects.put_gzip_text(path, text)
+        stored = self.objects.get_gzip_text(path)
+        if stored is None or hashlib.sha256(stored.encode("utf-8")).hexdigest() != transcript["text_hash"]:
+            raise ValueError(f"archived text for transcript {transcript['id']} does not match its hash")
+        self._request(
+            "PATCH",
+            f"transcripts?id=eq.{transcript['id']}",
+            json={"cleaned_text": ""},
+            headers={"Prefer": "return=minimal"},
+        )
+        return True
+
+    def restore_transcript_text(self, transcript: dict[str, Any]) -> str | None:
+        """The archived text of a transcript whose column is empty, or None."""
+        return self.objects.get_gzip_text(self._transcript_path(transcript))
 
     def list_transcripts_for_analysis(
         self,
