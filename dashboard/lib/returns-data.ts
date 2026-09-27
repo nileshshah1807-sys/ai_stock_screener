@@ -286,7 +286,7 @@ export type ClosedTrade = {
   soldOn: string;
   soldAt: number | null;
   returnPct: number | null;
-  /** Gain booked over the whole position, trims included, in points of the starting capital. */
+  /** Gain booked on the sale, in points of the starting capital. */
   bookedPts: number;
   grossBookedPts: number;
   /** Bought from a backtest ranking rather than a published one. */
@@ -295,9 +295,8 @@ export type ClosedTrade = {
 
 /**
  * The return split three ways, each in points of the starting capital so the
- * three add up to it: gains booked on sales (a rebalance trimming a winner
- * books part of its gain), gains still open on the holdings, and trading
- * costs (paid, plus selling everything today).
+ * three add up to it: gains booked on sales, gains still open on the
+ * holdings, and trading costs (paid, plus selling everything today).
  */
 export type ReturnSplit = {
   bookedPct: number;
@@ -697,7 +696,7 @@ export async function getReturnsReport(
     getUniverseIndex(supabase, market.code, entrySession, asOf),
   ]);
 
-  const result = portfolioReturns(rounds, closes, { asOf, costPerSidePct: COST_PER_SIDE_PCT });
+  const result = portfolioReturns(rounds, closes, { asOf, costPerSidePct: COST_PER_SIDE_PCT, slots: topN });
   // The last basket, not the last buy list: a kept stock may have left the list.
   const listed = new Map((tops.get(lastRound.rankDate) ?? []).map((row) => [row.symbol, row]));
 
