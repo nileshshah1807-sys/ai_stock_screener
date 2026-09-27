@@ -102,4 +102,24 @@ Otherwise it is not adopted, and the holdout is spent.
 
 ## Holdout result
 
-_To be filled in after the single run._
+Run once on 2026-09-27, after the commit above. First ranking 3 Oct 2025,
+first purchase 6 Oct 2025, through 25 Sep 2026 (backtest rankings to
+10 Aug 2026, published rankings from 11 Aug 2026).
+
+| | Total return | Worst fall | Weeks in cash | Stops |
+|---|---|---|---|---|
+| A | +8.98% | -15.3% | 0% | 0 |
+| A + R2 + R3 | +1.02% | -17.3% | 19% | 14 |
+| Nifty 500 (to 24 Sep) | -2.66% | -14.8% | | |
+
+* Drawdown test: **fails.** The rule's worst fall was deeper than A's, not a
+  third shallower.
+* Return test: passes (+1.02% against -2.66%).
+
+**Not adopted.** The small-cap switch sat in cash for a fifth of the weeks and
+the stop sold 14 holdings, so the basket missed rebounds without avoiding the
+November - March fall. This matches concern 1 above: the design-period gain
+came from the 2020 crash alone.
+
+The holdout year is now spent. Any further portfolio rule can only be
+confirmed on data that arrives after this date.
