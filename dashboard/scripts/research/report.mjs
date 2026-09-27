@@ -10,6 +10,7 @@ const f = read("facts.json");
 const p7 = read("p7-design.json");
 const ho = read("p7-holdout.json");
 const ro = read("rolling-summary.json");
+const inv = read("invested.json");
 const full = f.windows.full, rated = f.windows.rated;
 
 const LABEL = {
@@ -146,6 +147,55 @@ const ruleTable = (h) => `<table><thead><tr><th>Start</th><th>Rules</th><th>Medi
 ${["A", "B"].flatMap((b) => RULE_ORDER.map((k) => { const x = ro.rules[h][b][k]; const a = x.all, fl = x.byMarket.falling; return `<tr${k === "R3" ? ' class="hi"' : ""}><td>${b === "A" ? "Weekly, reset" : "Monthly, hold"}</td><td>${k === "none" ? "none" : k.replaceAll("+", " + ")}</td><td>${pct(a.medAnnual)}</td><td>${pct(a.medDD)}</td><td>${share0(a.ddPast20)}</td><td>${k === "none" ? "—" : pts(a.medReturnVsPair) + " pts"}</td><td>${k === "none" ? "—" : pts(a.medDDVsPair) + " pts"}</td><td>${k === "none" ? "—" : share0(a.shallowerThanPair)}</td><td>${k === "none" || !fl.runs ? "—" : pts(fl.medDDVsPair) + " pts"}</td></tr>`; })).join("")}</tbody></table>`;
 
 const wt = (h, scope) => ro.weights[h][scope];
+
+const invRow = (base, pct) => inv.full.find((r) => r.base === base && r.investedPct === pct);
+const invRoll = (months, base, pct) => inv.rolling[months].find((r) => r.base === base && r.investedPct === pct);
+function investedChart() {
+  const Wd = 640, H = 250, m = { l: 52, r: 110, t: 12, b: 26 };
+  const series = [100, 80, 60, 40].map((share, i) => ({ pct: share, color: ["#312e81", "#4338ca", "#6366f1", "#a5b4fc"][i], points: invRow("B", share).points }));
+  const all = series.flatMap((s) => s.points);
+  const t0 = Date.parse(all[0][0]), t1 = Date.parse(all.reduce((a, p) => (p[0] > a ? p[0] : a), "0"));
+  const val = (v) => Math.log10(1 + v / 100);
+  const vs = all.map((p) => val(p[1]));
+  const v0 = Math.min(...vs), v1 = Math.max(...vs);
+  const X = (t) => m.l + ((Date.parse(t) - t0) / (t1 - t0)) * (Wd - m.l - m.r), Y = (v) => H - m.b - ((val(v) - v0) / (v1 - v0)) * (H - m.t - m.b);
+  let g = "";
+  for (const v of [0, 100, 300, 900, 1900].filter((v) => val(v) <= v1 + 0.05)) g += `<line x1="${m.l}" x2="${Wd - m.r}" y1="${Y(v)}" y2="${Y(v)}" class="grid"/><text x="${m.l - 6}" y="${Y(v) + 3}" class="tick" text-anchor="end">${(1 + v / 100).toFixed(0)}×</text>`;
+  for (let y = 2019; y <= 2026; y++) g += `<text x="${X(`${y}-01-01`)}" y="${H - 8}" class="tick" text-anchor="middle">${y}</text>`;
+  for (const s of series) {
+    g += `<path d="${s.points.map((p, i) => `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("")}" fill="none" stroke="${s.color}" stroke-width="1.6"/>`;
+    const last = s.points.at(-1);
+    g += `<text x="${Wd - m.r + 4}" y="${Y(last[1]) + 3}" class="tick" fill="${s.color}">${s.pct}% invested</text>`;
+  }
+  return `<svg viewBox="0 0 ${Wd} ${H}" class="chart">${g}</svg>`;
+}
+const investedTable = (base) => `<table><thead><tr><th>Invested</th><th>Return / yr</th><th>Worst fall</th><th>1-yr windows: median return</th><th>1-yr: median fall</th><th>1-yr: worst fall</th><th>1-yr: past −20%</th><th>3-yr: worst fall</th><th>3-yr: past −20%</th></tr></thead><tbody>
+${[100, 80, 60, 40].map((share) => { const f = invRow(base, share), y1 = invRoll(12, base, share), y3 = invRoll(36, base, share); return `<tr${share === 40 ? ' class="hi"' : ""}><td>${share}%</td><td>${pct(f.cagrPct)}</td><td>${pct(f.maxDDPct)}</td><td>${pct(y1.medAnnual)}</td><td>${pct(y1.medDD)}</td><td>${pct(y1.worstDD)}</td><td>${share0(y1.ddPast20)}</td><td>${pct(y3.worstDD)}</td><td>${share0(y3.ddPast20)}</td></tr>`; }).join("")}
+<tr class="bench"><td>Nifty 500</td><td>${pct(inv.bench.cagrPct)}</td><td>${pct(inv.bench.maxDDPct)}</td><td colspan="6"></td></tr></tbody></table>`;
+
+const INVESTED = `
+<h2 class="pb">How much of the money to invest</h2>
+<p>The one lever that reaches the −20% limit without fitting anything to history: keep only part of the money in the basket and the rest as plain cash in the account — not invested, earning nothing. Every rebalance restores the split by resizing the whole basket. The whole backtest, ${date(inv.full[0].start)} – ${date(inv.end)}, and ${invRoll(12, "B", 100).windows} one-year and ${invRoll(36, "B", 100).windows} three-year windows started monthly.</p>
+<h3>Monthly, hold as bought</h3>
+${investedTable("B")}
+${investedChart()}
+<h3>Weekly, reset to equal</h3>
+${investedTable("A")}
+<ul>
+<li><b>The fall shrinks in proportion, as expected — and so does the return.</b> Return for each point of worst fall barely moves with the share (monthly: ${num(invRow("B", 100).calmar)} at 100%, ${num(invRow("B", 40).calmar)} at 40%).</li>
+<li><b>40% invested is the share that kept inside −20% throughout</b>, monthly and held as bought: ${pct(invRow("B", 40).maxDDPct)} at worst over the whole backtest, and no one-year or three-year window past −20% — while still returning ${pct(invRow("B", 40).cagrPct)} a year against the Nifty 500's ${pct(inv.bench.cagrPct)}, whose own worst fall was ${pct(inv.bench.maxDDPct)}.</li>
+<li><b>60% is the middle ground</b>: about ${pct(invRow("B", 60).cagrPct, 0)} a year, a worst fall of ${pct(invRow("B", 60).maxDDPct, 0)}, and ${share0(invRoll(12, "B", 60).ddPast20)} of one-year windows past −20%.</li>
+<li>As everywhere in this report, these returns are backtest over the period the model was fitted on; the cut in the fall is arithmetic and will hold, the level of return may not.</li>
+</ul>
+
+<h2 class="pb">What changed, and what happens next</h2>
+<div class="box plan">
+<p><b>On the Returns page</b></p>
+<p>1. <b>Invested: 100% / 80% / 60% / 40%.</b> The rest is kept as cash, earning nothing. At 100% every figure is exactly what it was. &nbsp;2. <b>"Reset to equal" is now the default</b> at each rebalance; "Hold as bought" is one click away. &nbsp;3. <b>No filter stays the main basket</b>; the rating and stage filters remain for reading.</p>
+<p><b>The trailing stop, tested forward (P8)</b></p>
+<p>Chosen after all these runs, so no past data can confirm it. It is judged only on published rankings from 28 Sep 2026: the unfiltered Top 20, monthly, held as bought, with and without the 20% stop. Decided at 12 months (end of September 2027): adopt only if its worst fall is at least 2 points shallower and it gives up no more than 5 points of return. A look at 6 months is for information. Written down before the data exists: <i>docs/Review/p8_trailing_stop_forward_preregistration.md</i>.</p>
+</div>`;
+
 const ROLLING = `
 <h2 class="pb">Across many periods</h2>
 <p>Everything above rests on one start date per window. To check it isn't an accident of timing, the same tests were re-run as a fresh basket started at the first ranking of every month and held for 6 months, 1 year or 3 years — ${ro.markets["1y"].falling + ro.markets["1y"].flat + ro.markets["1y"].rising} overlapping one-year windows from Jan 2019 (from Jun 2023 for rating filters), through the end of the backtest on ${date(ro.end)}. Settings: Top 10 and Top 20, weekly and monthly, both weightings. Each filter is compared with the unfiltered ranking over the same window at the same settings.</p>
@@ -178,8 +228,7 @@ ${ruleTable("3y")}
 <li><b>Nothing reaches −20% on its own.</b> Even with the stop, ${share0(ro.rules["1y"].B.R3.all.ddPast20)} of one-year windows fell further than −20%, and every three-year window did.</li>
 </ul>
 
-<h3>Where that leaves us</h3>
-<p><b>1. Hold less than all of the money in the basket.</b> The only way to a −20% cap in a crash year: keeping part in cash or a liquid fund shrinks every fall roughly in proportion — 60% invested turns a −48% fall into about −29% — at the same proportional cost in return, with nothing fitted to history. &nbsp;<b>2. Test the trailing stop forward.</b> It is the one rule that held up across windows; being chosen after all these runs, it can only be confirmed on published rankings from here on. &nbsp;<b>3. Reset to equal as the page's default</b> is a mild improvement, not a strong one; reasonable, but not important. &nbsp;<b>4. Keep the unfiltered ranking as the main basket.</b> The filters remain on the page for reading, not as the way to pick.</p>`;
+${INVESTED}`;
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>Returns filter study</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">

@@ -174,6 +174,7 @@ export function runRules(data, { base, rules, from, asOf = data.asOf }) {
   const result = portfolioReturns(rounds, data.closes, {
     asOf, costPerSidePct: COST_PER_SIDE_PCT, slots: base.topN, weights: base.weights,
     trailingStopPct: rules.includes("R3") ? 20 : null,
+    investedPct: base.investedPct ?? 100,
   });
   // Weeks in cash before the first purchase count as flat, from the same start.
   const curve = result.curve[0]?.time > firstEntry ? [{ time: firstEntry, value: 0 }, ...result.curve] : result.curve;
