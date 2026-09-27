@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { ReturnsView } from "@/components/returns/returns-view";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug } from "@/lib/markets";
-import { COST_PER_SIDE_PCT, DEFAULT_TOP_N, TOP_N_OPTIONS } from "@/lib/returns.mjs";
+import { COST_PER_SIDE_PCT, DEFAULT_TOP_N, TOP_N_OPTIONS, pickKey } from "@/lib/returns.mjs";
 import { getReturnsReport } from "@/lib/returns-data";
 
 export const metadata: Metadata = { title: "Returns" };
@@ -28,13 +28,19 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
   const requestedTop = Number(first(query.top));
   const topN = TOP_N_OPTIONS.includes(requestedTop) ? requestedTop : DEFAULT_TOP_N;
   const costs = first(query.costs) !== "gross";
+  // Two filters, `rating` and `stage`; a link from before they split carries
+  // one `pick` value, which is still a valid key.
+  const rating = first(query.rating);
+  const stage = first(query.stage);
+  const pick = rating || stage ? pickKey(rating, stage) : first(query.pick);
 
   const report = await getReturnsReport(market, {
     from: first(query.from),
     topN,
     costs,
     rebalance: first(query.rebalance),
-    pick: first(query.pick),
+    pick,
+    weights: first(query.weights),
   });
 
   return (
@@ -70,8 +76,11 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
           stock that did not trade that session is bought at its first close after it. With rebalancing off the
           basket is held as bought. With it on, at each step the stocks that no longer qualify are sold and
           their slots refilled from that day&rsquo;s ranking with the sale money, again at the next
-          session&rsquo;s close. A stock that is kept is never trimmed or topped up, so a winner is left to run.
-          A slot nothing qualified for waits in cash. A stock that has since left the universe is kept at its
+          session&rsquo;s close. A stock that is kept is never trimmed or topped up, so a winner is left to run,
+          and a slot nothing qualified for waits in cash &mdash; unless &ldquo;Reset to equal&rdquo; is chosen,
+          which also trims every winner and tops up every loser back to an equal share at each rebalance. With a
+          rating and a stage filter together, a stock is bought when it passes both and sold once it fails
+          either&rsquo;s hold rule. A stock that has since left the universe is kept at its
           last price rather than dropped. Costs, when on, are {COST_PER_SIDE_PCT}% of the value traded &mdash; on
           each purchase, each sale and a final sale at the latest close.
         </p>
