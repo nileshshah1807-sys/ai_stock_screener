@@ -4,7 +4,7 @@ import { ChevronRight } from "lucide-react";
 import { ReturnsView } from "@/components/returns/returns-view";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug } from "@/lib/markets";
-import { COST_PER_SIDE_PCT, DEFAULT_TOP_N, INVESTED_OPTIONS, TOP_N_OPTIONS, pickKey } from "@/lib/returns.mjs";
+import { COST_PER_SIDE_PCT, DEFAULT_TOP_N, INVESTED_OPTIONS, STOP_OPTIONS, TOP_N_OPTIONS, pickKey } from "@/lib/returns.mjs";
 import { getReturnsReport } from "@/lib/returns-data";
 
 export const metadata: Metadata = { title: "Returns" };
@@ -45,6 +45,7 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
     investedPct: INVESTED_OPTIONS.includes(Number(first(query.invested)))
       ? Number(first(query.invested))
       : 100,
+    stopPct: STOP_OPTIONS.find((option) => option.value === first(query.stop))?.pct ?? null,
   });
 
   return (
@@ -90,7 +91,8 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
             and a slot nothing qualified for waits in cash &mdash; unless &ldquo;Reset to equal&rdquo; is chosen,
             which also trims every winner and tops up every loser back to an equal share at each rebalance. With a
             rating and a stage filter together, a stock is bought when it passes both and sold once it fails
-            either&rsquo;s hold rule. A stock that has since left the universe is kept at its
+            either&rsquo;s hold rule. With the stop loss on, a holding that closes 20% below its highest close
+            since purchase is also sold, at the next close, and its money waits for the next rebalance. A stock that has since left the universe is kept at its
             last price rather than dropped. Costs, when on, are {COST_PER_SIDE_PCT}% of the value traded &mdash; on
             each purchase, each sale and a final sale at the latest close.
           </p>

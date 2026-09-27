@@ -529,6 +529,7 @@ function Closed({ trades, market, costs }: { trades: ClosedTrade[]; market: Mark
   const middle = median(returns);
   const booked = (trade: ClosedTrade) => (costs ? trade.bookedPts : trade.grossBookedPts);
   const bookedHere = trades.reduce((sum, trade) => sum + booked(trade), 0);
+  const stoppedOut = trades.filter((trade) => trade.stopped).length;
 
   const ordered = [...trades].sort((a, b) => {
     if (order === "recent") return a.soldOn < b.soldOn ? 1 : a.soldOn > b.soldOn ? -1 : 0;
@@ -554,6 +555,7 @@ function Closed({ trades, market, costs }: { trades: ClosedTrade[]; market: Mark
           {won} of {returns.length} won ({returns.length ? Math.round((won / returns.length) * 100) : 0}%) · average{" "}
           {formatPercent(average, 2, true)} · median {formatPercent(middle, 2, true)} · {formatPoints(bookedHere)}{" "}
           booked
+          {stoppedOut ? ` · ${stoppedOut} stopped out` : ""}
         </p>
         <SegmentedControl
           label="Order closed positions"
@@ -601,6 +603,7 @@ function Closed({ trades, market, costs }: { trades: ClosedTrade[]; market: Mark
                       </span>
                       <span className="block truncate text-[11px] text-muted-foreground sm:hidden">
                         {trade.boughtOn ? shortDate(trade.boughtOn) : MISSING} → {shortDate(trade.soldOn)}
+                        {trade.stopped ? <span className="text-caution"> · stopped</span> : null}
                       </span>
                       <span className="hidden truncate text-[11px] text-muted-foreground sm:block">
                         {trade.company ?? "No longer listed"}
@@ -617,7 +620,10 @@ function Closed({ trades, market, costs }: { trades: ClosedTrade[]; market: Mark
                 </td>
                 <td className="tabular hidden px-2 py-2 text-right font-mono text-xs sm:table-cell">
                   {trade.soldAt !== null ? formatMoney(trade.soldAt, market, market.listPriceDigits) : MISSING}
-                  <span className="block text-[10px] text-muted-foreground">{formatDate(trade.soldOn)}</span>
+                  <span className="block text-[10px] text-muted-foreground">
+                    {formatDate(trade.soldOn)}
+                    {trade.stopped ? <span className="text-caution"> · stopped out</span> : null}
+                  </span>
                 </td>
                 <td className="tabular px-2 py-2 text-right font-mono text-xs text-muted-foreground">
                   {trade.boughtOn ? `${daysBetween(trade.boughtOn, trade.soldOn)}d` : MISSING}

@@ -293,6 +293,8 @@ export type ClosedTrade = {
   grossBookedPts: number;
   /** Bought from a backtest ranking rather than a published one. */
   backtest: boolean;
+  /** Sold by the trailing stop rather than at a rebalance. */
+  stopped: boolean;
 };
 
 /**
@@ -340,6 +342,8 @@ export type ReturnsReport =
       weights: string;
       /** The share of the money in the basket; the rest is held as cash. */
       investedPct: number;
+      /** The trailing stop, when on, and how many holdings it sold. */
+      stop: { pct: number | null; count: number };
       /** Set when a rating pick moved the start forward to the first rated ranking. */
       pickStartMovedFrom: string | null;
       /** Rounds where fewer than N stocks passed the pick. */
@@ -716,6 +720,7 @@ export async function getReturnsReport(
     pick: pickValue,
     weights: weightsValue,
     investedPct = 100,
+    stopPct = null,
   }: {
     from: string | null;
     topN: number;
@@ -725,6 +730,8 @@ export async function getReturnsReport(
     weights: string | null;
     /** The share of the money in the basket; the rest is held as cash. */
     investedPct?: number;
+    /** Trailing stop below each holding's high since purchase, or null for none. */
+    stopPct?: number | null;
   },
 ): Promise<ReturnsReport> {
   const supabase = await createClient();
@@ -820,6 +827,7 @@ export async function getReturnsReport(
     slots: topN,
     weights,
     investedPct,
+    trailingStopPct: stopPct,
   });
   // The last basket, not the last buy list: a kept stock may have left the list.
   const listed = new Map((tops.get(lastRound.rankDate) ?? []).map((row) => [row.symbol, row]));
@@ -867,6 +875,7 @@ export async function getReturnsReport(
     pick: pick.value,
     weights,
     investedPct,
+    stop: { pct: stopPct, count: result.stops.length },
     pickStartMovedFrom,
     shortRounds: rounds.filter((round) => round.symbols.length < topN).length,
     holds: pick.holds,
@@ -901,6 +910,7 @@ export async function getReturnsReport(
         bookedPts: trade.bookedPts,
         grossBookedPts: trade.grossBookedPts,
         backtest: round ? round.rankDate < liveFrom : false,
+        stopped: trade.stopped,
       };
     }),
     trades: result.trades.map((trade) => ({

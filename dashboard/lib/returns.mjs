@@ -153,6 +153,18 @@ export function selectBaskets(rounds, topN) {
 }
 
 /**
+ * Stop-loss choices: off, or a trailing stop at 20% below the highest close
+ * since purchase -- the only drawdown rule that held up across rolling
+ * windows, and still under a live test (docs/Review/p8_*.md), so it is off by
+ * default. One fixed level, not a free number, for the same reason as the
+ * rebalance stops.
+ */
+export const STOP_OPTIONS = [
+  { value: "off", label: "Off" },
+  { value: "20", label: "20%", pct: 20 },
+];
+
+/**
  * Shares of the money kept in the basket; the rest is held as cash, not
  * invested. Fixed stops, like the rebalance slider, so a reader compares a few
  * honest choices rather than tuning one to history.
@@ -518,6 +530,7 @@ function simulate(rounds, series, asOf, cost, slots, reset, stop = null, share =
             exit: close,
             soldOn: time,
             booked: position.booked + sale - position.basis,
+            stopped: true,
           });
           stops.push({ symbol, signalled: position.stopAt, soldOn: time });
           positions.delete(symbol);
@@ -762,6 +775,8 @@ export function portfolioReturns(
     entry: position.entry,
     exit: position.entry ? position.exit : null,
     soldOn: position.soldOn,
+    /** Sold by the trailing stop rather than at a rebalance. */
+    stopped: Boolean(position.stopped),
     returnPct:
       position.entry && position.exit ? (position.exit.close / position.entry.close - 1) * 100 : null,
   }));
