@@ -19,6 +19,7 @@ import {
   REBALANCE_OPTIONS,
   STAGE_PICKS,
   START_PRESETS,
+  INVESTED_OPTIONS,
   TOP_N_OPTIONS,
   WEIGHT_OPTIONS,
   modelForDate,
@@ -32,7 +33,15 @@ type Report = Extract<ReturnsReport, { status: "ok" }>;
 
 const CUSTOM = "custom";
 
-type Shown = { from: string; top: string; rebalance: string; rating: string; stage: string; weights: string };
+type Shown = {
+  from: string;
+  top: string;
+  rebalance: string;
+  rating: string;
+  stage: string;
+  weights: string;
+  invested: string;
+};
 
 
 /**
@@ -66,6 +75,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
       rating: reportPick.rating,
       stage: reportPick.stageFilter,
       weights: report.weights,
+      invested: String(report.investedPct),
     },
     (current, patch) => ({ ...current, ...patch }),
   );
@@ -222,13 +232,25 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
                   value={shown.weights}
                   onChange={(value) =>
                     push({ weights: value }, (params) =>
-                      value === "hold" ? params.delete("weights") : params.set("weights", value),
+                      value === "equal" ? params.delete("weights") : params.set("weights", value),
                     )
                   }
                   options={WEIGHT_OPTIONS.map(({ value, label, title }) => ({ value, label, title }))}
                 />
               </Field>
             ) : null}
+            <Field label="Invested">
+              <SegmentedControl
+                label="Share of the money in the basket"
+                value={shown.invested}
+                onChange={(value) =>
+                  push({ invested: value }, (params) =>
+                    value === "100" ? params.delete("invested") : params.set("invested", value),
+                  )
+                }
+                options={INVESTED_OPTIONS.map((pct) => ({ value: String(pct), label: `${pct}%` }))}
+              />
+            </Field>
             <Field label="Costs">
               <SegmentedControl
                 label="Trading costs"
@@ -265,6 +287,14 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
               ? `${report.rebalance.count} ${report.rebalance.count === 1 ? "rebalance" : "rebalances"}, ${report.rebalance.bought} swapped`
               : "bought once and held"}
           </span>
+          {report.investedPct < 100 ? (
+            <>
+              <Dot />
+              <span className="text-muted-foreground">
+                {report.investedPct}% invested, {100 - report.investedPct}% in cash
+              </span>
+            </>
+          ) : null}
           {report.backtestRounds ? (
             <span
               className="rounded-full border border-caution/40 bg-caution/10 px-2 py-0.5 text-[11px] font-medium text-caution"
@@ -311,6 +341,13 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
                     : ""}
                 </Note>
               ) : null}
+              {report.investedPct < 100 ? (
+                <Note title="Cash">
+                  {report.investedPct}% of the money is in the basket and {100 - report.investedPct}% is kept as
+                  cash, not invested and earning nothing. The split is restored at every rebalance by resizing the
+                  whole basket.
+                </Note>
+              ) : null}
               {report.pickStartMovedFrom || report.shortRounds ? (
                 <Note title="Gaps">
                   {report.pickStartMovedFrom
@@ -355,7 +392,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
 
         <section className="panel grid grid-cols-2 divide-border lg:grid-cols-4 lg:divide-x">
           <Tile
-            label={`Top ${report.topN}`}
+            label={report.investedPct < 100 ? `Top ${report.topN}, ${report.investedPct}% invested` : `Top ${report.topN}`}
             value={headline}
             note={
               costs
@@ -646,6 +683,13 @@ const CONTROL_HELP: Record<string, { term: string; text: string }[]> = {
   "At each rebalance": [
     { term: "Hold as bought", text: "A stock that is kept is left alone. Only the money from sales buys new stocks, so winners are left to run and grow into a bigger share." },
     { term: "Reset to equal", text: "Every rebalance also trims each winner and tops up each loser back to an equal share. It takes profits and buys dips each time, and pays more in costs." },
+  ],
+  Invested: [
+    { term: "100%", text: "All the money is in the basket." },
+    {
+      term: "80% / 60% / 40%",
+      text: "Only that share is in the basket; the rest is kept as cash in the account, not invested and earning nothing. Every rebalance restores the split by resizing the whole basket. A crash then hits only the invested share: at 60%, a 48% fall in the basket is about a 29% fall overall, and good years earn less in the same proportion.",
+    },
   ],
   Costs: [
     { term: `${COST_PER_SIDE_PCT}% a side`, text: "Brokerage, taxes and slippage on every purchase and sale, including selling everything today." },

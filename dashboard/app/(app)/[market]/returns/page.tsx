@@ -4,7 +4,7 @@ import { ChevronRight } from "lucide-react";
 import { ReturnsView } from "@/components/returns/returns-view";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug } from "@/lib/markets";
-import { COST_PER_SIDE_PCT, DEFAULT_TOP_N, TOP_N_OPTIONS, pickKey } from "@/lib/returns.mjs";
+import { COST_PER_SIDE_PCT, DEFAULT_TOP_N, INVESTED_OPTIONS, TOP_N_OPTIONS, pickKey } from "@/lib/returns.mjs";
 import { getReturnsReport } from "@/lib/returns-data";
 
 export const metadata: Metadata = { title: "Returns" };
@@ -42,6 +42,9 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
     rebalance: first(query.rebalance),
     pick,
     weights: first(query.weights),
+    investedPct: INVESTED_OPTIONS.includes(Number(first(query.invested)))
+      ? Number(first(query.invested))
+      : 100,
   });
 
   return (

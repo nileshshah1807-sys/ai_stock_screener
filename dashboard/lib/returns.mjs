@@ -152,6 +152,13 @@ export function selectBaskets(rounds, topN) {
   return baskets;
 }
 
+/**
+ * Shares of the money kept in the basket; the rest is held as cash, not
+ * invested. Fixed stops, like the rebalance slider, so a reader compares a few
+ * honest choices rather than tuning one to history.
+ */
+export const INVESTED_OPTIONS = [100, 80, 60, 40];
+
 /** Basket sizes offered. The research studies hold the top 20. */
 export const TOP_N_OPTIONS = [10, 20, 50];
 export const DEFAULT_TOP_N = 20;
@@ -422,8 +429,8 @@ function resetRound({ round, time, positions, current, before, targets, cost, la
  * which sells winners and buys losers every round.
  */
 export const WEIGHT_OPTIONS = [
-  { value: "hold", label: "Hold as bought", title: "Kept stocks are never trimmed or topped up" },
   { value: "equal", label: "Reset to equal", title: "Every rebalance trims winners and tops up losers to an equal share" },
+  { value: "hold", label: "Hold as bought", title: "Kept stocks are never trimmed or topped up" },
 ];
 
 /**
@@ -436,8 +443,9 @@ export const WEIGHT_OPTIONS = [
  * @param {number} slots how many stocks the basket holds when full
  * @param {boolean} reset whether each round resets every holding to equal weight
  * @param {number | null} stop trailing stop, as a fraction below the highest close since purchase
+ * @param {number} share the share of the money in the basket; the rest is held as cash, earning nothing
  */
-function simulate(rounds, series, asOf, cost, slots, reset, stop = null) {
+function simulate(rounds, series, asOf, cost, slots, reset, stop = null, share = 1) {
   const start = rounds[0].entrySession;
   const times = new Set(rounds.map((round) => round.entrySession));
   for (const points of series.values()) {
@@ -461,7 +469,10 @@ function simulate(rounds, series, asOf, cost, slots, reset, stop = null) {
   // -- so the return splits into booked and open without changing it.
   /** @type {Map<string, {units: number | null, pending: number | null, since: string, entry: {time: string, close: number} | null, basis: number, booked: number}>} */
   let positions = new Map();
-  let cash = 1;
+  // `cash` is the basket's own uninvested money (sale proceeds, empty slots);
+  // `held` is the money kept out of the basket altogether, as plain cash.
+  let cash = share;
+  let held = 1 - share;
   let costsPaid = 0;
   const curve = [];
   const trades = [];
@@ -544,28 +555,59 @@ function simulate(rounds, series, asOf, cost, slots, reset, stop = null) {
           booked: position.booked + current.get(symbol) - position.basis,
         });
       }
-      costsPaid += charged;
+      // Restore the split between the basket and the money kept outside it,
+      // by resizing the whole basket: every holding, and its uninvested cash,
+      // by the same factor, so the stocks keep their sizes relative to each
+      // other. Only the stock side of the move pays costs.
+      let resized = 0;
+      let basketCash = left;
+      const heldBefore = held;
+      if (share < 1) {
+        let stocks = 0;
+        for (const [symbol, position] of next) stocks += position.pending !== null ? position.pending : position.units * lastClose(symbol).close;
+        const side = stocks + basketCash;
+        const factor = side > 0 ? (share * (side + held)) / side : 1;
+        for (const [symbol, position] of next) {
+          if (position.pending !== null) {
+            position.pending *= factor;
+            position.basis *= factor;
+            continue;
+          }
+          const worth = position.units * lastClose(symbol).close;
+          resized += Math.abs(factor - 1) * worth * cost;
+          if (factor < 1) {
+            position.booked += (1 - factor) * (worth - position.basis);
+            position.basis *= factor;
+          } else {
+            position.basis += (factor - 1) * worth;
+          }
+          position.units *= factor;
+        }
+        held = side + held - factor * side - resized;
+        basketCash *= factor;
+      }
+      costsPaid += charged + resized;
       trades.push({
         rankDate: round.rankDate ?? null,
         entrySession: time,
         bought: buys,
         sold: [...positions.keys()].filter((symbol) => !targets.has(symbol)),
-        costPct: before > 0 ? (charged / before) * 100 : 0,
+        costPct: before + heldBefore > 0 ? ((charged + resized) / (before + heldBefore)) * 100 : 0,
         // Portfolio value either side of the round's trades, so each period's
         // return can be measured from one rebalance to the next.
-        valueBefore: before,
-        valueAfter: before - charged,
+        valueBefore: before + heldBefore,
+        valueAfter: before + heldBefore - charged - resized,
       });
       positions = next;
-      cash = left;
+      cash = basketCash;
     }
 
     let invested = 0;
     for (const [symbol, position] of positions) invested += valueOf(symbol, position);
-    value = cash + invested;
+    value = cash + held + invested;
     // As if sold that day, so the last point is the headline number. Cash
     // needs no sale, so only the invested part pays the exit cost.
-    curve.push({ time, value: (cash + invested * (1 - cost) - 1) * 100 });
+    curve.push({ time, value: (cash + held + invested * (1 - cost) - 1) * 100 });
   }
 
   // Every figure in points of the starting capital, so they add up:
@@ -582,7 +624,7 @@ function simulate(rounds, series, asOf, cost, slots, reset, stop = null) {
   const pnl = {
     bookedPct: booked * 100,
     openPct: open * 100,
-    costsPct: (costsPaid + (value - cash) * cost) * 100,
+    costsPct: (costsPaid + (value - cash - held) * cost) * 100,
     paidPct: costsPaid * 100,
   };
 
@@ -619,13 +661,17 @@ function simulate(rounds, series, asOf, cost, slots, reset, stop = null) {
  * With `trailingStopPct`, a holding is also sold at the next close after it
  * closes that far below its highest close since purchase (see `simulate`).
  *
- * @param {{asOf: string, costPerSidePct?: number, slots?: number, weights?: string, trailingStopPct?: number | null}} options `slots` is
+ * With `investedPct` below 100, only that share of the money is in the basket;
+ * the rest is held as cash and earns nothing. Each round restores the split by
+ * resizing the whole basket, stocks and all, by one factor.
+ *
+ * @param {{asOf: string, costPerSidePct?: number, slots?: number, weights?: string, trailingStopPct?: number | null, investedPct?: number}} options `slots` is
  *   the basket size; it defaults to the largest round, and a smaller round leaves the rest in cash
  */
 export function portfolioReturns(
   rounds,
   closes,
-  { asOf, costPerSidePct = 0, slots, weights = "hold", trailingStopPct = null },
+  { asOf, costPerSidePct = 0, slots, weights = "hold", trailingStopPct = null, investedPct = 100 },
 ) {
   const usable = (rounds ?? []).filter((round) => round.entrySession && round.entrySession <= asOf);
   if (!usable.length || !usable[0].symbols.length) {
@@ -656,8 +702,9 @@ export function portfolioReturns(
   const size = slots ?? Math.max(...usable.map((round) => round.symbols.length));
   const reset = weights === "equal";
   const stop = trailingStopPct ? trailingStopPct / 100 : null;
-  const gross = simulate(usable, series, asOf, 0, size, reset, stop);
-  const net = simulate(usable, series, asOf, costPerSidePct / 100, size, reset, stop);
+  const share = Math.min(1, Math.max(0, investedPct / 100));
+  const gross = simulate(usable, series, asOf, 0, size, reset, stop, share);
+  const net = simulate(usable, series, asOf, costPerSidePct / 100, size, reset, stop, share);
 
   const holdings = usable[usable.length - 1].symbols;
   // A position's gain still open, in points of the starting capital. Both

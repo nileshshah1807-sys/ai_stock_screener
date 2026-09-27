@@ -359,6 +359,50 @@ describe("portfolioReturns, trailing stop", () => {
   });
 });
 
+describe("portfolioReturns, part of the money kept as cash", () => {
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+  const closes = new Map([
+    ["A", [close("2026-09-01", 100), close("2026-09-08", 200), close("2026-09-15", 100)]],
+  ]);
+
+  it("keeps the rest out of the basket, earning nothing", () => {
+    const rounds = [{ entrySession: "2026-09-01", symbols: ["A"] }];
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-08", investedPct: 60 });
+    // 0.6 in A doubles to 1.2; the 0.4 of cash stays 0.4.
+    near(result.grossPct, (1.2 + 0.4 - 1) * 100);
+  });
+
+  it("restores the split at each rebalance by resizing the basket", () => {
+    const rounds = [
+      { entrySession: "2026-09-01", symbols: ["A"] },
+      { entrySession: "2026-09-08", symbols: ["A"] },
+    ];
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15", investedPct: 50 });
+    // 09-08: A 1.0 and cash 0.5 -> resized to 0.75 each, booking half of A's
+    // 0.5 gain on the quarter sold. 09-15: A halves to 0.375; total 1.125.
+    near(result.grossPct, 12.5);
+    near(result.grossPnl.bookedPct, 12.5);
+    near(result.grossPnl.openPct, 0);
+  });
+
+  it("still adds up once costs are in", () => {
+    const rounds = [
+      { entrySession: "2026-09-01", symbols: ["A"] },
+      { entrySession: "2026-09-08", symbols: ["A"] },
+    ];
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15", investedPct: 70, costPerSidePct: 0.3 });
+    const { bookedPct, openPct, costsPct } = result.pnl;
+    near(bookedPct + openPct - costsPct, result.netPct);
+  });
+
+  it("changes nothing at 100%", () => {
+    const rounds = [{ entrySession: "2026-09-01", symbols: ["A"] }];
+    const plain = portfolioReturns(rounds, closes, { asOf: "2026-09-15" });
+    const full = portfolioReturns(rounds, closes, { asOf: "2026-09-15", investedPct: 100 });
+    assert.deepEqual(full.curve, plain.curve);
+  });
+});
+
 describe("rebalance schedule", () => {
   const dates = ["2026-08-11", "2026-08-12", "2026-08-18", "2026-08-19", "2026-08-25", "2026-09-11", "2026-09-14"];
 

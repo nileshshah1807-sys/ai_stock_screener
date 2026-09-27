@@ -338,6 +338,8 @@ export type ReturnsReport =
       pick: string;
       /** How a rebalance treats kept stocks: "hold" as bought, or "equal" weight. */
       weights: string;
+      /** The share of the money in the basket; the rest is held as cash. */
+      investedPct: number;
       /** Set when a rating pick moved the start forward to the first rated ranking. */
       pickStartMovedFrom: string | null;
       /** Rounds where fewer than N stocks passed the pick. */
@@ -713,6 +715,7 @@ export async function getReturnsReport(
     rebalance,
     pick: pickValue,
     weights: weightsValue,
+    investedPct = 100,
   }: {
     from: string | null;
     topN: number;
@@ -720,11 +723,16 @@ export async function getReturnsReport(
     rebalance: string | null;
     pick: string | null;
     weights: string | null;
+    /** The share of the money in the basket; the rest is held as cash. */
+    investedPct?: number;
   },
 ): Promise<ReturnsReport> {
   const supabase = await createClient();
   const pick = pickOption(pickValue);
-  const weights = weightsValue === "equal" ? "equal" : "hold";
+  // Reset to equal is the default: across rolling windows it returned a
+  // little more than holding as bought, with slightly shallower falls
+  // (docs/Review/returns_filter_study_2026-09-27.pdf).
+  const weights = weightsValue === "hold" ? "hold" : "equal";
   const [liveDates, simulatedDates, calendar, benchmarkLevels, latestRun, firstRated] = await Promise.all([
     getRankingDates(market.code),
     getSimulatedDates(market.code),
@@ -811,6 +819,7 @@ export async function getReturnsReport(
     costPerSidePct: COST_PER_SIDE_PCT,
     slots: topN,
     weights,
+    investedPct,
   });
   // The last basket, not the last buy list: a kept stock may have left the list.
   const listed = new Map((tops.get(lastRound.rankDate) ?? []).map((row) => [row.symbol, row]));
@@ -857,6 +866,7 @@ export async function getReturnsReport(
     costs,
     pick: pick.value,
     weights,
+    investedPct,
     pickStartMovedFrom,
     shortRounds: rounds.filter((round) => round.symbols.length < topN).length,
     holds: pick.holds,
