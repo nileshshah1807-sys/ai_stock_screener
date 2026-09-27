@@ -9,6 +9,7 @@ const read = (name) => JSON.parse(readFileSync(out(name), "utf8"));
 const f = read("facts.json");
 const p7 = read("p7-design.json");
 const ho = read("p7-holdout.json");
+const ro = read("rolling-summary.json");
 const full = f.windows.full, rated = f.windows.rated;
 
 const LABEL = {
@@ -114,6 +115,72 @@ const filtersR = rated.byPick.filter((p) => p.pick !== "all");
 const stageF = full.byPick.filter((p) => p.pick !== "all");
 const rng = (xs) => `${pct(Math.min(...xs))} to ${pct(Math.max(...xs))}`;
 
+
+const H_LABEL = { "6m": "6 months", "1y": "1 year", "3y": "3 years" };
+const FILTER_ORDER = ["all", "stage2", "fresh_stage2", "buy", "strong_buy", "buy+stage2", "buy+fresh_stage2", "strong_buy+stage2", "strong_buy+fresh_stage2"];
+const share0 = (x) => (x == null ? "—" : `${Math.round(x)}%`);
+const pts = (x) => (x == null ? "—" : `${x > 0 ? "+" : x < 0 ? "−" : ""}${Math.abs(x).toFixed(1)}`);
+
+function beatBars(h) {
+  const rows = FILTER_ORDER.filter((k) => k !== "all" && ro.filters[h][k]).map((k) => [LABEL[k], ro.filters[h][k].all.beatPair]);
+  const Wd = 640, rowH = 20, H = rows.length * rowH + 30, l = 150, r = 40;
+  const X = (v) => l + (v / 100) * (Wd - l - r);
+  let g = "";
+  for (const v of [0, 25, 50, 75, 100]) g += `<line x1="${X(v)}" x2="${X(v)}" y1="4" y2="${H - 22}" class="grid"/><text x="${X(v)}" y="${H - 8}" class="tick" text-anchor="middle">${v}%</text>`;
+  g += `<line x1="${X(50)}" x2="${X(50)}" y1="4" y2="${H - 22}" stroke="#94a3b8" stroke-dasharray="3 3"/>`;
+  rows.forEach(([label, v], i) => {
+    const y = 6 + i * rowH;
+    g += `<text x="${l - 8}" y="${y + 11}" class="axis" text-anchor="end">${label}</text><rect x="${X(0)}" y="${y}" width="${X(v) - X(0)}" height="${rowH - 7}" rx="3" fill="${COLORS[family(FILTER_ORDER.find((k) => LABEL[k] === label))]}" opacity="0.8"/><text x="${X(v) + 4}" y="${y + 11}" class="tick">${Math.round(v)}%</text>`;
+  });
+  return `<svg viewBox="0 0 ${Wd} ${H}" class="chart">${g}</svg>`;
+}
+
+const filterTable = (h) => `<table><thead><tr><th>Filter</th><th>Runs</th><th>Median return / yr</th><th>Bad case (1 in 10)</th><th>Median worst fall</th><th>Fell past −20%</th><th>Beat Nifty</th><th>Beat no filter</th></tr></thead><tbody>
+${FILTER_ORDER.filter((k) => ro.filters[h][k]).map((k) => { const a = ro.filters[h][k].all; return `<tr${k === "all" ? ' class="hi"' : ""}><td>${LABEL[k]}</td><td>${a.runs}</td><td>${pct(a.medAnnual)}</td><td>${pct(a.p10Annual)}</td><td>${pct(a.medDD)}</td><td>${share0(a.ddPast20)}</td><td>${share0(a.beatNifty)}</td><td>${k === "all" ? "—" : share0(a.beatPair)}</td></tr>`; }).join("")}</tbody></table>`;
+
+const fallingTable = (h) => `<table><thead><tr><th>Filter</th><th>Runs</th><th>Median return / yr</th><th>Median worst fall</th><th>Beat no filter</th><th>Shallower fall than no filter</th><th>Median fall vs no filter</th></tr></thead><tbody>
+${FILTER_ORDER.filter((k) => ro.filters[h][k]?.byMarket.falling.runs).map((k) => { const a = ro.filters[h][k].byMarket.falling; return `<tr${k === "all" ? ' class="hi"' : ""}><td>${LABEL[k]}</td><td>${a.runs}</td><td>${pct(a.medAnnual)}</td><td>${pct(a.medDD)}</td><td>${k === "all" ? "—" : share0(a.beatPair)}</td><td>${k === "all" ? "—" : share0(a.shallowerThanPair)}</td><td>${k === "all" ? "—" : pts(a.medDDVsPair) + " pts"}</td></tr>`; }).join("")}</tbody></table>`;
+
+const RULE_ORDER = ["none", "R1", "R2", "R3", "R1+R2", "R1+R3", "R2+R3", "R1+R2+R3"];
+const ruleTable = (h) => `<table><thead><tr><th>Start</th><th>Rules</th><th>Median return / yr</th><th>Median worst fall</th><th>Fell past −20%</th><th>Return vs no rules</th><th>Fall vs no rules</th><th>Shallower than no rules</th><th>Falling markets: fall vs no rules</th></tr></thead><tbody>
+${["A", "B"].flatMap((b) => RULE_ORDER.map((k) => { const x = ro.rules[h][b][k]; const a = x.all, fl = x.byMarket.falling; return `<tr${k === "R3" ? ' class="hi"' : ""}><td>${b === "A" ? "Weekly, reset" : "Monthly, hold"}</td><td>${k === "none" ? "none" : k.replaceAll("+", " + ")}</td><td>${pct(a.medAnnual)}</td><td>${pct(a.medDD)}</td><td>${share0(a.ddPast20)}</td><td>${k === "none" ? "—" : pts(a.medReturnVsPair) + " pts"}</td><td>${k === "none" ? "—" : pts(a.medDDVsPair) + " pts"}</td><td>${k === "none" ? "—" : share0(a.shallowerThanPair)}</td><td>${k === "none" || !fl.runs ? "—" : pts(fl.medDDVsPair) + " pts"}</td></tr>`; })).join("")}</tbody></table>`;
+
+const wt = (h, scope) => ro.weights[h][scope];
+const ROLLING = `
+<h2 class="pb">Across many periods</h2>
+<p>Everything above rests on one start date per window. To check it isn't an accident of timing, the same tests were re-run as a fresh basket started at the first ranking of every month and held for 6 months, 1 year or 3 years — ${ro.markets["1y"].falling + ro.markets["1y"].flat + ro.markets["1y"].rising} overlapping one-year windows from Jan 2019 (from Jun 2023 for rating filters), through the end of the backtest on ${date(ro.end)}. Settings: Top 10 and Top 20, weekly and monthly, both weightings. Each filter is compared with the unfiltered ranking over the same window at the same settings.</p>
+<p>A window's market type was fixed before any result was seen, by the Nifty 500's yearly return over it: below 0% falling, 0–10% flat, above 10% rising. One-year windows: ${ro.markets["1y"].falling} falling, ${ro.markets["1y"].flat} flat, ${ro.markets["1y"].rising} rising. Every three-year window since 2019 was rising, so the three-year figures say nothing about bad markets.</p>
+<h3>How often each filter beat no filter, one-year windows</h3>
+${beatBars("1y")}
+<h3>One-year windows</h3>
+${filterTable("1y")}
+<p class="note">Bad case: the return a year that one window in ten fell below. Fell past −20%: share of windows whose worst fall was deeper than −20%. Rating filters have only ${ro.filters["1y"].buy?.all.windows ?? "—"} one-year windows (ratings start May 2023), so their figures are the least certain.</p>
+<h3 class="pb">Falling markets only</h3>
+<p>If a filter earned its keep by protecting capital, it would show here. Six-month windows where the Nifty 500 fell (${ro.markets["6m"].falling} start dates):</p>
+${fallingTable("6m")}
+<p>One-year windows where it fell (${ro.markets["1y"].falling} start dates):</p>
+${fallingTable("1y")}
+<p class="note">"Fall vs no filter" is in percentage points of worst fall; positive means shallower than no filter.</p>
+
+<h3 class="pb">Weighting, across windows</h3>
+<table><thead><tr><th>Hold</th><th>Scope</th><th>Pairs</th><th>Reset returned more</th><th>Median difference / yr</th><th>Reset fell less</th><th>Median fall difference</th></tr></thead><tbody>
+${["6m", "1y", "3y"].flatMap((h) => [["noFilter", "No filter"], ["every", "Every filter"]].map(([k, l]) => { const w = wt(h, k); return `<tr><td>${H_LABEL[h]}</td><td>${l}</td><td>${w.pairs}</td><td>${share0(w.resetReturnedMore)}</td><td>${pts(w.medReturnDiff)} pts</td><td>${share0(w.resetShallower)}</td><td>${pts(w.medDDDiff)} pts</td></tr>`; })).join("")}</tbody></table>
+<p>Reset to equal still comes out slightly ahead, but only slightly: with no filter it returned more in ${share0(wt("1y", "noFilter").resetReturnedMore)} of one-year windows, by a median ${pts(wt("1y", "noFilter").medReturnDiff)} points a year, and fell less in ${share0(wt("1y", "noFilter").resetShallower)}. The single-window "${pe.equalBetterCagr} of ${pe.n}" overstated it.</p>
+
+<h2 class="pb">The drawdown rules, across windows</h2>
+<p>The same 16 rule combinations, each compared with its own starting point without rules over the same window. One-year windows:</p>
+${ruleTable("1y")}
+<p>Three-year windows:</p>
+${ruleTable("3y")}
+<ul>
+<li><b>The market and small-cap switches (R1, R2) do not work.</b> They made the worst fall shallower in only a minority of windows, rarely by more than a point in the median, and cost ${pts(ro.rules["1y"].A.R1.all.medReturnVsPair)} to ${pts(ro.rules["1y"].B.R1.all.medReturnVsPair)} points a year (R1). Their one success in the design period was the 2020 crash.</li>
+<li><b>The trailing stop (R3) is the only rule that helps with any consistency.</b> Held monthly as bought, it made the worst fall shallower in ${share0(ro.rules["1y"].B.R3.all.shallowerThanPair)} of one-year windows and ${share0(ro.rules["3y"].B.R3.all.shallowerThanPair)} of three-year windows — by a median ${pts(ro.rules["1y"].B.R3.all.medDDVsPair)} points, and ${pts(ro.rules["1y"].B.R3.byMarket.falling.medDDVsPair)} in falling markets — for ${pts(ro.rules["1y"].B.R3.all.medReturnVsPair)} points a year of return. Small, but in the right direction almost every time.</li>
+<li><b>Nothing reaches −20% on its own.</b> Even with the stop, ${share0(ro.rules["1y"].B.R3.all.ddPast20)} of one-year windows fell further than −20%, and every three-year window did.</li>
+</ul>
+
+<h3>Where that leaves us</h3>
+<p><b>1. Hold less than all of the money in the basket.</b> The only way to a −20% cap in a crash year: keeping part in cash or a liquid fund shrinks every fall roughly in proportion — 60% invested turns a −48% fall into about −29% — at the same proportional cost in return, with nothing fitted to history. &nbsp;<b>2. Test the trailing stop forward.</b> It is the one rule that held up across windows; being chosen after all these runs, it can only be confirmed on published rankings from here on. &nbsp;<b>3. Reset to equal as the page's default</b> is a mild improvement, not a strong one; reasonable, but not important. &nbsp;<b>4. Keep the unfiltered ranking as the main basket.</b> The filters remain on the page for reading, not as the way to pick.</p>`;
+
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>Returns filter study</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -169,8 +236,9 @@ td.neg { color: #be123c; }
 <li><b>Filters did not make the ride smoother.</b> The median worst fall with no filter was ${pct(allR.medDD)} from mid-2023; the filters ranged ${rng(filtersR.map((p) => p.medDD))}. Only ${rated.withinCap.length} of ${rated.n} settings stayed inside the −20% limit, and every one is a combined filter that was either bought once and never rebalanced, or sat mostly in cash for want of stocks.</li>
 <li><b>The deep falls are market sell-offs, made worse.</b> The three worst falls of the no-filter basket line up with the three Nifty 500 sell-offs (2020, 2022, late 2024 – early 2025), and the basket fell ${(ref.episodes[0].dd / ref.episodes[0].bench).toFixed(1)}–${Math.max(...ref.episodes.slice(0, 3).map((e) => e.dd / e.bench)).toFixed(1)} times as far as the index in each. The small and mid-sized stocks the ranking favours fall harder than the market in a sell-off.</li>
 <li><b>The gains come from strong years for smaller stocks.</b> The no-filter basket (Top 20, monthly) returned ${pct(ref.byYear["2020"], 0)}, ${pct(ref.byYear["2021"], 0)}, ${pct(ref.byYear["2023"], 0)} and ${pct(ref.byYear["2024"], 0)} in 2020, 2021, 2023 and 2024, but lagged the index in 2019 (${pct(ref.byYear["2019"], 0)} vs ${pct(full.bench.byYear["2019"], 0)}) and in 2025 to September (${pct(ref.byYear["2025"], 0)} vs ${pct(full.bench.byYear["2025"], 0)}).</li>
-<li><b>Resetting to equal weight did better than holding as bought.</b> In ${pe.equalBetterCagr} of ${pe.n} matched settings from mid-2023 (and ${pf.equalBetterCagr} of ${pf.n} from 2019) the reset returned more — a median ${pct(pe.medDCagr)} a year — with about the same worst fall (${pct(pe.medDDD)}). This reverses the default I recommended when we added the switch; the numbers here are the better guide.</li>
+<li><b>Resetting to equal weight did better than holding as bought.</b> In ${pe.equalBetterCagr} of ${pe.n} matched settings from mid-2023 (and ${pf.equalBetterCagr} of ${pf.n} from 2019) the reset returned more — a median ${pct(pe.medDCagr)} a year — with about the same worst fall (${pct(pe.medDDD)}). Across many start dates the edge is much smaller (see "Weighting, across windows") so this is a mild preference, not a strong one.</li>
 <li><b>Basket size and rebalance frequency matter much less than the filter.</b> Their medians sit within a few points of each other; see the table on page 3.</li>
+<li><b>Starting on other dates does not change the answer.</b> Re-run as a fresh basket started every month and held 6 months, 1 year or 3 years, no filter beat the unfiltered ranking in more than ${Math.round(Math.max(...Object.entries(ro.filters["1y"]).filter(([k]) => k !== "all").map(([, v]) => v.all.beatPair)))}% of the one-year windows, and none protected meaningfully in falling markets (at best about a point shallower). Of the drawdown rules only the trailing stop helped with any consistency, and only a little (see "Across many periods").</li>
 </ol>
 
 <div class="box"><b>Read every figure as an upper bound.</b> The design period is a backtest over the same years the model's weights were fitted on, so these returns are in-sample and flatter what to expect. The last 12 months are sealed: nothing in this report looks at them, so they can test whatever we decide next. Prices are adjusted for splits and bonuses but not dividends, on both sides.</div>
@@ -248,10 +316,9 @@ ${p7.out.map((r) => `<tr${r.base === "A" && r.rules === "R2+R3" ? ' class="hi"' 
 <tr class="bench"><td>Nifty 500</td><td>${pct(ho.nifty.totalPct, 2)}</td><td>${pct(ho.nifty.maxDDPct)}</td><td></td><td></td></tr></tbody></table>
 <div class="box"><b>Not adopted.</b> The rule needed a worst fall at least a third smaller than the plain basket's, and got a deeper one (${pct(ho["R2+R3"].maxDDPct)} against ${pct(ho.none.maxDDPct)}). It still beat the Nifty 500, but gave up about ${(ho.none.totalPct - ho["R2+R3"].totalPct).toFixed(0)} points to the plain basket: in cash a fifth of the weeks and stopped out of ${ho["R2+R3"].stops} holdings, it missed rebounds without avoiding the November – March fall. The sealed year is now spent; a new rule can only be confirmed on data from here on.</div>
 
-<h3>Where that leaves us</h3>
-<p><b>1. Hold less than all of the money in the basket.</b> Keeping part in cash or a liquid fund shrinks every fall roughly in proportion — 60% invested turns a −48% fall into about −29% — at the same proportional cost in return. It needs nothing fitted to history, which no timing rule here could claim. &nbsp;<b>2. Test further rules forward:</b> write the rule down, then let the next months of published rankings judge it. &nbsp;<b>3. Make "Reset to equal" the page's default</b>, on the design-period evidence in finding 5.</p>
+${ROLLING}
 
-<p class="note" style="margin-top:14pt">Method: every run uses the dashboard's own Returns engine and filter rules (dashboard/lib/returns.mjs) on the stored weekly backtest rankings, stages and ratings, with split-adjusted closes; stocks are bought at the close of the session after the ranking. Return a year is compound (CAGR) from the first purchase to 30 Sep 2025; worst fall is the largest peak-to-bottom drop of the daily value after costs, as if sold that day.</p>
+<p class="note" style="margin-top:14pt">Method: every run uses the dashboard's own Returns engine and filter rules (dashboard/lib/returns.mjs) on the stored weekly backtest rankings, stages and ratings, with split-adjusted closes; stocks are bought at the close of the session after the ranking. Return a year is compound (CAGR) from the first purchase to 30 Sep 2025 (the rolling windows each to their own end, the last on 10 Aug 2026); worst fall is the largest peak-to-bottom drop of the daily value after costs, as if sold that day.</p>
 </body></html>`;
 writeFileSync(out("report.html"), html);
 console.log("written", html.length);

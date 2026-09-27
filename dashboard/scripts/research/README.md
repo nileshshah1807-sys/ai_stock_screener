@@ -13,6 +13,10 @@ node scripts/research/data.mjs holdout             # Sep 2025 to the latest run
 node scripts/research/filter-study.mjs             # 324 runs -> out/facts.json
 node scripts/research/p7.mjs                       # 16 runs  -> out/p7-design.json
 node scripts/research/p7-holdout.mjs               # 2 runs   -> out/p7-holdout.json
+node scripts/research/data.mjs design 2026-08-10   # the whole backtest, for rolling windows
+node scripts/research/rolling.mjs filters          # ~8,200 windows -> out/rolling-filters.json (~2 min)
+node scripts/research/rolling.mjs rules            # ~3,600 windows -> out/rolling-rules.json
+node scripts/research/rolling-summary.mjs          # out/rolling-summary.json
 node scripts/research/report.mjs                   # out/report.html
 node scripts/research/pdf.mjs                      # out/report.pdf (needs playwright)
 ```
