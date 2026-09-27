@@ -350,6 +350,7 @@ describe("portfolioReturns, trailing stop", () => {
     assert.ok(Math.abs(result.grossPct - (0.5 * 0.9 + 0.5 - 1) * 100) < 1e-9);
     assert.equal(result.closedTrades[0].symbol, "A");
     assert.deepEqual(result.closedTrades[0].exit, close("2026-09-04", 90));
+    assert.equal(result.closedTrades[0].stopped, true);
   });
 
   it("does nothing when off", () => {

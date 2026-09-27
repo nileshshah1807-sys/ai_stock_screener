@@ -19,6 +19,7 @@ import {
   REBALANCE_OPTIONS,
   STAGE_PICKS,
   START_PRESETS,
+  STOP_OPTIONS,
   INVESTED_OPTIONS,
   TOP_N_OPTIONS,
   WEIGHT_OPTIONS,
@@ -41,6 +42,7 @@ type Shown = {
   stage: string;
   weights: string;
   invested: string;
+  stop: string;
 };
 
 
@@ -76,6 +78,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
       stage: reportPick.stageFilter,
       weights: report.weights,
       invested: String(report.investedPct),
+      stop: report.stop.pct ? String(report.stop.pct) : "off",
     },
     (current, patch) => ({ ...current, ...patch }),
   );
@@ -251,6 +254,16 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
                 options={INVESTED_OPTIONS.map((pct) => ({ value: String(pct), label: `${pct}%` }))}
               />
             </Field>
+            <Field label="Stop loss">
+              <SegmentedControl
+                label="Stop loss"
+                value={shown.stop}
+                onChange={(value) =>
+                  push({ stop: value }, (params) => (value === "off" ? params.delete("stop") : params.set("stop", value)))
+                }
+                options={STOP_OPTIONS.map(({ value, label }) => ({ value, label }))}
+              />
+            </Field>
             <Field label="Costs">
               <SegmentedControl
                 label="Trading costs"
@@ -292,6 +305,14 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
               <Dot />
               <span className="text-muted-foreground">
                 {report.investedPct}% invested, {100 - report.investedPct}% in cash
+              </span>
+            </>
+          ) : null}
+          {report.stop.pct ? (
+            <>
+              <Dot />
+              <span className="text-muted-foreground">
+                {report.stop.pct}% stop, {report.stop.count} {report.stop.count === 1 ? "sale" : "sales"}
               </span>
             </>
           ) : null}
@@ -689,6 +710,17 @@ const CONTROL_HELP: Record<string, { term: string; text: string }[]> = {
     {
       term: "80% / 60% / 40%",
       text: "Only that share is in the basket; the rest is kept as cash in the account, not invested and earning nothing. Every rebalance restores the split by resizing the whole basket. A crash then hits only the invested share: at 60%, a 48% fall in the basket is about a 29% fall overall, and good years earn less in the same proportion.",
+    },
+  ],
+  "Stop loss": [
+    { term: "Off", text: "Stocks are sold only at a rebalance, when they no longer qualify." },
+    {
+      term: "20%",
+      text: "Any holding that closes 20% below its highest close since it was bought is sold at the next day's close. Its money waits in cash until the next rebalance, which refills the slot by the normal rules — the same stock can come back if it still ranks.",
+    },
+    {
+      term: "Still being tested",
+      text: "In the backtest it made falls about 2 points shallower (about 5 in falling markets) for about 3 points a year of return. Chosen after looking at that history, it is being judged on live rankings until September 2027, so it is off by default.",
     },
   ],
   Costs: [
