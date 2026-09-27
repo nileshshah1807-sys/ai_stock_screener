@@ -2,11 +2,13 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useOptimistic, useState, useTransition } from "react";
+import { Info } from "lucide-react";
 
 import { ReturnsChart } from "@/components/returns/returns-chart";
 import { Portfolio } from "@/components/returns/portfolio";
 import { SegmentedControl } from "@/components/segmented-control";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Slider } from "@/components/ui/slider";
 import { formatDate, formatPercent, MISSING } from "@/lib/format";
 import { rangeStart } from "@/lib/market-breadth.mjs";
@@ -133,103 +135,113 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
   const pickPhrase = reportPick.phrase;
   const rounds = report.rebalance.count + 1;
 
+  const holdRule = report.holds.length
+    ? `Bought from the list, then held while it ${[
+        report.holds.includes("buy_plus") ? "stays rated BUY or better" : null,
+        report.holds.includes("advancing") ? "stays in Stage 2 or a pullback within it" : null,
+      ]
+        .filter(Boolean)
+        .join(" and ")}; sold at the next rebalance after ${
+        report.holds.length > 1
+          ? "either breaks"
+          : report.holds[0] === "advancing"
+            ? "it breaks into Stage 3 or 4"
+            : "its rating falls below that"
+      }, not merely for leaving the list. Free slots are refilled from the list, best first.`
+    : null;
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-        <Field label="Start">
-          <div className="flex flex-wrap items-center gap-2">
-            <SegmentedControl
-              label="Start date shortcut"
-              value={activePreset}
-              onChange={(value) => {
-                const preset = presets.find((item) => item.label === value);
-                if (preset) push({ from: preset.date }, (params) => params.set("from", preset.date));
-              }}
-              options={presetOptions}
-            />
-            <Input
-              type="date"
-              aria-label="Ranking date"
-              className="h-9 w-40 tabular"
-              min={first}
-              max={last}
-              value={shown.from}
-              onChange={(event) => {
-                const value = event.target.value;
-                if (value) push({ from: value }, (params) => params.set("from", value));
-              }}
-            />
-          </div>
-        </Field>
-        <Field label="Basket">
-          <SegmentedControl
-            label="Basket size"
-            value={shown.top}
-            onChange={(value) => push({ top: value }, (params) => params.set("top", value))}
-            options={TOP_N_OPTIONS.map((size) => ({ value: String(size), label: `Top ${size}` }))}
-          />
-        </Field>
-        <Field label="Rating">
-          <SegmentedControl
-            label="Rating filter"
-            value={shown.rating}
-            onChange={(value) => setFilter({ rating: value })}
-            options={RATING_PICKS.map(({ value, label, title }) => ({ value, label, title }))}
-          />
-        </Field>
-        <Field label="Stage">
-          <SegmentedControl
-            label="Stage filter"
-            value={shown.stage}
-            onChange={(value) => setFilter({ stage: value })}
-            options={STAGE_PICKS.map(({ value, label, title }) => ({ value, label, title }))}
-          />
-        </Field>
-        <Field label="Rebalance">
-          <RebalanceSlider
-            value={shown.rebalance}
-            onCommit={(value) =>
-              push({ rebalance: value }, (params) =>
-                value === "never" ? params.delete("rebalance") : params.set("rebalance", value),
-              )
-            }
-          />
-        </Field>
-        {shown.rebalance !== "never" ? (
-          <Field label="At each rebalance">
-            <SegmentedControl
-              label="At each rebalance"
-              value={shown.weights}
-              onChange={(value) =>
-                push({ weights: value }, (params) =>
-                  value === "hold" ? params.delete("weights") : params.set("weights", value),
-                )
-              }
-              options={WEIGHT_OPTIONS.map(({ value, label, title }) => ({ value, label, title }))}
-            />
-          </Field>
-        ) : null}
-        <Field label="Costs">
-          <SegmentedControl
-            label="Trading costs"
-            value={costs ? "net" : "gross"}
-            onChange={(value) => toggleCosts(value === "net")}
-            options={[
-              { value: "net", label: `${COST_PER_SIDE_PCT}% a side`, title: "Charged on the buy and on the sale" },
-              { value: "gross", label: "None" },
-            ]}
-          />
-        </Field>
-        <span
-          role="status"
-          className={cn(
-            "flex h-9 items-center text-xs text-muted-foreground transition-opacity duration-(--duration-fast)",
-            pending ? "opacity-100 delay-150" : "opacity-0",
-          )}
-        >
-          {pending ? "Updating…" : ""}
-        </span>
-      </div>
+      <section className="panel divide-y" aria-label="Portfolio settings">
+        <ControlGroup title="What to buy">
+            <Field label="Start">
+              <div className="flex flex-wrap items-center gap-2">
+                <SegmentedControl
+                  label="Start date shortcut"
+                  value={activePreset}
+                  onChange={(value) => {
+                    const preset = presets.find((item) => item.label === value);
+                    if (preset) push({ from: preset.date }, (params) => params.set("from", preset.date));
+                  }}
+                  options={presetOptions}
+                />
+                <Input
+                  type="date"
+                  aria-label="Ranking date"
+                  className="h-9 w-40 tabular"
+                  min={first}
+                  max={last}
+                  value={shown.from}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value) push({ from: value }, (params) => params.set("from", value));
+                  }}
+                />
+              </div>
+            </Field>
+            <Field label="Basket">
+              <SegmentedControl
+                label="Basket size"
+                value={shown.top}
+                onChange={(value) => push({ top: value }, (params) => params.set("top", value))}
+                options={TOP_N_OPTIONS.map((size) => ({ value: String(size), label: `Top ${size}` }))}
+              />
+            </Field>
+            <Field label="Rating">
+              <SegmentedControl
+                label="Rating filter"
+                value={shown.rating}
+                onChange={(value) => setFilter({ rating: value })}
+                options={RATING_PICKS.map(({ value, label, title }) => ({ value, label, title }))}
+              />
+            </Field>
+            <Field label="Stage">
+              <SegmentedControl
+                label="Stage filter"
+                value={shown.stage}
+                onChange={(value) => setFilter({ stage: value })}
+                options={STAGE_PICKS.map(({ value, label, title }) => ({ value, label, title }))}
+              />
+            </Field>
+        </ControlGroup>
+        <ControlGroup title="How to trade">
+            <Field label="Rebalance">
+              <RebalanceSlider
+                value={shown.rebalance}
+                onCommit={(value) =>
+                  push({ rebalance: value }, (params) =>
+                    value === "never" ? params.delete("rebalance") : params.set("rebalance", value),
+                  )
+                }
+              />
+            </Field>
+            {shown.rebalance !== "never" ? (
+              <Field label="At each rebalance">
+                <SegmentedControl
+                  label="At each rebalance"
+                  value={shown.weights}
+                  onChange={(value) =>
+                    push({ weights: value }, (params) =>
+                      value === "hold" ? params.delete("weights") : params.set("weights", value),
+                    )
+                  }
+                  options={WEIGHT_OPTIONS.map(({ value, label, title }) => ({ value, label, title }))}
+                />
+              </Field>
+            ) : null}
+            <Field label="Costs">
+              <SegmentedControl
+                label="Trading costs"
+                value={costs ? "net" : "gross"}
+                onChange={(value) => toggleCosts(value === "net")}
+                options={[
+                  { value: "net", label: `${COST_PER_SIDE_PCT}% a side`, title: "Charged on the buy and on the sale" },
+                  { value: "gross", label: "None" },
+                ]}
+              />
+            </Field>
+        </ControlGroup>
+      </section>
 
       <div
         aria-busy={pending}
@@ -238,90 +250,108 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           pending && "opacity-60 delay-150",
         )}
       >
-        <p className="text-sm text-muted-foreground">
-          The top {report.topN}
-          {pickPhrase ? ` ${pickPhrase} stocks` : ""} of the{" "}
-          <span className="font-medium text-foreground">{formatDate(report.rankDate)}</span> ranking
-          {report.model ? ` (${report.model})` : ""}, bought at the close on {formatDate(report.entrySession)}
-          {rebalanceLabel ? (
-            report.rebalance.count ? (
-              <>
-                , rebuilt every {rebalanceLabel} from the latest ranking &mdash; {report.rebalance.count}{" "}
-                {report.rebalance.count === 1 ? "rebalance" : "rebalances"}, {report.rebalance.bought}{" "}
-                {report.rebalance.bought === 1 ? "name" : "names"} swapped
-                {lastModel && lastModel !== report.model ? `, latest ranking ${lastModel}` : ""} &mdash; and
-              </>
-            ) : (
-              <> (no rebalance falls inside this window) and</>
-            )
-          ) : (
-            " and"
-          )}{" "}
-          held for {sessionsHeld} {sessionsHeld === 1 ? "session" : "sessions"} to {formatDate(report.asOf)}.
-        </p>
-
-        {report.holds.length ? (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            A stock is bought from this list, then held while it{" "}
-            {[
-              report.holds.includes("buy_plus") ? "stays rated BUY or better" : null,
-              report.holds.includes("advancing") ? "stays in Stage 2 or a pullback within it" : null,
-            ]
-              .filter(Boolean)
-              .join(" and ")}
-            , and sold at the next rebalance after{" "}
-            {report.holds.length > 1
-              ? "either breaks"
-              : report.holds[0] === "advancing"
-                ? "it breaks into Stage 3 or 4"
-                : "its rating falls below that"}{" "}
-            &mdash; so it is not sold merely for no longer being on the list. Each rebalance refills the free slots
-            from the list, best first.
-          </p>
-        ) : null}
-        {report.rebalance.count ? (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {report.weights === "equal"
-              ? "Every rebalance also resets each stock kept to an equal share, trimming winners and topping up losers."
-              : "A stock kept at a rebalance is left as bought, never trimmed or topped up; only the money from sales buys new stocks."}
-          </p>
-        ) : null}
-
-        {report.pickStartMovedFrom || report.shortRounds ? (
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {report.pickStartMovedFrom ? (
-              <>
-                The start moved from {formatDate(report.pickStartMovedFrom)} to {formatDate(report.rankDate)}: ratings
-                exist in the backtest only once its filings carry enough fundamentals to rate, from 2023.{" "}
-              </>
-            ) : null}
-            {report.shortRounds ? (
-              <>
-                On {report.shortRounds === rounds ? "every" : `${report.shortRounds} of ${rounds}`}{" "}
-                {rounds === 1 ? "purchase" : "rounds"}, fewer than {report.topN} stocks passed the pick; the basket
-                {report.weights === "equal"
-                  ? " held the ones that did in equal weight, and cash when none did."
-                  : " bought the ones that did and kept each empty slot’s share in cash."}
-                {reportPick.columns.length > 1 ? " Few stocks pass both filters at once." : ""}
-              </>
-            ) : null}
-          </p>
-        ) : null}
-
-        {report.backtestRounds ? (
-          <p className="rounded-xl border border-caution/40 bg-caution/10 px-3 py-2 text-xs leading-relaxed text-foreground">
-            <span className="font-semibold">Backtest.</span>{" "}
-            {report.backtestRounds === report.rebalance.count + 1
-              ? "Every ranking used here is"
-              : `${report.backtestRounds} of the ${report.rebalance.count + 1} rankings used here are`}{" "}
-            a point-in-time backtest, not one the dashboard published; published rankings begin{" "}
-            {formatDate(report.liveFrom)}. The model&rsquo;s weights were fitted on this same period, so
-            these returns are in-sample and flatter what to expect going forward.
-            {reportPick.ratings
-              ? " Backtest ratings are reconstructed from a copy of the production gates, which leaves out a few data checks, so they can be slightly more generous than the ratings the dashboard publishes."
-              : ""}
-          </p>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm max-sm:gap-x-3">
+          <span className="font-semibold max-sm:w-full">
+            Top {report.topN}
+            {pickPhrase ? ` · ${pickPhrase}` : ""}
+          </span>
+          <Dot />
+          <span className="tabular text-muted-foreground">
+            {formatDate(report.entrySession)} → {formatDate(report.asOf)}
+          </span>
+          <Dot />
+          <span className="text-muted-foreground">
+            {rebalanceLabel
+              ? `${report.rebalance.count} ${report.rebalance.count === 1 ? "rebalance" : "rebalances"}, ${report.rebalance.bought} swapped`
+              : "bought once and held"}
+          </span>
+          {report.backtestRounds ? (
+            <span
+              className="rounded-full border border-caution/40 bg-caution/10 px-2 py-0.5 text-[11px] font-medium text-caution"
+              title="Built on backtest rankings over the period the model was fitted on"
+            >
+              {report.backtestRounds === rounds ? "Backtest" : "Mostly backtest"} · in-sample
+            </span>
+          ) : null}
+          {report.shortRounds ? (
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              Short on {report.shortRounds} of {rounds}
+            </span>
+          ) : null}
+          <Popover>
+            <PopoverTrigger
+              aria-label="About this result"
+              className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Info className="size-4" aria-hidden />
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              className="max-h-[70vh] w-[min(26rem,calc(100vw-2rem))] gap-3 overflow-y-auto p-4 text-xs leading-relaxed"
+            >
+              <Note title="This basket">
+                The top {report.topN}
+                {pickPhrase ? ` ${pickPhrase} stocks` : ""} of the {formatDate(report.rankDate)} ranking
+                {report.model ? ` (${report.model})` : ""}, bought at the close on {formatDate(report.entrySession)}
+                {rebalanceLabel && report.rebalance.count
+                  ? `, rebuilt every ${rebalanceLabel} from the latest ranking${
+                      lastModel && lastModel !== report.model ? ` (latest: ${lastModel})` : ""
+                    }`
+                  : ""}
+                , and held for {sessionsHeld} {sessionsHeld === 1 ? "session" : "sessions"} to{" "}
+                {formatDate(report.asOf)}.
+              </Note>
+              {holdRule || report.rebalance.count ? (
+                <Note title="Buying and selling">
+                  {holdRule ? `${holdRule} ` : ""}
+                  {report.rebalance.count
+                    ? report.weights === "equal"
+                      ? "Every rebalance also resets each stock kept to an equal share, trimming winners and topping up losers."
+                      : "A stock kept at a rebalance is left as bought, never trimmed or topped up; only money from sales buys new stocks."
+                    : ""}
+                </Note>
+              ) : null}
+              {report.pickStartMovedFrom || report.shortRounds ? (
+                <Note title="Gaps">
+                  {report.pickStartMovedFrom
+                    ? `The start moved from ${formatDate(report.pickStartMovedFrom)} to ${formatDate(report.rankDate)}: backtest ratings exist only from 2023, once filings carry enough fundamentals to rate. `
+                    : ""}
+                  {report.shortRounds
+                    ? `On ${report.shortRounds === rounds ? "every" : `${report.shortRounds} of ${rounds}`} ${
+                        rounds === 1 ? "purchase" : "rounds"
+                      }, fewer than ${report.topN} stocks passed the pick; ${
+                        report.weights === "equal"
+                          ? "the basket held the ones that did in equal weight, and cash when none did."
+                          : "the basket bought the ones that did and kept each empty slot’s share in cash."
+                      }${reportPick.columns.length > 1 ? " Few stocks pass both filters at once." : ""}`
+                    : ""}
+                </Note>
+              ) : null}
+              {report.backtestRounds ? (
+                <Note title="Backtest" tone="caution">
+                  {report.backtestRounds === rounds
+                    ? "Every ranking used here is"
+                    : `${report.backtestRounds} of the ${rounds} rankings used here are`}{" "}
+                  a point-in-time backtest, not one the dashboard published; published rankings begin{" "}
+                  {formatDate(report.liveFrom)}. The model&rsquo;s weights were fitted on this same period, so these
+                  returns are in-sample and flatter what to expect going forward.
+                  {reportPick.ratings
+                    ? " Backtest ratings come from a copy of the production gates that leaves out a few data checks, so they can be slightly more generous than published ones."
+                    : ""}
+                </Note>
+              ) : null}
+            </PopoverContent>
+          </Popover>
+          <span
+            role="status"
+            className={cn(
+              "ml-auto text-xs text-muted-foreground transition-opacity duration-(--duration-fast)",
+              pending ? "opacity-100 delay-150" : "opacity-0",
+            )}
+          >
+            {pending ? "Updating…" : ""}
+          </span>
+        </div>
 
         <section className="panel grid grid-cols-2 divide-border lg:grid-cols-4 lg:divide-x">
           <Tile
@@ -465,13 +495,16 @@ function SplitRow({
 }) {
   return (
     <div className="col-span-full border-t px-4 py-3 sm:px-5">
-      <dl className="flex flex-wrap items-end gap-x-3 gap-y-2">
+      {/* An equation on wider screens; on a phone it would wrap mid-sum, so
+          it becomes a grid of signed figures instead. */}
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:flex sm:flex-wrap sm:items-end sm:gap-x-3 sm:gap-y-2">
         <SplitTerm label="Booked" value={split.bookedPct} note={trims ? "on sales and trims" : "on stocks sold"} />
         <SplitSign>{split.openPct < 0 ? "−" : "+"}</SplitSign>
         <SplitTerm
           label="Open"
           value={Math.abs(split.openPct)}
           tone={split.openPct}
+          signed={split.openPct}
           note={`on ${holdings} ${holdings === 1 ? "holding" : "holdings"}, at the latest close`}
         />
         {costs ? (
@@ -481,6 +514,7 @@ function SplitRow({
               label="Costs"
               value={split.costsPct}
               tone={-1}
+              signed={-split.costsPct}
               note={`${split.paidPct.toFixed(2)} paid, the rest to sell today`}
             />
           </>
@@ -494,7 +528,7 @@ function SplitRow({
 
 function SplitSign({ children }: { children: React.ReactNode }) {
   return (
-    <span aria-hidden className="pb-4 text-sm text-muted-foreground">
+    <span aria-hidden className="pb-4 text-sm text-muted-foreground max-sm:hidden">
       {children}
     </span>
   );
@@ -505,6 +539,7 @@ function SplitTerm({
   value,
   note,
   tone = value,
+  signed,
   unit = "pts",
   strong = false,
 }: {
@@ -512,6 +547,8 @@ function SplitTerm({
   value: number;
   note: string;
   tone?: number;
+  /** The figure with its own sign, shown where the equation's operators are not. */
+  signed?: number;
   unit?: "pts" | "%";
   strong?: boolean;
 }) {
@@ -529,17 +566,120 @@ function SplitTerm({
           tone >= 0 ? "text-positive" : "text-negative",
         )}
       >
-        {text}
+        {signed === undefined ? (
+          text
+        ) : (
+          <>
+            <span className="max-sm:hidden">{text}</span>
+            <span className="sm:hidden">
+              {signed > 0 ? "+" : signed < 0 ? "−" : ""}
+              {Math.abs(signed).toFixed(2)} pts
+            </span>
+          </>
+        )}
       </dd>
       <dd className="text-[11px] text-muted-foreground">{note}</dd>
     </div>
   );
 }
 
+/** One labelled row of the settings panel: a heading, then its controls. */
+function ControlGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-start lg:gap-6">
+      <p className="w-24 shrink-0 text-xs font-semibold text-foreground lg:pt-0.5">{title}</p>
+      <div className="flex min-w-0 flex-1 flex-wrap items-end gap-x-5 gap-y-3">{children}</div>
+    </div>
+  );
+}
+
+function Dot() {
+  return (
+    <span aria-hidden className="text-muted-foreground/60 max-sm:hidden">
+      ·
+    </span>
+  );
+}
+
+function Note({
+  title,
+  tone,
+  children,
+}: {
+  title: string;
+  tone?: "caution";
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className={cn("mb-0.5 font-semibold", tone === "caution" ? "text-caution" : "text-foreground")}>{title}</p>
+      <p className="text-muted-foreground">{children}</p>
+    </div>
+  );
+}
+
+/**
+ * What each option of each control does, one line per option, behind the
+ * control's own info button: the reader asks about the choice in front of
+ * them, so the answer sits beside it rather than in a paragraph above.
+ */
+const CONTROL_HELP: Record<string, { term: string; text: string }[]> = {
+  Start: [
+    { term: "Start", text: "The ranking the basket is first bought from. A date with no ranking uses the latest one before it; the stocks are bought at the next session's close." },
+  ],
+  Basket: [{ term: "Top 10 / 20 / 50", text: "How many stocks the basket holds, bought in equal slices of the money." }],
+  Rating: [
+    { term: "All", text: "Any rating." },
+    { term: "Buy+", text: "Buys only stocks rated BUY or STRONG BUY, and sells one once its rating falls below BUY." },
+    { term: "Strong Buy", text: "Buys only STRONG BUY stocks, and keeps one while it stays BUY or better." },
+  ],
+  Stage: [
+    { term: "All", text: "Any stage." },
+    { term: "Stage 2", text: "Buys only stocks in a Stage 2 advance, keeps one through pullbacks, and sells it once it breaks into Stage 3 or 4." },
+    { term: "Fresh S2", text: "Like Stage 2, but buys only advances that began within the last 30 days." },
+    { term: "Both filters", text: "With a rating and a stage chosen, a stock must pass both to be bought, and is sold when it fails either." },
+  ],
+  Rebalance: [
+    { term: "Never", text: "Bought once and held to today, whatever happens to the stocks." },
+    { term: "1W to 3M", text: "How often the basket is checked: stocks that no longer qualify are sold, and the free slots refilled from the latest ranking." },
+  ],
+  "At each rebalance": [
+    { term: "Hold as bought", text: "A stock that is kept is left alone. Only the money from sales buys new stocks, so winners are left to run and grow into a bigger share." },
+    { term: "Reset to equal", text: "Every rebalance also trims each winner and tops up each loser back to an equal share. It takes profits and buys dips each time, and pays more in costs." },
+  ],
+  Costs: [
+    { term: `${COST_PER_SIDE_PCT}% a side`, text: "Brokerage, taxes and slippage on every purchase and sale, including selling everything today." },
+    { term: "None", text: "Returns before any trading costs." },
+  ],
+};
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  const help = CONTROL_HELP[label];
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <div className="flex items-center gap-1">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        {help ? (
+          <Popover>
+            <PopoverTrigger
+              aria-label={`About ${label}`}
+              className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Info className="size-3.5" aria-hidden />
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-[min(20rem,calc(100vw-2rem))] p-3 text-xs leading-relaxed">
+              <dl className="space-y-2">
+                {help.map((item) => (
+                  <div key={item.term}>
+                    <dt className="font-semibold text-foreground">{item.term}</dt>
+                    <dd className="text-muted-foreground">{item.text}</dd>
+                  </div>
+                ))}
+              </dl>
+            </PopoverContent>
+          </Popover>
+        ) : null}
+      </div>
       {children}
     </div>
   );
