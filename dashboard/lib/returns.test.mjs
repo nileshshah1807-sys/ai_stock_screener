@@ -335,6 +335,30 @@ describe("portfolioReturns, booked and open gains", () => {
   });
 });
 
+describe("portfolioReturns, trailing stop", () => {
+  const closes = new Map([
+    ["A", [close("2026-09-01", 100), close("2026-09-02", 120), close("2026-09-03", 95), close("2026-09-04", 90), close("2026-09-07", 200)]],
+    ["B", [close("2026-09-01", 100), close("2026-09-02", 100), close("2026-09-03", 100), close("2026-09-04", 100), close("2026-09-07", 100)]],
+  ]);
+  const rounds = [{ entrySession: "2026-09-01", symbols: ["A", "B"] }];
+
+  it("sells at the close after a holding closes the stop below its high", () => {
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-07", trailingStopPct: 20 });
+    // A peaks at 120 on 09-02; 95 on 09-03 is more than 20% below, so it is
+    // sold at 09-04's close of 90 and misses the jump to 200.
+    assert.deepEqual(result.stops, [{ symbol: "A", signalled: "2026-09-03", soldOn: "2026-09-04" }]);
+    assert.ok(Math.abs(result.grossPct - (0.5 * 0.9 + 0.5 - 1) * 100) < 1e-9);
+    assert.equal(result.closedTrades[0].symbol, "A");
+    assert.deepEqual(result.closedTrades[0].exit, close("2026-09-04", 90));
+  });
+
+  it("does nothing when off", () => {
+    const result = portfolioReturns(rounds, closes, { asOf: "2026-09-07" });
+    assert.deepEqual(result.stops, []);
+    assert.ok(Math.abs(result.grossPct - 50) < 1e-9);
+  });
+});
+
 describe("rebalance schedule", () => {
   const dates = ["2026-08-11", "2026-08-12", "2026-08-18", "2026-08-19", "2026-08-25", "2026-09-11", "2026-09-14"];
 

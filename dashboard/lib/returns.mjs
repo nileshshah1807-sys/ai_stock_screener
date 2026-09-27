@@ -435,8 +435,9 @@ export const WEIGHT_OPTIONS = [
  * @param {number} cost fraction of traded value, per side
  * @param {number} slots how many stocks the basket holds when full
  * @param {boolean} reset whether each round resets every holding to equal weight
+ * @param {number | null} stop trailing stop, as a fraction below the highest close since purchase
  */
-function simulate(rounds, series, asOf, cost, slots, reset) {
+function simulate(rounds, series, asOf, cost, slots, reset, stop = null) {
   const start = rounds[0].entrySession;
   const times = new Set(rounds.map((round) => round.entrySession));
   for (const points of series.values()) {
@@ -465,6 +466,7 @@ function simulate(rounds, series, asOf, cost, slots, reset) {
   const curve = [];
   const trades = [];
   const closed = [];
+  const stops = [];
   let value = 1;
 
   for (const time of timeline) {
@@ -482,6 +484,36 @@ function simulate(rounds, series, asOf, cost, slots, reset) {
         position.units = position.pending / close.close;
         position.pending = null;
         position.entry = close;
+      }
+    }
+
+    // A trailing stop: a holding that closes `stop` below its highest close
+    // since it was bought is sold at its next close -- the close that
+    // triggered it is known only once the session has ended. Its money waits
+    // in cash for the next round.
+    if (stop) {
+      for (const [symbol, position] of [...positions]) {
+        const close = lastClose(symbol);
+        if (position.pending !== null || !close || close.time !== time) continue;
+        if (position.stopAt && time > position.stopAt) {
+          const sale = position.units * close.close;
+          const fee = sale * cost;
+          cash += sale - fee;
+          costsPaid += fee;
+          closed.push({
+            symbol,
+            since: position.since,
+            entry: position.entry,
+            exit: close,
+            soldOn: time,
+            booked: position.booked + sale - position.basis,
+          });
+          stops.push({ symbol, signalled: position.stopAt, soldOn: time });
+          positions.delete(symbol);
+          continue;
+        }
+        position.peak = Math.max(position.peak ?? position.entry.close, close.close);
+        if (!position.stopAt && close.close <= position.peak * (1 - stop)) position.stopAt = time;
       }
     }
 
@@ -554,7 +586,7 @@ function simulate(rounds, series, asOf, cost, slots, reset) {
     paidPct: costsPaid * 100,
   };
 
-  return { curve, trades, closed, positions, value, lastClose, pnl };
+  return { curve, trades, closed, positions, value, lastClose, pnl, stops };
 }
 
 /**
@@ -584,10 +616,17 @@ function simulate(rounds, series, asOf, cost, slots, reset) {
  * weight (see `resetRound`), and a short round spreads the money over the
  * names it has.
  *
- * @param {{asOf: string, costPerSidePct?: number, slots?: number, weights?: string}} options `slots` is
+ * With `trailingStopPct`, a holding is also sold at the next close after it
+ * closes that far below its highest close since purchase (see `simulate`).
+ *
+ * @param {{asOf: string, costPerSidePct?: number, slots?: number, weights?: string, trailingStopPct?: number | null}} options `slots` is
  *   the basket size; it defaults to the largest round, and a smaller round leaves the rest in cash
  */
-export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0, slots, weights = "hold" }) {
+export function portfolioReturns(
+  rounds,
+  closes,
+  { asOf, costPerSidePct = 0, slots, weights = "hold", trailingStopPct = null },
+) {
   const usable = (rounds ?? []).filter((round) => round.entrySession && round.entrySession <= asOf);
   if (!usable.length || !usable[0].symbols.length) {
     return {
@@ -600,6 +639,7 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0, slo
       netPct: null,
       pnl: null,
       grossPnl: null,
+      stops: [],
     };
   }
   const series = new Map();
@@ -615,8 +655,9 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0, slo
 
   const size = slots ?? Math.max(...usable.map((round) => round.symbols.length));
   const reset = weights === "equal";
-  const gross = simulate(usable, series, asOf, 0, size, reset);
-  const net = simulate(usable, series, asOf, costPerSidePct / 100, size, reset);
+  const stop = trailingStopPct ? trailingStopPct / 100 : null;
+  const gross = simulate(usable, series, asOf, 0, size, reset, stop);
+  const net = simulate(usable, series, asOf, costPerSidePct / 100, size, reset, stop);
 
   const holdings = usable[usable.length - 1].symbols;
   // A position's gain still open, in points of the starting capital. Both
@@ -689,6 +730,8 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0, slo
     netPct: net.curve.length ? net.curve[net.curve.length - 1].value : null,
     pnl: net.pnl,
     grossPnl: gross.pnl,
+    /** Holdings the trailing stop sold, with the close that signalled it. */
+    stops: net.stops,
   };
 }
 
