@@ -8,6 +8,7 @@ import {
   entrySessionAfter,
   indexReturns,
   modelForDate,
+  pickKey,
   pickOption,
   portfolioReturns,
   selectBaskets,
@@ -421,9 +422,28 @@ describe("pickOption", () => {
   });
 
   it("names the stored column for each filtered pick", () => {
-    assert.equal(pickOption("strong_buy").column, "rank_strong_buy");
+    assert.deepEqual(pickOption("strong_buy").columns, ["rank_strong_buy"]);
     assert.deepEqual(pickOption("buy").ratings, ["BUY", "STRONG BUY"]);
     assert.equal(pickOption("fresh_stage2").maxAdvanceAge, 30);
+  });
+
+  it("combines a rating filter with a stage filter", () => {
+    const pick = pickOption("strong_buy+fresh_stage2");
+    assert.equal(pick.value, "strong_buy+fresh_stage2");
+    assert.deepEqual(pick.ratings, ["STRONG BUY"]);
+    assert.equal(pick.stage, "Stage 2");
+    assert.equal(pick.maxAdvanceAge, 30);
+    assert.deepEqual(pick.columns, ["rank_strong_buy", "rank_fresh_stage2"]);
+    assert.equal(pick.phrase, "STRONG BUY, fresh Stage 2");
+    // Order in the key does not matter; an unknown part is dropped.
+    assert.equal(pickOption("fresh_stage2+buy").value, "buy+fresh_stage2");
+    assert.equal(pickOption("buy+nonsense").value, "buy");
+  });
+
+  it("builds the key from the two filters", () => {
+    assert.equal(pickKey("all", "all"), "all");
+    assert.equal(pickKey(null, "stage2"), "stage2");
+    assert.equal(pickKey("buy", "fresh_stage2"), "buy+fresh_stage2");
   });
 });
 
@@ -469,9 +489,13 @@ describe("selectBaskets", () => {
 
 describe("pick hold rules", () => {
   it("stage picks hold while advancing, rating picks while BUY or better", () => {
-    assert.equal(pickOption("fresh_stage2").hold, "advancing");
-    assert.equal(pickOption("stage2").hold, "advancing");
-    assert.equal(pickOption("strong_buy").hold, "buy_plus");
-    assert.equal(pickOption("all").hold, undefined);
+    assert.deepEqual(pickOption("fresh_stage2").holds, ["advancing"]);
+    assert.deepEqual(pickOption("stage2").holds, ["advancing"]);
+    assert.deepEqual(pickOption("strong_buy").holds, ["buy_plus"]);
+    assert.deepEqual(pickOption("all").holds, []);
+  });
+
+  it("a combined pick holds only while both rules pass", () => {
+    assert.deepEqual(pickOption("buy+stage2").holds, ["buy_plus", "advancing"]);
   });
 });

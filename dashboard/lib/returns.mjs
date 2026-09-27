@@ -12,18 +12,20 @@
 import { decodeDeltas } from "./price-series.mjs";
 
 /**
- * What the basket picks from: the whole ranking, or one filtered list of it,
- * taking the top N of that list. Backtest rankings store each list's own rank
- * (`column`); published ones are filtered at read time by the same rule, which
- * matches `PICKS` in tools/backfill_returns_history.py.
+ * What the basket picks from: the whole ranking, or the part of it that passes
+ * a rating filter, a stage filter, or both, taking the top N of what passes.
+ * Backtest rankings store each single filter's own rank (`column`), matching
+ * `PICKS` in tools/backfill_returns_history.py; published rankings, and two
+ * filters together, are filtered at read time by the same rules.
  *
  * P0 found gating by rating cost 5-16 points a year as a selection rule, and
  * P4 found a fresh-Stage-2 tilt negative in both halves; these picks exist to
  * let a reader see that, not because they are expected to do better.
  */
 export const FRESH_STAGE2_DAYS = 30;
-export const PICK_OPTIONS = [
-  { value: "all", label: "All", title: "The whole ranking" },
+
+export const RATING_PICKS = [
+  { value: "all", label: "All", title: "Any rating" },
   {
     value: "buy",
     label: "Buy+",
@@ -42,6 +44,10 @@ export const PICK_OPTIONS = [
     hold: "buy_plus",
     phrase: "STRONG BUY",
   },
+];
+
+export const STAGE_PICKS = [
+  { value: "all", label: "All", title: "Any stage" },
   {
     value: "stage2",
     label: "Stage 2",
@@ -64,10 +70,47 @@ export const PICK_OPTIONS = [
 ];
 
 /**
- * @param {string | null | undefined} value
+ * The pick's key: "all", one filter ("buy", "fresh_stage2"), or a rating and
+ * a stage filter joined by "+" ("strong_buy+fresh_stage2").
+ *
+ * @param {string | null | undefined} rating
+ * @param {string | null | undefined} stage
  */
-export function pickOption(value) {
-  return PICK_OPTIONS.find((option) => option.value === value) ?? PICK_OPTIONS[0];
+export function pickKey(rating, stage) {
+  const parts = [
+    RATING_PICKS.find((option) => option.value === rating),
+    STAGE_PICKS.find((option) => option.value === stage),
+  ].filter((option) => option && option.value !== "all");
+  return parts.map((option) => option.value).join("+") || "all";
+}
+
+/**
+ * A pick from its key. An unknown part is ignored, so a mangled link falls
+ * back to the whole ranking rather than failing.
+ *
+ * A stock is bought when it passes every filter, and kept while it passes
+ * every filter's hold rule (`holds`): a stage filter keeps it while it is
+ * advancing, a rating filter while it is rated BUY or better.
+ *
+ * @param {string | null | undefined} key
+ */
+export function pickOption(key) {
+  const values = String(key ?? "").split("+");
+  const rating = RATING_PICKS.find((option) => option.value !== "all" && values.includes(option.value));
+  const stage = STAGE_PICKS.find((option) => option.value !== "all" && values.includes(option.value));
+  const parts = [rating, stage].filter(Boolean);
+  return {
+    value: parts.map((option) => option.value).join("+") || "all",
+    rating: rating?.value ?? "all",
+    stageFilter: stage?.value ?? "all",
+    ratings: rating?.ratings ?? null,
+    stage: stage?.stage ?? null,
+    maxAdvanceAge: stage?.maxAdvanceAge ?? null,
+    /** Each filter's stored backtest rank column; one for a single filter. */
+    columns: parts.map((option) => /** @type {string} */ (option.column)),
+    holds: parts.map((option) => /** @type {string} */ (option.hold)),
+    phrase: parts.map((option) => option.phrase).join(", ") || null,
+  };
 }
 
 /** Stages a stock may stay held in under a stage pick: the advance, pullbacks included. */
@@ -294,6 +337,95 @@ export function rebalanceDates(rankingDates, start, option) {
   return dates;
 }
 
+/** A new position of `amount`, filled now if the stock traded, else at its next close. */
+function opened(symbol, amount, time, lastClose) {
+  const close = lastClose(symbol);
+  return close && close.time === time
+    ? { units: amount / close.close, pending: null, since: time, entry: close, basis: amount, booked: 0 }
+    : { units: null, pending: amount, since: time, entry: null, basis: amount, booked: 0 };
+}
+
+/**
+ * A round that holds what it keeps as bought: it sells only what the round
+ * drops and buys only what it adds, with the cash, one equal slice per free
+ * slot. A kept stock is never trimmed or topped up, so a winner is left to run
+ * and a loser is not averaged down. A slot no stock filled keeps its slice in
+ * cash for a later round.
+ */
+function holdRound({ round, time, positions, current, cash, buys, cost, slots, lastClose }) {
+  let proceeds = 0;
+  let sellCost = 0;
+  for (const [symbol, position] of positions) {
+    if (round.symbols.includes(symbol)) continue;
+    proceeds += current.get(symbol);
+    // A slice still waiting for its first close was never bought, so
+    // returning it to cash is not a sale.
+    if (position.pending === null) sellCost += current.get(symbol) * cost;
+  }
+  const available = cash + proceeds - sellCost;
+  const freeSlots = Math.max(buys.length, slots - (round.symbols.length - buys.length));
+  const budget = buys.length ? (available * buys.length) / freeSlots : 0;
+  const buyCost = budget * cost;
+  const each = buys.length ? (budget - buyCost) / buys.length : 0;
+
+  const next = new Map();
+  for (const symbol of round.symbols) {
+    next.set(symbol, positions.get(symbol) ?? opened(symbol, each, time, lastClose));
+  }
+  return { next, charged: sellCost + buyCost, left: available - budget };
+}
+
+/**
+ * A round that resets every holding to equal weight: it sells what the round
+ * drops, buys what it adds, and trims each winner and tops up each loser back
+ * to an equal share, paying costs on everything that moves. Trimming sells
+ * part of a position, so it books that part's gain over the average cost.
+ */
+function resetRound({ round, time, positions, current, before, targets, cost, lastClose }) {
+  const share = targets.size ? before / targets.size : 0;
+  // Cash is not a position: moving into or out of it is the trade.
+  let traded = 0;
+  for (const symbol of new Set([...targets, ...current.keys()])) {
+    traded += Math.abs((targets.has(symbol) ? share : 0) - (current.get(symbol) ?? 0));
+  }
+  const charged = traded * cost;
+  const each = targets.size ? (before - charged) / targets.size : 0;
+
+  const next = new Map();
+  for (const symbol of round.symbols) {
+    const held = positions.get(symbol);
+    if (held && held.pending === null) {
+      const price = lastClose(symbol).close;
+      const units = each / price;
+      let { basis, booked } = held;
+      if (units < held.units) {
+        const kept = units / held.units;
+        booked += (held.units - units) * price - basis * (1 - kept);
+        basis *= kept;
+      } else {
+        basis += (units - held.units) * price;
+      }
+      next.set(symbol, { ...held, units, basis, booked });
+    } else if (held) {
+      // Still waiting in cash: nothing was bought, so nothing is booked.
+      next.set(symbol, { ...held, pending: each, basis: each });
+    } else {
+      next.set(symbol, opened(symbol, each, time, lastClose));
+    }
+  }
+  return { next, charged, left: targets.size ? 0 : before - charged };
+}
+
+/**
+ * How a rebalance treats the stocks it keeps. Holding as bought is how a
+ * person runs the basket; the reset is the textbook equal-weight portfolio,
+ * which sells winners and buys losers every round.
+ */
+export const WEIGHT_OPTIONS = [
+  { value: "hold", label: "Hold as bought", title: "Kept stocks are never trimmed or topped up" },
+  { value: "equal", label: "Reset to equal", title: "Every rebalance trims winners and tops up losers to an equal share" },
+];
+
 /**
  * One pass of the portfolio simulation at a single cost rate.
  *
@@ -302,8 +434,9 @@ export function rebalanceDates(rankingDates, start, option) {
  * @param {string} asOf
  * @param {number} cost fraction of traded value, per side
  * @param {number} slots how many stocks the basket holds when full
+ * @param {boolean} reset whether each round resets every holding to equal weight
  */
-function simulate(rounds, series, asOf, cost, slots) {
+function simulate(rounds, series, asOf, cost, slots, reset) {
   const start = rounds[0].entrySession;
   const times = new Set(rounds.map((round) => round.entrySession));
   for (const points of series.values()) {
@@ -322,9 +455,10 @@ function simulate(rounds, series, asOf, cost, slots) {
   const valueOf = (symbol, position) =>
     position.pending !== null ? position.pending : position.units * lastClose(symbol).close;
 
-  // Each position carries what it cost, so the return splits into gains
-  // booked on sales and gains still open without changing it.
-  /** @type {Map<string, {units: number | null, pending: number | null, since: string, entry: {time: string, close: number} | null, basis: number}>} */
+  // Each position carries what it cost (average cost) and any gain booked
+  // while held -- an equal-weight reset that trims a winner sells part of it
+  // -- so the return splits into booked and open without changing it.
+  /** @type {Map<string, {units: number | null, pending: number | null, since: string, entry: {time: string, close: number} | null, basis: number, booked: number}>} */
   let positions = new Map();
   let cash = 1;
   let costsPaid = 0;
@@ -352,10 +486,8 @@ function simulate(rounds, series, asOf, cost, slots) {
     }
 
     const round = roundAt.get(time);
-    // A rebalance sells only what the round drops and buys only what it adds.
-    // A kept stock is never trimmed or topped up, so a winner is left to run
-    // and a loser is not averaged down. A round with no names -- a filter
-    // nothing passed that day -- sells everything and waits in cash.
+    // A round with no names -- a filter nothing passed that day -- sells
+    // everything and waits in cash until a later round has names again.
     if (round) {
       let before = cash;
       const current = new Map();
@@ -365,51 +497,21 @@ function simulate(rounds, series, asOf, cost, slots) {
         before += held;
       }
       const targets = new Set(round.symbols);
-
-      let proceeds = 0;
-      let sellCost = 0;
+      const buys = round.symbols.filter((symbol) => !positions.has(symbol));
+      const { next, charged, left } = (reset ? resetRound : holdRound)({
+        round, time, positions, current, cash, before, targets, buys, cost, slots, lastClose,
+      });
       for (const [symbol, position] of positions) {
         if (targets.has(symbol)) continue;
-        const sale = current.get(symbol);
-        proceeds += sale;
-        // A slice still waiting for its first close was never bought, so
-        // returning it to cash is not a sale.
-        if (position.pending === null) sellCost += sale * cost;
         closed.push({
           symbol,
           since: position.since,
           entry: position.entry,
           exit: lastClose(symbol),
           soldOn: time,
-          booked: sale - position.basis,
+          booked: position.booked + current.get(symbol) - position.basis,
         });
       }
-      const available = cash + proceeds - sellCost;
-
-      // The cash is shared across the free slots, one equal part each. A
-      // slot the list could not fill keeps its part in cash for a later round.
-      const buys = round.symbols.filter((symbol) => !positions.has(symbol));
-      const freeSlots = Math.max(buys.length, slots - (round.symbols.length - buys.length));
-      const budget = buys.length ? (available * buys.length) / freeSlots : 0;
-      const buyCost = budget * cost;
-      const each = buys.length ? (budget - buyCost) / buys.length : 0;
-
-      const next = new Map();
-      for (const symbol of round.symbols) {
-        const held = positions.get(symbol);
-        if (held) {
-          next.set(symbol, held);
-          continue;
-        }
-        const close = lastClose(symbol);
-        if (close && close.time === time) {
-          next.set(symbol, { units: each / close.close, pending: null, since: time, entry: close, basis: each });
-        } else {
-          next.set(symbol, { units: null, pending: each, since: time, entry: null, basis: each });
-        }
-      }
-
-      const charged = sellCost + buyCost;
       costsPaid += charged;
       trades.push({
         rankDate: round.rankDate ?? null,
@@ -423,7 +525,7 @@ function simulate(rounds, series, asOf, cost, slots) {
         valueAfter: before - charged,
       });
       positions = next;
-      cash = available - budget;
+      cash = left;
     }
 
     let invested = 0;
@@ -441,7 +543,10 @@ function simulate(rounds, series, asOf, cost, slots) {
   let open = 0;
   let booked = 0;
   for (const position of closed) booked += position.booked;
-  for (const [symbol, position] of positions) open += valueOf(symbol, position) - position.basis;
+  for (const [symbol, position] of positions) {
+    open += valueOf(symbol, position) - position.basis;
+    booked += position.booked;
+  }
   const pnl = {
     bookedPct: booked * 100,
     openPct: open * 100,
@@ -475,10 +580,14 @@ function simulate(rounds, series, asOf, cost, slots) {
  *
  * @param {{entrySession: string, symbols: string[]}[]} rounds ascending
  * @param {Map<string, {time: string, close: number}[]>} closes ascending points per symbol
- * @param {{asOf: string, costPerSidePct?: number, slots?: number}} options `slots` is
+ * With `weights: "equal"`, each round instead resets every holding to equal
+ * weight (see `resetRound`), and a short round spreads the money over the
+ * names it has.
+ *
+ * @param {{asOf: string, costPerSidePct?: number, slots?: number, weights?: string}} options `slots` is
  *   the basket size; it defaults to the largest round, and a smaller round leaves the rest in cash
  */
-export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0, slots }) {
+export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0, slots, weights = "hold" }) {
   const usable = (rounds ?? []).filter((round) => round.entrySession && round.entrySession <= asOf);
   if (!usable.length || !usable[0].symbols.length) {
     return {
@@ -505,8 +614,9 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0, slo
   }
 
   const size = slots ?? Math.max(...usable.map((round) => round.symbols.length));
-  const gross = simulate(usable, series, asOf, 0, size);
-  const net = simulate(usable, series, asOf, costPerSidePct / 100, size);
+  const reset = weights === "equal";
+  const gross = simulate(usable, series, asOf, 0, size, reset);
+  const net = simulate(usable, series, asOf, costPerSidePct / 100, size, reset);
 
   const holdings = usable[usable.length - 1].symbols;
   // A position's gain still open, in points of the starting capital. Both
@@ -551,9 +661,9 @@ export function portfolioReturns(rounds, closes, { asOf, costPerSidePct = 0, slo
   });
 
   // Finished positions: bought at one round's fill, sold at a later round.
-  // A price-to-price return, like a broker's contract note; the position is
-  // never resized while held, so this is the position's own return before
-  // trading costs, which the basket-level figures carry.
+  // A price-to-price return, like a broker's contract note, before trading
+  // costs, which the basket-level figures carry. Under equal-weight resets it
+  // leaves out the trims and top-ups in between.
   // Both runs close the same positions in the same order, so the gross
   // booked gain of a position is the gross run's entry at the same index.
   const closedTrades = net.closed.map((position, index) => ({

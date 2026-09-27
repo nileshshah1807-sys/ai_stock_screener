@@ -13,10 +13,12 @@ import { rangeStart } from "@/lib/market-breadth.mjs";
 import type { Market } from "@/lib/markets";
 import {
   COST_PER_SIDE_PCT,
-  PICK_OPTIONS,
+  RATING_PICKS,
   REBALANCE_OPTIONS,
+  STAGE_PICKS,
   START_PRESETS,
   TOP_N_OPTIONS,
+  WEIGHT_OPTIONS,
   modelForDate,
   pickOption,
   snapRankingDate,
@@ -27,6 +29,8 @@ import { cn } from "@/lib/utils";
 type Report = Extract<ReturnsReport, { status: "ok" }>;
 
 const CUSTOM = "custom";
+
+type Shown = { from: string; top: string; rebalance: string; rating: string; stage: string; weights: string };
 
 
 /**
@@ -51,9 +55,17 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const [costs, setCosts] = useState(report.costs);
-  const [shown, setShown] = useOptimistic(
-    { from: report.rankDate, top: String(report.topN), rebalance: report.rebalance.option, pick: report.pick },
-    (current, patch: Partial<{ from: string; top: string; rebalance: string; pick: string }>) => ({ ...current, ...patch }),
+  const reportPick = pickOption(report.pick);
+  const [shown, setShown] = useOptimistic<Shown, Partial<Shown>>(
+    {
+      from: report.rankDate,
+      top: String(report.topN),
+      rebalance: report.rebalance.option,
+      rating: reportPick.rating,
+      stage: reportPick.stageFilter,
+      weights: report.weights,
+    },
+    (current, patch) => ({ ...current, ...patch }),
   );
 
   const urlFor = (mutate: (params: URLSearchParams) => void) => {
@@ -62,14 +74,23 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
     const query = next.toString();
     return query ? `${pathname}?${query}` : pathname;
   };
-  const push = (
-    patch: Partial<{ from: string; top: string; rebalance: string; pick: string }>,
-    mutate: (params: URLSearchParams) => void,
-  ) => {
+  const push = (patch: Partial<Shown>, mutate: (params: URLSearchParams) => void) => {
     const url = urlFor(mutate);
     startTransition(() => {
       setShown(patch);
       router.push(url, { scroll: false });
+    });
+  };
+  // The two filters are written together, replacing the single `pick` of
+  // older links, so changing one keeps the other.
+  const setFilter = (patch: { rating?: string; stage?: string }) => {
+    const next = { rating: shown.rating, stage: shown.stage, ...patch };
+    push(patch, (params) => {
+      params.delete("pick");
+      for (const [name, value] of Object.entries(next)) {
+        if (value === "all") params.delete(name);
+        else params.set(name, value);
+      }
     });
   };
   const toggleCosts = (next: boolean) => {
@@ -109,7 +130,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
   const sessionsHeld = report.basket.curve.length;
   const rebalanceLabel = REBALANCE_PERIOD_WORDS[report.rebalance.option] ?? null;
   const lastModel = modelForDate(market.code, report.rebalance.lastRankDate);
-  const pickPhrase = pickOption(report.pick).phrase ?? null;
+  const pickPhrase = reportPick.phrase;
   const rounds = report.rebalance.count + 1;
 
   return (
@@ -148,18 +169,20 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
             options={TOP_N_OPTIONS.map((size) => ({ value: String(size), label: `Top ${size}` }))}
           />
         </Field>
-        <Field label="Pick from">
+        <Field label="Rating">
           <SegmentedControl
-            label="Pick from"
-            value={shown.pick}
-            onChange={(value) =>
-              push({ pick: value }, (params) => (value === "all" ? params.delete("pick") : params.set("pick", value)))
-            }
-            options={PICK_OPTIONS.map((option) => ({
-              value: option.value,
-              label: option.label,
-              title: option.title,
-            }))}
+            label="Rating filter"
+            value={shown.rating}
+            onChange={(value) => setFilter({ rating: value })}
+            options={RATING_PICKS.map(({ value, label, title }) => ({ value, label, title }))}
+          />
+        </Field>
+        <Field label="Stage">
+          <SegmentedControl
+            label="Stage filter"
+            value={shown.stage}
+            onChange={(value) => setFilter({ stage: value })}
+            options={STAGE_PICKS.map(({ value, label, title }) => ({ value, label, title }))}
           />
         </Field>
         <Field label="Rebalance">
@@ -172,6 +195,20 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
             }
           />
         </Field>
+        {shown.rebalance !== "never" ? (
+          <Field label="At each rebalance">
+            <SegmentedControl
+              label="At each rebalance"
+              value={shown.weights}
+              onChange={(value) =>
+                push({ weights: value }, (params) =>
+                  value === "hold" ? params.delete("weights") : params.set("weights", value),
+                )
+              }
+              options={WEIGHT_OPTIONS.map(({ value, label, title }) => ({ value, label, title }))}
+            />
+          </Field>
+        ) : null}
         <Field label="Costs">
           <SegmentedControl
             label="Trading costs"
@@ -223,12 +260,30 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           held for {sessionsHeld} {sessionsHeld === 1 ? "session" : "sessions"} to {formatDate(report.asOf)}.
         </p>
 
-        {report.hold ? (
+        {report.holds.length ? (
           <p className="text-xs leading-relaxed text-muted-foreground">
-            {report.hold === "advancing"
-              ? "A stock is bought from this list, then held while it stays in Stage 2 or a pullback within it, and sold at the next rebalance after it breaks into Stage 3 or 4 — so it is not sold merely for no longer being on the list. "
-              : "A stock is bought from this list, then held while it stays rated BUY or better, and sold at the next rebalance after its rating falls below that. "}
-            Each rebalance refills the free slots from the list, best first.
+            A stock is bought from this list, then held while it{" "}
+            {[
+              report.holds.includes("buy_plus") ? "stays rated BUY or better" : null,
+              report.holds.includes("advancing") ? "stays in Stage 2 or a pullback within it" : null,
+            ]
+              .filter(Boolean)
+              .join(" and ")}
+            , and sold at the next rebalance after{" "}
+            {report.holds.length > 1
+              ? "either breaks"
+              : report.holds[0] === "advancing"
+                ? "it breaks into Stage 3 or 4"
+                : "its rating falls below that"}{" "}
+            &mdash; so it is not sold merely for no longer being on the list. Each rebalance refills the free slots
+            from the list, best first.
+          </p>
+        ) : null}
+        {report.rebalance.count ? (
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {report.weights === "equal"
+              ? "Every rebalance also resets each stock kept to an equal share, trimming winners and topping up losers."
+              : "A stock kept at a rebalance is left as bought, never trimmed or topped up; only the money from sales buys new stocks."}
           </p>
         ) : null}
 
@@ -244,7 +299,10 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
               <>
                 On {report.shortRounds === rounds ? "every" : `${report.shortRounds} of ${rounds}`}{" "}
                 {rounds === 1 ? "purchase" : "rounds"}, fewer than {report.topN} stocks passed the pick; the basket
-                bought the ones that did and kept each empty slot&rsquo;s share in cash.
+                {report.weights === "equal"
+                  ? " held the ones that did in equal weight, and cash when none did."
+                  : " bought the ones that did and kept each empty slot’s share in cash."}
+                {reportPick.columns.length > 1 ? " Few stocks pass both filters at once." : ""}
               </>
             ) : null}
           </p>
@@ -259,7 +317,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
             a point-in-time backtest, not one the dashboard published; published rankings begin{" "}
             {formatDate(report.liveFrom)}. The model&rsquo;s weights were fitted on this same period, so
             these returns are in-sample and flatter what to expect going forward.
-            {pickOption(report.pick).ratings
+            {reportPick.ratings
               ? " Backtest ratings are reconstructed from a copy of the production gates, which leaves out a few data checks, so they can be slightly more generous than the ratings the dashboard publishes."
               : ""}
           </p>
@@ -303,7 +361,13 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
             note="difference in return"
           />
           {split && headline !== null ? (
-            <SplitRow split={split} total={headline} holdings={report.holdings.length} costs={costs} />
+            <SplitRow
+              split={split}
+              total={headline}
+              holdings={report.holdings.length}
+              costs={costs}
+              trims={report.weights === "equal" && report.rebalance.count > 0}
+            />
           ) : null}
         </section>
 
@@ -390,16 +454,19 @@ function SplitRow({
   total,
   holdings,
   costs,
+  trims,
 }: {
   split: ReturnSplit;
   total: number;
   holdings: number;
   costs: boolean;
+  /** Equal-weight resets book gains by trimming, not only by selling. */
+  trims: boolean;
 }) {
   return (
     <div className="col-span-full border-t px-4 py-3 sm:px-5">
       <dl className="flex flex-wrap items-end gap-x-3 gap-y-2">
-        <SplitTerm label="Booked" value={split.bookedPct} note="on stocks sold" />
+        <SplitTerm label="Booked" value={split.bookedPct} note={trims ? "on sales and trims" : "on stocks sold"} />
         <SplitSign>{split.openPct < 0 ? "−" : "+"}</SplitSign>
         <SplitTerm
           label="Open"

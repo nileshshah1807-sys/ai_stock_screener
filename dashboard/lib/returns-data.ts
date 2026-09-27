@@ -50,6 +50,8 @@ const FETCH_CHUNK = 1000;
 
 /** Symbols per current-state request, to keep each URL well under its limit. */
 const STATE_CHUNK = 150;
+/** How deep each single filter's backtest list is stored (tools/backfill_returns_history.py). */
+const BACKTEST_DEPTH = 50;
 
 type HistoryRow = {
   symbol: string;
@@ -332,14 +334,16 @@ export type ReturnsReport =
       model: string | null;
       topN: number;
       costs: boolean;
-      /** Which list the basket picks from: "all", or a filtered pick. */
+      /** Which list the basket picks from: "all", or a `pickOption` key. */
       pick: string;
+      /** How a rebalance treats kept stocks: "hold" as bought, or "equal" weight. */
+      weights: string;
       /** Set when a rating pick moved the start forward to the first rated ranking. */
       pickStartMovedFrom: string | null;
       /** Rounds where fewer than N stocks passed the pick. */
       shortRounds: number;
-      /** The pick's hold rule, when it has one: "advancing" or "buy_plus". */
-      hold: string | null;
+      /** The pick's hold rules, each "advancing" or "buy_plus"; a stock is kept while it passes all. */
+      holds: string[];
       rebalance: RebalanceSummary;
       basket: {
         grossPct: number | null;
@@ -396,13 +400,20 @@ async function getRankingTops(
 
   const backtestDates = dates.filter((date) => date < liveFrom);
   const liveDates = dates.filter((date) => date >= liveFrom);
-  const column = pick.column ?? "investment_rank";
+  const filtered = pick.columns.length > 0;
+  const column = pick.columns.length === 1 ? pick.columns[0] : "investment_rank";
   // A pick with a hold rule refills only the slots its kept names leave, so
   // it reads deeper than N; backtest lists are stored 50 deep.
-  const depth = pick.hold ? Math.min(50, topN * 2) : topN;
+  const depth = filtered ? Math.min(BACKTEST_DEPTH, topN * 2) : topN;
 
   const backtest = async () => {
     if (!backtestDates.length) return;
+    if (pick.columns.length > 1) {
+      for (const [date, rows] of await getCombinedBacktestTops(supabase, market, backtestDates, pick)) {
+        tops.set(date, rows.slice(0, depth));
+      }
+      return;
+    }
     const chunks = Math.max(1, Math.ceil((backtestDates.length * depth) / FETCH_CHUNK));
     const results = await Promise.all(
       Array.from({ length: chunks }, (_, index) =>
@@ -423,7 +434,7 @@ async function getRankingTops(
   const live = async () => {
     if (!liveDates.length) return;
     const columns = "observed_on, symbol, company, investment_rank, rating, stage";
-    if (!pick.column) {
+    if (!filtered) {
       const chunks = Math.max(1, Math.ceil((liveDates.length * topN) / FETCH_CHUNK));
       const results = await Promise.all(
         Array.from({ length: chunks }, (_, index) =>
@@ -459,6 +470,87 @@ async function getRankingTops(
   };
 
   await Promise.all([backtest(), live()]);
+  return tops;
+}
+
+/**
+ * Each backtest week's list for a rating filter and a stage filter together,
+ * in rank order.
+ *
+ * The backtest stores only the top 50 of each single filter, so a stock that
+ * passes both is stored when it is in either list's top 50, and the combined
+ * list is complete only down to the deeper of the two lists' 50th stock. Past
+ * that point a stock could be missing, so the list is cut there: a week it
+ * leaves short holds the rest in cash, never a stock a full list would have
+ * ranked below a missing one.
+ */
+async function getCombinedBacktestTops(
+  supabase: Supabase,
+  market: MarketCode,
+  dates: string[],
+  pick: Pick,
+): Promise<Map<string, HistoryRow[]>> {
+  type Paged = {
+    range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
+  };
+  const pages = async (build: () => Paged) => {
+    const rows: Record<string, unknown>[] = [];
+    for (let offset = 0; ; offset += FETCH_CHUNK) {
+      const { data, error } = await build().range(offset, offset + FETCH_CHUNK - 1);
+      if (error) {
+        console.error("getCombinedBacktestTops failed", error.message);
+        return rows;
+      }
+      rows.push(...((data ?? []) as Record<string, unknown>[]));
+      if (!data || data.length < FETCH_CHUNK) return rows;
+    }
+  };
+  const groups: string[][] = [];
+  for (let index = 0; index < dates.length; index += 25) groups.push(dates.slice(index, index + 25));
+
+  const [passing, cutoffs] = await Promise.all([
+    Promise.all(
+      groups.map((group) =>
+        pages(() => {
+          let query = supabase
+            .from("simulated_rankings")
+            .select("observed_on, symbol, investment_rank, rating, stage")
+            .eq("market", market)
+            .in("observed_on", group);
+          if (pick.ratings) query = query.in("rating", pick.ratings);
+          if (pick.stage) query = query.eq("stage", pick.stage);
+          if (pick.maxAdvanceAge) query = query.lte("advance_age_days", pick.maxAdvanceAge);
+          return query.order("observed_on").order("investment_rank");
+        }),
+      ),
+    ),
+    // Each list's last stored stock: where that list stops being complete.
+    pages(() =>
+      supabase
+        .from("simulated_rankings")
+        .select(`observed_on, investment_rank, ${pick.columns.join(", ")}`)
+        .eq("market", market)
+        .in("observed_on", dates)
+        .or(pick.columns.map((name) => `${name}.eq.${BACKTEST_DEPTH}`).join(","))
+        .order("observed_on"),
+    ),
+  ]);
+
+  // The deeper list's cutoff, or none when either list ended before 50.
+  const cutoff = new Map<string, number>();
+  for (const date of dates) {
+    const rows = cutoffs.filter((row) => row.observed_on === date);
+    const ends = pick.columns.map((name) => {
+      const last = rows.find((row) => row[name] === BACKTEST_DEPTH);
+      return last ? (last.investment_rank as number) : Infinity;
+    });
+    cutoff.set(date, Math.max(...ends));
+  }
+
+  const tops = new Map<string, HistoryRow[]>(dates.map((date) => [date, []]));
+  for (const row of passing.flat() as (HistoryRow & { observed_on: string; investment_rank: number })[]) {
+    if (row.investment_rank <= (cutoff.get(row.observed_on) ?? Infinity)) tops.get(row.observed_on)?.push(row);
+  }
   return tops;
 }
 
@@ -620,10 +712,19 @@ export async function getReturnsReport(
     costs,
     rebalance,
     pick: pickValue,
-  }: { from: string | null; topN: number; costs: boolean; rebalance: string | null; pick: string | null },
+    weights: weightsValue,
+  }: {
+    from: string | null;
+    topN: number;
+    costs: boolean;
+    rebalance: string | null;
+    pick: string | null;
+    weights: string | null;
+  },
 ): Promise<ReturnsReport> {
   const supabase = await createClient();
   const pick = pickOption(pickValue);
+  const weights = weightsValue === "equal" ? "equal" : "hold";
   const [liveDates, simulatedDates, calendar, benchmarkLevels, latestRun, firstRated] = await Promise.all([
     getRankingDates(market.code),
     getSimulatedDates(market.code),
@@ -666,10 +767,19 @@ export async function getReturnsReport(
     const tops = await getRankingTops(supabase, market.code, schedule, topN, liveFrom, pick);
     const candidates = schedule.map((date) => (tops.get(date) ?? []).map((row) => row.symbol));
     let keeps: (Set<string> | null)[] = schedule.map(() => null);
-    if (pick.hold) {
+    if (pick.holds.length) {
       const everListed = [...new Set(candidates.flat())];
-      const sets = await getKeepSets(supabase, market.code, schedule, liveFrom, pick.hold as "advancing" | "buy_plus", everListed);
-      keeps = schedule.map((date) => sets.get(date) ?? new Set<string>());
+      // Kept while it passes every hold rule: a combined pick sells on
+      // whichever breaks first.
+      const rules = await Promise.all(
+        pick.holds.map((hold) =>
+          getKeepSets(supabase, market.code, schedule, liveFrom, hold as "advancing" | "buy_plus", everListed),
+        ),
+      );
+      keeps = schedule.map((date) => {
+        const [first, ...rest] = rules.map((sets) => sets.get(date) ?? new Set<string>());
+        return new Set([...first].filter((symbol) => rest.every((set) => set.has(symbol))));
+      });
     }
     const baskets = selectBaskets(
       candidates.map((list, index) => ({ candidates: list, keep: keeps[index] })),
@@ -696,7 +806,12 @@ export async function getReturnsReport(
     getUniverseIndex(supabase, market.code, entrySession, asOf),
   ]);
 
-  const result = portfolioReturns(rounds, closes, { asOf, costPerSidePct: COST_PER_SIDE_PCT, slots: topN });
+  const result = portfolioReturns(rounds, closes, {
+    asOf,
+    costPerSidePct: COST_PER_SIDE_PCT,
+    slots: topN,
+    weights,
+  });
   // The last basket, not the last buy list: a kept stock may have left the list.
   const listed = new Map((tops.get(lastRound.rankDate) ?? []).map((row) => [row.symbol, row]));
 
@@ -741,9 +856,10 @@ export async function getReturnsReport(
     topN,
     costs,
     pick: pick.value,
+    weights,
     pickStartMovedFrom,
     shortRounds: rounds.filter((round) => round.symbols.length < topN).length,
-    hold: (pick.hold as string | undefined) ?? null,
+    holds: pick.holds,
     rebalance: {
       option: option.value,
       count: later.length,
