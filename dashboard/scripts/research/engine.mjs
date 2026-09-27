@@ -42,15 +42,21 @@ export function listFor(data, date, pick, topN) {
   return pass.filter((r) => r.investment_rank <= cutoff).sort((a, b) => a.investment_rank - b.investment_rank).slice(0, depth);
 }
 
-export function roundsFor(data, { pick: key, topN, rebalance, from }) {
+const firstRatedCache = new WeakMap();
+
+/** A config may carry its own `asOf`, the end of its window; otherwise the data's end. */
+export function roundsFor(data, { pick: key, topN, rebalance, from, asOf = data.asOf }) {
   const pick = pickOption(key);
   let start = snapRankingDate(data.dates, from);
   if (pick.ratings) {
-    const firstRated = data.dates.find((date) => (data.byDate.get(date) ?? []).some((r) => r.rating));
+    if (!firstRatedCache.has(data)) {
+      firstRatedCache.set(data, data.dates.find((date) => (data.byDate.get(date) ?? []).some((r) => r.rating)));
+    }
+    const firstRated = firstRatedCache.get(data);
     if (start < firstRated) start = firstRated;
   }
   const schedule = rebalanceDates(data.dates, start, rebalanceOption(rebalance))
-    .filter((date) => (entrySessionAfter(data.sessions, date) ?? "9999") <= data.asOf);
+    .filter((date) => date <= asOf && (entrySessionAfter(data.sessions, date) ?? "9999") <= asOf);
   const candidates = schedule.map((date) => listFor(data, date, pick, topN).map((r) => r.symbol));
   const keeps = schedule.map((date) => {
     if (!pick.holds.length) return null;
@@ -97,7 +103,8 @@ export function benchmarkCurve(data, from, to) {
 
 export function run(data, config) {
   const rounds = roundsFor(data, config);
-  const result = portfolioReturns(rounds, data.closes, { asOf: data.asOf, costPerSidePct: COST_PER_SIDE_PCT, slots: config.topN, weights: config.weights });
+  const asOf = config.asOf ?? data.asOf;
+  const result = portfolioReturns(rounds, data.closes, { asOf, costPerSidePct: COST_PER_SIDE_PCT, slots: config.topN, weights: config.weights });
   const m = metrics(result.curve, null);
   const closed = result.closedTrades.filter((t) => t.returnPct !== null);
   const wins = closed.filter((t) => t.returnPct > 0).length;
@@ -105,7 +112,7 @@ export function run(data, config) {
   const short = rounds.filter((r) => r.symbols.length < config.topN).length;
   const empty = rounds.filter((r) => r.symbols.length === 0).length;
   return {
-    ...config, start: rounds[0]?.entrySession, end: data.asOf, rounds: rounds.length, shortRounds: short, emptyRounds: empty,
+    ...config, start: rounds[0]?.entrySession, end: asOf, rounds: rounds.length, shortRounds: short, emptyRounds: empty,
     trades: closed.length, winRate: closed.length ? (wins / closed.length) * 100 : null,
     medianTrade: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null,
     worstTrade: sorted[0] ?? null, costsPct: result.pnl?.costsPct ?? null,
@@ -139,7 +146,7 @@ export function regimeAt(levels, date, { ma = 200, slope = 20, band = 2 } = {}) 
   return "NEUTRAL";
 }
 
-export function runRules(data, { base, rules, from }) {
+export function runRules(data, { base, rules, from, asOf = data.asOf }) {
   const start = snapRankingDate(data.dates, from);
   // Rules are checked weekly whatever the ranking cadence: the backtest ranks
   // weekly, but published rankings are daily.
@@ -147,7 +154,7 @@ export function runRules(data, { base, rules, from }) {
   const weekOf = (d) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7)); return t.toISOString().slice(0, 10); };
   const seen = new Set();
   const weeks = data.dates.filter((d) => {
-    if (d < start || (entrySessionAfter(data.sessions, d) ?? "9999") > data.asOf || seen.has(weekOf(d))) return false;
+    if (d < start || (entrySessionAfter(data.sessions, d) ?? "9999") > asOf || seen.has(weekOf(d))) return false;
     seen.add(weekOf(d));
     return true;
   });
@@ -165,7 +172,7 @@ export function runRules(data, { base, rules, from }) {
   for (const r of rounds) r.entrySession = entrySessionAfter(data.sessions, r.rankDate);
   const firstEntry = entrySessionAfter(data.sessions, start);
   const result = portfolioReturns(rounds, data.closes, {
-    asOf: data.asOf, costPerSidePct: COST_PER_SIDE_PCT, slots: base.topN, weights: base.weights,
+    asOf, costPerSidePct: COST_PER_SIDE_PCT, slots: base.topN, weights: base.weights,
     trailingStopPct: rules.includes("R3") ? 20 : null,
   });
   // Weeks in cash before the first purchase count as flat, from the same start.
