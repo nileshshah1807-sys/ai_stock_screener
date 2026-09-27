@@ -181,11 +181,11 @@ describe("portfolioReturns, rebalanced", () => {
     { entrySession: "2026-09-08", symbols: ["A", "C"] },
   ];
 
-  it("sells what dropped out, buys what came in, and resets to equal weight", () => {
+  it("sells what dropped out and buys what came in with the sale money", () => {
     const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15" });
-    // 09-08: A 0.55 + B 0.45 = 1.00, reset to A 0.50 + C 0.50.
-    // 09-15: A 0.50 x 1.10 + C 0.50 x 1.20 = 1.15. B's later halving is avoided.
-    assert.ok(Math.abs(result.grossPct - 15) < 1e-9);
+    // 09-08: A 0.55 + B 0.45. B is sold and its 0.45 buys C; A is kept as it
+    // is, not trimmed back to half. 09-15: A 0.605 + C 0.54 = 1.145.
+    assert.ok(Math.abs(result.grossPct - 14.5) < 1e-9);
     assert.deepEqual(result.trades[1].bought, ["C"]);
     assert.deepEqual(result.trades[1].sold, ["B"]);
     assert.deepEqual(result.stocks.map((stock) => stock.symbol), ["A", "C"]);
@@ -197,11 +197,11 @@ describe("portfolioReturns, rebalanced", () => {
 
   it("logs each round's own period return", () => {
     const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15" });
-    // Round 1 (A, B): 1.00 -> 1.00 by 09-08. Round 2 (A, C): 1.00 -> 1.15.
+    // Round 1 (A, B): 1.00 -> 1.00 by 09-08. Round 2 (A 0.55, C 0.45): 1.00 -> 1.145.
     assert.equal(result.trades[0].periodEnd, "2026-09-08");
     assert.ok(Math.abs(result.trades[0].returnPct) < 1e-9);
     assert.equal(result.trades[1].periodEnd, "2026-09-15");
-    assert.ok(Math.abs(result.trades[1].returnPct - 15) < 1e-9);
+    assert.ok(Math.abs(result.trades[1].returnPct - 14.5) < 1e-9);
   });
 
   it("records each sold position from its fill to its sale", () => {
@@ -219,18 +219,48 @@ describe("portfolioReturns, rebalanced", () => {
 
   it("keeps a round's cost out of its period return", () => {
     const net = portfolioReturns(rounds, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
-    assert.ok(Math.abs(net.trades[1].returnPct - 15) < 1e-9);
+    // After round 2's trades: A 0.5445 kept, C bought with B's 0.4455 less
+    // 1% on the sale and 1% on the purchase.
+    const c = 0.4455 * 0.99 * 0.99;
+    const expected = ((0.5445 * 1.1 + c * 1.2) / (0.5445 + c) - 1) * 100;
+    assert.ok(Math.abs(net.trades[1].returnPct - expected) < 1e-9);
     assert.ok(net.trades[1].costPct > 0);
   });
 
-  it("charges costs only on the value traded", () => {
+  it("charges costs only on what is sold and bought", () => {
     const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
-    // Round 1 buys 1.00 of stock: cost 0.01. Round 2 trims A 0.5445 -> 0.49005,
-    // sells B 0.4455 and buys C 0.49005: 0.99 of value traded, cost 0.0099.
+    // Round 1 buys 1.00 of stock: cost 0.01. Round 2 sells B's 0.4455 and
+    // buys C with the rest: 0.004455 + 0.00441045. A is not traded.
     assert.ok(Math.abs(result.trades[0].costPct - 1) < 1e-9);
-    assert.ok(Math.abs(result.trades[1].costPct - 1) < 1e-9);
-    const expected = (0.99 - 0.0099) / 2 * (1.1 + 1.2) * 0.99;
+    assert.ok(Math.abs(result.trades[1].costPct - ((0.004455 + 0.00441045) / 0.99) * 100) < 1e-9);
+    const expected = (0.5445 * 1.1 + 0.4455 * 0.99 * 0.99 * 1.2) * 0.99;
     assert.ok(Math.abs(result.netPct - (expected - 1) * 100) < 1e-9);
+  });
+
+  it("an unchanged basket trades nothing and matches buy and hold", () => {
+    const same = [
+      { entrySession: "2026-09-01", symbols: ["A", "C"] },
+      { entrySession: "2026-09-08", symbols: ["A", "C"] },
+    ];
+    const result = portfolioReturns(same, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
+    assert.deepEqual(result.trades[1].bought, []);
+    assert.deepEqual(result.trades[1].sold, []);
+    assert.equal(result.trades[1].costPct, 0);
+    const held = portfolioReturns(same.slice(0, 1), closes, { asOf: "2026-09-15", costPerSidePct: 1 });
+    assert.ok(Math.abs(result.netPct - held.netPct) < 1e-9);
+  });
+
+  it("an empty slot waits in cash until a stock fills it", () => {
+    const short = [
+      { entrySession: "2026-09-01", symbols: ["A"] },
+      { entrySession: "2026-09-08", symbols: ["A", "C"] },
+    ];
+    const once = portfolioReturns(short.slice(0, 1), closes, { asOf: "2026-09-15", slots: 2 });
+    // Half in A, half in cash: 0.5 x 1.21 + 0.5.
+    assert.ok(Math.abs(once.grossPct - 10.5) < 1e-9);
+    const filled = portfolioReturns(short, closes, { asOf: "2026-09-15", slots: 2 });
+    // The cash half buys C on 09-08 and rises 20%: 0.605 + 0.6.
+    assert.ok(Math.abs(filled.grossPct - 20.5) < 1e-9);
   });
 
   it("a round with no names sells to cash until names return", () => {
@@ -244,18 +274,6 @@ describe("portfolioReturns, rebalanced", () => {
     assert.deepEqual(result.trades[1].sold, ["A"]);
     assert.deepEqual(result.stocks, []);
     assert.ok(Math.abs(result.trades[1].returnPct) < 1e-9);
-  });
-
-  it("an unchanged basket only pays to restore equal weight", () => {
-    const same = [
-      { entrySession: "2026-09-01", symbols: ["A", "C"] },
-      { entrySession: "2026-09-08", symbols: ["A", "C"] },
-    ];
-    const result = portfolioReturns(same, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
-    assert.deepEqual(result.trades[1].bought, []);
-    assert.deepEqual(result.trades[1].sold, []);
-    // A grew to 0.5445 and C stayed 0.495: 0.02475 moves each way.
-    assert.ok(result.trades[1].costPct > 0 && result.trades[1].costPct < 0.1);
   });
 });
 
@@ -273,12 +291,10 @@ describe("portfolioReturns, booked and open gains", () => {
 
   it("splits the return into gains booked on sales and gains still open", () => {
     const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15" });
-    // 09-08: B sold at 0.45 on a 0.50 cost, booking -0.05. A is trimmed from
-    // 0.55 to 0.50: the 1/11 sold was worth 0.05 on a cost of 0.5/11, booking
-    // 0.05/11 of gain. 09-15: A is 0.55 on its remaining 0.5 x 10/11 cost and C
-    // 0.60 on 0.50, so 0.55 - 5/11 + 0.10 is open.
-    near(result.grossPnl.bookedPct, (0.05 / 11 - 0.05) * 100);
-    near(result.grossPnl.openPct, (0.55 - 5 / 11 + 0.1) * 100);
+    // B sold at 0.45 on a 0.50 cost books -0.05. A is 0.605 on 0.50 and C
+    // 0.54 on 0.45, so 0.105 + 0.09 is open.
+    near(result.grossPnl.bookedPct, -5);
+    near(result.grossPnl.openPct, 19.5);
     near(result.grossPnl.costsPct, 0);
     near(result.grossPnl.bookedPct + result.grossPnl.openPct, result.grossPct);
   });
@@ -287,8 +303,9 @@ describe("portfolioReturns, booked and open gains", () => {
     const result = portfolioReturns(rounds, closes, { asOf: "2026-09-15", costPerSidePct: 1 });
     const { bookedPct, openPct, costsPct, paidPct } = result.pnl;
     near(bookedPct + openPct - costsPct, result.netPct);
-    // Paid on the two rounds; the rest is selling everything today.
-    near(paidPct, 1 + 0.99 * 1);
+    // Paid on the first purchase, B's sale and C's purchase; the rest is
+    // selling everything today.
+    near(paidPct, (0.01 + 0.004455 + 0.00441045) * 100);
     assert.ok(costsPct > paidPct);
   });
 

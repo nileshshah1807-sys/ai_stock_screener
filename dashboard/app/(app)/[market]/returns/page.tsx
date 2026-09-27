@@ -17,7 +17,7 @@ function first(value: string | string[] | undefined) {
  * Returns: what a past ranking's top N went on to do.
  *
  * Pick a start date and the page takes that day's published ranking, buys its
- * top N at the next session's close in equal weight, and holds them to the
+ * top N at the next session's close in equal slices, and holds them to the
  * latest run -- against the benchmark index and against owning every stock the
  * model ranked that day. Only rankings the dashboard actually published are
  * used, so every figure here is out of sample for the model that made it.
@@ -65,14 +65,15 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
       <div className="max-w-3xl space-y-2 border-t pt-4 text-xs leading-relaxed text-muted-foreground">
         <p>
           <span className="font-medium text-foreground">How this is measured.</span> The basket is the top N by
-          Investment Rank on the chosen date, in equal weight, bought at each stock&rsquo;s close on the next
+          Investment Rank on the chosen date, in equal slices, bought at each stock&rsquo;s close on the next
           session &mdash; never the close that produced the ranking, which no reader could have traded at. A
           stock that did not trade that session is bought at its first close after it. With rebalancing off the
-          basket is held as bought. With it on, at each step the basket is rebuilt from that day&rsquo;s
-          ranking: names that left the top N are sold, new ones bought, and every holding reset to equal
-          weight, again at the next session&rsquo;s close. A stock that has since left the universe is kept at
-          its last price rather than dropped. Costs, when on, are {COST_PER_SIDE_PCT}% of the value actually
-          traded &mdash; at each purchase, each rebalance and a final sale at the latest close.
+          basket is held as bought. With it on, at each step the stocks that no longer qualify are sold and
+          their slots refilled from that day&rsquo;s ranking with the sale money, again at the next
+          session&rsquo;s close. A stock that is kept is never trimmed or topped up, so a winner is left to run.
+          A slot nothing qualified for waits in cash. A stock that has since left the universe is kept at its
+          last price rather than dropped. Costs, when on, are {COST_PER_SIDE_PCT}% of the value traded &mdash; on
+          each purchase, each sale and a final sale at the latest close.
         </p>
         <p>
           Prices are adjusted for splits and bonuses but not dividends, and the {market.benchmark} is its price

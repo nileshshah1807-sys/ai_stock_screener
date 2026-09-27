@@ -144,7 +144,7 @@ export function Portfolio({
             <HoldingsTable holdings={holdings} market={market} topN={topN} firstEntry={firstEntry} costs={costs} />
           </>
         ) : view === "closed" ? (
-          <Closed trades={closed} market={market} costs={costs} split={split} />
+          <Closed trades={closed} market={market} costs={costs} />
         ) : (
           <History trades={trades} market={market} swapped={swapped} paidPct={split?.paidPct ?? 0} />
         )}
@@ -433,7 +433,7 @@ function Round({
             <Names sign="−" symbols={trade.sold} market={market} tone="text-negative" />
           </>
         ) : (
-          <p className="text-muted-foreground">No changes; weights reset to equal.</p>
+          <p className="text-muted-foreground">No changes.</p>
         )}
         {switchedFrom ? (
           <p className="text-[11px] text-caution">
@@ -515,26 +515,15 @@ function median(values: number[]) {
 
 /**
  * Every position the basket has sold, like a broker's contract notes: bought
- * on, at; sold on, at; held for; returned. Price to price, so it leaves out
- * the equal-weight trims in between and the trading costs, which the
- * basket-level figures carry.
+ * on, at; sold on, at; held for; returned. Price to price and before trading
+ * costs, which the basket-level figures carry.
  *
  * The summary line answers "how often did a pick work, and by how much" --
  * the question a list of hundreds of rows cannot answer at a glance -- and the
  * order switch surfaces the outliers without a sortable-header affordance on
  * every column.
  */
-function Closed({
-  trades,
-  market,
-  costs,
-  split,
-}: {
-  trades: ClosedTrade[];
-  market: Market;
-  costs: boolean;
-  split: ReturnSplit | null;
-}) {
+function Closed({ trades, market, costs }: { trades: ClosedTrade[]; market: Market; costs: boolean }) {
   const [order, setOrder] = useState<ClosedOrder>("recent");
   const [shown, setShown] = useState(CLOSED_PAGE);
   const returns = trades.map((trade) => trade.returnPct).filter((value): value is number => value !== null);
@@ -543,8 +532,6 @@ function Closed({
   const middle = median(returns);
   const booked = (trade: ClosedTrade) => (costs ? trade.bookedPts : trade.grossBookedPts);
   const bookedHere = trades.reduce((sum, trade) => sum + booked(trade), 0);
-  // The rest of the booked total came from trimming stocks still held.
-  const bookedOnTrims = split ? split.bookedPct - bookedHere : null;
 
   const ordered = [...trades].sort((a, b) => {
     if (order === "recent") return a.soldOn < b.soldOn ? 1 : a.soldOn > b.soldOn ? -1 : 0;
@@ -570,11 +557,7 @@ function Closed({
           {trades.length} closed, {won} of {returns.length} won ({returns.length ? Math.round((won / returns.length) * 100) : 0}
           %). Average {formatPercent(average, 2, true)}, median {formatPercent(middle, 2, true)}. Each return is that
           stock&rsquo;s own, from purchase to sale, before costs. Booked is what the position added to the basket, in
-          points of the starting capital: {formatPoints(bookedHere)} here
-          {bookedOnTrims !== null && Math.abs(bookedOnTrims) >= 0.005 ? (
-            <>, and {formatPoints(bookedOnTrims)} more from trimming stocks still held</>
-          ) : null}
-          .
+          points of the starting capital, {formatPoints(bookedHere)} in all.
         </p>
         <SegmentedControl
           label="Order closed positions"

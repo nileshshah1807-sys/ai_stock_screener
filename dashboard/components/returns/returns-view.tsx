@@ -244,7 +244,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
               <>
                 On {report.shortRounds === rounds ? "every" : `${report.shortRounds} of ${rounds}`}{" "}
                 {rounds === 1 ? "purchase" : "rounds"}, fewer than {report.topN} stocks passed the pick; the basket
-                held the ones that did in equal weight, and cash when none did.
+                bought the ones that did and kept each empty slot&rsquo;s share in cash.
               </>
             ) : null}
           </p>
@@ -384,10 +384,6 @@ function RebalanceSlider({ value, onCommit }: { value: string; onCommit: (value:
  * open on the holdings, and what trading cost. All three are points of the
  * starting capital, so they add up to the headline exactly -- the row is a
  * check on the number as much as a breakdown of it.
- *
- * Booked includes the trims: each rebalance cuts a winner back to equal
- * weight, which sells part of it and books that part's gain. So with frequent
- * rebalancing most of a return is booked long before a stock is sold outright.
  */
 function SplitRow({
   split,
@@ -403,7 +399,7 @@ function SplitRow({
   return (
     <div className="col-span-full border-t px-4 py-3 sm:px-5">
       <dl className="flex flex-wrap items-end gap-x-3 gap-y-2">
-        <SplitTerm label="Booked" value={split.bookedPct} note="on sales and trims" />
+        <SplitTerm label="Booked" value={split.bookedPct} note="on stocks sold" />
         <SplitSign>{split.openPct < 0 ? "−" : "+"}</SplitSign>
         <SplitTerm
           label="Open"
