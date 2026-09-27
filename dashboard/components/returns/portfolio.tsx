@@ -133,13 +133,8 @@ export function Portfolio({
           <>
             <p className="px-4 pt-3 text-xs text-muted-foreground">
               {winners} of {priced.length} up
-              {split ? <>, {formatPoints(split.openPct)} open in all</> : null}. Each return runs from the day that
-              stock was bought; its open gain, in points of the starting capital, is what it adds to the headline
-              today.
-
-              {hasHistory
-                ? ` These are the stocks held after the last rebalance, on the ${formatDate(lastRankDate)} ranking.`
-                : ` Bought once and held, so a stock that has since left the top ${topN} is still here.`}
+              {split ? <> · {formatPoints(split.openPct)} open</> : null} ·{" "}
+              {hasHistory ? `held after the ${formatDate(lastRankDate)} rebalance` : "bought once and held"}
             </p>
             <HoldingsTable holdings={holdings} market={market} topN={topN} firstEntry={firstEntry} costs={costs} />
           </>
@@ -255,8 +250,10 @@ function HoldingsTable({
             <th className="px-2 py-2 font-medium">Stock</th>
             <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Bought at</th>
             <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Latest</th>
-            <th className="px-2 py-2 text-right font-medium">Return</th>
-            <th className="px-2 py-2 text-right font-medium" title="Gain still open, in points of the starting capital">
+            <th className="px-2 py-2 text-right font-medium" title="Price change since this stock was bought">
+              Return
+            </th>
+            <th className="px-2 py-2 text-right font-medium" title="What this holding adds to the headline today, in points of the starting money">
               Open gain
             </th>
             <th className="px-2 py-2 font-medium">Rank now</th>
@@ -554,10 +551,9 @@ function Closed({ trades, market, costs }: { trades: ClosedTrade[]; market: Mark
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-3">
         <p className="text-xs text-muted-foreground">
-          {trades.length} closed, {won} of {returns.length} won ({returns.length ? Math.round((won / returns.length) * 100) : 0}
-          %). Average {formatPercent(average, 2, true)}, median {formatPercent(middle, 2, true)}. Each return is that
-          stock&rsquo;s own, from purchase to sale, before costs. Booked is what the position added to the basket, in
-          points of the starting capital, {formatPoints(bookedHere)} in all.
+          {won} of {returns.length} won ({returns.length ? Math.round((won / returns.length) * 100) : 0}%) · average{" "}
+          {formatPercent(average, 2, true)} · median {formatPercent(middle, 2, true)} · {formatPoints(bookedHere)}{" "}
+          booked
         </p>
         <SegmentedControl
           label="Order closed positions"
@@ -581,8 +577,10 @@ function Closed({ trades, market, costs }: { trades: ClosedTrade[]; market: Mark
               <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Bought</th>
               <th className="hidden px-2 py-2 text-right font-medium sm:table-cell">Sold</th>
               <th className="px-2 py-2 text-right font-medium">Held</th>
-              <th className="px-2 py-2 text-right font-medium">Return</th>
-              <th className="px-4 py-2 text-right font-medium" title="Gain booked, in points of the starting capital">
+              <th className="px-2 py-2 text-right font-medium" title="Price change from purchase to sale, before costs">
+                Return
+              </th>
+              <th className="px-4 py-2 text-right font-medium" title="What this sale added to the basket, in points of the starting money">
                 Booked
               </th>
             </tr>
