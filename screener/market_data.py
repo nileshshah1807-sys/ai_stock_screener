@@ -649,7 +649,7 @@ class PriceCache:
                 ).all():
                     return df
                 logger.info(
-                    "Price cache is not aligned to expected completed NSE session %s - refreshing",
+                    "Price cache is not aligned to expected completed market session %s - refreshing",
                     expected_session,
                 )
                 return pd.DataFrame()
@@ -666,7 +666,7 @@ class PriceCache:
             elif current_time < cutoff_time:
                 if (expected_dates >= today).any():
                     logger.info(
-                        "Price cache contains today's still-incomplete NSE daily bar - refreshing"
+                        "Price cache contains today's still-incomplete daily bar - refreshing"
                     )
                     return pd.DataFrame()
             else:
