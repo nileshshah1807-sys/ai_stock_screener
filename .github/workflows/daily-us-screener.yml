@@ -22,8 +22,13 @@ on:
     # rebuild either way. The 21:30 ET slot is 01:30 UTC the next day, and
     # GitHub often starts it hours late, past midnight ET, which is why the
     # dedupe step below keys runs to the ET session, not to any calendar date.
+    # The 03:30 and 05:30 UTC slots exist because GitHub sometimes drops a
+    # scheduled run outright (29 Sept 2026: the 17:30 ET slot never appeared
+    # and the 19:30 ET one failed on an unfinalised Yahoo bar). They stay inside
+    # the same ET session -- the next one only closes at 16:00 ET -- and once
+    # the session is published each is a ~30 second no-op at the dedupe step.
     - cron: "30 21,23 * * *"
-    - cron: "30 1 * * *"
+    - cron: "30 1,3,5 * * *"
   workflow_dispatch:
 
 permissions:
