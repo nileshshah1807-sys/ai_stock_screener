@@ -12,7 +12,13 @@ import pandas as pd
 from screener.markets import resolve
 from screener.stage import STAGE_2, classify_stages
 from tests.test_dashboard_repository import RecordingDashboardRepository
-from tools.publish_market_breadth import fetch_index_points, symbol_observations
+from tools.publish_market_breadth import (
+    completed_session_cap,
+    fetch_fresh_indices,
+    fetch_index_points,
+    stale_indices,
+    symbol_observations,
+)
 from workers import market_breadth as mb
 
 SESSIONS = [date(2020, 1, 1) + timedelta(days=offset) for offset in range(400)]
@@ -212,6 +218,72 @@ class ToolTests(unittest.TestCase):
         points = fetch_index_points(["GOOD", "BAD"], downloader=downloader)
         self.assertEqual(points["BAD"], {})
         self.assertEqual(points["GOOD"][date(2026, 9, 18)], 2.0)
+
+    def test_the_live_sessions_partial_bar_is_not_a_close(self):
+        frame = pd.DataFrame(
+            {"Close": [1.0, 2.0, 3.0]},
+            index=pd.to_datetime(["2026-09-25", "2026-09-28", "2026-09-29"]),
+        )
+        points = fetch_index_points(
+            ["IDX"], downloader=lambda ticker: frame, not_after=date(2026, 9, 28)
+        )
+        self.assertEqual(sorted(points["IDX"]), [date(2026, 9, 25), date(2026, 9, 28)])
+
+    def test_cap_is_today_only_after_the_market_cutoff(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        nse = resolve("NSE")
+        tz = ZoneInfo(nse.timezone)
+        during = datetime(2026, 9, 29, 10, 41, tzinfo=tz)
+        after = datetime(2026, 9, 29, 20, 0, tzinfo=tz)
+        self.assertEqual(completed_session_cap(nse, during), date(2026, 9, 28))
+        self.assertEqual(completed_session_cap(nse, after), date(2026, 9, 29))
+
+    def test_an_index_behind_the_market_is_retried_until_it_catches_up(self):
+        # 28 Sept 2026: the NSE indices ended on the 25th; the run stayed green.
+        late = {date(2026, 9, 25): 1.0}
+        caught_up = {date(2026, 9, 25): 1.0, date(2026, 9, 28): 2.0}
+        answers = iter([{"A": caught_up, "B": late}, {"B": caught_up}])
+        sleeps = []
+
+        indices, stale = fetch_fresh_indices(
+            ["A", "B"],
+            date(2026, 9, 28),
+            fetch=lambda names: next(answers),
+            retries=3,
+            wait=5,
+            sleep=sleeps.append,
+        )
+        self.assertEqual(stale, [])
+        self.assertEqual(sleeps, [5])
+        self.assertEqual(max(indices["B"]), date(2026, 9, 28))
+
+    def test_an_index_that_never_catches_up_is_reported_and_keeps_its_history(self):
+        late = {date(2026, 9, 25): 1.0}
+        calls = []
+
+        def fetch(names):
+            calls.append(list(names))
+            return {name: (late if len(calls) == 1 else {}) for name in names}
+
+        indices, stale = fetch_fresh_indices(
+            ["A"], date(2026, 9, 28), fetch=fetch, retries=2, wait=0, sleep=lambda _: None
+        )
+        self.assertEqual(stale, ["A"])
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(indices["A"], late)
+
+    def test_a_current_index_is_not_retried(self):
+        sleeps = []
+        _, stale = fetch_fresh_indices(
+            ["A"],
+            date(2026, 9, 28),
+            fetch=lambda names: {"A": {date(2026, 9, 28): 1.0}},
+            sleep=sleeps.append,
+        )
+        self.assertEqual((stale, sleeps), ([], []))
+        self.assertEqual(stale_indices({}, ["A"], date(2026, 9, 28)), ["A"])
 
     def test_every_market_names_its_headline_indices(self):
         for code in ("NSE", "US"):
