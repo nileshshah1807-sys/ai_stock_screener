@@ -34,6 +34,83 @@ logger = logging.getLogger("publish_market_breadth")
 
 DEFAULT_START = "2018-01-01"
 
+# NSE's own end-of-day file for every index it computes, one file per session.
+# A missing day is a 404: a holiday, or a session NSE has not published yet.
+NSE_INDEX_CLOSE_URL = "https://nsearchives.nseindia.com/content/indices/ind_close_all_{day:%d%m%Y}.csv"
+NSE_INDEX_LOOKBACK_DAYS = 10
+NSE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    )
+}
+
+
+def fetch_nse_index_closes(labels, days, *, get=None):
+    """``{label: {date: close}}`` read from NSE's daily index files.
+
+    ``labels`` are NSE index names, which are the dashboard labels. A day that
+    is not a weekday, is not published, or fails to download is skipped: the
+    caller still has Yahoo's history and the freshness retry.
+    """
+    import csv
+    import io
+    from datetime import datetime
+
+    if get is None:
+        import requests
+
+        def get(url):
+            return requests.get(url, headers=NSE_HEADERS, timeout=30)
+
+    out = {label: {} for label in labels}
+    for day in days:
+        if day.weekday() >= 5:
+            continue
+        url = NSE_INDEX_CLOSE_URL.format(day=day)
+        try:
+            response = get(url)
+        except Exception as error:  # noqa: BLE001 - one day must not end the run
+            logger.warning("NSE index file for %s failed: %s", day, error)
+            continue
+        if response.status_code != 200:
+            logger.info("NSE index file for %s not available (HTTP %s)", day, response.status_code)
+            continue
+        for row in csv.DictReader(io.StringIO(response.text)):
+            label = (row.get("Index Name") or "").strip()
+            if label not in out:
+                continue
+            try:
+                stamp = datetime.strptime((row.get("Index Date") or "").strip(), "%d-%m-%Y").date()
+                close = float(row["Closing Index Value"])
+            except (KeyError, ValueError):
+                continue
+            # The file must be the session that was asked for.
+            if close > 0 and stamp == day:
+                out[label][stamp] = close
+    return out
+
+
+def overlay_nse_closes(points, headline_indices, cap, *, get=None):
+    """Overwrite the recent closes in ``points`` with NSE's own published values.
+
+    Yahoo supplies the long history; NSE is the source of record and is what is
+    fresh, so its values win for the last ``NSE_INDEX_LOOKBACK_DAYS`` days. An
+    index Yahoo returned nothing for is left alone -- overlaying ten days onto
+    an empty series would publish a ten-day chart in place of the whole history.
+    """
+    from datetime import timedelta
+
+    wanted = {
+        label: ticker for ticker, label in headline_indices if points.get(ticker)
+    }
+    if not wanted:
+        return points
+    days = [cap - timedelta(days=n) for n in range(NSE_INDEX_LOOKBACK_DAYS, -1, -1)]
+    for label, closes in fetch_nse_index_closes(wanted, days, get=get).items():
+        points[wanted[label]].update(closes)
+    return points
+
 
 def completed_session_cap(profile, now=None):
     """Latest date whose daily bar can be final: today after the cutoff, else yesterday.
@@ -210,7 +287,11 @@ def main(argv=None):
     last_session = min(sessions[-1], cap) if len(sessions) else None
 
     def fetch(names):
-        return fetch_index_points(names, start=args.start, end=args.end, not_after=cap)
+        points = fetch_index_points(names, start=args.start, end=args.end, not_after=cap)
+        if profile.code == NSE:
+            # NSE publishes its own index closes; Yahoo only supplies history.
+            overlay_nse_closes(points, profile.headline_indices, cap)
+        return points
 
     if last_session:
         indices, stale = fetch_fresh_indices(

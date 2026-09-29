@@ -285,6 +285,64 @@ class ToolTests(unittest.TestCase):
         self.assertEqual((stale, sleeps), ([], []))
         self.assertEqual(stale_indices({}, ["A"], date(2026, 9, 28)), ["A"])
 
+    def test_nse_own_closes_fill_the_session_yahoo_has_not_published(self):
+        from tools.publish_market_breadth import overlay_nse_closes
+
+        csv_text = (
+            "Index Name,Index Date,Open Index Value,High Index Value,Low Index Value,"
+            "Closing Index Value,Points Change\n"
+            "Nifty 50,28-09-2026,23064.9,23080.25,22762.2,22780.25,-360.25\n"
+            "Nifty 500,28-09-2026,1,1,1,22232.15,-1\n"
+            "Nifty Next 50,28-09-2026,1,1,1,70309.5,-1\n"
+        )
+        asked = []
+
+        class Response:
+            def __init__(self, status, text=""):
+                self.status_code, self.text = status, text
+
+        def get(url):
+            asked.append(url)
+            return Response(200, csv_text) if "28092026" in url else Response(404)
+
+        points = {
+            "^NSEI": {date(2026, 9, 25): 23140.5},  # Yahoo stopped on the 25th
+            "^CRSLDX": {date(2026, 9, 25): 22603.5, date(2026, 9, 28): 22232.2},
+            "EMPTY": {},  # Yahoo returned nothing: must not become a 1-day chart
+        }
+        headline = (("^NSEI", "Nifty 50"), ("^CRSLDX", "Nifty 500"), ("EMPTY", "Nifty Midcap 150"))
+        overlay_nse_closes(points, headline, date(2026, 9, 29), get=get)
+
+        self.assertEqual(points["^NSEI"][date(2026, 9, 28)], 22780.25)
+        self.assertEqual(points["^NSEI"][date(2026, 9, 25)], 23140.5)
+        self.assertEqual(points["^CRSLDX"][date(2026, 9, 28)], 22232.15)  # NSE wins
+        self.assertEqual(points["EMPTY"], {})
+        # 19-29 Sept is 11 days, of which the weekends are never requested.
+        self.assertFalse(any(d in url for url in asked for d in ("20092026", "26092026", "27092026")))
+        self.assertTrue(any("29092026" in url for url in asked))
+
+    def test_an_nse_file_for_another_day_or_a_failed_download_is_ignored(self):
+        from tools.publish_market_breadth import fetch_nse_index_closes
+
+        wrong_day = "Index Name,Index Date,Closing Index Value\nNifty 50,25-09-2026,23140.5\n"
+
+        class Response:
+            status_code = 200
+            text = wrong_day
+
+        calls = iter([Response(), RuntimeError("blocked")])
+
+        def get(url):
+            result = next(calls)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        closes = fetch_nse_index_closes(
+            ["Nifty 50"], [date(2026, 9, 28), date(2026, 9, 29)], get=get
+        )
+        self.assertEqual(closes, {"Nifty 50": {}})
+
     def test_every_market_names_its_headline_indices(self):
         for code in ("NSE", "US"):
             self.assertEqual(len(resolve(code).headline_indices), 4)
