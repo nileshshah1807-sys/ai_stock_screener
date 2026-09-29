@@ -109,8 +109,11 @@ PROFILE_OVERRIDES = (
 )
 
 
-def config_with_env_cleared():
+def config_with_env_cleared(*extra_names):
     """Return a Config class evaluated with no profile overrides in the env.
+
+    ``extra_names`` clears further variables for a test of some other default,
+    e.g. a feature flag one workflow switches on at job level.
 
     Config's attributes are read from the environment when the class body runs,
     at import, so clearing the environment afterwards changes nothing. The
@@ -119,7 +122,8 @@ def config_with_env_cleared():
     with. The runtime module has no import-time side effects -- only imports and
     definitions -- so the reload is safe.
     """
-    scrubbed = {k: v for k, v in os.environ.items() if k not in PROFILE_OVERRIDES}
+    cleared = set(PROFILE_OVERRIDES) | set(extra_names)
+    scrubbed = {k: v for k, v in os.environ.items() if k not in cleared}
     try:
         with mock.patch.dict(os.environ, scrubbed, clear=True):
             return importlib.reload(runtime).Config

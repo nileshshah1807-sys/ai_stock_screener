@@ -95,5 +95,12 @@ dashboard/    Next.js front end, with its own README; routes are nested
 
 - The repo is edited from both Windows and WSL. `.gitattributes` pins LF; keep
   `core.autocrlf=input` locally or the whole tree shows as modified.
+- **The scheduled workflows run the suite inside their own job env.** Every
+  variable in a workflow's `env:` block leaks into its `unittest` pre-flight, so
+  a test that assumes a variable is unset passes in CI and fails the cron run
+  (US, 29 Sept 2026: `PRICE_BAR_PROBE_ENABLED`). Test defaults through
+  `config_with_env_cleared(...)` in `tests/test_markets.py`. CI's
+  `workflow-env-tests` job replays each workflow's test step; reproduce one
+  locally with `python -m tools.run_tests_under_workflow_env <workflow.yml>`.
 - `ruff`'s ratchet list in `pyproject.toml` records rules the codebase does not
   yet satisfy, with counts. Removing an entry means fixing its violations.

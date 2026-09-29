@@ -4,7 +4,9 @@ run-name: CI (${{ github.event_name }} on ${{ github.ref_name }})
 # The scheduled data workflows already run `python -m unittest` as a pre-flight
 # guard, but only on their cron. That means a broken commit stays invisible
 # until it takes down a production run at 16:30 IST. This workflow moves that
-# signal to the commit that caused it.
+# signal to the commit that caused it -- including the part a clean-environment
+# pytest run cannot see: `workflow-env-tests` below replays each scheduled
+# workflow's pre-flight inside that workflow's own job env.
 on:
   push:
     branches: ["main"]
@@ -72,6 +74,47 @@ jobs:
           # the torch import, out of the test run.
           TRANSCRIPT_ENABLE_FINBERT: "false"
         run: pytest
+
+  # The scheduled workflows run the suite inside a job whose `env:` block
+  # configures the production run, and every variable in it leaks into the test
+  # step. `python-tests` above runs clean, so a test that assumes an unset
+  # variable passes here and fails the cron run that merged it (US run of 29 Sept
+  # 2026, PRICE_BAR_PROBE_ENABLED). This job runs each workflow's own test step
+  # with that workflow's env resolved as for a `schedule` event. Adding a
+  # workflow with a `unittest` step means adding it to this matrix; a test
+  # enforces that.
+  workflow-env-tests:
+    name: Tests in ${{ matrix.workflow }} env
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        workflow:
+          - daily-stock-screener
+          - daily-us-screener
+          - red-flag-shadow
+          - transcript-sentiment
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-ci.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-ci.txt -r requirements-dev.txt
+
+      # The workflow's own step env is applied by the tool, so
+      # TRANSCRIPT_ENABLE_FINBERT and MARKET=NSE come from the workflow file
+      # itself rather than being restated here.
+      - name: Run the workflow's test step
+        run: python -m tools.run_tests_under_workflow_env .github/workflows/${{ matrix.workflow }}.yml
 
   dashboard:
     name: Dashboard (typecheck, lint, test)

@@ -18,7 +18,7 @@ import pandas as pd
 from screener import price_probe
 from screener.data_collection import StockDataCollector
 from screener.price_probe import probe_expected_session
-from screener.runtime import Config
+from tests.test_markets import config_with_env_cleared
 
 TZ = "America/New_York"
 EXPECTED = date(2026, 9, 28)
@@ -108,6 +108,10 @@ class PriceProbeTests(unittest.TestCase):
 
 class ProbeWiringTests(unittest.TestCase):
     def test_off_unless_a_workflow_opts_in(self):
+        # The US workflow sets the flag at job level and it leaks into its
+        # regression-test step, so the default has to be read from a Config
+        # built with the variable cleared -- the run of 29 Sept 2026 failed here.
+        Config = config_with_env_cleared("PRICE_BAR_PROBE_ENABLED")
         self.assertIs(Config.PRICE_BAR_PROBE_ENABLED, False)
 
     def test_only_the_us_workflow_opts_in(self):
