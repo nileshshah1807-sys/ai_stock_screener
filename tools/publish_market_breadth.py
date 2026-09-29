@@ -34,9 +34,145 @@ logger = logging.getLogger("publish_market_breadth")
 
 DEFAULT_START = "2018-01-01"
 
+# NSE's own end-of-day file for every index it computes, one file per session.
+# A missing day is a 404: a holiday, or a session NSE has not published yet.
+NSE_INDEX_CLOSE_URL = "https://nsearchives.nseindia.com/content/indices/ind_close_all_{day:%d%m%Y}.csv"
+NSE_INDEX_LOOKBACK_DAYS = 10
+NSE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    )
+}
 
-def fetch_index_points(tickers, *, start=DEFAULT_START, end=None, downloader=None):
-    """``{ticker: {date: close}}`` for each index; a failed ticker maps to {}."""
+
+def fetch_nse_index_closes(labels, days, *, get=None):
+    """``{label: {date: close}}`` read from NSE's daily index files.
+
+    ``labels`` are NSE index names, which are the dashboard labels. A day that
+    is not a weekday, is not published, or fails to download is skipped: the
+    caller still has Yahoo's history and the freshness retry.
+    """
+    import csv
+    import io
+    from datetime import datetime
+
+    if get is None:
+        import requests
+
+        def get(url):
+            return requests.get(url, headers=NSE_HEADERS, timeout=30)
+
+    out = {label: {} for label in labels}
+    for day in days:
+        if day.weekday() >= 5:
+            continue
+        url = NSE_INDEX_CLOSE_URL.format(day=day)
+        try:
+            response = get(url)
+        except Exception as error:  # noqa: BLE001 - one day must not end the run
+            logger.warning("NSE index file for %s failed: %s", day, error)
+            continue
+        if response.status_code != 200:
+            logger.info("NSE index file for %s not available (HTTP %s)", day, response.status_code)
+            continue
+        for row in csv.DictReader(io.StringIO(response.text)):
+            label = (row.get("Index Name") or "").strip()
+            if label not in out:
+                continue
+            try:
+                stamp = datetime.strptime((row.get("Index Date") or "").strip(), "%d-%m-%Y").date()
+                close = float(row["Closing Index Value"])
+            except (KeyError, ValueError):
+                continue
+            # The file must be the session that was asked for.
+            if close > 0 and stamp == day:
+                out[label][stamp] = close
+    return out
+
+
+def overlay_nse_closes(points, headline_indices, cap, *, get=None):
+    """Overwrite the recent closes in ``points`` with NSE's own published values.
+
+    Yahoo supplies the long history; NSE is the source of record and is what is
+    fresh, so its values win for the last ``NSE_INDEX_LOOKBACK_DAYS`` days. An
+    index Yahoo returned nothing for is left alone -- overlaying ten days onto
+    an empty series would publish a ten-day chart in place of the whole history.
+    """
+    from datetime import timedelta
+
+    wanted = {
+        label: ticker for ticker, label in headline_indices if points.get(ticker)
+    }
+    if not wanted:
+        return points
+    days = [cap - timedelta(days=n) for n in range(NSE_INDEX_LOOKBACK_DAYS, -1, -1)]
+    for label, closes in fetch_nse_index_closes(wanted, days, get=get).items():
+        points[wanted[label]].update(closes)
+    return points
+
+
+def completed_session_cap(profile, now=None):
+    """Latest date whose daily bar can be final: today after the cutoff, else yesterday.
+
+    Yahoo serves the live session as a partial daily bar while the market is
+    open. Without this cap a run during trading hours publishes an intraday
+    level as that day's close.
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo(profile.timezone)
+    local = (now or datetime.now(zone)).astimezone(zone)
+    hour, minute = (int(part) for part in profile.bar_complete_after.split(":")[:2])
+    if (local.hour, local.minute) >= (hour, minute):
+        return local.date()
+    return local.date() - timedelta(days=1)
+
+
+def stale_indices(indices, tickers, last_session):
+    """Tickers with no history, or whose newest close is before ``last_session``."""
+    return [
+        ticker
+        for ticker in tickers
+        if not indices.get(ticker) or max(indices[ticker]) < last_session
+    ]
+
+
+def fetch_fresh_indices(tickers, last_session, *, fetch, retries=3, wait=300.0, sleep=time.sleep):
+    """Fetch index closes, re-fetching any that end before ``last_session``.
+
+    Returns ``(indices, stale)``. The stock breadth reaches ``last_session``
+    from its own source, so an index that stops earlier is the vendor being late
+    (it was on 28 Sept 2026: the NSE indices ended on the 25th while the run
+    reported success). A retry that comes back empty never replaces history
+    already in hand.
+    """
+    indices = fetch(tickers)
+    stale = stale_indices(indices, tickers, last_session)
+    for attempt in range(1, retries + 1):
+        if not stale:
+            break
+        logger.warning(
+            "Indices behind %s: %s; retry %d/%d in %.0fs",
+            last_session, ", ".join(stale), attempt, retries, wait,
+        )
+        sleep(wait)
+        for ticker, points in fetch(stale).items():
+            if points:
+                indices[ticker] = points
+        stale = stale_indices(indices, tickers, last_session)
+    return indices, stale
+
+
+def fetch_index_points(
+    tickers, *, start=DEFAULT_START, end=None, downloader=None, not_after=None
+):
+    """``{ticker: {date: close}}`` for each index; a failed ticker maps to {}.
+
+    Bars dated after ``not_after`` are dropped: they are the live session's
+    partial bar, not a close.
+    """
     import pandas as pd
 
     if downloader is None:
@@ -66,7 +202,7 @@ def fetch_index_points(tickers, *, start=DEFAULT_START, end=None, downloader=Non
         out[ticker] = {
             pd.Timestamp(stamp).date(): float(value)
             for stamp, value in closes.items()
-            if value > 0
+            if value > 0 and (not_after is None or pd.Timestamp(stamp).date() <= not_after)
         }
     return out
 
@@ -145,7 +281,33 @@ def main(argv=None):
     tickers = [ticker for ticker, _ in profile.headline_indices]
     if profile.benchmark_symbol not in tickers:
         tickers.append(profile.benchmark_symbol)
-    indices = fetch_index_points(tickers, start=args.start, end=args.end)
+    cap = completed_session_cap(profile)
+    # The breadth charts end on the newest session the price source has; an
+    # index that ends earlier is a vendor lag, retried below and then reported.
+    last_session = min(sessions[-1], cap) if len(sessions) else None
+
+    def fetch(names):
+        points = fetch_index_points(names, start=args.start, end=args.end, not_after=cap)
+        if profile.code == NSE:
+            # NSE publishes its own index closes; Yahoo only supplies history.
+            overlay_nse_closes(points, profile.headline_indices, cap)
+        return points
+
+    if last_session:
+        indices, stale = fetch_fresh_indices(
+            tickers,
+            last_session,
+            fetch=fetch,
+            retries=int(os.getenv("INDEX_FRESHNESS_RETRIES", "3")),
+            wait=float(os.getenv("INDEX_FRESHNESS_WAIT_SECONDS", "300")),
+        )
+    else:
+        indices, stale = fetch(tickers), []
+    if stale:
+        logger.error(
+            "Indices still behind %s after retries: %s. Publishing what exists; the run "
+            "fails so the gap is visible.", last_session, ", ".join(stale),
+        )
 
     started = time.monotonic()
     rows, members = build_breadth(
@@ -167,7 +329,7 @@ def main(argv=None):
         logger.info("Wrote rows to %s", args.dump)
     if args.dry_run:
         logger.info("Dry run: nothing written")
-        return 0
+        return 1 if stale else 0
     written = repository.replace_market_breadth(rows)
     logger.info("Published %d market breadth rows", written)
     # After the rows, so a list never names a session the charts do not show yet.
@@ -175,7 +337,7 @@ def main(argv=None):
     if market_row:
         listed = repository.replace_breadth_members(members, market_row["last_session"])
         logger.info("Published %d list memberships for %s", listed, market_row["last_session"])
-    return 0
+    return 1 if stale else 0
 
 
 if __name__ == "__main__":
