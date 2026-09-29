@@ -75,6 +75,10 @@ jobs:
       STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ github.event_name == 'schedule' && '6000' || '400' }}
       FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0.95"
 
+      # Ask Yahoo for ~20 large caps first; if they lack the session's bar the
+      # run stops in seconds instead of after the ~11 minute full download.
+      PRICE_BAR_PROBE_ENABLED: "True"
+
       # --- Session calendar -------------------------------------------------
       # Named *_IST for compatibility with the shared config; read as market
       # local time, which is ET here. The US close is 16:00 with no equivalent

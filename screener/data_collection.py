@@ -28,6 +28,7 @@ from .market_data import (
     normalize_market_holidays,
 )
 from .markets import active_profile, bare_symbol, ticker_for
+from .price_probe import probe_expected_session
 from .stage import stage_features
 
 logger = logging.getLogger(__name__)
@@ -571,6 +572,21 @@ class StockDataCollector:
         )
         profile = self.market_profile
         vendor_symbols = [ticker_for(s, profile) for s in to_download]
+        if to_download and _setting_enabled(
+            getattr(self.config, "PRICE_BAR_PROBE_ENABLED", False)
+        ):
+            wanted = set(to_download)
+            probe_symbols = [
+                ticker_for(s, profile)
+                for s in profile.safety_net_symbols
+                if s in wanted
+            ]
+            probe_expected_session(
+                probe_symbols,
+                expected_price_session,
+                self.market_timezone,
+                float(getattr(self.config, "PRICE_BAR_PROBE_MIN_ALIGNMENT", 0.5)),
+            )
         batch_size = 30
         for i in range(0, len(vendor_symbols), batch_size):
             batch = vendor_symbols[i : i + batch_size]
