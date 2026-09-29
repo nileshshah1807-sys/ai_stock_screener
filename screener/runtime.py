@@ -151,6 +151,11 @@ class Config:
     # and that cross-section must fail the run rather than be scored and
     # published as the previous session under today's name.
     MIN_PRICE_SESSION_ALIGNMENT = _env_float("MIN_PRICE_SESSION_ALIGNMENT", 0.90)
+    # Ask Yahoo for ~20 bellwethers before the full download and stop early if
+    # they lack the expected session (see screener/price_probe.py). Off unless
+    # a workflow opts in, so an unset environment behaves exactly as before.
+    PRICE_BAR_PROBE_ENABLED = _env_bool("PRICE_BAR_PROBE_ENABLED", False)
+    PRICE_BAR_PROBE_MIN_ALIGNMENT = _env_float("PRICE_BAR_PROBE_MIN_ALIGNMENT", 0.5)
     # Fail closed after the completion cutoff if a normal weekday has no
     # same-session bar. Populate official weekday exchange holidays as ISO dates.
     NSE_MARKET_HOLIDAYS = _env_list("NSE_MARKET_HOLIDAYS", [])
