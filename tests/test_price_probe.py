@@ -36,6 +36,17 @@ def _frame(symbols, usable_today):
     return pd.DataFrame(parts, index=index)
 
 
+def _frame_mid_session(symbols, usable_today):
+    """``_frame`` plus the partial row Yahoo serves for the live 29 Sep session."""
+    index = pd.DatetimeIndex(["2026-09-25", "2026-09-28", "2026-09-29"], tz=TZ)
+    parts = {}
+    for symbol in symbols:
+        expected_value = 10.0 if symbol in usable_today else np.nan
+        for field in ("Close", "Adj Close", "Volume"):
+            parts[(symbol, field)] = [9.0, expected_value, 5.0]
+    return pd.DataFrame(parts, index=index)
+
+
 def _downloader(frame):
     return lambda *args, **kwargs: frame
 
@@ -56,6 +67,18 @@ class PriceProbeTests(unittest.TestCase):
             RuntimeError, r"only 0/10 \(0%\) bellwether .* 2026-09-28"
         ):
             self.probe(_frame(SYMBOLS, set()))
+
+    def test_live_partial_bar_for_the_current_session_is_ignored(self):
+        # Dispatched at 12:13 ET on 29 Sep: the expected session is still 28 Sep
+        # and Yahoo already serves a partial 29 Sep row. Regression: the probe
+        # took that row as the last bar and failed the run on 0/20.
+        frame = _frame_mid_session(SYMBOLS, set(SYMBOLS))
+        self.assertEqual(self.probe(frame), (10, 10))
+
+    def test_live_partial_bar_does_not_hide_a_session_that_is_missing(self):
+        # 28 Sep unfilled: the live 29 Sep row must not stand in for it.
+        with self.assertRaisesRegex(RuntimeError, r"only 0/10"):
+            self.probe(_frame_mid_session(SYMBOLS, set()))
 
     def test_share_is_compared_with_the_floor(self):
         self.probe(_frame(SYMBOLS, set(SYMBOLS[:6])))
