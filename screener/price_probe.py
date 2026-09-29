@@ -26,8 +26,16 @@ MIN_PROBE_SYMBOLS = 5
 MAX_PROBE_SYMBOLS = 20
 
 
-def _last_usable_bar_date(frame, market_timezone):
-    """Exchange-local date of the last row with close, adj close and volume."""
+def _last_usable_bar_date(frame, market_timezone, not_after=None):
+    """Exchange-local date of the last row with close, adj close and volume.
+
+    Rows dated after ``not_after`` are ignored. The expected session is the
+    latest one that should be *complete*, so anything later is the live session
+    -- Yahoo serves a partial bar for it all day -- and ``_select_completed_
+    price_bars`` drops it from the real download too. Counting it here read a
+    healthy vendor as one session ahead of the expectation and failed the run
+    of 29 Sept 2026, dispatched mid-session, on 0/20 bellwethers.
+    """
     if frame is None or frame.empty:
         return None
     columns = ["Close", "Adj Close", "Volume"]
@@ -36,10 +44,13 @@ def _last_usable_bar_date(frame, market_timezone):
     usable = frame.dropna(subset=columns)
     if usable.empty:
         return None
-    last = pd.Timestamp(usable.index[-1])
-    if last.tzinfo is not None:
-        last = last.tz_convert(market_timezone)
-    return last.date()
+    index = pd.DatetimeIndex(usable.index)
+    if index.tz is not None:
+        index = index.tz_convert(market_timezone)
+    dates = [stamp.date() for stamp in index]
+    if not_after is not None:
+        dates = [d for d in dates if d <= not_after]
+    return max(dates) if dates else None
 
 
 def count_aligned(data, vendor_symbols, expected_session, market_timezone):
@@ -64,7 +75,10 @@ def count_aligned(data, vendor_symbols, expected_session, market_timezone):
         if frame is None or frame.dropna(how="all").empty:
             continue
         answered += 1
-        if _last_usable_bar_date(frame, market_timezone) == expected_session:
+        if (
+            _last_usable_bar_date(frame, market_timezone, not_after=expected_session)
+            == expected_session
+        ):
             aligned += 1
     return aligned, answered
 
