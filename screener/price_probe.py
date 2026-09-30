@@ -15,6 +15,7 @@ turn a healthy run into a failed one.
 """
 
 import logging
+import time
 
 import pandas as pd
 import yfinance as yf
@@ -83,25 +84,8 @@ def count_aligned(data, vendor_symbols, expected_session, market_timezone):
     return aligned, answered
 
 
-def probe_expected_session(
-    vendor_symbols,
-    expected_session,
-    market_timezone,
-    min_alignment,
-    *,
-    downloader=None,
-):
-    """Raise ``RuntimeError`` if the vendor plainly lacks the expected session.
-
-    Returns ``(aligned, answered)`` -- or ``None`` when the probe was
-    inconclusive -- so the caller can log it.
-    """
-    symbols = list(vendor_symbols)[:MAX_PROBE_SYMBOLS]
-    if len(symbols) < MIN_PROBE_SYMBOLS:
-        logger.info("Price-bar probe skipped: only %d probe symbols", len(symbols))
-        return None
-
-    download = downloader or yf.download
+def _probe_once(download, symbols, expected_session, market_timezone):
+    """One vendor request: ``(aligned, answered)``, or ``None`` if inconclusive."""
     try:
         data = download(
             " ".join(symbols),
@@ -125,17 +109,70 @@ def probe_expected_session(
             len(symbols),
         )
         return None
+    return aligned, answered
 
-    share = aligned / answered
-    if share < min_alignment:
-        raise RuntimeError(
-            f"Price-bar probe: only {aligned}/{answered} ({share:.0%}) bellwether "
-            f"symbols have a usable bar for the expected completed session "
-            f"{expected_session} (minimum {min_alignment:.0%}). The vendor has "
-            "probably not finalised the session yet; stopping before the full "
-            "download. No scores, reports or dashboard rows were produced; the "
-            "next scheduled slot will retry."
+
+def probe_expected_session(
+    vendor_symbols,
+    expected_session,
+    market_timezone,
+    min_alignment,
+    *,
+    downloader=None,
+    wait_seconds=0,
+    retry_interval_seconds=900,
+    sleep=time.sleep,
+    clock=time.monotonic,
+):
+    """Raise ``RuntimeError`` if the vendor plainly lacks the expected session.
+
+    With ``wait_seconds`` the probe re-asks every ``retry_interval_seconds``
+    until the session is there or the wait is spent, and only then raises.
+    Yahoo finalises a US session anywhere from minutes to several hours after
+    the close, and GitHub drops scheduled runs often enough that failing and
+    leaving the retry to a later cron slot left the dashboard days stale (the
+    US sessions of 28 and 29 Sept 2026 were each attempted once). Waiting
+    inside the job needs only one slot to fire.
+
+    Returns ``(aligned, answered)`` -- or ``None`` when the probe was
+    inconclusive -- so the caller can log it.
+    """
+    symbols = list(vendor_symbols)[:MAX_PROBE_SYMBOLS]
+    if len(symbols) < MIN_PROBE_SYMBOLS:
+        logger.info("Price-bar probe skipped: only %d probe symbols", len(symbols))
+        return None
+
+    download = downloader or yf.download
+    deadline = clock() + max(0.0, float(wait_seconds))
+    while True:
+        result = _probe_once(download, symbols, expected_session, market_timezone)
+        if result is None:
+            return None
+        aligned, answered = result
+        share = aligned / answered
+        if share >= min_alignment:
+            break
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise RuntimeError(
+                f"Price-bar probe: only {aligned}/{answered} ({share:.0%}) "
+                f"bellwether symbols have a usable bar for the expected completed "
+                f"session {expected_session} (minimum {min_alignment:.0%}). The "
+                "vendor has probably not finalised the session yet; stopping "
+                "before the full download. No scores, reports or dashboard rows "
+                "were produced; the next scheduled slot will retry."
+            )
+        pause = min(float(retry_interval_seconds), remaining)
+        logger.info(
+            "Price-bar probe: %d/%d bellwethers on %s so far; the vendor has not "
+            "finalised the session. Re-checking in %.0f min (%.0f min of waiting left).",
+            aligned,
+            answered,
+            expected_session,
+            pause / 60,
+            remaining / 60,
         )
+        sleep(pause)
 
     logger.info(
         "Price-bar probe passed: %d/%d bellwethers on %s (%.0f%%)",

@@ -129,13 +129,81 @@ class PriceProbeTests(unittest.TestCase):
         self.assertEqual(seen["count"], price_probe.MAX_PROBE_SYMBOLS)
 
 
+class _FakeClock:
+    """Monotonic clock that only moves when the probe sleeps."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+class ProbeWaitTests(unittest.TestCase):
+    """Waiting inside the job for Yahoo to finalise, rather than failing the slot."""
+
+    def setUp(self):
+        self.clock = _FakeClock()
+
+    def probe(self, answers, wait_seconds):
+        stream = iter(answers)
+
+        def download(*args, **kwargs):
+            answer = next(stream)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        return probe_expected_session(
+            SYMBOLS,
+            EXPECTED,
+            TZ,
+            0.5,
+            downloader=download,
+            wait_seconds=wait_seconds,
+            retry_interval_seconds=900,
+            sleep=self.clock.sleep,
+            clock=self.clock,
+        )
+
+    def test_session_finalised_while_waiting_passes(self):
+        # The 00:40 UTC run of 30 Sept 2026 failed on 0/20 at once; the bars
+        # were there a few hours later, but no later cron slot fired.
+        unfilled, filled = _frame(SYMBOLS, set()), _frame(SYMBOLS, set(SYMBOLS))
+        self.assertEqual(self.probe([unfilled, unfilled, filled], 3600), (10, 10))
+        self.assertEqual(self.clock.sleeps, [900, 900])
+
+    def test_gives_up_when_the_wait_is_spent_with_a_trimmed_last_pause(self):
+        with self.assertRaisesRegex(RuntimeError, r"only 0/10"):
+            self.probe([_frame(SYMBOLS, set())] * 10, 2000)
+        self.assertEqual(self.clock.sleeps, [900, 900, 200])
+
+    def test_no_wait_fails_at_once(self):
+        with self.assertRaises(RuntimeError):
+            self.probe([_frame(SYMBOLS, set())], 0)
+        self.assertEqual(self.clock.sleeps, [])
+
+    def test_vendor_error_while_waiting_is_still_inconclusive(self):
+        answers = [_frame(SYMBOLS, set()), ConnectionError("yahoo unreachable")]
+        self.assertIsNone(self.probe(answers, 3600))
+
+
 class ProbeWiringTests(unittest.TestCase):
     def test_off_unless_a_workflow_opts_in(self):
         # The US workflow sets the flag at job level and it leaks into its
         # regression-test step, so the default has to be read from a Config
         # built with the variable cleared -- the run of 29 Sept 2026 failed here.
-        Config = config_with_env_cleared("PRICE_BAR_PROBE_ENABLED")
+        Config = config_with_env_cleared(
+            "PRICE_BAR_PROBE_ENABLED", "PRICE_BAR_PROBE_WAIT_MINUTES"
+        )
         self.assertIs(Config.PRICE_BAR_PROBE_ENABLED, False)
+        # And an unset environment fails at once, as before waiting existed.
+        self.assertEqual(Config.PRICE_BAR_PROBE_WAIT_MINUTES, 0.0)
 
     def test_only_the_us_workflow_opts_in(self):
         workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"

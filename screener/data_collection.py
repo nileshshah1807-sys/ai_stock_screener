@@ -586,6 +586,10 @@ class StockDataCollector:
                 expected_price_session,
                 self.market_timezone,
                 float(getattr(self.config, "PRICE_BAR_PROBE_MIN_ALIGNMENT", 0.5)),
+                wait_seconds=60
+                * float(getattr(self.config, "PRICE_BAR_PROBE_WAIT_MINUTES", 0) or 0),
+                retry_interval_seconds=60
+                * float(getattr(self.config, "PRICE_BAR_PROBE_RETRY_MINUTES", 15) or 15),
             )
         batch_size = 30
         for i in range(0, len(vendor_symbols), batch_size):
