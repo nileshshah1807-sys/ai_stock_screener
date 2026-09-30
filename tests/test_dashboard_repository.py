@@ -1,6 +1,9 @@
 import gzip
 import json
 import unittest
+from unittest import mock
+
+import requests
 
 from storage.dashboard_repository import DashboardRepository
 
@@ -207,3 +210,61 @@ class MarketScopingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class _FlakySession:
+    """requests.Session stand-in: raises the queued errors, then answers 204."""
+
+    def __init__(self, *errors):
+        self.errors = list(errors)
+        self.calls = 0
+
+    def request(self, *args, **kwargs):
+        self.calls += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        response = requests.Response()
+        response.status_code = 204
+        response._content = b""
+        return response
+
+
+class RetryTests(unittest.TestCase):
+    """The US breadth publish of 30 Sept 2026 died on one write timeout."""
+
+    def repository(self, session):
+        repository = DashboardRepository("https://x.test", "key", market="US")
+        repository.session = session
+        return repository
+
+    def test_idempotent_write_survives_a_transient_timeout(self):
+        session = _FlakySession(
+            requests.ConnectionError("The write operation timed out"),
+            requests.Timeout("read timed out"),
+        )
+        with mock.patch("storage.dashboard_repository.time.sleep") as sleep:
+            self.repository(session)._request("POST", "t", retries=3, json=[])
+        self.assertEqual(session.calls, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10])
+
+    def test_gives_up_after_the_last_retry(self):
+        session = _FlakySession(*[requests.ConnectionError("down")] * 4)
+        with mock.patch("storage.dashboard_repository.time.sleep"), self.assertRaises(requests.ConnectionError):
+            self.repository(session)._request("POST", "t", retries=3, json=[])
+        self.assertEqual(session.calls, 4)
+
+    def test_calls_are_not_retried_unless_asked(self):
+        session = _FlakySession(requests.ConnectionError("down"))
+        with self.assertRaises(requests.ConnectionError):
+            self.repository(session)._request("POST", "t", json=[])
+        self.assertEqual(session.calls, 1)
+
+    def test_breadth_upsert_asks_for_retries(self):
+        session = _FlakySession(requests.ConnectionError("The write operation timed out"))
+        repository = self.repository(session)
+        with (
+            mock.patch("storage.dashboard_repository.time.sleep"),
+            mock.patch.object(repository, "_paged", return_value=[]),
+        ):
+            self.assertEqual(repository.replace_market_breadth([{"scope": "s", "name": "n"}]), 1)
+        self.assertEqual(session.calls, 2)

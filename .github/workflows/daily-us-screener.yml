@@ -78,6 +78,17 @@ jobs:
       # Ask Yahoo for ~20 large caps first; if they lack the session's bar the
       # run stops in seconds instead of after the ~11 minute full download.
       PRICE_BAR_PROBE_ENABLED: "True"
+      # ...but wait for them rather than stop. Yahoo finalises a session
+      # anywhere from minutes to hours after the close, and GitHub drops so
+      # many cron slots (29-30 Sept 2026: one of five fired) that "the next
+      # slot will retry" left the dashboard five days stale. Three hours of
+      # re-checks every 15 minutes, well inside the 360-minute job timeout.
+      # 80% rather than the 50% default: the full-universe guard wants 90%,
+      # and passing the probe on half the bellwethers only to fail that guard
+      # after the download is the failure the probe exists to avoid.
+      PRICE_BAR_PROBE_WAIT_MINUTES: "180"
+      PRICE_BAR_PROBE_RETRY_MINUTES: "15"
+      PRICE_BAR_PROBE_MIN_ALIGNMENT: "0.8"
 
       # --- Session calendar -------------------------------------------------
       # Named *_IST for compatibility with the shared config; read as market
@@ -176,8 +187,10 @@ jobs:
         if: steps.schedule-dedupe.outputs.skip != 'true'
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements.txt
+          # No pip cache: this job needs the production lock, whose torch/CUDA
+          # wheels make a ~3 GB cache entry. Three of those filled the
+          # repository's 10 GB cache and evicted the price and statement caches
+          # that actually save time (29 Sept 2026). Installing afresh costs ~1 min.
 
       # Cache keys carry `us-` so the two markets never restore each other's
       # price, fundamental or statement caches. Sharing them would have each

@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 import os
+import time
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -21,6 +23,8 @@ import requests
 from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
 from storage.object_store import ObjectStore
+
+logger = logging.getLogger(__name__)
 
 # The snapshot row carries the full source record in `payload`, so a batch of
 # rows is large in bytes even though the row count is modest. Chunks are sized
@@ -34,6 +38,10 @@ PRICE_SERIES_CHUNK_SIZE = 25
 #: Parallel object transfers. One series is one object, so a full publish is a
 #: few thousand small requests; sixteen at a time keeps it to about a minute.
 STORAGE_WORKERS = 16
+
+#: Pause before each retry of an idempotent write that hit a transient network
+#: error. Doubles each time: 5, 10, 20 seconds.
+RETRY_BACKOFF_SECONDS = 5
 
 
 def chunked(rows: list[dict[str, Any]], size: int) -> Iterator[list[dict[str, Any]]]:
@@ -92,15 +100,33 @@ class DashboardRepository:
         """Stamp rows with this repository's market before a write."""
         return [{**row, "market": self.market} for row in rows]
 
-    def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+    def _request(self, method: str, path: str, *, retries: int = 0, **kwargs: Any) -> Any:
+        """One PostgREST call.
+
+        ``retries`` re-sends after a connection error or timeout. Pass it only
+        for idempotent calls -- an upsert on a conflict key, a delete -- since a
+        write that timed out may still have landed.
+        """
         headers = {**self.headers, **kwargs.pop("headers", {})}
-        response = self.session.request(
-            method,
-            f"{self.base_url}/{path.lstrip('/')}",
-            headers=headers,
-            timeout=self.timeout_seconds,
-            **kwargs,
-        )
+        for attempt in range(retries + 1):
+            try:
+                response = self.session.request(
+                    method,
+                    f"{self.base_url}/{path.lstrip('/')}",
+                    headers=headers,
+                    timeout=self.timeout_seconds,
+                    **kwargs,
+                )
+                break
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                if attempt == retries:
+                    raise
+                pause = RETRY_BACKOFF_SECONDS * 2**attempt
+                logger.warning(
+                    "%s %s failed (%s); retry %d of %d in %ds",
+                    method, path, exc, attempt + 1, retries, pause,
+                )
+                time.sleep(pause)
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
@@ -504,17 +530,20 @@ class DashboardRepository:
             if row.get("symbol")
         }
 
-    def replace_market_breadth(self, rows: list[dict[str, Any]], chunk_size: int = 10) -> int:
+    def replace_market_breadth(self, rows: list[dict[str, Any]], chunk_size: int = 5) -> int:
         """Make this market's breadth rows exactly ``rows``.
 
         Upsert first, then delete the difference, as ``replace_new_listings``
-        does. A row runs ~90 KB, so chunks are small.
+        does. A row runs ~90 KB, so chunks are small, and each is retried: the
+        US publish of 30 Sept 2026 died eight minutes in on one ~900 KB chunk
+        whose upload timed out, leaving the page on the previous session.
         """
         written = 0
         for chunk in chunked(rows, chunk_size):
             self._request(
                 "POST",
                 "market_breadth?on_conflict=market,scope,name",
+                retries=3,
                 json=self._stamped(chunk),
                 headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )

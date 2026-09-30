@@ -156,6 +156,10 @@ class Config:
     # a workflow opts in, so an unset environment behaves exactly as before.
     PRICE_BAR_PROBE_ENABLED = _env_bool("PRICE_BAR_PROBE_ENABLED", False)
     PRICE_BAR_PROBE_MIN_ALIGNMENT = _env_float("PRICE_BAR_PROBE_MIN_ALIGNMENT", 0.5)
+    # How long the probe keeps re-asking before it fails the run, and how often.
+    # Zero keeps the old fail-at-once behaviour.
+    PRICE_BAR_PROBE_WAIT_MINUTES = _env_float("PRICE_BAR_PROBE_WAIT_MINUTES", 0.0)
+    PRICE_BAR_PROBE_RETRY_MINUTES = _env_float("PRICE_BAR_PROBE_RETRY_MINUTES", 15.0)
     # Fail closed after the completion cutoff if a normal weekday has no
     # same-session bar. Populate official weekday exchange holidays as ISO dates.
     NSE_MARKET_HOLIDAYS = _env_list("NSE_MARKET_HOLIDAYS", [])

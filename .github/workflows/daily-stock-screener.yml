@@ -113,8 +113,10 @@ jobs:
         if: steps.schedule-dedupe.outputs.skip != 'true'
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements.txt
+          # No pip cache: this job needs the production lock, whose torch/CUDA
+          # wheels make a ~3 GB cache entry. Three of those filled the
+          # repository's 10 GB cache and evicted the price and statement caches
+          # that actually save time (29 Sept 2026). Installing afresh costs ~1 min.
 
       - name: Restore market-data cache
         if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
