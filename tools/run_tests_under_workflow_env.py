@@ -40,7 +40,8 @@ REGRESSION_COMMAND = "unittest"
 _EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}")
 _EVENT_TEST = re.compile(r"github\.event_name\s*==\s*'(\w+)'")
 _LITERAL = re.compile(r"'((?:[^']|'')*)'")
-_CONTEXT = re.compile(r"(vars|secrets|github)\.(\w+)")
+_INPUT_TEST = re.compile(r"inputs\.\w+\s*==\s*'(\w*)'")
+_CONTEXT = re.compile(r"(vars|secrets|inputs|github)\.(\w+)")
 _GITHUB = {
     "repository": lambda: os.environ.get("GITHUB_REPOSITORY", "owner/repo"),
     "run_id": lambda: "1",
@@ -115,11 +116,14 @@ def evaluate(expression: str):
         return evaluate(text[1:-1])
     if match := _EVENT_TEST.fullmatch(text):
         return match.group(1) == EVENT
+    if match := _INPUT_TEST.fullmatch(text):
+        # A schedule event has no dispatch inputs; each reads as empty.
+        return match.group(1) == ""
     if match := _LITERAL.fullmatch(text):
         return match.group(1).replace("''", "'")
     if match := _CONTEXT.fullmatch(text):
         scope, name = match.groups()
-        if scope in ("vars", "secrets"):
+        if scope in ("vars", "secrets", "inputs"):
             return ""
         if name in _GITHUB:
             return _GITHUB[name]()

@@ -26,13 +26,13 @@ class Model5ProductionPromotionTests(unittest.TestCase):
             raise AssertionError(f"workflow step {step_name!r} not found")
         return match.group(0)
 
-    def test_only_scheduled_daily_runs_activate_versioned_model5(self):
+    def test_only_production_daily_runs_activate_versioned_model5(self):
         expected_contract = (
-            "FACTOR_MODEL_ENABLED: ${{ github.event_name == 'schedule' && 'True' || 'False' }}",
-            "MODEL_VERSION: ${{ github.event_name == 'schedule' && '5.1.0' || '4.0.0-candidate' }}",
-            "RECOMMENDATION_POLICY_VERSION: ${{ github.event_name == 'schedule' && '5.3.0' || '4.0.0-candidate' }}",
+            "FACTOR_MODEL_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && 'True' || 'False' }}",
+            "MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.1.0' || '4.0.0-candidate' }}",
+            "RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.3.0' || '4.0.0-candidate' }}",
             'OUTPUT_SCHEMA_VERSION: "4.2.0"',
-            "STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ github.event_name == 'schedule' && '2500' || '400' }}",
+            "STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '2500' || '400' }}",
             'FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0.95"',
         )
         for declaration in expected_contract:
@@ -48,7 +48,7 @@ class Model5ProductionPromotionTests(unittest.TestCase):
             self.workflow, "Save refreshed production statement cache"
         )
         self.assertIn("if: always()", save)
-        self.assertIn("github.event_name == 'schedule'", save)
+        self.assertIn("(github.event_name == 'schedule' || inputs.mode == 'production')", save)
         self.assertIn(
             "hashFiles('reports_advanced/statement_cache.csv') != ''", save
         )

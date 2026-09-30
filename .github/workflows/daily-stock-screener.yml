@@ -1,5 +1,5 @@
 name: Daily stock screener
-run-name: Daily stock screener (${{ github.event_name }})
+run-name: Daily stock screener (${{ github.event_name }}${{ inputs.mode && format(', {0}', inputs.mode) || '' }})
 
 on:
   schedule:
@@ -9,6 +9,14 @@ on:
     - cron: "0 11,13 * * *"
   workflow_dispatch:
     inputs:
+      mode:
+        description: >-
+          production scores and publishes exactly as the scheduled run does
+          (repository write access is already required to dispatch). validation
+          runs the candidate model into .validation-output and publishes nothing.
+        type: choice
+        options: [production, validation]
+        default: production
       send_email:
         description: Reserved for compatibility; manual validation never sends email
         required: true
@@ -20,7 +28,9 @@ permissions:
   actions: read
 
 concurrency:
-  group: daily-stock-screener-${{ github.event_name }}
+  # Production runs share one group whatever triggered them, so a manual
+  # production run and a cron slot never race on the caches or the publish.
+  group: daily-stock-screener-${{ inputs.mode == 'validation' && 'validation' || 'production' }}
   cancel-in-progress: false
 
 jobs:
@@ -29,30 +39,30 @@ jobs:
     timeout-minutes: 360
     env:
       GH_TOKEN: ${{ github.token }}
-      # Every manual dispatch is an isolated candidate run. Scheduled runs
-      # alone may reuse production caches, append backtest history, query the
-      # red-flag store, or send notifications.
-      OUTPUT_DIR: ${{ github.event_name == 'workflow_dispatch' && format('.validation-output/{0}', github.run_id) || 'reports_advanced' }}
-      YFINANCE_CACHE_DIR: ${{ github.event_name == 'workflow_dispatch' && format('.validation-output/{0}/yfinance_cache', github.run_id) || 'reports_advanced/yfinance_cache' }}
-      BACKTEST_WRITES_ENABLED: ${{ github.event_name == 'schedule' }}
+      # A manual dispatch in validation mode is an isolated candidate run.
+      # Scheduled runs and production dispatches alone may reuse production
+      # caches, append backtest history, query the red-flag store or publish;
+      # only scheduled runs send the email.
+      OUTPUT_DIR: ${{ inputs.mode == 'validation' && format('.validation-output/{0}', github.run_id) || 'reports_advanced' }}
+      YFINANCE_CACHE_DIR: ${{ inputs.mode == 'validation' && format('.validation-output/{0}/yfinance_cache', github.run_id) || 'reports_advanced/yfinance_cache' }}
+      BACKTEST_WRITES_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') }}
       RUN_MANIFEST_ENABLED: "True"
-      # Model 5.0 is the scheduled production contract. Manual dispatches of
-      # this workflow remain isolated 4.x smoke runs; use the dedicated
-      # candidate workflow for manual Model 5.0 validation.
-      FACTOR_MODEL_ENABLED: ${{ github.event_name == 'schedule' && 'True' || 'False' }}
+      # Model 5.x is the production contract, for scheduled runs and production
+      # dispatches alike. Validation dispatches remain isolated 4.x smoke runs.
+      FACTOR_MODEL_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && 'True' || 'False' }}
       # 5.1.0: value/quality reweighting and research-first ranking, both
       # justified in docs/Review/p0_implementation_plan.md §8. Semantic ranking
       # change, so the version bumps per the contract in screener/runtime.py.
-      MODEL_VERSION: ${{ github.event_name == 'schedule' && '5.1.0' || '4.0.0-candidate' }}
-      RECOMMENDATION_POLICY_VERSION: ${{ github.event_name == 'schedule' && '5.3.0' || '4.0.0-candidate' }}
+      MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.1.0' || '4.0.0-candidate' }}
+      RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.3.0' || '4.0.0-candidate' }}
       OUTPUT_SCHEMA_VERSION: "4.2.0"
-      MODEL_VALIDATION_STATUS: ${{ github.event_name == 'schedule' && 'Production active; point-in-time validated over four windows incl. 2018-2020 drawdown; weights fitted in-sample, forward validation pending' || 'Research model; point-in-time out-of-sample validation pending' }}
+      MODEL_VALIDATION_STATUS: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && 'Production active; point-in-time validated over four windows incl. 2018-2020 drawdown; weights fitted in-sample, forward validation pending' || 'Research model; point-in-time out-of-sample validation pending' }}
       # A factor cross-section is not representative while statement coverage
       # is partial. The first production run can build the whole NSE cache;
       # subsequent runs normally reuse its 90-day statement records.
-      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ github.event_name == 'schedule' && '2500' || '400' }}
+      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '2500' || '400' }}
       FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0.95"
-      # Manual dispatches are validation-only and never notify recipients.
+      # Only the scheduled run emails; a manual rerun must not send it twice.
       EMAIL_ENABLED: ${{ github.event_name == 'schedule' }}
       EMAIL_DELIVERY_METHOD: GMAIL_API
       EMAIL_SENDER: ${{ github.event_name == 'schedule' && secrets.EMAIL_SENDER || '' }}
@@ -88,9 +98,9 @@ jobs:
       LIQUIDITY_MIN_TRADING_FREQUENCY: "0.80"
       LIQUIDITY_MAX_TURNOVER_TOP5_SHARE: "0.50"
       # Shadow-only evidence: it adds audit columns and never changes live score/rating.
-      RED_FLAG_ENRICHMENT_ENABLED: ${{ github.event_name == 'schedule' && (vars.RED_FLAG_ENRICHMENT_ENABLED || 'True') || 'False' }}
-      SUPABASE_URL: ${{ github.event_name == 'schedule' && secrets.SUPABASE_URL || '' }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ github.event_name == 'schedule' && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
+      RED_FLAG_ENRICHMENT_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && (vars.RED_FLAG_ENRICHMENT_ENABLED || 'True') || 'False' }}
+      SUPABASE_URL: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && secrets.SUPABASE_URL || '' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
     steps:
       - name: Skip successful scheduled duplicate
         id: schedule-dedupe
@@ -119,7 +129,7 @@ jobs:
           # that actually save time (29 Sept 2026). Installing afresh costs ~1 min.
 
       - name: Restore market-data cache
-        if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
         id: market-data-cache
         uses: actions/cache/restore@v6
         with:
@@ -138,7 +148,7 @@ jobs:
       # composite cache changes GitHub's hidden cache version and invalidates
       # every warm production entry created before Model 5.0.
       - name: Restore production statement cache
-        if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
         id: production-statement-cache
         uses: actions/cache/restore@v6
         with:
@@ -180,7 +190,7 @@ jobs:
           retention-days: 7
 
       - name: Save refreshed market-data cache
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule'
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
         uses: actions/cache/save@v6
         with:
           path: |
@@ -195,7 +205,7 @@ jobs:
         # Checkpoint a valid partial/full statement build even when the screener
         # later fails the coverage guard. This avoids refetching successful
         # records on the next run. hashFiles prevents saving a missing cache.
-        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule' && hashFiles('reports_advanced/statement_cache.csv') != ''
+        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production') && hashFiles('reports_advanced/statement_cache.csv') != ''
         uses: actions/cache/save@v6
         with:
           path: reports_advanced/statement_cache.csv
@@ -208,9 +218,9 @@ jobs:
         # staleness banner -- and never the day's report or the warm cache that
         # a cold rebuild would take about an hour to recreate.
         #
-        # Scheduled runs only: a manual dispatch is an isolated candidate run
-        # and must never overwrite what production serves.
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule'
+        # Scheduled runs and production dispatches only: a validation dispatch
+        # is an isolated candidate run and must never overwrite what production serves.
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

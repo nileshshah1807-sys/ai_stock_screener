@@ -45,6 +45,8 @@ from validation.reproducibility import (
     write_run_manifest,
 )
 
+PRODUCTION = "(github.event_name == 'schedule' || inputs.mode == 'production')"
+
 
 class ReproducibilityManifestTests(unittest.TestCase):
     def _config(self):
@@ -783,35 +785,43 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
         )
 
     def test_manual_daily_dispatch_is_isolated_from_production_state(self):
-        workflow = (
-            Path(__file__).resolve().parents[1]
-            / ".github"
-            / "workflows"
-            / "daily-stock-screener.yml"
-        ).read_text(encoding="utf-8")
+        # Manual dispatches choose a mode. Validation stays isolated from
+        # production state; production behaves as the schedule, except that
+        # only the schedule emails and dedupes against earlier cron slots.
+        for name, output in (
+            ("daily-stock-screener.yml", ".validation-output/{0}"),
+            ("daily-us-screener.yml", ".validation-output/us-{0}"),
+        ):
+            with self.subTest(workflow=name):
+                workflow = (
+                    Path(__file__).resolve().parents[1] / ".github" / "workflows" / name
+                ).read_text(encoding="utf-8")
+                self.assertIn("options: [production, validation]", workflow)
+                self.assertIn(f"inputs.mode == 'validation' && format('{output}'", workflow)
+                self.assertIn(
+                    "if: success() && steps.schedule-dedupe.outputs.skip != 'true' "
+                    "&& steps.session-guard.outputs.skip != 'true' && " + PRODUCTION,
+                    workflow,
+                )
+                self.assertIn(
+                    "SUPABASE_SERVICE_ROLE_KEY: ${{ " + PRODUCTION
+                    + " && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}",
+                    workflow,
+                )
+                self.assertIn("inputs.mode == 'validation' && 'validation' || 'production'", workflow)
+                # The cron dedupe and the session guard stay schedule-only.
+                self.assertIn("        if: github.event_name == 'schedule'\n", workflow)
+                self.assertIn(
+                    "if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'",
+                    workflow,
+                )
 
-        self.assertIn(".validation-output/{0}", workflow)
-        self.assertIn(
-            "BACKTEST_WRITES_ENABLED: ${{ github.event_name == 'schedule' }}",
-            workflow,
-        )
-        self.assertIn(
-            "EMAIL_ENABLED: ${{ github.event_name == 'schedule' }}",
-            workflow,
-        )
-        self.assertIn(
-            "if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'",
-            workflow,
-        )
-        self.assertIn(
-            "if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && github.event_name == 'schedule'",
-            workflow,
-        )
-        self.assertIn(
-            "if: steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true'",
-            workflow,
-        )
-        self.assertIn("default: false", workflow)
+        nse = (
+            Path(__file__).resolve().parents[1] / ".github" / "workflows" / "daily-stock-screener.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("BACKTEST_WRITES_ENABLED: ${{ " + PRODUCTION + " }}", nse)
+        self.assertIn("EMAIL_ENABLED: ${{ github.event_name == 'schedule' }}", nse)
+        self.assertIn("GMAIL_REFRESH_TOKEN: ${{ github.event_name == 'schedule' && secrets", nse)
 
     def test_us_dedupe_keys_on_the_session_guard_step(self):
         workflow = (

@@ -59,6 +59,15 @@ class EvaluateTests(unittest.TestCase):
             evaluate("github.event_name == 'schedule' && secrets.TOKEN || ''"), ""
         )
 
+    def test_dispatch_inputs_are_empty_on_a_schedule(self):
+        # The screeners' production gate: a schedule event takes the production
+        # branch through its first operand, and the validation-only output
+        # directory is never reached.
+        gate = "(github.event_name == 'schedule' || inputs.mode == 'production')"
+        self.assertEqual(evaluate(f"{gate} && '5.1.0' || '4.0.0-candidate'"), "5.1.0")
+        self.assertIs(evaluate("inputs.mode == 'validation'"), False)
+        self.assertEqual(evaluate("inputs.mode"), "")
+
     def test_operators_inside_a_quoted_string_are_literal(self):
         self.assertEqual(evaluate("'a || b && (c'"), "a || b && (c")
 
