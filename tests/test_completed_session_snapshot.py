@@ -490,6 +490,40 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
         self.assertEqual(row["Fundamental_Fetched_At"], "2026-08-10T16:30:00+05:30")
         self.assertEqual(row["Fundamental_As_Of_Quality"], "fetch_timestamp")
 
+    def test_fundamentals_yahoo_answered_empty_are_asked_once_more(self):
+        # A cold runner's first quote requests come back 401 "Invalid Crumb"
+        # (yfinance logs it and returns an empty dict) until the session is
+        # renewed. The symbol must be re-asked, once, not scored without
+        # fundamentals.
+        fixed_now = datetime(2026, 8, 10, 16, 30, tzinfo=IST)
+        good = {
+            "longName": "Example Limited",
+            "trailingEps": 12.5,
+            "bookValue": 80.0,
+            "sector": "Industrials",
+            "industry": "Machinery",
+        }
+        answers = {"EARLY": [{}, good], "NEVER": [{}, {}], "FINE": [good]}
+        asked = []
+
+        def ticker(vendor_symbol):
+            symbol = vendor_symbol.split(".")[0]
+            asked.append(symbol)
+            return SimpleNamespace(info=answers[symbol].pop(0))
+
+        with tempfile.TemporaryDirectory() as directory:
+            collector = StockDataCollector(
+                self._config(directory), clock=lambda: fixed_now
+            )
+            with patch("screener.data_collection.yf.Ticker", side_effect=ticker):
+                result = collector.get_fundamental_data(
+                    pd.DataFrame([{"Symbol": s} for s in ("EARLY", "NEVER", "FINE")])
+                )
+
+        self.assertEqual(asked, ["EARLY", "FINE", "NEVER", "EARLY", "NEVER"])
+        fetched = result.dropna(subset=["EPS"])
+        self.assertEqual(sorted(fetched["Symbol"]), ["EARLY", "FINE"])
+
     def test_valuation_helper_recomputes_from_completed_close_and_preserves_source(self):
         merged = pd.DataFrame(
             [

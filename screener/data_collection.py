@@ -1179,10 +1179,17 @@ class StockDataCollector:
         last_reset = time.time()
         requests_this_minute = 0
         today_str = self._now_market().strftime("%Y-%m-%d")
-        for idx, symbol in enumerate(needs_fetch):
+        # A symbol Yahoo answered with nothing is asked once more at the end of
+        # the queue. On a cold runner the first few minutes of quote requests
+        # come back 401 "Invalid Crumb" until yfinance renews its session: the
+        # US runs of 30 Sept and 1 Oct 2026 each lost the first ~160 symbols
+        # that way, and they were scored with no fundamentals at all.
+        fetch_queue = list(needs_fetch)
+        retried = set()
+        for idx, symbol in enumerate(fetch_queue):
             ticker_str = ticker_for(symbol, self.market_profile)
             if (idx + 1) % 100 == 0:
-                logger.info(f"Fundamentals fetched {idx + 1}/{len(needs_fetch)}")
+                logger.info(f"Fundamentals fetched {idx + 1}/{len(fetch_queue)}")
             requests_this_minute += 1
             if requests_this_minute >= 40:
                 elapsed = time.time() - last_reset
@@ -1194,6 +1201,9 @@ class StockDataCollector:
             try:
                 info = yf.Ticker(ticker_str).info
                 if not info or len(info) < 5:
+                    if symbol not in retried:
+                        retried.add(symbol)
+                        fetch_queue.append(symbol)
                     continue
                 fundamental_fetched_at = (
                     self._now_market().to_pydatetime().isoformat(timespec="seconds")
@@ -1254,7 +1264,17 @@ class StockDataCollector:
                     else:
                         logger.warning("Too many rate-limit hits; stopping fundamental fetch early")
                         break
+                if symbol not in retried:
+                    retried.add(symbol)
+                    fetch_queue.append(symbol)
                 continue
+        if retried:
+            fetched = {record["Symbol"] for record in fundamental_data}
+            logger.info(
+                "Fundamentals: %d symbol(s) asked a second time, %d recovered",
+                len(retried),
+                len(retried & fetched),
+            )
 
         # A transient Yahoo failure should not silently remove a company from
         # the inner merge and bias the ranking universe. Retain its expired row
