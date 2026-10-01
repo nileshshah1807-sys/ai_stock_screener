@@ -480,13 +480,24 @@ def _cover_page_shares(facts, ends, events):
 
 
 def _frame(rows, ends):
-    """Yahoo-shaped statement frame: labels down, fiscal-year ends across."""
+    """Yahoo-shaped statement frame: labels down, fiscal-year ends across.
+
+    A line is kept only as an unbroken run of years back from the newest one.
+    The factor arithmetic reads each line by position -- newest, prior year,
+    three years back -- after dropping empty cells, so a line tagged in 2022
+    but not since would supply 2022 revenue as "latest" beside 2025 assets, and
+    a gap in the middle would turn a two-year change into a "year-on-year" one.
+    """
     columns = [pd.Timestamp(end) for end in ends]
-    data = {
-        label: [values.get(end) for end in ends]
-        for label, values in rows.items()
-        if values
-    }
+    data = {}
+    for label, values in rows.items():
+        run = []
+        for end in ends:
+            if end not in values:
+                break
+            run.append(values[end])
+        if run:
+            data[label] = run + [None] * (len(ends) - len(run))
     return pd.DataFrame.from_dict(data, orient="index", columns=columns, dtype=float)
 
 
@@ -642,7 +653,16 @@ def _build(all_facts, series, ends, events):
         },
         ends,
     )
-    if income.empty and balance.empty:
+    # Without the newest year's revenue, earnings and assets there is no
+    # statement record worth scoring; leave the filer to the next source.
+    if not all(
+        label in frame.index
+        for frame, label in (
+            (income, "Total Revenue"),
+            (income, "Net Income"),
+            (balance, "Total Assets"),
+        )
+    ):
         return None
     return income, balance, cashflow
 

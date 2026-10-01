@@ -194,6 +194,31 @@ class AnnualFrameTests(unittest.TestCase):
             self.assertNotIn(label, income.index)
 
 
+class PeriodAlignmentTests(unittest.TestCase):
+    def test_a_line_not_tagged_for_the_newest_year_is_absent_not_stale(self):
+        # Gross profit last tagged for 2023: it must not be read as "latest".
+        concepts = company(GrossProfit=("USD", [duration(2023, 400.0), duration(2022, 390.0)]))
+        income, balance, cashflow = frames(concepts)
+        self.assertNotIn("Gross Profit", income.index)
+        self.assertIsNone(
+            derive_statement_factors(income, balance, cashflow)["Gross_Profit_To_Assets"]
+        )
+
+    def test_a_gap_ends_the_history_instead_of_closing_up(self):
+        eps = [duration(2025, 2.0), duration(2024, 1.9), duration(2022, 1.0)]
+        income, balance, cashflow = frames(company(EarningsPerShareDiluted=("USD/shares", eps)))
+        derived = derive_statement_factors(income, balance, cashflow)
+        self.assertAlmostEqual(derived["EPS_YoY_Latest"], 2.0 / 1.9 - 1)
+        # Three years back is not observed; 2022 must not stand in for 2023.
+        self.assertIsNone(derived["EPS_CAGR_3Y"])
+
+    def test_a_filer_missing_core_figures_for_the_newest_year_is_unusable(self):
+        stale_revenue = ("USD", [duration(2022, 1000.0)])
+        self.assertIsNone(frames(company(Revenues=stale_revenue)))
+        self.assertIsNone(frames(company(NetIncomeLoss=None)))
+        self.assertIsNone(frames(company(Assets=None)))
+
+
 class DebtTests(unittest.TestCase):
     def test_total_debt_adds_operating_leases_but_not_finance_leases(self):
         _, balance, _ = frames(company())
