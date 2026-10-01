@@ -158,12 +158,22 @@ class AnnualFrameTests(unittest.TestCase):
             IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest=pretax))
         self.assertEqual(latest(income, "Tax Rate For Calcs"), edgar.US_STATUTORY_TAX_RATE)
 
-    def test_gross_profit_is_reported_or_absent_never_computed(self):
-        concepts = company(CostOfRevenue=("USD", [duration(y, 100.0) for y in YEARS]))
-        income, _, _ = frames(concepts)
-        self.assertNotIn("Gross Profit", income.index)
+    def test_gross_profit_is_reported_or_revenue_less_total_cost_of_revenue(self):
         income, _, _ = frames(company(GrossProfit=("USD", [duration(y, 400.0) for y in YEARS])))
         self.assertEqual(latest(income, "Gross Profit"), 400.0)
+        income, _, _ = frames(company(CostOfRevenue=("USD", [duration(y, 900.0) for y in YEARS])))
+        self.assertEqual(latest(income, "Gross Profit"), 1300.0 - 900.0)
+        # A cost-of-goods line may cover one segment; it is not a total.
+        segment = company(CostOfGoodsAndServicesSold=("USD", [duration(y, 100.0) for y in YEARS]))
+        self.assertNotIn("Gross Profit", frames(segment)[0].index)
+
+    def test_ebitda_falls_back_to_depreciation_plus_amortisation(self):
+        concepts = company(
+            DepreciationDepletionAndAmortization=None,
+            Depreciation=("USD", [duration(y, 30.0) for y in YEARS]),
+            AmortizationOfIntangibleAssets=("USD", [duration(y, 5.0) for y in YEARS]),
+        )
+        self.assertEqual(latest(frames(concepts)[0], "EBITDA"), 140.0 + 35.0)
 
     def test_capex_is_signed_negative_and_free_cash_flow_follows(self):
         _, _, cashflow = frames(company())
@@ -202,6 +212,24 @@ class DebtTests(unittest.TestCase):
         _, balance, _ = frames(concepts)
         # LongTermDebt already includes the current portion tagged beside it.
         self.assertEqual(latest(balance, "Total Debt"), 370.0)
+
+    def test_specialised_borrowing_concepts_stand_in_for_a_missing_total(self):
+        # A REIT: secured debt and a credit line, no long-term-debt concept.
+        concepts = company(
+            LongTermDebtNoncurrent=None, LongTermDebtCurrent=None, OperatingLeaseLiability=None,
+            SecuredDebt=("USD", [instant(y, 900.0) for y in YEARS]),
+            LineOfCredit=("USD", [instant(y, 100.0) for y in YEARS]),
+        )
+        _, balance, _ = frames(concepts)
+        self.assertEqual(latest(balance, "Total Debt"), 1000.0)
+
+    def test_specialised_concepts_are_not_added_to_a_total_that_includes_them(self):
+        concepts = company(
+            OperatingLeaseLiability=None,
+            SecuredDebt=("USD", [instant(y, 200.0) for y in YEARS]),
+        )
+        _, balance, _ = frames(concepts)
+        self.assertEqual(latest(balance, "Total Debt"), 350.0)
 
     def test_no_debt_concepts_is_absent_evidence_not_zero_debt(self):
         concepts = company(LongTermDebtNoncurrent=None, LongTermDebtCurrent=None,

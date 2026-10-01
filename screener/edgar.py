@@ -86,6 +86,9 @@ _USGAAP = {
     "net_interest_income": ("InterestIncomeExpenseNet",),
     "noninterest_income": ("NoninterestIncome",),
     "gross_profit": ("GrossProfit",),
+    # The total cost-of-revenue concept only. The goods-and-services ones are
+    # tagged per segment often enough to overstate gross profit several-fold.
+    "cost_of_revenue": ("CostOfRevenue",),
     "operating_income": ("OperatingIncomeLoss",),
     "pretax_income": (
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
@@ -102,12 +105,18 @@ _USGAAP = {
         "InterestExpenseNonoperating",
         "InterestExpenseDebt",
         "InterestAndDebtExpense",
+        "InterestExpenseOperating",
+        "InterestExpenseLongTermDebt",
+        "InterestExpenseDebtExcludingAmortization",
+        "FinancingInterestExpense",
     ),
     "depreciation_amortization": (
         "DepreciationDepletionAndAmortization",
         "DepreciationAmortizationAndAccretionNet",
         "DepreciationAndAmortization",
     ),
+    "depreciation": ("Depreciation",),
+    "amortization_of_intangibles": ("AmortizationOfIntangibleAssets",),
     "eps_diluted": ("EarningsPerShareDiluted",),
     "eps_basic": ("EarningsPerShareBasic",),
     "total_assets": ("Assets",),
@@ -131,13 +140,24 @@ _USGAAP = {
         "LongTermNotesPayable",
         "ConvertibleNotesPayableNoncurrent",
         "ConvertibleDebtNoncurrent",
-        "SeniorLongTermNotes",
     ),
     "long_term_debt_current": (
         "LongTermDebtCurrent",
         "LongTermDebtAndCapitalLeaseObligationsCurrent",
     ),
     "debt_current": ("DebtCurrent",),
+    # Borrowings that REITs, banks and convertible issuers tag instead of a
+    # long-term-debt total. Summed, and used when they exceed the standard
+    # concepts -- see _borrowings.
+    "debt_part_secured": ("SecuredDebt", "SecuredLongTermDebt"),
+    "debt_part_unsecured": ("UnsecuredDebt", "UnsecuredLongTermDebt"),
+    "debt_part_credit_line": ("LineOfCredit", "LongTermLineOfCredit"),
+    "debt_part_notes_and_loans": ("NotesAndLoansPayable", "LongTermNotesAndLoans"),
+    "debt_part_convertible": ("ConvertibleLongTermNotesPayable",),
+    "debt_part_senior_notes": ("SeniorLongTermNotes",),
+    "debt_part_fhlb": ("AdvancesFromFederalHomeLoanBanks", "FederalHomeLoanBankAdvancesLongTerm"),
+    "debt_part_subordinated": ("SubordinatedDebt", "JuniorSubordinatedNotes"),
+    "debt_part_other": ("OtherBorrowings",),
     "short_term_borrowings": (
         "ShortTermBorrowings",
         "CommercialPaper",
@@ -171,6 +191,9 @@ _USGAAP = {
     "capex": (
         "PaymentsToAcquirePropertyPlantAndEquipment",
         "PaymentsToAcquireProductiveAssets",
+        "PaymentsToAcquireOtherPropertyPlantAndEquipment",
+        "PaymentsToAcquireOilAndGasPropertyAndEquipment",
+        "PaymentsForCapitalImprovements",
     ),
 }
 
@@ -215,7 +238,8 @@ _IFRS = {
 }
 
 _TAXONOMIES = (("us-gaap", _USGAAP), ("ifrs-full", _IFRS))
-_INSTANT_KEYS = frozenset({
+_DEBT_PART_KEYS = tuple(key for key in _USGAAP if key.startswith("debt_part_"))
+_INSTANT_KEYS = frozenset(_DEBT_PART_KEYS) | frozenset({
     "total_assets", "equity", "debt_combined", "long_term_debt_total",
     "long_term_debt_noncurrent", "long_term_debt_current", "debt_current",
     "short_term_borrowings",
@@ -405,6 +429,14 @@ def _borrowings(series, ends):
         if noncurrent is None and current is None:
             continue
         out[end] = (noncurrent or 0.0) + (current or 0.0)
+
+    # The specialised concepts are parts of the same borrowings, so they are
+    # never added to a standard total -- they replace it where they are larger,
+    # which is where the standard concepts were not tagged or cover one tranche.
+    for end in ends:
+        parts = [series[key][end] for key in _DEBT_PART_KEYS if end in series[key]]
+        if parts and sum(parts) > out.get(end, 0.0):
+            out[end] = sum(parts)
     return out
 
 
@@ -496,10 +528,22 @@ def _build(all_facts, series, ends, events):
         # A bank that tags no single revenue concept still reports its two halves.
         revenue[end] = max(value, revenue.get(end, value))
 
-    # Reported gross profit only. Revenue less a cost-of-revenue concept was
-    # tried and overstated it three- to five-fold for filers whose cost line
-    # covers one segment (Caterpillar, UnitedHealth); absent is better than that.
-    gross_profit = series["gross_profit"]
+    # Reported gross profit, else revenue less the *total* cost of revenue.
+    # The narrower cost-of-goods concepts were tried and overstated it three-
+    # to five-fold for filers that tag them per segment (Caterpillar,
+    # UnitedHealth); for those, absent is better.
+    gross_profit = dict(series["gross_profit"])
+    for end in ends:
+        if end not in gross_profit and end in revenue and end in series["cost_of_revenue"]:
+            gross_profit[end] = revenue[end] - series["cost_of_revenue"][end]
+
+    # Filers without a combined depreciation-and-amortisation line report the
+    # two halves; depreciation alone is the floor when nothing is amortised.
+    depreciation_amortization = dict(series["depreciation_amortization"])
+    for end, value in series["depreciation"].items():
+        depreciation_amortization.setdefault(
+            end, value + series["amortization_of_intangibles"].get(end, 0.0)
+        )
 
     # Yahoo's EBIT is pre-tax income with interest expense added back. Banks are
     # left without one, as on Yahoo: interest is their cost of goods, and the
@@ -518,8 +562,8 @@ def _build(all_facts, series, ends, events):
         if is_bank:
             continue
         ebit[end] = pretax + series["interest_expense"].get(end, 0.0)
-        if end in series["depreciation_amortization"]:
-            ebitda[end] = ebit[end] + series["depreciation_amortization"][end]
+        if end in depreciation_amortization:
+            ebitda[end] = ebit[end] + depreciation_amortization[end]
 
     borrowings = _borrowings(series, ends)
     total_debt = _total_debt(series, ends, borrowings)
