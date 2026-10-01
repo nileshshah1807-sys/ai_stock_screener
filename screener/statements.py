@@ -20,11 +20,13 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
 
+from . import edgar
 from .markets import active_profile, ticker_for
 
 logger = logging.getLogger(__name__)
@@ -32,6 +34,9 @@ logger = logging.getLogger(__name__)
 # Bump whenever a derived column's meaning changes so an older cache cannot mix
 # incompatible definitions into a live cross-section.
 STATEMENT_SCHEMA_VERSION = 2
+
+YAHOO_SOURCE_LABEL = "Yahoo Finance annual statements"
+SOURCE_YAHOO, SOURCE_EDGAR = "yahoo", "edgar"
 
 # Yahoo row labels. Several are absent for banks and other financials, which is
 # expected: those sectors are routed to the specialist quality path instead of
@@ -137,6 +142,13 @@ def apply_statement_fallbacks(frame):
     if frame is None or frame.empty:
         return frame
     result = frame.copy()
+    # The statements behind a fallback come from whichever provider served that
+    # symbol; the per-field source marker has to say which.
+    statement_source = result.get(
+        "Statement_Source", pd.Series("", index=result.index)
+    ).fillna("").astype(str)
+    provider = pd.Series("Yahoo Finance", index=result.index, dtype="object")
+    provider.loc[statement_source.str.startswith("SEC EDGAR")] = "SEC EDGAR"
     for target, (fallback_column, fallback_note) in STATEMENT_FALLBACKS.items():
         current = pd.to_numeric(
             result.get(target, pd.Series(index=result.index, dtype=float)),
@@ -152,17 +164,18 @@ def apply_statement_fallbacks(frame):
         result[target] = current.where(~use_fallback, fallback)
         source = pd.Series("unavailable", index=result.index, dtype="object")
         source.loc[current.notna()] = "Yahoo Finance quote metadata"
-        source.loc[use_fallback] = f"Yahoo Finance {fallback_note}"
+        source.loc[use_fallback] = provider + " " + fallback_note
         if target == "Free_CashFlow" and "Statement_Free_Cash_Flow_Source" in result:
             detail = result["Statement_Free_Cash_Flow_Source"].fillna("").astype(str)
-            source.loc[use_fallback & detail.eq("reported_free_cash_flow")] = (
-                "Yahoo Finance annual cash-flow statement; reported free cash flow"
+            reported = use_fallback & detail.eq("reported_free_cash_flow")
+            source.loc[reported] = (
+                provider + " annual cash-flow statement; reported free cash flow"
             )
-            source.loc[
-                use_fallback
-                & detail.eq("operating_cash_flow_plus_capital_expenditure")
-            ] = (
-                "Yahoo Finance annual cash-flow statement; "
+            derived = use_fallback & detail.eq(
+                "operating_cash_flow_plus_capital_expenditure"
+            )
+            source.loc[derived] = (
+                provider + " annual cash-flow statement; "
                 "operating cash flow plus capital expenditure"
             )
         result[f"{target}_Source"] = source
@@ -396,7 +409,10 @@ def derive_statement_factors(income, balance, cashflow):
     operating_margin = None
     if ebit is not None and revenue is not None:
         aligned = pd.DataFrame({"ebit": ebit, "revenue": revenue}).dropna()
-        aligned = aligned[aligned["revenue"] > 0]
+        # Two series that do not cover the same years come back from the
+        # constructor on a union index sorted oldest-first, which made
+        # ``iloc[0]`` the OLDEST year's margin. Restore newest-first.
+        aligned = aligned[aligned["revenue"] > 0].sort_index(ascending=False)
         if not aligned.empty:
             operating_margin = aligned["ebit"] / aligned["revenue"]
             out["Operating_Margin_Latest"] = float(operating_margin.iloc[0])
@@ -443,12 +459,34 @@ def derive_statement_factors(income, balance, cashflow):
 class FinancialStatementCollector:
     """Fetch, cache and derive annual-statement factor inputs per symbol."""
 
-    def __init__(self, config, *, ticker_factory=None, clock=None):
+    def __init__(self, config, *, ticker_factory=None, clock=None, edgar_client=None):
         self.config = config
         self.market_profile = active_profile(config)
         # Injectable so tests never touch the network.
         self._ticker_factory = ticker_factory
         self._clock = clock or (lambda: datetime.now())
+        self.source = self._resolve_source(edgar_client)
+        self._edgar = edgar_client
+
+    def _resolve_source(self, edgar_client):
+        """``edgar`` or ``yahoo``; an unusable EDGAR setup degrades to Yahoo."""
+        wanted = str(getattr(self.config, "STATEMENT_SOURCE", SOURCE_YAHOO)).strip().lower()
+        if wanted != SOURCE_EDGAR:
+            return SOURCE_YAHOO
+        if edgar_client is None and not str(
+            getattr(self.config, "SEC_USER_AGENT", "") or ""
+        ).strip():
+            logger.warning(
+                "STATEMENT_SOURCE=edgar but SEC_USER_AGENT is empty; SEC rejects "
+                "requests that do not name a contact. Using Yahoo statements."
+            )
+            return SOURCE_YAHOO
+        return SOURCE_EDGAR
+
+    def _edgar_client(self):
+        if self._edgar is None:
+            self._edgar = edgar.EdgarClient(self.config.SEC_USER_AGENT)
+        return self._edgar
 
     def _cache_path(self):
         return self.config.OUTPUT_DIR / "statement_cache.csv"
@@ -483,9 +521,45 @@ class FinancialStatementCollector:
         fetched = pd.to_datetime(cached.get("Statement_Cached_Date"), errors="coerce")
         cutoff = pd.Timestamp(self._clock()).normalize() - pd.Timedelta(days=max_age)
         fresh_mask = fetched.notna() & (fetched >= cutoff)
+        # A row is reusable only if it was collected under today's source
+        # preference. Switching a market to EDGAR therefore refreshes it once
+        # -- minutes at EDGAR's rate -- instead of leaving a cross-section that
+        # mixes two providers until the 90-day cache ages out. A row Yahoo
+        # served *because EDGAR had none* carries the EDGAR preference and is
+        # not asked for again.
+        preference = cached.get(
+            "Statement_Source_Preference", pd.Series(index=cached.index, dtype=object)
+        ).fillna(SOURCE_YAHOO)
+        fresh_mask &= preference.eq(self.source)
         cached["Symbol"] = cached["Symbol"].astype(str).str.strip().str.upper()
         fresh_symbols = set(cached.loc[fresh_mask, "Symbol"])
         return cached, fresh_symbols
+
+    def _record(self, symbol, derived, source_label):
+        if not derived.get("Statement_Years"):
+            return None
+        derived["Symbol"] = symbol
+        derived["Statement_Schema_Version"] = STATEMENT_SCHEMA_VERSION
+        derived["Statement_Cached_Date"] = pd.Timestamp(
+            self._clock()
+        ).strftime("%Y-%m-%d")
+        derived["Statement_Source"] = source_label
+        derived["Statement_Source_Preference"] = self.source
+        return derived
+
+    def fetch_symbol_from_edgar(self, symbol):
+        """Derived factors from SEC filings, or None when EDGAR has no record."""
+        try:
+            frames = self._edgar_client().annual_frames(
+                symbol, today=pd.Timestamp(self._clock()).date()
+            )
+            if frames is None:
+                return None
+            derived = derive_statement_factors(*frames)
+        except Exception as exc:
+            logger.debug("EDGAR statement fetch failed for %s: %s", symbol, exc)
+            return None
+        return self._record(symbol, derived, edgar.SOURCE_LABEL)
 
     def fetch_symbol(self, symbol):
         """Return derived factors for one symbol, or None when unavailable."""
@@ -497,15 +571,7 @@ class FinancialStatementCollector:
         except Exception as exc:
             logger.debug("Statement fetch failed for %s: %s", symbol, exc)
             return None
-        if not derived.get("Statement_Years"):
-            return None
-        derived["Symbol"] = symbol
-        derived["Statement_Schema_Version"] = STATEMENT_SCHEMA_VERSION
-        derived["Statement_Cached_Date"] = pd.Timestamp(
-            self._clock()
-        ).strftime("%Y-%m-%d")
-        derived["Statement_Source"] = "Yahoo Finance annual statements"
-        return derived
+        return self._record(symbol, derived, YAHOO_SOURCE_LABEL)
 
     def collect(self, symbols):
         """Return a per-symbol statement frame, reusing cache where fresh.
@@ -546,6 +612,30 @@ class FinancialStatementCollector:
         )
 
         fetched_records = []
+        if self.source == SOURCE_EDGAR and to_fetch:
+            # EDGAR first, at its own (much higher) rate limit. Only what it
+            # cannot serve goes on to Yahoo and the per-minute budget below.
+            unserved = []
+            with ThreadPoolExecutor(max_workers=edgar.FETCH_WORKERS) as pool:
+                # map() yields in caller order, which is the priority order.
+                records = pool.map(self.fetch_symbol_from_edgar, to_fetch)
+                for index, (symbol, record) in enumerate(zip(to_fetch, records, strict=True)):
+                    if record is not None:
+                        fetched_records.append(record)
+                    else:
+                        unserved.append(symbol)
+                    if (index + 1) % 500 == 0:
+                        logger.info(
+                            "EDGAR statements fetched %d/%d", index + 1, len(to_fetch)
+                        )
+            logger.info(
+                "Statements from SEC EDGAR: %d of %d; %d fall back to Yahoo",
+                len(fetched_records),
+                len(to_fetch),
+                len(unserved),
+            )
+            to_fetch = unserved
+
         per_minute = max(1, int(getattr(self.config, "STATEMENT_REQUESTS_PER_MINUTE", 40)))
         window_start = time.time()
         in_window = 0
