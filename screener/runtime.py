@@ -553,6 +553,13 @@ class Config:
         "FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE", 0.95
     )
     STATEMENT_REQUESTS_PER_MINUTE = _env_int("STATEMENT_REQUESTS_PER_MINUTE", 40)
+    # Where annual statements come from. "yahoo" is the only source for NSE.
+    # "edgar" reads US filers' own XBRL filings from the SEC first and asks
+    # Yahoo only for what EDGAR cannot serve (screener/edgar.py). SEC requires
+    # every client to name a contact in its User-Agent, so EDGAR is not used
+    # unless SEC_USER_AGENT is set.
+    STATEMENT_SOURCE = os.getenv("STATEMENT_SOURCE", "yahoo").strip().lower()
+    SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "").strip()
     STATEMENT_MIN_YEARS_FOR_CAGR = _env_int("STATEMENT_MIN_YEARS_FOR_CAGR", 4)
 
     # A snapshot score is not a backtest. Measure the realized return after a

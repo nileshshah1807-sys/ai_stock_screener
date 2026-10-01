@@ -56,6 +56,17 @@ the scheduled workflows set the same flag.
   Store in the US. Any new query against `screener_snapshot`, `screener_history`
   or `price_series` must filter on it; `DashboardRepository` is scoped to one
   market at construction so it cannot be forgotten.
+- **US annual statements come from SEC EDGAR; Yahoo is the fallback.**
+  `STATEMENT_SOURCE=edgar` (set in the US workflow) makes
+  `FinancialStatementCollector` ask `screener/edgar.py` first and Yahoo only
+  for what EDGAR cannot serve -- filers reporting in another currency, a ticker
+  SEC does not list. EDGAR's facts are rebuilt into Yahoo-shaped frames, so
+  `derive_statement_factors` is shared and the scoring layer still has no
+  market branch. SEC rejects clients that name no contact: the address lives in
+  the `SEC_USER_AGENT` repository variable, and without it the run warns and
+  uses Yahoo throughout. Measure the two sources against each other with
+  `python -m tools.compare_statement_sources`. Prices and quote metadata
+  (`Ticker.info`) are still Yahoo's.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and

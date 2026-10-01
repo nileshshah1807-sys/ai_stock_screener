@@ -66,6 +66,16 @@ jobs:
       # and 600 constituent lists come from its API.
       WIKIPEDIA_USER_AGENT: "winnow-screener/1.0 (+https://github.com/${{ github.repository }})"
 
+      # Annual statements come from the filers' own SEC filings, with Yahoo
+      # only for what EDGAR cannot serve (foreign filers reporting in another
+      # currency, mostly). Yahoo's statement endpoint was ninety minutes of a
+      # cold run at 40 requests a minute; EDGAR allows ten a second. SEC
+      # requires a contact in the User-Agent ("Name email@domain"), kept in a
+      # repository variable rather than in the tree. If it is unset the run
+      # logs a warning and uses Yahoo for everything, as before.
+      STATEMENT_SOURCE: "edgar"
+      SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT || '' }}
+
       OUTPUT_DIR: ${{ inputs.mode == 'validation' && format('.validation-output/us-{0}', github.run_id) || 'reports_advanced/us' }}
       YFINANCE_CACHE_DIR: ${{ inputs.mode == 'validation' && format('.validation-output/us-{0}/yfinance_cache', github.run_id) || 'reports_advanced/us/yfinance_cache' }}
       RUN_MANIFEST_ENABLED: "True"
