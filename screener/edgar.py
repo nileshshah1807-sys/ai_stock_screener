@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from datetime import date, timedelta
 
@@ -39,8 +40,12 @@ TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 SOURCE_LABEL = "SEC EDGAR annual filings (XBRL)"
 
-# SEC's fair-access policy allows ten requests a second per client.
+# SEC's fair-access policy allows ten requests a second per client. Requests
+# are *started* at most this often, across however many threads share a client.
 MIN_REQUEST_INTERVAL_SECONDS = 0.125
+# A companyfacts payload is 4-5 MB and takes most of a second to arrive, so one
+# request at a time would use a tenth of the allowance.
+FETCH_WORKERS = 6
 REQUEST_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 2
 
@@ -608,7 +613,12 @@ class EdgarClient:
                 "SEC_USER_AGENT is required for EDGAR: SEC's fair-access policy "
                 "rejects requests that do not name a contact"
             )
-        self.session = session or requests.Session()
+        # One session per thread unless a caller injects one: requests.Session
+        # is not safe to share between threads.
+        self._shared_session = session
+        self._local = threading.local()
+        self._lock = threading.Lock()
+        self._directory_lock = threading.Lock()
         self.headers = {
             "User-Agent": str(user_agent).strip(),
             "Accept-Encoding": "gzip, deflate",
@@ -619,14 +629,27 @@ class EdgarClient:
         self._last_request = None
         self._ciks = None
 
-    def _get(self, url):
-        """JSON body, or ``None`` for a 404. Transient failures are retried."""
-        for attempt in range(REQUEST_RETRIES + 1):
+    @property
+    def session(self):
+        if self._shared_session is not None:
+            return self._shared_session
+        if not hasattr(self._local, "session"):
+            self._local.session = requests.Session()
+        return self._local.session
+
+    def _wait_for_slot(self):
+        """Space request starts to the fair-access limit, across threads."""
+        with self._lock:
             if self._last_request is not None:
                 wait = MIN_REQUEST_INTERVAL_SECONDS - (self._clock() - self._last_request)
                 if wait > 0:
                     self._sleep(wait)
             self._last_request = self._clock()
+
+    def _get(self, url):
+        """JSON body, or ``None`` for a 404. Transient failures are retried."""
+        for attempt in range(REQUEST_RETRIES + 1):
+            self._wait_for_slot()
             try:
                 response = self.session.get(
                     url, headers=self.headers, timeout=self.timeout_seconds
@@ -649,13 +672,14 @@ class EdgarClient:
 
     def cik_for(self, symbol):
         """The registrant's CIK, or ``None`` when SEC lists no such ticker."""
-        if self._ciks is None:
-            listing = self._get(TICKERS_URL) or {}
-            self._ciks = {
-                normalise_ticker(row["ticker"]): int(row["cik_str"])
-                for row in listing.values()
-            }
-            logger.info("EDGAR ticker directory loaded: %d tickers", len(self._ciks))
+        with self._directory_lock:
+            if self._ciks is None:
+                listing = self._get(TICKERS_URL) or {}
+                self._ciks = {
+                    normalise_ticker(row["ticker"]): int(row["cik_str"])
+                    for row in listing.values()
+                }
+                logger.info("EDGAR ticker directory loaded: %d tickers", len(self._ciks))
         return self._ciks.get(normalise_ticker(symbol))
 
     def annual_frames(self, symbol, *, today=None):

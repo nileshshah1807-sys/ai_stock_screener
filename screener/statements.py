@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import numpy as np
@@ -615,14 +616,18 @@ class FinancialStatementCollector:
             # EDGAR first, at its own (much higher) rate limit. Only what it
             # cannot serve goes on to Yahoo and the per-minute budget below.
             unserved = []
-            for index, symbol in enumerate(to_fetch):
-                record = self.fetch_symbol_from_edgar(symbol)
-                if record is not None:
-                    fetched_records.append(record)
-                else:
-                    unserved.append(symbol)
-                if (index + 1) % 500 == 0:
-                    logger.info("EDGAR statements fetched %d/%d", index + 1, len(to_fetch))
+            with ThreadPoolExecutor(max_workers=edgar.FETCH_WORKERS) as pool:
+                # map() yields in caller order, which is the priority order.
+                records = pool.map(self.fetch_symbol_from_edgar, to_fetch)
+                for index, (symbol, record) in enumerate(zip(to_fetch, records, strict=True)):
+                    if record is not None:
+                        fetched_records.append(record)
+                    else:
+                        unserved.append(symbol)
+                    if (index + 1) % 500 == 0:
+                        logger.info(
+                            "EDGAR statements fetched %d/%d", index + 1, len(to_fetch)
+                        )
             logger.info(
                 "Statements from SEC EDGAR: %d of %d; %d fall back to Yahoo",
                 len(fetched_records),

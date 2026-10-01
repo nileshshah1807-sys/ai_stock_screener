@@ -5,6 +5,7 @@ here touches the network.
 """
 
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -404,6 +405,15 @@ class ClientTests(unittest.TestCase):
         client.annual_frames("AAPL", today=TODAY)
         self.assertIn(edgar.MIN_REQUEST_INTERVAL_SECONDS, self.sleeps)
 
+    def test_the_limit_holds_across_threads_sharing_a_client(self):
+        client = self.client({AAPL_URL: FakeResponse(body=facts(company()))})
+        client.cik_for("AAPL")
+        self.sleeps.clear()
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda _: client._get(AAPL_URL), range(8)))
+        # The clock is frozen, so every start after the directory request waits.
+        self.assertEqual(self.sleeps, [edgar.MIN_REQUEST_INTERVAL_SECONDS] * 8)
+
 
 class StubEdgar:
     """Serves the symbols it was given; everything else is 'no record'."""
@@ -459,7 +469,8 @@ class CollectorSourceTests(unittest.TestCase):
         result = self.collector(served={"AAPL", "MSFT"}, yahoo_calls=yahoo).collect(
             ["AAPL", "TSM", "MSFT"]
         ).set_index("Symbol")
-        self.assertEqual(self.stub.asked, ["AAPL", "TSM", "MSFT"])
+        # EDGAR is asked from a thread pool, so the order of arrival is not fixed.
+        self.assertEqual(sorted(self.stub.asked), ["AAPL", "MSFT", "TSM"])
         self.assertEqual(yahoo, ["TSM"])
         self.assertEqual(result.loc["AAPL", "Statement_Source"], edgar.SOURCE_LABEL)
         self.assertEqual(result.loc["TSM", "Statement_Source"], "Yahoo Finance annual statements")
