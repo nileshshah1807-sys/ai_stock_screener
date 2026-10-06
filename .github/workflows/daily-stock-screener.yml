@@ -6,7 +6,12 @@ on:
     # Primary at 16:30 IST; fallback at 18:30 IST, after the 16:15 NSE
     # trade-modification cutoff. Calendar-day and completed-session guards
     # keep fallback/weekend/holiday runs from rebuilding the same snapshot.
-    - cron: "0 11,13 * * *"
+    # The 20:30 and 22:30 IST slots exist because GitHub starts these hours
+    # late or not at all (5 Oct 2026: the 16:30 IST slot began at 00:54 IST and
+    # nothing followed it), and because they fall after NSE has published the
+    # bhavcopy the price fallback reads. All four are the same UTC date, so
+    # once one succeeds the rest stop at the dedupe step.
+    - cron: "0 11,13,15,17 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -85,6 +90,12 @@ jobs:
       PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY: "False"
       ALLOW_PROVISIONAL_MARKET_BARS: "False"
       MARKET_BAR_COMPLETE_AFTER_IST: "16:15"
+      # When Yahoo has not served the session's bar for a symbol, take that one
+      # bar from NSE's bhavcopy (screener/session_bars.py). On 5 Oct 2026 Yahoo
+      # still lacked the session for two thirds of the universe twenty hours
+      # after the close. The bhavcopy is published in the evening, so the
+      # 16:30 IST slot may run before it exists; the later slots do not.
+      PRICE_BAR_FALLBACK_ENABLED: "True"
       # NSE/CMTR/71775 plus partial modification NSE/CMTR/72260,
       # weekday Capital Market holidays known as of 10-Aug-2026.
       # Update annually from the official NSE circular; it is config-hashed.
