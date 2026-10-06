@@ -62,6 +62,11 @@ class MarketProfile:
     # display order. Chosen from what Yahoo actually serves: Nifty Microcap 250
     # has no Yahoo series, so the NSE set stops at Smallcap 250.
     headline_indices: tuple[tuple[str, str], ...] = ()
+    # Key into ``screener.session_bars``: where the expected session's bar can
+    # be taken from when the price vendor has not served it. NSE publishes the
+    # bhavcopy every evening; no free US equivalent exists, so it is None there
+    # and a vendor gap fails the alignment guard as before.
+    session_bar_fallback: str | None = None
 
 
 _NSE_PROFILE = MarketProfile(
@@ -98,6 +103,7 @@ _NSE_PROFILE = MarketProfile(
         ("NIFTYMIDCAP150.NS", "Nifty Midcap 150"),
         ("NIFTYSMLCAP250.NS", "Nifty Smallcap 250"),
     ),
+    session_bar_fallback="nse_bhavcopy",
 )
 
 _US_PROFILE = MarketProfile(

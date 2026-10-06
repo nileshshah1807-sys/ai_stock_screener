@@ -67,6 +67,13 @@ the scheduled workflows set the same flag.
   uses Yahoo throughout. Measure the two sources against each other with
   `python -m tools.compare_statement_sources`. Prices and quote metadata
   (`Ticker.info`) are still Yahoo's.
+- **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
+  `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
+  `screener/session_bars.py` fill a symbol's missing expected-session bar from
+  NSE's daily file -- only that bar, only when it continues Yahoo's history.
+  The patched symbols are listed in the run diagnostics under
+  `technical_session_bar_patched_symbols`. There is no US source, so a Yahoo
+  gap there still fails the alignment guard.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and

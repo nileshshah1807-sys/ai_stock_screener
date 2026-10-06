@@ -160,6 +160,11 @@ class Config:
     # Zero keeps the old fail-at-once behaviour.
     PRICE_BAR_PROBE_WAIT_MINUTES = _env_float("PRICE_BAR_PROBE_WAIT_MINUTES", 0.0)
     PRICE_BAR_PROBE_RETRY_MINUTES = _env_float("PRICE_BAR_PROBE_RETRY_MINUTES", 15.0)
+    # Fill a symbol's missing expected-session bar from the exchange's own
+    # daily file where the market has one (see screener/session_bars.py). Off
+    # unless a workflow opts in, so an unset environment behaves exactly as
+    # before and no test reaches the exchange.
+    PRICE_BAR_FALLBACK_ENABLED = _env_bool("PRICE_BAR_FALLBACK_ENABLED", False)
     # Fail closed after the completion cutoff if a normal weekday has no
     # same-session bar. Populate official weekday exchange holidays as ISO dates.
     NSE_MARKET_HOLIDAYS = _env_list("NSE_MARKET_HOLIDAYS", [])

@@ -29,6 +29,7 @@ from .market_data import (
 )
 from .markets import active_profile, bare_symbol, ticker_for
 from .price_probe import probe_expected_session
+from .session_bars import SessionBarSource, patch_expected_session_bar
 from .stage import stage_features
 
 logger = logging.getLogger(__name__)
@@ -258,8 +259,11 @@ class StockDataCollector:
         clock=None,
         completion_cutoff=None,
         market_timezone=None,
+        session_bar_loader=None,
     ):
         self.config = config
+        # Injected in tests so the fallback never reaches the exchange.
+        self._session_bar_loader = session_bar_loader
         self.market_profile = active_profile(config)
         self.collection_diagnostics = {
             "schema_version": 1,
@@ -418,6 +422,20 @@ class StockDataCollector:
             latest_date == today and today_complete
         )
         return selected, latest_date, latest_complete
+
+    def _session_bar_source(self, expected_session):
+        """The market's exchange-bar fallback for this run, or ``None``."""
+        provider = self.market_profile.session_bar_fallback
+        if provider is None or not _setting_enabled(
+            getattr(self.config, "PRICE_BAR_FALLBACK_ENABLED", False)
+        ):
+            return None
+        return SessionBarSource(
+            provider,
+            expected_session,
+            self.config.OUTPUT_DIR / "session_bar_cache",
+            loader=self._session_bar_loader,
+        )
 
     def get_comprehensive_stock_list(self):
         """Return the sorted research universe for this run's market.
@@ -591,6 +609,8 @@ class StockDataCollector:
                 retry_interval_seconds=60
                 * float(getattr(self.config, "PRICE_BAR_PROBE_RETRY_MINUTES", 15) or 15),
             )
+        session_bars = self._session_bar_source(expected_price_session)
+        session_bar_patched = []
         batch_size = 30
         for i in range(0, len(vendor_symbols), batch_size):
             batch = vendor_symbols[i : i + batch_size]
@@ -621,6 +641,15 @@ class StockDataCollector:
                         if price_data is None or price_data.empty:
                             failed.append(clean_sym)
                             continue
+                        if session_bars is not None:
+                            price_data, bar_patched = patch_expected_session_bar(
+                                price_data,
+                                expected_price_session,
+                                self.market_timezone,
+                                lambda symbol=clean_sym: session_bars.bar(symbol),
+                            )
+                            if bar_patched:
+                                session_bar_patched.append(clean_sym)
                         price_data, price_bar_as_of, price_bar_complete = (
                             self._select_completed_price_bars(price_data, analysis_as_of)
                         )
@@ -908,6 +937,21 @@ class StockDataCollector:
             for record in results
             if str(record.get("Symbol", "")).strip()
         }
+        # Recorded for the run manifest: which symbols' latest bar is the
+        # exchange's rather than the vendor's.
+        session_bar_patched = sorted(set(session_bar_patched) & fresh_symbols)
+        self.collection_diagnostics["technical_session_bar_patched_symbols"] = (
+            session_bar_patched
+        )
+        if session_bar_patched:
+            logger.warning(
+                "%d of %d fresh symbols took the %s bar from %s: the price "
+                "vendor had not served it",
+                len(session_bar_patched),
+                len(fresh_symbols),
+                expected_price_session.isoformat(),
+                session_bars.provider,
+            )
         provider_failed_symbols = sorted(set(to_download) - fresh_symbols)
         prior_by_symbol = {}
         if not prior_cache.empty and "Symbol" in prior_cache.columns:
