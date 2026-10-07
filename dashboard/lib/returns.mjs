@@ -188,15 +188,21 @@ export const COST_PER_SIDE_PCT = 0.3;
  * beside older history. These boundaries were read off `screener_history`
  * itself: no `research_score` before 2026-08-14 (Model 4.x), eligibility-first
  * ordering through 2026-08-20 (Model 5.0), research-score ordering from
- * 2026-08-21 (Model 5.1). The US history starts under 5.1.
+ * 2026-08-21 (Model 5.1). The US history starts under 5.1. Model 5.2 (lower
+ * value weight, latest-quarter growth, two-sided transcripts) was merged on
+ * 2026-10-07, after that day's NSE run and before that day's US run.
  */
 export const MODEL_ERAS = {
   NSE: [
     { until: "2026-08-13", label: "Model 4.x" },
     { until: "2026-08-20", label: "Model 5.0" },
-    { until: null, label: "Model 5.1" },
+    { until: "2026-10-07", label: "Model 5.1" },
+    { until: null, label: "Model 5.2" },
   ],
-  US: [{ until: null, label: "Model 5.1" }],
+  US: [
+    { until: "2026-10-06", label: "Model 5.1" },
+    { until: null, label: "Model 5.2" },
+  ],
 };
 
 /**
@@ -208,7 +214,7 @@ export const MODEL_ERAS = {
 export function modelForDate(market, date, backtest = false) {
   // Backtest rankings were all produced by today's weights, over the period
   // those weights were fitted on; the label has to say both.
-  if (backtest) return "Model 5.1 backtest";
+  if (backtest) return "Model 5.2 backtest";
   const eras = MODEL_ERAS[market];
   if (!eras || !date) return null;
   for (const era of eras) {

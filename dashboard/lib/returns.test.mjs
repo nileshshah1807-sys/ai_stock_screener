@@ -26,11 +26,15 @@ describe("modelForDate", () => {
     assert.equal(modelForDate("NSE", "2026-08-14"), "Model 5.0");
     assert.equal(modelForDate("NSE", "2026-08-20"), "Model 5.0");
     assert.equal(modelForDate("NSE", "2026-08-21"), "Model 5.1");
-    assert.equal(modelForDate("NSE", "2027-01-04"), "Model 5.1");
+    assert.equal(modelForDate("NSE", "2026-10-07"), "Model 5.1");
+    assert.equal(modelForDate("NSE", "2026-10-08"), "Model 5.2");
+    assert.equal(modelForDate("NSE", "2027-01-04"), "Model 5.2");
   });
 
-  it("has a single era for the US", () => {
+  it("switches the US one run earlier, the same evening", () => {
     assert.equal(modelForDate("US", "2026-09-18"), "Model 5.1");
+    assert.equal(modelForDate("US", "2026-10-06"), "Model 5.1");
+    assert.equal(modelForDate("US", "2026-10-07"), "Model 5.2");
   });
 
   it("returns null for an unknown market", () => {
@@ -480,7 +484,7 @@ describe("compoundIndex", () => {
 
 describe("modelForDate, backtest", () => {
   it("labels every backtest ranking as the fitted model", () => {
-    assert.equal(modelForDate("NSE", "2019-03-01", true), "Model 5.1 backtest");
+    assert.equal(modelForDate("NSE", "2019-03-01", true), "Model 5.2 backtest");
   });
 });
 

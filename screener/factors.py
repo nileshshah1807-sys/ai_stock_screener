@@ -82,6 +82,21 @@ GROWTH_FEATURES = (
     # proposal requires for high reported earnings growth.
     ("Cash_Conversion", 0.10, True),
 )
+# The latest reported quarter against the same quarter a year earlier. Every
+# input above is derived from annual statements, so a company whose business
+# turned two quarters ago is still scored on the year before it turned; these
+# two are the only growth evidence that moves between annual filings.
+#
+# They are kept apart from GROWTH_FEATURES rather than appended to it so the
+# declared within-block grids keyed on that tuple (P1) keep resolving, and so a
+# frame whose source reports neither -- the point-in-time archive, until the
+# quarterly filings are backfilled -- scores the annual inputs exactly as
+# before. The weights here are the split between the two; their combined share
+# of the block is `FACTOR_GROWTH_QUARTER_SHARE`.
+GROWTH_QUARTER_FEATURES = (
+    ("Earnings_Growth", 0.20, True),
+    ("Revenue_Growth", 0.15, True),
+)
 VALUE_FEATURES = (
     ("Earnings_Yield", 0.25, True),
     ("FCF_Yield", 0.25, True),
@@ -147,6 +162,34 @@ def resolve_feature_weights(features, override):
         (column, supplied[column] * scale, higher_is_better)
         for column, _, higher_is_better in features
     )
+
+
+def growth_features_with_quarter(frame, annual_features, quarter_share):
+    """Blend the latest-quarter inputs into the growth block's feature list.
+
+    Returns ``(features, applicability)``. ``quarter_share`` is the fraction of
+    the block the quarter inputs carry together; the annual inputs are scaled
+    into the remainder, so the block's total weight is unchanged. A quarter
+    input the frame carries for no row at all is marked not applicable: a
+    source that reports nothing for anyone is not evidence about any one
+    company, and shrinking every row's block toward neutral for it would only
+    lower the block's influence. A value missing for one row among many is
+    different -- that stays applicable and costs that row coverage.
+    """
+    share = min(max(float(quarter_share), 0.0), 1.0)
+    if share <= 0:
+        return tuple(annual_features), {}
+    annual_total = sum(weight for _, weight, _ in annual_features)
+    quarter_total = sum(weight for _, weight, _ in GROWTH_QUARTER_FEATURES)
+    features = [
+        (name, weight * (1.0 - share), higher)
+        for name, weight, higher in annual_features
+    ]
+    applicability = {}
+    for name, weight, higher in GROWTH_QUARTER_FEATURES:
+        features.append((name, weight / quarter_total * annual_total * share, higher))
+        applicability[name] = bool(_numeric(frame, name).notna().any())
+    return tuple(features), applicability
 
 
 BLOCKS = {
@@ -505,6 +548,15 @@ class FactorModel:
             GROWTH_FEATURES,
             getattr(self.config, "FACTOR_GROWTH_FEATURE_WEIGHTS", None),
         )
+        growth_features, growth_applicability = growth_features_with_quarter(
+            working,
+            growth_features,
+            getattr(self.config, "FACTOR_GROWTH_QUARTER_SHARE", 0.35),
+        )
+        block_applicability = {
+            "Value": value_applicability,
+            "Growth": growth_applicability,
+        }
 
         for name, features in (
             ("Growth", growth_features),
@@ -518,7 +570,7 @@ class FactorModel:
                 groups if name != "Momentum" else None,
                 min_group=min_group,
                 min_coverage=min_coverage,
-                applicability=value_applicability if name == "Value" else None,
+                applicability=block_applicability.get(name),
             )
             working[f"{name}_Score"] = score
             working[f"{name}_Coverage"] = coverage

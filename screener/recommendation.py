@@ -457,12 +457,31 @@ class RecommendationPolicy:
             & transcript_weight.gt(0)
         )
         score_used = transcript_score.copy()
-        # Like DCF, transcript score 50 is neutral. Default policy applies only
-        # the negative half of that centered signal; a positive 60 must not
-        # reduce an 80 core simply because a convex average regresses to 50.
-        centered_delta = transcript_weight * (score_used - 50.0)
-        transcript_delta = np.minimum(centered_delta, 0.0)
-        no_promotion = transcript_applied & centered_delta.gt(0)
+        two_sided = _as_bool(
+            getattr(self.config, "TRANSCRIPT_TWO_SIDED", False), False
+        )
+        neutral = 50.0
+        if two_sided:
+            # Management is upbeat almost by default: 94% of scored calls sat
+            # above 50 on 2026-10-06 (median 65). Measured against 50, upside
+            # evidence would be a bonus for having held a call at all, and
+            # calls are held by large companies. Measured against the median
+            # scored call in the run, half of the covered names gain and half
+            # lose, and a company with no call is untouched.
+            scored = score_used[transcript_applied]
+            minimum = int(getattr(self.config, "TRANSCRIPT_NEUTRAL_MIN_CALLS", 30))
+            if len(scored) >= minimum:
+                neutral = float(scored.median())
+        centered_delta = transcript_weight * (score_used - neutral)
+        if two_sided:
+            transcript_delta = centered_delta
+            no_promotion = transcript_applied & False
+        else:
+            # Legacy policy applies only the negative half of the signal
+            # centered on 50; a positive 60 must not reduce an 80 core simply
+            # because a convex average regresses to 50.
+            transcript_delta = np.minimum(centered_delta, 0.0)
+            no_promotion = transcript_applied & centered_delta.gt(0)
 
         evidence = after_dcf.copy()
         evidence.loc[transcript_applied] = (
@@ -490,6 +509,7 @@ class RecommendationPolicy:
         ] = "upside"
         frame["Transcript_Applied_Direction"] = applied_direction
         frame["Transcript_No_Promotion"] = no_promotion
+        frame["Transcript_Neutral_Score"] = round_half_up(neutral, 2)
         frame["Transcript_Pre_Blend_Rating_Ceiling"] = after_dcf.map(
             _rating_ceiling
         )

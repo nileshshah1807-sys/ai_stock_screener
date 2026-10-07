@@ -1,7 +1,7 @@
 # Model methodology and evidence audit
 
-Last reviewed: 2026-08-25
-Scheduled production model: 5.1.0
+Last reviewed: 2026-10-07
+Scheduled production model: 5.2.0
 Scheduled recommendation policy: 5.3.0
 Output schema: 4.2.0
 Local/manual-daily model: 4.0.0-candidate (`FACTOR_MODEL_ENABLED=false`)
@@ -80,6 +80,108 @@ transaction costs, and no look-ahead data.
   forward-looking evidence the score lacks -- can be tested once enough of the
   history has accumulated, since no free source supplies it retrospectively.
   Coverage on 2026-09-24: 47% of the NSE universe, 95% of the US.
+
+## Model 5.2: the latest quarter in the growth block
+
+Through 5.1 every growth input was derived from annual statements, so a company
+whose business turned two quarters ago was still scored on the year before it
+turned. Model 5.2 adds the two figures the vendor already supplied on every run
+and the factor model never read: latest-quarter revenue and earnings against
+the same quarter a year earlier (`Revenue_Growth`, `Earnings_Growth`).
+
+```text
+Growth block = 0.65 * (the six annual inputs, at their 5.1 proportions)
+             + 0.20 * Earnings_Growth percentile
+             + 0.15 * Revenue_Growth percentile
+```
+
+`FACTOR_GROWTH_QUARTER_SHARE` (default 0.35) sets the combined share; 0 restores
+5.1 exactly. The block weights change separately; see the next section.
+An earnings figure the vendor cannot compute (a loss in the base quarter) is
+missing for that row and costs it coverage, like any other unreported input.
+
+**What supports it, and what does not yet.**
+
+- On the 2026-10-06 NSE run the 5.1 growth block had a rank correlation of 0.10
+  with latest-quarter earnings growth and -0.02 with consensus forward EPS
+  change: it did not see inflection.
+- Over 2026-08-17 to 2026-10-06 (2,282 NSE names, universe median -4.4%) the
+  bottom-to-top quintile medians were -6.6% to -1.1% for latest-quarter
+  earnings growth and -4.7% to -2.7% for the 5.1 growth block. Seven weeks in
+  one falling market, with quarter values read on 2026-10-06 rather than frozen
+  on the start date: a lead, not a validation.
+- **It has not been backtested.** The point-in-time archive holds annual
+  filings only. A frame in which neither figure is reported for any row scores
+  the annual inputs exactly as before, so the archive results in `docs/Review`
+  are unaffected, and equally say nothing about this change. The quarterly
+  filings backfill exists to close that gap; the 0.35 share is a judgment until
+  it does.
+- A price-and-volume breakout trigger was tested on the archive at the same
+  time (about 4,800 events, 2018-11 to 2026-02) and is **not** used: its median
+  six-month return was about 1.2% above the universe, no better than a plain
+  new 52-week high, and a volume spike alone was negative.
+
+On the 2026-10-06 cross-section the change moves the median name 55 places of
+2,312 and keeps 43 of the top 50.
+
+### Model 5.2 transcript evidence: both directions, against the median call
+
+Through 5.1 a transcript could only lower a score (the section "Downside-only
+transcript evidence" below describes that policy, which
+`TRANSCRIPT_TWO_SIDED=False` restores). In 5.2:
+
+```text
+Evidence_Score = Score_After_DCF
+                 + w_tx * (Transcript_Effective_Score - median scored call)
+```
+
+`w_tx` is unchanged: 0.15 at most, decayed by age and tapered near the next
+reporting cycle, about 0.10 for a typical call. The reference is the median
+of the calls scored in that run, not 50, because management tone is upbeat by
+default -- 94% of scored calls were above 50 on 2026-10-06 (median 65), and
+calls are held mostly by large companies (83% of the largest fifth by market
+cap against 3% of the smallest). Against 50, upside evidence would be a size
+bonus. Against the median, half the covered names gain and half lose; a company
+with no eligible call is not adjusted at all. With fewer than
+`TRANSCRIPT_NEUTRAL_MIN_CALLS` (30) scored calls the reference falls back to 50.
+
+Evidence: for calls held April-June 2026, entered two sessions after the call,
+the top fifth by score returned +4.6% above the liquid universe over the next
+three months and the bottom fifth -0.1% (1,169 calls, rank correlation 0.10;
+0.02 at one month). One results season, and not separated from momentum, so
+the weight is left small: a top-5% call adds about 1.3 points to a percentile
+score. The score is still the word-list tone score; structured extraction is
+planned to replace it once it can be compared against returns.
+
+### Model 5.2 block weights: value 0.25 to 0.15
+
+The ten points value gives up are split equally between growth (0.20 to 0.25)
+and momentum (0.25 to 0.30). Quality stays 0.25 and risk 0.05.
+
+A declared ladder (`VALUE_WEIGHT_GRID` in `backtest/strategies.py`) was run
+over four windows. Fundamentals after FY2024 are not in the filing archive, so
+FY2025 and FY2026 came from the stored vendor statements, dated 61 days after
+the period end (the filing deadline); on FY2024, where both sources exist, the
+median vendor-to-archive ratio is 1.00 for revenue, profit and equity.
+
+Top-20 return over the following three months, against the equal-weight
+universe, net of costs:
+
+| Window | Rebalances | 0.25 | 0.15 | 0.10 | 0.00 | Value only |
+|---|---|---|---|---|---|---|
+| 2018-11 to 2020-06 | 20 | +9.0 | +9.4 | +8.0 | +5.7 | +9.4 |
+| 2020-07 to 2025-01 | 55 | +5.5 | +3.9 | +2.6 | -0.1 | +9.2 |
+| 2025-02 to 2025-09 | 8 | +2.3 | +4.0 | +4.7 | +1.9 | +1.9 |
+| 2025-10 to 2026-09 | 12 | +2.1 | +4.4 | +3.5 | +4.6 | -1.2 |
+
+**This is a regime judgment, not a validated improvement.** Value led through
+2024 and has lagged since early 2025; 0.15 is better in three windows and worse
+in the longest one, where the response to cutting value is ordered and
+negative. The whole-universe rank correlation improves only in the last twelve
+months. 0.15 was chosen because it is the smallest step that captures most of
+the recent gain and it keeps value as a real input; removing value was the
+worst variant in the main window. The first two windows were also used to
+choose the 5.1 weights, which flatters 0.25 there.
 
 ## Legacy Model v4 score and decision contract
 

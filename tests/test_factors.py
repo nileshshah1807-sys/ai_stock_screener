@@ -310,5 +310,51 @@ class BlockTests(unittest.TestCase):
         pd.testing.assert_frame_equal(frame, before)
 
 
+class LatestQuarterGrowthTests(unittest.TestCase):
+    """The latest reported quarter is growth evidence, between annual filings."""
+
+    def with_quarter(self, frame):
+        rng = np.random.default_rng(11)
+        frame = frame.copy()
+        frame["Revenue_Growth"] = rng.uniform(-0.2, 0.6, len(frame))
+        frame["Earnings_Growth"] = rng.uniform(-0.5, 1.5, len(frame))
+        return frame
+
+    def test_a_frame_without_quarter_figures_scores_as_before(self):
+        # The point-in-time archive carries annual filings only. Offering it
+        # two inputs nobody reports must not shrink every row toward neutral.
+        class Annual(Config):
+            FACTOR_GROWTH_QUARTER_SHARE = 0.0
+
+        default = FactorModel(Config).score(universe(), CONTEXT)
+        annual = FactorModel(Annual).score(universe(), CONTEXT)
+        pd.testing.assert_series_equal(default["Growth_Score"], annual["Growth_Score"])
+        self.assertTrue((default["Growth_Coverage"] == 1.0).all())
+
+    def test_a_strong_quarter_lifts_the_growth_block(self):
+        frame = self.with_quarter(universe())
+        before = FactorModel(Config).score(frame, CONTEXT)
+        frame.loc[0, ["Revenue_Growth", "Earnings_Growth"]] = [5.0, 9.0]
+        after = FactorModel(Config).score(frame, CONTEXT)
+        self.assertGreater(after.loc[0, "Growth_Score"], before.loc[0, "Growth_Score"])
+
+    def test_quarter_inputs_carry_their_declared_share(self):
+        frame = self.with_quarter(universe())
+        frame.loc[0, ["Revenue_Growth", "Earnings_Growth"]] = np.nan
+        scored = FactorModel(Config).score(frame, CONTEXT)
+        # Unreported for one company among many: that row loses the share,
+        # everyone else keeps full coverage.
+        self.assertAlmostEqual(scored.loc[0, "Growth_Coverage"], 0.65, places=4)
+        self.assertTrue((scored.loc[1:, "Growth_Coverage"] == 1.0).all())
+
+    def test_share_of_zero_ignores_the_quarter(self):
+        class Annual(Config):
+            FACTOR_GROWTH_QUARTER_SHARE = 0.0
+
+        plain = FactorModel(Annual).score(universe(), CONTEXT)
+        quarter = FactorModel(Annual).score(self.with_quarter(universe()), CONTEXT)
+        pd.testing.assert_series_equal(plain["Growth_Score"], quarter["Growth_Score"])
+
+
 if __name__ == "__main__":
     unittest.main()

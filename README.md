@@ -161,6 +161,16 @@ limits are in
 Both thresholds remain env-overridable, so the previous policy is one variable
 away.
 
+**Model 5.2.0 reads the latest quarter.** The growth block was built from
+annual statements only; 35% of it now comes from latest-quarter revenue and
+earnings growth against the year-ago quarter (`FACTOR_GROWTH_QUARTER_SHARE`,
+0 restores 5.1). The block weights also change: value 0.25 -> 0.15, growth
+0.20 -> 0.25, momentum 0.25 -> 0.30, after a four-window ladder in which the
+lower value weight won the three windows outside 2020-2024 and lost that one.
+The quarter inputs have not been backtested -- the archive holds annual
+filings only -- so the evidence and its limits are stated in
+[`docs/model_methodology.md`](docs/model_methodology.md).
+
 **Recommendation policy 5.3.0 gives the STRONG BUY stack a 2% band**
 (`STRONG_BUY_MA50_TOLERANCE` 0.98). The stack required `price > MA50 > MA200`
 exactly, so a stock sitting on its 50-day average flipped between STRONG BUY and
