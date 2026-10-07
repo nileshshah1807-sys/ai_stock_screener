@@ -25,12 +25,15 @@ from backtest.runner import (
     rebalance_dates,
 )
 from backtest.strategies import (
+    VALUE_WEIGHT_GRID,
     EqualWeightUniverse,
+    Model5BlockWeightVariant,
     MomentumOnly,
     MomentumRiskBlend,
     RandomRanking,
     RiskOnly,
     attach_market_relative,
+    value_weight_strategies,
     weighted_block,
 )
 
@@ -485,3 +488,27 @@ class RandomNullReproducibilityTests(unittest.TestCase):
             RandomRanking(seed=7).score(self.frame())["Score"].tolist(),
             RandomRanking(seed=8).score(self.frame())["Score"].tolist(),
         )
+
+
+class ValueWeightLadderTests(unittest.TestCase):
+    def test_every_step_is_a_full_blend_with_less_value_than_the_last(self):
+        values = [weights["Value"] for weights in VALUE_WEIGHT_GRID.values()]
+        self.assertEqual(values, sorted(values, reverse=True))
+        self.assertEqual(values[0], 0.25)
+        for name, weights in VALUE_WEIGHT_GRID.items():
+            with self.subTest(name=name):
+                self.assertAlmostEqual(sum(weights.values()), 1.0)
+                # Quality and risk are held at production so the ladder varies
+                # one thing.
+                self.assertEqual(weights["Quality"], 0.25)
+                self.assertEqual(weights["Risk"], 0.05)
+
+    def test_variants_carry_their_weights_without_sharing_a_config(self):
+        _, first, second, _ = value_weight_strategies()
+        self.assertEqual(first.config.FACTOR_WEIGHT_VALUE, 0.15)
+        self.assertEqual(second.config.FACTOR_WEIGHT_VALUE, 0.10)
+        self.assertIsNot(first.config, second.config)
+
+    def test_an_unknown_block_is_rejected(self):
+        with self.assertRaises(ValueError):
+            Model5BlockWeightVariant("bad", {"Sentiment": 1.0})

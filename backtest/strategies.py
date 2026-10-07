@@ -540,6 +540,52 @@ def growth_reweight_strategies():
     )
 
 
+class Model5BlockWeightVariant(Model5):
+    """Model 5.1 with the five block weights replaced by a declared set.
+
+    Everything inside each block is the production object; only the blend
+    changes. For the value-weight ladder below.
+    """
+
+    produces_model5 = False
+
+    def __init__(self, name, weights, config=None):
+        super().__init__(config=config)
+        self.name = name
+        self.config = copy.copy(self.config)
+        for block, weight in weights.items():
+            key = f"FACTOR_WEIGHT_{block.upper()}"
+            if not hasattr(self.config, key):
+                raise ValueError(f"unknown factor block: {block}")
+            setattr(self.config, key, float(weight))
+
+
+# Value stepped down from 0.25, the weight it gives up split equally between
+# growth and momentum; quality and risk held fixed so the ladder varies one
+# thing. Declared 2026-10-07, before it was run, to ask whether the last
+# twelve months reward a lower value weight -- and run over the earlier
+# windows too, so a recent-regime effect is not mistaken for a durable one.
+#
+# NOTE: Model 5.2 adopted 0.15, so `model_5` and `v1_value_15` now score
+# identically and `v0_value_25` is the former production blend. The recorded
+# results were produced with 0.25 as `model_5`. Kept so the ladder stays
+# reproducible, as with the gate grid above.
+VALUE_WEIGHT_GRID = {
+    "v0_value_25": {"Quality": 0.25, "Growth": 0.20, "Value": 0.25, "Momentum": 0.25, "Risk": 0.05},
+    "v1_value_15": {"Quality": 0.25, "Growth": 0.25, "Value": 0.15, "Momentum": 0.30, "Risk": 0.05},
+    "v2_value_10": {"Quality": 0.25, "Growth": 0.275, "Value": 0.10, "Momentum": 0.325, "Risk": 0.05},
+    "v3_value_00": {"Quality": 0.25, "Growth": 0.325, "Value": 0.0, "Momentum": 0.375, "Risk": 0.05},
+}
+
+
+def value_weight_strategies():
+    """The declared value-weight ladder as strategy objects, in declared order."""
+    return tuple(
+        Model5BlockWeightVariant(f"model_5_{name}", weights)
+        for name, weights in VALUE_WEIGHT_GRID.items()
+    )
+
+
 class Model5GateVariant(Model5Gated):
     """`model_5_gated` with selected gate thresholds overridden.
 

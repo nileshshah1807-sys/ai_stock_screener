@@ -314,6 +314,56 @@ class RecommendationPolicyTests(unittest.TestCase):
             0.0,
         )
 
+    def two_sided_frame(self):
+        return pd.DataFrame(
+            [
+                row(
+                    symbol,
+                    60.0,
+                    Transcript_Blend_Eligible=True,
+                    Transcript_Blend_Weight=0.10,
+                    Transcript_Effective_Score=score,
+                )
+                for symbol, score in (("WEAK", 55.0), ("MID", 65.0), ("STRONG", 80.0))
+            ]
+            + [row("NO_CALL", 60.0)]
+        )
+
+    def two_sided_config(self, minimum=3):
+        settings = config()
+        settings.TRANSCRIPT_TWO_SIDED = True
+        settings.TRANSCRIPT_NEUTRAL_MIN_CALLS = minimum
+        return settings
+
+    def test_two_sided_transcript_is_measured_against_the_median_call(self):
+        result = finalize_recommendations(
+            self.two_sided_frame(), self.two_sided_config()
+        ).set_index("Symbol")
+
+        # 55 is above 50 and still an adverse call: most calls are upbeat, so
+        # the reference is the median scored call (65), not the scale midpoint.
+        self.assertEqual(result.loc["WEAK", "Evidence_Score"], 59.0)
+        self.assertEqual(result.loc["MID", "Evidence_Score"], 60.0)
+        self.assertEqual(result.loc["STRONG", "Evidence_Score"], 61.5)
+        self.assertEqual(result.loc["STRONG", "Transcript_Applied_Direction"], "upside")
+        self.assertEqual(result.loc["STRONG", "Transcript_Neutral_Score"], 65.0)
+
+    def test_two_sided_transcript_leaves_a_company_without_a_call_alone(self):
+        result = finalize_recommendations(
+            self.two_sided_frame(), self.two_sided_config()
+        ).set_index("Symbol")
+
+        self.assertEqual(result.loc["NO_CALL", "Evidence_Score"], 60.0)
+        self.assertEqual(result.loc["NO_CALL", "Transcript_Evidence_Contribution"], 0.0)
+
+    def test_two_sided_transcript_falls_back_to_fifty_on_a_thin_run(self):
+        result = finalize_recommendations(
+            self.two_sided_frame(), self.two_sided_config(minimum=30)
+        ).set_index("Symbol")
+
+        self.assertEqual(result.loc["WEAK", "Transcript_Neutral_Score"], 50.0)
+        self.assertEqual(result.loc["WEAK", "Evidence_Score"], 60.5)
+
     def test_downside_policy_overrides_promotional_evidence(self):
         source = pd.DataFrame(
             [

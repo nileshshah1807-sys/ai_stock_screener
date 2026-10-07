@@ -81,7 +81,7 @@ jobs:
       RUN_MANIFEST_ENABLED: "True"
 
       FACTOR_MODEL_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && 'True' || 'False' }}
-      MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.1.0' || '4.0.0-candidate' }}
+      MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.2.0' || '4.0.0-candidate' }}
       RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.3.0' || '4.0.0-candidate' }}
       OUTPUT_SCHEMA_VERSION: "4.2.0"
       # Deliberately not the NSE line. The model's point-in-time validation was

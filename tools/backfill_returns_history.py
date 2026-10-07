@@ -7,7 +7,10 @@ reaches further back with the point-in-time backtest, and writes two tables
 * ``simulated_rankings`` -- the Model 5 top N on the last session of every week
   from November 2018 until the day before the first published ranking, keyed by
   each security's *current* ticker so it joins to ``price_series`` across
-  renames. In-sample: the 5.1 weights were fitted on this period.
+  renames. In-sample: the block weights were chosen on this period. Scored
+  with whatever weights `screener.runtime.Config` carries when ``build`` runs
+  (5.2.0 since 2026-10-07); the archive has no quarterly figures or
+  transcripts, so those two 5.2 inputs are absent from this history.
 * ``universe_index`` -- the equal-weight one-session return of every ranked
   stock, from the backtest's price panel before the live record and from
   published prices after it. The daily publisher appends to it from then on.
@@ -21,6 +24,8 @@ publishing should not have to repeat it::
     python -m tools.backfill_returns_history annotate-live --dry-run
 
 ``build`` needs the local backtest archive (``reports_advanced/backtest``).
+Pass ``--root reports_advanced/backtest_ext`` (``tools.extend_fundamental_panel``)
+so weeks after mid-2025 score on FY2025/FY2026 statements instead of FY2024's.
 ``publish`` reads the live record from Supabase to extend the index past the
 archive, so it needs SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, read from the
 environment or ``.env``. NSE only for now: the US has no point-in-time archive.
@@ -48,7 +53,7 @@ logger = logging.getLogger("backfill_returns_history")
 DEFAULT_ROOT = Path("reports_advanced/backtest")
 DEFAULT_START = dt.date(2018, 11, 1)
 TOP_N = 50
-MODEL_VERSION = "5.1.0-backtest"
+MODEL_VERSION = "5.2.0-backtest"
 
 
 # ---------------------------------------------------------------------------

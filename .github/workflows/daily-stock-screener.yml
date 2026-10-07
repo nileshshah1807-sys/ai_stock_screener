@@ -58,7 +58,9 @@ jobs:
       # 5.1.0: value/quality reweighting and research-first ranking, both
       # justified in docs/Review/p0_implementation_plan.md §8. Semantic ranking
       # change, so the version bumps per the contract in screener/runtime.py.
-      MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.1.0' || '4.0.0-candidate' }}
+      # 5.2.0: the latest reported quarter enters the growth block
+      # (FACTOR_GROWTH_QUARTER_SHARE); see docs/model_methodology.md.
+      MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.2.0' || '4.0.0-candidate' }}
       RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.3.0' || '4.0.0-candidate' }}
       OUTPUT_SCHEMA_VERSION: "4.2.0"
       MODEL_VALIDATION_STATUS: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && 'Production active; point-in-time validated over four windows incl. 2018-2020 drawdown; weights fitted in-sample, forward validation pending' || 'Research model; point-in-time out-of-sample validation pending' }}

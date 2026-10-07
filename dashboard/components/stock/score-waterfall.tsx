@@ -12,7 +12,7 @@ import type { SnapshotRowWithPayload } from "@/lib/types";
  *
  *   Starting score = v4 core OR Model 5.0 research score
  *   After DCF     = Core + w_dcf * (DCF_Valuation_Score - 50)
- *   Evidence      = After DCF + w_tx * min(Transcript_Effective - 50, 0)
+ *   Evidence      = After DCF + w_tx * (Transcript_Effective - median scored call)
  *   Decision      = min(Evidence, applicable policy ceiling)
  *
  * Since Model 5.1 a *policy* gate no longer lowers the ceiling -- it is reported
@@ -148,7 +148,7 @@ export function buildStages(row: SnapshotRowWithPayload): Stage[] {
       to: evidence,
       kind: "delta",
       note: transcriptEligible
-        ? `${row.transcript_status}: downside-only, so this stage can subtract but never add.`
+        ? `${row.transcript_status}: measured against the median scored call of the run, so this stage can add or subtract.`
         : `${row.transcript_status ?? "No transcript"}. Contributes zero and does not cap the rating.`,
     },
     {

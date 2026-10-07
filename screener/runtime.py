@@ -320,6 +320,15 @@ class Config:
     # --- Earnings transcript sentiment ---
     TRANSCRIPT_SENTIMENT_ENABLED = _env_bool("TRANSCRIPT_SENTIMENT_ENABLED", True)
     TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 0.15)
+    # Model 5.2: transcript evidence moves the score both ways, measured against
+    # the median scored call of the run instead of 50. False restores the
+    # downside-only policy. Over the April-June 2026 calls the top fifth by
+    # score returned +4.6% above the universe in the following three months and
+    # the bottom fifth -0.1% (1,169 calls, one results season).
+    TRANSCRIPT_TWO_SIDED = _env_bool("TRANSCRIPT_TWO_SIDED", True)
+    # Below this many scored calls the run median is not a stable centre, so
+    # the adjustment falls back to 50.
+    TRANSCRIPT_NEUTRAL_MIN_CALLS = _env_int("TRANSCRIPT_NEUTRAL_MIN_CALLS", 30)
     REQUIRE_TRANSCRIPT_FOR_STRONG_BUY = _env_bool("REQUIRE_TRANSCRIPT_FOR_STRONG_BUY", False)
     TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS = _env_int("TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS", 180)
     TRANSCRIPT_MIN_PRIORITY_SCORE = _env_float("TRANSCRIPT_MIN_PRIORITY_SCORE", 55.0)
@@ -356,10 +365,21 @@ class Config:
     # (-1.4/-9.9/-3.7/-17.2), including both windows where quality had real
     # balance-sheet inputs. Ten points move from the block that never worked to
     # the only block that always did. See docs/Review/p0_implementation_plan.md.
+    #
+    # Model 5.2 weights: value 0.25 -> 0.15, the ten points split equally
+    # between growth and momentum. Value alone led the universe through
+    # 2018-2024 and has not since: over 2025-10..2026-09 its top 20 returned
+    # -1.2% a quarter against the universe, and the 0.15 blend beat the 0.25
+    # blend in three of four windows (bear +9.4 vs +9.0, 2025-02..09 +4.0 vs
+    # +2.3, last twelve months +4.4 vs +2.1 top-20 3M excess, net). It cost
+    # 1.5 points a quarter in 2020-07..2025-01 (+3.9 vs +5.5), and removing
+    # value altogether was the worst variant in that window, so this is a
+    # reduction and not a removal. Set the three variables to 0.20/0.25/0.25
+    # to restore 5.1. See docs/model_methodology.md.
     FACTOR_WEIGHT_QUALITY = _env_float("FACTOR_WEIGHT_QUALITY", 0.25)
-    FACTOR_WEIGHT_GROWTH = _env_float("FACTOR_WEIGHT_GROWTH", 0.20)
-    FACTOR_WEIGHT_VALUE = _env_float("FACTOR_WEIGHT_VALUE", 0.25)
-    FACTOR_WEIGHT_MOMENTUM = _env_float("FACTOR_WEIGHT_MOMENTUM", 0.25)
+    FACTOR_WEIGHT_GROWTH = _env_float("FACTOR_WEIGHT_GROWTH", 0.25)
+    FACTOR_WEIGHT_VALUE = _env_float("FACTOR_WEIGHT_VALUE", 0.15)
+    FACTOR_WEIGHT_MOMENTUM = _env_float("FACTOR_WEIGHT_MOMENTUM", 0.30)
     FACTOR_WEIGHT_RISK = _env_float("FACTOR_WEIGHT_RISK", 0.05)
     # Within-block weight override for the growth block, keyed by the input
     # names in screener.factors.GROWTH_FEATURES. `None` means "use the module
@@ -370,6 +390,13 @@ class Config:
     # rejected rather than silently ignored, and the weights are renormalized
     # so a variant cannot change the block's total influence by accident.
     FACTOR_GROWTH_FEATURE_WEIGHTS = None
+    # Model 5.2: share of the growth block carried by the latest reported
+    # quarter (revenue and earnings against the same quarter a year earlier).
+    # The annual inputs are scaled into the remainder. 0 restores 5.1 exactly.
+    # Not yet backtested -- the archive holds annual filings only -- so the
+    # share is a judgment, sized so a single quarter cannot outvote the
+    # three-year record. See docs/model_methodology.md.
+    FACTOR_GROWTH_QUARTER_SHARE = _env_float("FACTOR_GROWTH_QUARTER_SHARE", 0.35)
     # Rank each factor inside its own sector where the sector has enough usable
     # peers. A utility and a software company do not share a normal ROIC, growth
     # rate, or earnings yield, so a single market-wide percentile would encode a

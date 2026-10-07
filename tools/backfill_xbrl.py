@@ -15,6 +15,11 @@ Usage::
     python -m tools.backfill_xbrl --workers 8
     python -m tools.backfill_xbrl --max-docs 500     # bounded trial run
     python -m tools.backfill_xbrl --status
+    python -m tools.backfill_xbrl --period quarterly --fetch-metadata
+
+``--period quarterly`` keeps its own metadata file (``filings_quarterly.csv``)
+and document directory (``xbrl_quarterly/``), so the annual archive every
+recorded backtest was run against is never rewritten by it.
 
 Resumable: a document already cached is never re-fetched, so interrupting this
 and re-running it costs nothing. Documents are keyed by the exchange's own
@@ -41,6 +46,15 @@ logger = logging.getLogger("xbrl")
 
 DEFAULT_ROOT = Path("reports_advanced/backtest")
 DEFAULT_WORKERS = 6
+PERIODS = ("annual", "quarterly")
+
+
+def metadata_path(root, period="annual"):
+    return Path(root) / f"filings_{period}.csv"
+
+
+def document_dir(period="annual"):
+    return "xbrl" if period == "annual" else f"xbrl_{period}"
 
 # nsearchives serves static files but still rejects requests without a
 # browser-shaped User-Agent and a matching Referer.
@@ -54,19 +68,19 @@ HEADERS = {
 }
 
 
-def document_path(root, seq_number, period_end):
+def document_path(root, seq_number, period_end, period="annual"):
     """Cache path for one filing, sharded by period year to bound directory size."""
     year = str(period_end)[:4] or "unknown"
-    return Path(root) / "xbrl" / year / f"{seq_number}.xml.gz"
+    return Path(root) / document_dir(period) / year / f"{seq_number}.xml.gz"
 
 
-def load_targets(root, *, ind_as_only=True):
+def load_targets(root, *, ind_as_only=True, period="annual"):
     """Filings that need an XBRL document, from the filing-metadata cache."""
-    path = Path(root) / "filings_annual.csv"
+    path = metadata_path(root, period)
     if not path.exists():
         raise SystemExit(
             f"No filing metadata at {path}. Run the filing stage first:\n"
-            "  python -m tools.backfill_xbrl --fetch-metadata"
+            f"  python -m tools.backfill_xbrl --period {period} --fetch-metadata"
         )
     frame = pd.read_csv(path, dtype={"ISIN": str, "Seq_Number": str})
     frame = frame[frame["XBRL_URL"].astype(str).str.startswith("http")]
@@ -77,11 +91,11 @@ def load_targets(root, *, ind_as_only=True):
     return frame.reset_index(drop=True)
 
 
-def fetch_metadata(root, start_year, end_year):
+def fetch_metadata(root, start_year, end_year, period="annual"):
     from backtest.filings import FilingStore
 
-    store = FilingStore(Path(root) / "filings_annual.csv")
-    frame = store.fetch(start_year, end_year, period="annual")
+    store = FilingStore(metadata_path(root, period))
+    frame = store.fetch(start_year, end_year, period=period)
     logger.info(
         "Filing metadata: %d rows, %d Ind-AS, %d unique securities",
         len(frame),
@@ -94,8 +108,11 @@ def fetch_metadata(root, start_year, end_year):
 class Downloader:
     """Thread-pooled fetcher with per-thread sessions and bounded retries."""
 
-    def __init__(self, root, *, workers=DEFAULT_WORKERS, timeout=60, retries=3):
+    def __init__(
+        self, root, *, workers=DEFAULT_WORKERS, timeout=60, retries=3, period="annual"
+    ):
         self.root = Path(root)
+        self.period = period
         self.workers = int(workers)
         self.timeout = int(timeout)
         self.retries = int(retries)
@@ -195,7 +212,7 @@ class Downloader:
         jobs = []
         for record in targets:
             path = document_path(
-                self.root, record["Seq_Number"], record["Period_End"]
+                self.root, record["Seq_Number"], record["Period_End"], self.period
             )
             jobs.append((record["XBRL_URL"], path))
 
@@ -211,17 +228,18 @@ class Downloader:
         return time.monotonic() - started
 
 
-def run_status(root):
+def run_status(root, period="annual"):
     root = Path(root)
-    metadata = root / "filings_annual.csv"
-    cached = list((root / "xbrl").glob("*/*.xml.gz")) if (root / "xbrl").exists() else []
+    metadata = metadata_path(root, period)
+    documents = root / document_dir(period)
+    cached = list(documents.glob("*/*.xml.gz")) if documents.exists() else []
     total_bytes = sum(path.stat().st_size for path in cached)
     print(f"archive root       : {root}")
     print(f"filing metadata    : {'present' if metadata.exists() else 'MISSING'}")
     if metadata.exists():
-        targets = load_targets(root)
+        targets = load_targets(root, period=period)
         target_paths = {
-            document_path(root, row["Seq_Number"], row["Period_End"])
+            document_path(root, row["Seq_Number"], row["Period_End"], period)
             for row in targets.to_dict("records")
         }
         cached_targets = sum(path.exists() for path in target_paths)
@@ -246,6 +264,7 @@ def main(argv=None):
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--fetch-metadata", action="store_true",
                         help="refresh the filing-metadata cache first")
+    parser.add_argument("--period", choices=PERIODS, default="annual")
     parser.add_argument("--start-year", type=int, default=2018)
     parser.add_argument("--end-year", type=int, default=2025)
     parser.add_argument("--include-non-ind-as", action="store_true",
@@ -257,19 +276,23 @@ def main(argv=None):
     )
 
     if args.status:
-        return run_status(args.root)
+        return run_status(args.root, args.period)
 
     if args.fetch_metadata:
-        fetch_metadata(args.root, args.start_year, args.end_year)
+        fetch_metadata(args.root, args.start_year, args.end_year, args.period)
 
-    targets = load_targets(args.root, ind_as_only=not args.include_non_ind_as)
+    targets = load_targets(
+        args.root, ind_as_only=not args.include_non_ind_as, period=args.period
+    )
     records = targets.to_dict("records")
 
     root = Path(args.root)
     pending = [
         record
         for record in records
-        if not document_path(root, record["Seq_Number"], record["Period_End"]).exists()
+        if not document_path(
+            root, record["Seq_Number"], record["Period_End"], args.period
+        ).exists()
     ]
     logger.info(
         "%d Ind-AS filings, %d already cached, %d to download",
@@ -293,7 +316,11 @@ def main(argv=None):
     )
 
     downloader = Downloader(
-        args.root, workers=args.workers, timeout=args.timeout, retries=args.retries
+        args.root,
+        workers=args.workers,
+        timeout=args.timeout,
+        retries=args.retries,
+        period=args.period,
     )
 
     def on_progress(done, total, elapsed):

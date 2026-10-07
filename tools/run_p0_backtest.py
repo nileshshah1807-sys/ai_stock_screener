@@ -257,6 +257,11 @@ def main(argv=None):
             "(T1-T5); see docs/Review/p3_stage_timing_preregistration.md"
         ),
     )
+    parser.add_argument(
+        "--value-weight-grid",
+        action="store_true",
+        help="also run the value-weight ladder (V1-V3); see backtest/strategies.py",
+    )
     parser.add_argument("--position-size", type=float, default=100_000.0)
     parser.add_argument("--half-spread", type=float, default=0.0010)
     parser.add_argument("--impact-coefficient", type=float, default=0.10)
@@ -335,6 +340,7 @@ def main(argv=None):
         gate_relaxation_strategies,
         growth_reweight_strategies,
         timing_strategies,
+        value_weight_strategies,
     )
 
     dates = rebalance_dates(archive["calendar"], start, end, frequency=args.frequency)
@@ -373,6 +379,13 @@ def main(argv=None):
                 "read quality and growth percentiles"
             )
         strategies.extend(gate_relaxation_strategies())
+    if args.value_weight_grid:
+        if not args.with_fundamentals:
+            raise SystemExit(
+                "--value-weight-grid needs --with-fundamentals: the blocks it "
+                "reweights have no inputs without the fundamental panel"
+            )
+        strategies.extend(value_weight_strategies())
     if args.timing_grid:
         if not args.with_fundamentals:
             raise SystemExit(

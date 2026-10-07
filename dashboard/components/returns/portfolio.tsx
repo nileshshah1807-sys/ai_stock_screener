@@ -342,7 +342,7 @@ function History({
   const visible = newestFirst.slice(0, shown);
   const remaining = newestFirst.length - visible.length;
   const model = (trade: TradeRound) =>
-    trade.backtest ? "Model 5.1" : (modelForDate(market.code, trade.rankDate) ?? "an unknown model");
+    trade.backtest ? "Model 5.2" : (modelForDate(market.code, trade.rankDate) ?? "an unknown model");
   // The group heading, and the same source as it reads inside a sentence.
   const source = (trade: TradeRound) => `${trade.backtest ? "Backtest" : "Published"} · ${model(trade)}`;
   const phrase = (trade: TradeRound) =>
