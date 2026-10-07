@@ -3,6 +3,15 @@ from unittest.mock import patch
 
 from sentiment.analyzer import aggregate_sentiments, analyze_transcript
 from sentiment.local_analyzer import LocalSentimentAnalyzer
+from sentiment.outlook import (
+    SCHEMA,
+    build_messages,
+    outlook_points,
+    outlook_score,
+    parse_response,
+    quote_found,
+    verify_quotes,
+)
 from sentiment.schemas import ChunkSentiment
 from transcripts.chunker import TranscriptChunk
 
@@ -238,6 +247,223 @@ It is 35% plus growth for the current year and 30% to 35% for the next three yea
         result = aggregate_sentiments(analyses, chunks)
 
         self.assertEqual(result["guidance_direction"], "lowered")
+
+
+CALL = """Management: We are raising our revenue growth guidance for FY27 to 30%
+from 25% earlier. Our order book stands at Rs 4,200 crore, which is 2.5 years of
+revenue. The new Hosur plant started commercial production in July. Demand from
+export customers remains very strong. We expect raw material costs to keep
+margins under pressure for two more quarters."""
+
+
+def extraction(**overrides):
+    base = {
+        "guidance": {
+            "direction": "raised", "metric": "revenue growth", "growth_pct": 30,
+            "quote": "We are raising our revenue growth guidance for FY27 to 30% from 25% earlier.",
+        },
+        "order_book": {
+            "value_inr_crore": 4200, "revenue_cover_years": 2.5, "trend": "up",
+            "quote": "Our order book stands at Rs 4,200 crore, which is 2.5 years of revenue.",
+        },
+        "capacity": {
+            "state": "ramping", "commissioning": "2026-07",
+            "quote": "The new Hosur plant started commercial production in July.",
+        },
+        "demand": {"tone": "strong", "quote": "Demand from export customers remains very strong."},
+        "margin": {
+            "trend": "down",
+            "quote": "We expect raw material costs to keep margins under pressure for two more quarters.",
+        },
+        "tailwinds": [],
+        "headwinds": [],
+    }
+    base.update(overrides)
+    return base
+
+
+class OutlookQuoteTests(unittest.TestCase):
+    def test_a_quote_survives_line_breaks_and_case(self):
+        verified, kept, dropped = verify_quotes(extraction(), CALL)
+        # The guidance sentence wraps across two lines in the transcript.
+        self.assertEqual(verified["guidance"]["direction"], "raised")
+        self.assertEqual((kept, dropped), (5, 0))
+
+    def test_an_invented_figure_is_cleared_and_counted(self):
+        invented = extraction(
+            order_book={
+                "value_inr_crore": 9000, "revenue_cover_years": 5, "trend": "up",
+                "quote": "Our order book has crossed Rs 9,000 crore, five years of revenue.",
+            }
+        )
+        verified, kept, dropped = verify_quotes(invented, CALL)
+        self.assertIsNone(verified["order_book"]["value_inr_crore"])
+        self.assertEqual(verified["order_book"]["trend"], "unknown")
+        self.assertEqual((kept, dropped), (4, 1))
+
+    def test_a_claim_without_a_quote_is_not_kept(self):
+        unquoted = extraction(demand={"tone": "strong", "quote": None})
+        verified, _, dropped = verify_quotes(unquoted, CALL)
+        self.assertEqual(verified["demand"]["tone"], "unknown")
+        self.assertEqual(dropped, 1)
+
+    def test_a_section_that_claims_nothing_is_neither_kept_nor_dropped(self):
+        silent = extraction(capacity={"state": "none", "commissioning": None, "quote": None})
+        _, kept, dropped = verify_quotes(silent, CALL)
+        self.assertEqual((kept, dropped), (4, 0))
+
+    def test_a_two_word_quote_proves_nothing(self):
+        self.assertFalse(quote_found("very strong", "demand remains very strong"))
+
+    def test_list_items_are_checked_one_by_one(self):
+        listed = extraction(
+            tailwinds=[
+                {"what": "new plant", "quote": "The new Hosur plant started commercial production in July."},
+                {"what": "PLI approval", "quote": "We have received approval under the PLI scheme this quarter."},
+            ]
+        )
+        verified, kept, dropped = verify_quotes(listed, CALL)
+        self.assertEqual([item["what"] for item in verified["tailwinds"]], ["new plant"])
+        self.assertEqual((kept, dropped), (6, 1))
+
+
+class OutlookScoreTests(unittest.TestCase):
+    def score(self, **overrides):
+        verified, _, _ = verify_quotes(extraction(**overrides), CALL)
+        return outlook_score(verified), dict(outlook_points(verified))
+
+    def test_a_call_that_says_nothing_is_neutral(self):
+        verified, _, _ = verify_quotes({}, CALL)
+        self.assertEqual(outlook_score(verified), 50.0)
+        self.assertEqual(outlook_points(verified), [])
+
+    def test_each_verified_item_moves_the_score_by_its_declared_points(self):
+        score, points = self.score()
+        self.assertEqual(points["guidance raised"], 15.0)
+        self.assertEqual(points["guided revenue growth 25% or more"], 10.0)
+        self.assertEqual(points["order book rising"], 8.0)
+        self.assertEqual(points["order book covers two years or more of revenue"], 6.0)
+        self.assertEqual(points["new capacity producing"], 6.0)
+        self.assertEqual(points["demand outlook strong"], 8.0)
+        self.assertEqual(points["margin outlook worsening"], -8.0)
+        self.assertEqual(score, 95.0)
+
+    def test_lowered_guidance_costs_more_than_raised_guidance_earns(self):
+        lowered = {"direction": "lowered", "metric": None, "growth_pct": None,
+                   "quote": "We are raising our revenue growth guidance for FY27 to 30% from 25% earlier."}
+        _, points = self.score(guidance=lowered)
+        self.assertEqual(points["guidance lowered"], -20.0)
+
+    def test_planned_capacity_is_worth_almost_nothing(self):
+        planned = {"state": "planned", "commissioning": None,
+                   "quote": "The new Hosur plant started commercial production in July."}
+        _, points = self.score(capacity=planned)
+        self.assertEqual(points["capacity planned"], 1.0)
+
+    def test_the_score_is_bounded(self):
+        verified, _, _ = verify_quotes(extraction(), CALL)
+        verified["tailwinds"] = [{"what": str(index), "quote": "q"} for index in range(3)]
+        self.assertLessEqual(outlook_score(verified), 100.0)
+
+
+class OutlookRequestTests(unittest.TestCase):
+    def test_messages_carry_the_company_and_the_transcript(self):
+        system, user = build_messages("Acme Ltd", "ACME", "2026-08-10", CALL)
+        self.assertEqual(system["role"], "system")
+        self.assertIn("Acme Ltd (ACME)", user["content"])
+        self.assertIn("order book stands at", user["content"])
+
+    def test_every_schema_section_is_required(self):
+        self.assertEqual(
+            set(SCHEMA["required"]),
+            {"guidance", "order_book", "capacity", "demand", "margin", "tailwinds", "headwinds"},
+        )
+
+    def test_a_fenced_response_is_still_parsed(self):
+        payload = {
+            "choices": [{"message": {"content": "```json\n{\"demand\": {\"tone\": \"weak\", \"quote\": null}}\n```"}}],
+            "usage": {"prompt_tokens": 12000, "completion_tokens": 300, "cost": 0.00096},
+        }
+        parsed, usage = parse_response(payload)
+        self.assertEqual(parsed["demand"]["tone"], "weak")
+        self.assertEqual(usage["prompt_tokens"], 12000)
+
+    def test_a_response_without_json_is_an_error(self):
+        with self.assertRaises(ValueError):
+            parse_response({"choices": [{"message": {"content": "I cannot help with that."}}]})
+        with self.assertRaises(ValueError):
+            parse_response({"choices": []})
+
+
+class OutlookRunTests(unittest.TestCase):
+    """The extraction run, with the API and the database replaced by fakes."""
+
+    def setUp(self):
+        from tools import extract_transcript_outlook as tool
+
+        self.tool = tool
+
+    def repository(self, texts):
+        saved = []
+
+        class Repository:
+            def restore_transcript_text(self, transcript):
+                return texts.get(transcript["id"])
+
+            def save_outlook(self, row):
+                saved.append(row)
+
+        return Repository(), saved
+
+    def fake_analyse(self, cost):
+        def analyse(session, api_key, transcript, text, *, model):
+            return {
+                "transcript_id": transcript["id"], "cost_usd": cost,
+                "verified_fields": 3, "unverified_fields": 1,
+            }
+
+        return analyse
+
+    def test_estimate_scales_with_transcript_length(self):
+        rows = [{"token_count": 10_000}, {"token_count": 12_000}]
+        estimate = self.tool.estimate_cost(rows, self.tool.DEFAULT_MODEL)
+        prompt = (10_000 + 12_000) * 1.25 + 2 * 1000
+        self.assertAlmostEqual(estimate, (prompt * 0.05 + 2 * 800 * 1.20) / 1_000_000)
+        self.assertIsNone(self.tool.estimate_cost(rows, "someone/unpriced-model"))
+
+    def test_text_is_restored_from_storage_and_the_row_saved(self):
+        repository, saved = self.repository({"t1": "archived call text"})
+        with patch.object(self.tool, "analyse_transcript", self.fake_analyse(0.002)):
+            summary = self.tool.run(
+                repository, [{"id": "t1", "cleaned_text": ""}], "key",
+                model="m", workers=1, budget=self.tool.Budget(1.0),
+            )
+        self.assertEqual(summary["extracted"], 1)
+        self.assertEqual((summary["verified"], summary["unverified"]), (3, 1))
+        self.assertEqual(saved[0]["transcript_id"], "t1")
+
+    def test_a_transcript_without_text_fails_without_stopping_the_run(self):
+        repository, saved = self.repository({"t2": "text"})
+        with patch.object(self.tool, "analyse_transcript", self.fake_analyse(0.002)):
+            summary = self.tool.run(
+                repository,
+                [{"id": "t1", "cleaned_text": ""}, {"id": "t2", "cleaned_text": ""}],
+                "key", model="m", workers=1, budget=self.tool.Budget(1.0),
+            )
+        self.assertEqual((summary["extracted"], summary["failed"]), (1, 1))
+        self.assertEqual([row["transcript_id"] for row in saved], ["t2"])
+
+    def test_the_run_stops_submitting_once_the_budget_is_spent(self):
+        repository, saved = self.repository({})
+        transcripts = [{"id": f"t{index}", "cleaned_text": "text"} for index in range(5)]
+        with patch.object(self.tool, "analyse_transcript", self.fake_analyse(0.5)):
+            summary = self.tool.run(
+                repository, transcripts, "key", model="m", workers=1,
+                budget=self.tool.Budget(1.0),
+            )
+        self.assertEqual(summary["extracted"], 2)
+        self.assertEqual(summary["skipped_budget"], 3)
+        self.assertEqual(len(saved), 2)
 
 
 if __name__ == "__main__":

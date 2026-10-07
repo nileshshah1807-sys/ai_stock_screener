@@ -66,6 +66,35 @@ create table if not exists transcript_sentiments (
     unique (transcript_id, model_name, analysis_version)
 );
 
+-- What a call said, as extracted by a language model (sentiment/outlook.py):
+-- guidance and whether it moved, order book, capacity, demand, margins. Kept
+-- apart from transcript_sentiments, which the screener reads for the word-list
+-- tone score, so writing here cannot change a published score. `extraction`
+-- holds only items whose quoted sentence was found in the transcript, plus the
+-- point breakdown behind `outlook_score`; `unverified_fields` counts the items
+-- that were dropped for failing that check.
+create table if not exists transcript_outlooks (
+    id uuid primary key default gen_random_uuid(),
+    transcript_id uuid not null references transcripts(id) on delete cascade,
+    market text not null default 'NSE' check (market in ('NSE', 'US')),
+    symbol text not null,
+    call_date date,
+    model_name text not null,
+    analysis_version text not null,
+    outlook_score numeric(5,2) not null check (outlook_score between 0 and 100),
+    verified_fields integer not null default 0,
+    unverified_fields integer not null default 0,
+    extraction jsonb not null,
+    prompt_tokens integer not null default 0,
+    completion_tokens integer not null default 0,
+    cost_usd numeric(10,6) not null default 0,
+    created_at timestamptz not null default now(),
+    unique (transcript_id, model_name, analysis_version)
+);
+
+create index if not exists transcript_outlooks_symbol_call_date_idx
+    on transcript_outlooks(market, symbol, call_date desc);
+
 create index if not exists transcripts_symbol_call_date_idx
     on transcripts(market, symbol, call_date desc);
 create index if not exists transcript_sentiments_transcript_idx on transcript_sentiments(transcript_id);
@@ -235,6 +264,7 @@ alter table transcript_documents enable row level security;
 alter table transcript_filing_documents enable row level security;
 alter table transcripts enable row level security;
 alter table transcript_sentiments enable row level security;
+alter table transcript_outlooks enable row level security;
 alter table red_flag_snapshots enable row level security;
 alter table red_flag_snapshot_history enable row level security;
 
