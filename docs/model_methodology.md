@@ -110,12 +110,32 @@ missing for that row and costs it coverage, like any other unreported input.
   earnings growth and -4.7% to -2.7% for the 5.1 growth block. Seven weeks in
   one falling market, with quarter values read on 2026-10-06 rather than frozen
   on the start date: a lead, not a validation.
-- **It has not been backtested.** The point-in-time archive holds annual
-  filings only. A frame in which neither figure is reported for any row scores
-  the annual inputs exactly as before, so the archive results in `docs/Review`
-  are unaffected, and equally say nothing about this change. The quarterly
-  filings backfill exists to close that gap; the 0.35 share is a judgment until
-  it does.
+- **Backtested after the fact, on 2026-10-07.** The share was set before any
+  point-in-time quarterly figures existed. The quarterly results filings were
+  then backfilled (`tools.backfill_xbrl --period quarterly`, 78,857 documents,
+  2018 to 2024), parsed into `quarterly_panel.csv`, and read as of each
+  decision date by `backtest.fundamentals.QuarterPanel`: both quarters visible,
+  same basis, profit rather than EPS. Past the archive's end the vendor's
+  quarters are stitched on for companies whose filed quarters sum to the
+  vendor's annual revenue within 5% (`tools.extend_fundamental_panel`). A
+  declared ladder (`QUARTER_SHARE_GRID`), net of costs:
+
+  | Window | Rebalances | | 0 | 0.20 | 0.35 | 0.50 |
+  |---|---|---|---|---|---|---|
+  | 2019-08 to 2020-06 | 11 | rank IC, 1M | 0.059 | 0.064 | 0.067 | 0.070 |
+  | | | top-20 3M excess | +11.2 | +12.2 | +13.1 | +12.0 |
+  | 2020-07 to 2025-01 | 55 | rank IC, 1M | 0.052 | 0.056 | 0.059 | 0.060 |
+  | | | top-20 3M excess | +3.9 | +4.8 | +5.0 | +4.3 |
+  | 2025-02 to 2026-09 | 20 | rank IC, 1M | 0.070 | 0.071 | 0.072 | 0.072 |
+  | | | top-20 3M excess | +4.2 | +1.6 | +1.9 | +1.6 |
+
+  The whole-universe rank correlation rises in order in all three windows, and
+  0.35 is the best top-20 setting in the two earlier ones. In the most recent
+  window the top 20 did worse with the quarter inputs than without, on 20
+  rebalances. 0.35 stands; that last row is the one to watch in live results.
+  A frame in which neither figure is reported for any row still scores the
+  annual inputs exactly as before, so the studies in `docs/Review` that
+  predate the quarterly panel are unaffected.
 - A price-and-volume breakout trigger was tested on the archive at the same
   time (about 4,800 events, 2018-11 to 2026-02) and is **not** used: its median
   six-month return was about 1.2% above the universe, no better than a plain

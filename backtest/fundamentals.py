@@ -288,6 +288,124 @@ class FundamentalPanel:
         return pd.DataFrame(rows)
 
 
+# A quarter stops being "the latest quarter" once its successor is overdue. A
+# quarter ends, is filed within 45-60 days, and is superseded about 90 days
+# after that; 200 days from the period end covers a late filer without letting
+# a year-old quarter stand in for the current one.
+QUARTER_MAX_AGE_DAYS = 200
+
+
+class QuarterPanel:
+    """Point-in-time latest-quarter growth against the year-ago quarter.
+
+    The production model reads two vendor fields, ``Revenue_Growth`` and
+    ``Earnings_Growth``: the most recent quarter against the same quarter a
+    year earlier. This rebuilds them from filed quarterly results, as knowable
+    on a given date.
+
+    Three choices, each the conservative one:
+
+    * **Both quarters must be visible** on the decision date, and both on the
+      same basis. A company that files consolidated one year and standalone the
+      next has no comparable pair, and inventing one would report the change of
+      basis as growth.
+    * **Earnings growth is measured on profit, not EPS.** Each figure comes
+      from its own filing, so a split or bonus between the two quarters would
+      appear as an EPS collapse. Profit is unaffected by the share count.
+    * **A non-positive base has no growth rate.** Profit against a year-ago
+      loss is left unreported, as the vendor leaves it, rather than scored as
+      a very large number.
+    """
+
+    def __init__(self, frame):
+        self._by_security: dict[str, list] = {}
+        if frame is None or len(frame) == 0:
+            return
+        working = frame.copy()
+        working["_available"] = pd.to_datetime(working.get("Available_From"), errors="coerce")
+        working["_period"] = pd.to_datetime(working.get("Period_End"), errors="coerce")
+        working = working[working["_available"].notna() & working["_period"].notna()]
+        consolidated = working.get("Is_Consolidated", pd.Series(False, index=working.index))
+        working["_consolidated"] = consolidated.astype(str).str.lower().isin({"true", "1"})
+        for column in ("Revenue", "PAT"):
+            working[column] = pd.to_numeric(working.get(column), errors="coerce")
+        working = working.sort_values(["Security_ID", "_period", "_available"])
+        for security_id, group in working.groupby("Security_ID", sort=False):
+            self._by_security[str(security_id)] = list(
+                zip(
+                    group["_period"],
+                    group["_available"],
+                    group["_consolidated"],
+                    group["Revenue"],
+                    group["PAT"],
+                )
+            )
+
+    @classmethod
+    def load(cls, path):
+        from pathlib import Path
+
+        path = Path(path)
+        if not path.exists():
+            return cls(pd.DataFrame())
+        return cls(pd.read_csv(path, dtype={"ISIN": str, "Seq_Number": str}))
+
+    def __len__(self):
+        return len(self._by_security)
+
+    def growth_as_of(self, security_id, as_of, *, max_age_days=QUARTER_MAX_AGE_DAYS):
+        """Latest-quarter growth visible on ``as_of``, or None."""
+        records = self._by_security.get(str(security_id))
+        if not records:
+            return None
+        cutoff = pd.Timestamp(_as_date(as_of))
+        oldest = cutoff - pd.Timedelta(days=int(max_age_days))
+
+        best = None
+        for basis in (True, False):
+            # Latest version of each period published by the decision date.
+            visible = {}
+            for period, available, consolidated, revenue, pat in records:
+                if consolidated == basis and available <= cutoff:
+                    visible[period] = (revenue, pat)
+            for period in sorted(visible, reverse=True):
+                if period < oldest:
+                    break
+                year_ago = visible.get(period - pd.DateOffset(years=1))
+                if year_ago is None:
+                    continue
+                if best is None or period > best[0]:
+                    best = (period, basis, visible[period], year_ago)
+                break
+        if best is None:
+            return None
+
+        period, basis, (revenue, pat), (revenue_prior, pat_prior) = best
+
+        def growth(now, prior):
+            if pd.isna(now) or pd.isna(prior) or prior <= 0:
+                return np.nan
+            return float(now / prior - 1.0)
+
+        return {
+            "Security_ID": str(security_id),
+            "Revenue_Growth": growth(revenue, revenue_prior),
+            "Earnings_Growth": growth(pat, pat_prior),
+            "Quarter_Period_End": period.date().isoformat(),
+            "Quarter_Basis": "consolidated" if basis else "standalone",
+        }
+
+    def cross_section(self, security_ids, as_of, *, max_age_days=QUARTER_MAX_AGE_DAYS):
+        rows = []
+        for security_id in security_ids:
+            row = self.growth_as_of(security_id, as_of, max_age_days=max_age_days)
+            if row is not None:
+                rows.append(row)
+        if not rows:
+            return pd.DataFrame(columns=["Security_ID"])
+        return pd.DataFrame(rows)
+
+
 def attach_valuation_inputs(frame, *, price_column="Close"):
     """Add the price-dependent value-block inputs.
 

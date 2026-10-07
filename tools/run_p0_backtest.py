@@ -161,6 +161,7 @@ def build_runner(archive, args):
     from backtest.security_master import DelistingPolicy
 
     fundamental_panel = None
+    quarter_panel = None
     if getattr(args, "with_fundamentals", False):
         panel_path = Path(args.root) / "fundamental_panel.csv"
         if not panel_path.exists():
@@ -170,6 +171,12 @@ def build_runner(archive, args):
             )
         fundamental_panel = FundamentalPanel.load(panel_path)
         logger.info("Fundamental panel: %d securities", len(fundamental_panel))
+        quarter_path = Path(args.root) / "quarterly_panel.csv"
+        if quarter_path.exists() and not getattr(args, "no_quarter_growth", False):
+            from backtest.fundamentals import QuarterPanel
+
+            quarter_panel = QuarterPanel.load(quarter_path)
+            logger.info("Quarterly panel: %d securities", len(quarter_panel))
 
     universe_rule = UniverseRule(
         min_median_turnover_inr=args.min_turnover,
@@ -217,6 +224,7 @@ def build_runner(archive, args):
             and not getattr(args, "allow_missing_fundamentals", False)
         ),
         regime_provider=provider,
+        quarter_panel=quarter_panel,
     )
     return runner, universe_rule, policy, cost_model
 
@@ -261,6 +269,16 @@ def main(argv=None):
         "--value-weight-grid",
         action="store_true",
         help="also run the value-weight ladder (V1-V3); see backtest/strategies.py",
+    )
+    parser.add_argument(
+        "--quarter-share-grid",
+        action="store_true",
+        help="also run the latest-quarter share ladder (Q0/Q20/Q50); needs quarterly_panel.csv",
+    )
+    parser.add_argument(
+        "--no-quarter-growth",
+        action="store_true",
+        help="ignore quarterly_panel.csv even if the root has one",
     )
     parser.add_argument("--position-size", type=float, default=100_000.0)
     parser.add_argument("--half-spread", type=float, default=0.0010)
@@ -339,6 +357,7 @@ def main(argv=None):
         PRICE_ONLY_STRATEGIES,
         gate_relaxation_strategies,
         growth_reweight_strategies,
+        quarter_share_strategies,
         timing_strategies,
         value_weight_strategies,
     )
@@ -386,6 +405,14 @@ def main(argv=None):
                 "reweights have no inputs without the fundamental panel"
             )
         strategies.extend(value_weight_strategies())
+    if args.quarter_share_grid:
+        if runner.quarter_panel is None:
+            raise SystemExit(
+                "--quarter-share-grid needs --with-fundamentals and a "
+                "quarterly_panel.csv in the root: without quarter figures every "
+                "share scores identically"
+            )
+        strategies.extend(quarter_share_strategies())
     if args.timing_grid:
         if not args.with_fundamentals:
             raise SystemExit(

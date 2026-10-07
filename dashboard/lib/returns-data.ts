@@ -7,6 +7,7 @@ import { getLatestRun, getPriceCalendar } from "@/lib/queries";
 import type { Market, MarketCode } from "@/lib/markets";
 import { decodeRow, indexPoints } from "@/lib/market-breadth.mjs";
 import {
+  BACKTEST_UNTIL,
   COST_PER_SIDE_PCT,
   compoundIndex,
   decodeCloses,
@@ -16,6 +17,7 @@ import {
   modelForDate,
   pickOption,
   portfolioReturns,
+  rankingTimeline,
   rebalanceDates,
   rebalanceOption,
   selectBaskets,
@@ -748,10 +750,15 @@ export async function getReturnsReport(
     getLatestRun(market.code),
     pick.ratings ? getFirstRatedBacktest(supabase, market.code) : Promise.resolve(null),
   ]);
-  if (!liveDates.length) return { status: "no-history" };
-  const liveFrom = liveDates[0];
-  // A backtest ranking is used only where no published one exists.
-  const dates = [...simulatedDates.filter((date) => date < liveFrom), ...liveDates];
+  // A backtest ranking is used where no published one exists, and for NSE
+  // up to `BACKTEST_UNTIL`, so the record before Model 5.2 is one model's.
+  const timeline = rankingTimeline(
+    liveDates,
+    simulatedDates,
+    (BACKTEST_UNTIL as Record<string, string | undefined>)[market.code],
+  );
+  if (!timeline) return { status: "no-history" };
+  const { liveFrom, dates } = timeline;
   const asOf = dates[dates.length - 1];
   // The latest ranking has no session after it yet, so nothing it lists has
   // been buyable. It stays out of the picker rather than showing a 0% return.

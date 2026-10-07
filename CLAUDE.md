@@ -120,5 +120,12 @@ dashboard/    Next.js front end, with its own README; routes are nested
   `config_with_env_cleared(...)` in `tests/test_markets.py`. CI's
   `workflow-env-tests` job replays each workflow's test step; reproduce one
   locally with `python -m tools.run_tests_under_workflow_env <workflow.yml>`.
+- **The backtest archive under `reports_advanced/` is local and not in git.**
+  NSE's results endpoint thins out after early 2025, so
+  `reports_advanced/backtest` ends at FY2024 annual and December 2024 quarterly
+  filings. `python -m tools.extend_fundamental_panel` writes
+  `reports_advanced/backtest_ext`, the same archive with later periods taken
+  from the stored vendor statements; pass that as `--root` for any backtest
+  that runs past mid-2025, and to `tools.backfill_returns_history build`.
 - `ruff`'s ratchet list in `pyproject.toml` records rules the codebase does not
   yet satisfy, with counts. Removing an entry means fixing its violations.

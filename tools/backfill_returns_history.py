@@ -21,6 +21,7 @@ publishing should not have to repeat it::
     python -m tools.backfill_returns_history build --out reports_advanced/returns_backfill
     python -m tools.backfill_returns_history publish --from reports_advanced/returns_backfill --dry-run
     python -m tools.backfill_returns_history publish --from reports_advanced/returns_backfill
+    python -m tools.backfill_returns_history publish --from OUT --live-from 2026-10-08
     python -m tools.backfill_returns_history annotate-live --dry-run
 
 ``build`` needs the local backtest archive (``reports_advanced/backtest``).
@@ -504,6 +505,11 @@ def publish(args):
     if not first_live:
         raise SystemExit("No published NSE ranking yet; nothing to join the backfill to.")
     first_live_day = dt.date.fromisoformat(first_live[0]["observed_on"])
+    if args.live_from:
+        # The Returns page reads backtest rankings up to a later date than the
+        # first published one (`BACKTEST_UNTIL` in dashboard/lib/returns.mjs),
+        # so the whole record before it comes from one model.
+        first_live_day = max(first_live_day, dt.date.fromisoformat(args.live_from))
     rankings = [row for row in rankings if row["observed_on"] < first_live_day.isoformat()]
 
     # The archive index runs until the live membership takes over: sessions up
@@ -511,16 +517,22 @@ def publish(args):
     calendar = repository.read_price_calendar()
     sessions = sorted(dt.date.fromisoformat(day) for day in json.loads(calendar["sessions"]))
     first_live_entry = next_session(sessions, first_live_day)
-    archive_rows = [
-        row
-        for row in archive_index.to_dict("records")
-        if row["observed_on"] <= first_live_entry.isoformat()
-    ]
-    live_rows = [
-        {"observed_on": day.isoformat(), "ew_return_pct": value, "members": members, "source": "history"}
-        for day, value, members in _live_index(repository, first_live_entry)
-        if day > first_live_entry
-    ]
+    if first_live_entry is None:
+        # Nothing has been published on or after the live date yet: the archive
+        # index is the whole record, and the daily publisher appends from here.
+        archive_rows = archive_index.to_dict("records")
+        live_rows = []
+    else:
+        archive_rows = [
+            row
+            for row in archive_index.to_dict("records")
+            if row["observed_on"] <= first_live_entry.isoformat()
+        ]
+        live_rows = [
+            {"observed_on": day.isoformat(), "ew_return_pct": value, "members": members, "source": "history"}
+            for day, value, members in _live_index(repository, first_live_entry)
+            if day > first_live_entry
+        ]
     index_rows = [
         {**row, "ew_return_pct": round_half_up(float(row["ew_return_pct"]), 4), "members": int(row["members"])}
         for row in archive_rows + live_rows
@@ -547,6 +559,8 @@ def publish(args):
             row[column] = _int_or_none(row.get(column))
     states = json.loads((source / "simulated_states.json").read_text())
     states = [row for row in states if row["observed_on"] < first_live_day.isoformat()]
+    # Replace, not merge: see `delete_simulated_rankings`.
+    repository.delete_simulated_rankings(first_live_day.isoformat())
     written = repository.upsert_simulated_rankings(rankings)
     repository.upsert_simulated_states(states)
     indexed = repository.upsert_universe_index(index_rows)
@@ -568,6 +582,12 @@ def main(argv=None):
     p = sub.add_parser("publish", help="upload a build to Supabase")
     p.add_argument("--from", dest="source", required=True)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument(
+        "--live-from",
+        default=None,
+        help="first published ranking the Returns page uses (ISO date); earlier "
+        "weeks are published from the backtest even where a ranking was published",
+    )
     a = sub.add_parser("annotate-live", help="fill stage/advance age on published runs lacking them")
     a.add_argument("--markets", nargs="+", default=["NSE", "US"])
     a.add_argument("--dry-run", action="store_true")

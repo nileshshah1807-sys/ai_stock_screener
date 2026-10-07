@@ -393,9 +393,10 @@ class Config:
     # Model 5.2: share of the growth block carried by the latest reported
     # quarter (revenue and earnings against the same quarter a year earlier).
     # The annual inputs are scaled into the remainder. 0 restores 5.1 exactly.
-    # Not yet backtested -- the archive holds annual filings only -- so the
-    # share is a judgment, sized so a single quarter cannot outvote the
-    # three-year record. See docs/model_methodology.md.
+    # Set as a judgment, then run as a ladder (0 / 0.20 / 0.35 / 0.50) once the
+    # quarterly filings were backfilled: rank IC rose in order in all three
+    # windows and 0.35 was the best top-20 setting in two. See
+    # docs/model_methodology.md for the table and the window that disagreed.
     FACTOR_GROWTH_QUARTER_SHARE = _env_float("FACTOR_GROWTH_QUARTER_SHARE", 0.35)
     # Rank each factor inside its own sector where the sector has enough usable
     # peers. A utility and a software company do not share a normal ROIC, growth

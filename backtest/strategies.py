@@ -586,6 +586,37 @@ def value_weight_strategies():
     )
 
 
+class Model5QuarterShareVariant(Model5):
+    """Model 5.2 with a different share of the growth block for the latest quarter."""
+
+    produces_model5 = False
+
+    def __init__(self, name, share, config=None):
+        super().__init__(config=config)
+        self.name = name
+        self.config = copy.copy(self.config)
+        self.config.FACTOR_GROWTH_QUARTER_SHARE = float(share)
+
+
+# The production share is 0.35 (`model_5`), set on 2026-10-07 before any
+# point-in-time quarterly figures existed. Declared the same day, before the
+# quarterly panel was built: zero is Model 5.2 without the quarter inputs, and
+# the two others bracket production so the response shows a direction.
+QUARTER_SHARE_GRID = {
+    "q00_no_quarter": 0.0,
+    "q20_quarter": 0.20,
+    "q50_quarter": 0.50,
+}
+
+
+def quarter_share_strategies():
+    """The declared latest-quarter share ladder, in declared order."""
+    return tuple(
+        Model5QuarterShareVariant(f"model_5_{name}", share)
+        for name, share in QUARTER_SHARE_GRID.items()
+    )
+
+
 class Model5GateVariant(Model5Gated):
     """`model_5_gated` with selected gate thresholds overridden.
 
