@@ -190,13 +190,13 @@ export const COST_PER_SIDE_PCT = 0.3;
  * ordering through 2026-08-20 (Model 5.0), research-score ordering from
  * 2026-08-21 (Model 5.1). The US history starts under 5.1. Model 5.2 (lower
  * value weight, latest-quarter growth, two-sided transcripts) was merged on
- * 2026-10-07, after that day's NSE run and before that day's US run.
+ * 2026-10-07, before that day's run in either market.
  */
 export const MODEL_ERAS = {
   NSE: [
     { until: "2026-08-13", label: "Model 4.x" },
     { until: "2026-08-20", label: "Model 5.0" },
-    { until: "2026-10-07", label: "Model 5.1" },
+    { until: "2026-10-06", label: "Model 5.1" },
     { until: null, label: "Model 5.2" },
   ],
   US: [
