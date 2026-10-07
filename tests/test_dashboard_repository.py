@@ -53,6 +53,18 @@ class SimulatedRankingTests(unittest.TestCase):
         )
 
 
+    def test_a_rebuild_clears_this_markets_weekly_states_too(self):
+        repository = RecordingDashboardRepository(market="NSE")
+
+        repository.delete_simulated_states("2026-10-08")
+
+        method, path, kwargs = repository.calls[0]
+        self.assertEqual((method, path), ("DELETE", "simulated_states"))
+        self.assertEqual(
+            kwargs["params"], {"observed_on": "lt.2026-10-08", "market": "eq.NSE"}
+        )
+
+
 class DashboardRepositoryLogoTests(unittest.TestCase):
     def test_latest_completed_run_ignores_reservations(self):
         repository = RecordingDashboardRepository(

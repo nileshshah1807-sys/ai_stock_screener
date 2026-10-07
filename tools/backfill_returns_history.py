@@ -562,6 +562,7 @@ def publish(args):
     # Replace, not merge: see `delete_simulated_rankings`.
     repository.delete_simulated_rankings(first_live_day.isoformat())
     written = repository.upsert_simulated_rankings(rankings)
+    repository.delete_simulated_states(first_live_day.isoformat())
     repository.upsert_simulated_states(states)
     indexed = repository.upsert_universe_index(index_rows)
     logger.info(
