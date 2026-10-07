@@ -13,7 +13,7 @@ run-name: Daily US screener (${{ github.event_name }}${{ inputs.mode && format('
 
 on:
   schedule:
-    # Primary at 17:30 ET, fallbacks at 19:30 and 21:30 ET, all after the 16:00
+    # Primary at 17:37 ET, fallbacks at 19:37 and 21:37 ET, all after the 16:00
     # close. Yahoo can serve the session's bar incomplete for hours after the
     # close; the price-session alignment guard then fails the run, and the next
     # slot retries. Cron is UTC and does not observe US daylight saving, so
@@ -27,8 +27,11 @@ on:
     # and the 19:30 ET one failed on an unfinalised Yahoo bar). They stay inside
     # the same ET session -- the next one only closes at 16:00 ET -- and once
     # the session is published each is a ~30 second no-op at the dedupe step.
-    - cron: "30 21,23 * * *"
-    - cron: "30 1,3,5 * * *"
+    #
+    # Minute 37, not 30: the half hour is a busy mark for GitHub's best-effort
+    # scheduler too. See the note in daily-stock-screener.yml.
+    - cron: "37 21,23 * * *"
+    - cron: "37 1,3,5 * * *"
   workflow_dispatch:
     inputs:
       mode:
