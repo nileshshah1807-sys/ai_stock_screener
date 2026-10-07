@@ -327,6 +327,67 @@ def parse_filing(path, metadata):
     return record
 
 
+# What a quarterly panel row carries. Only the lines needed to measure one
+# quarter against the same quarter a year earlier: the balance sheet and cash
+# flow are not filed quarterly.
+QUARTER_FIELDS = ("revenue", "other_income", "pbt", "pat", "eps_basic", "eps_diluted")
+QUARTER_PANEL_COLUMNS = (
+    "Security_ID",
+    "ISIN",
+    "Symbol",
+    "Period_End",
+    "Available_From",
+    "Filing_Timestamp",
+    "Seq_Number",
+    "Is_Consolidated",
+    "Revenue",
+    "Other_Income",
+    "PBT",
+    "PAT",
+    "EPS_Basic",
+    "EPS_Diluted",
+)
+
+
+def parse_quarter_document(text):
+    """The quarter's own facts (``OneD``) from one results document.
+
+    ``FourD`` in the same document is the year to date and is ignored here; a
+    quarterly document carries no year-ago comparative, so growth is measured
+    across filings by `backtest.fundamentals.QuarterPanel`.
+    """
+    return {
+        field: extract_fact(text, INCOME_TAGS[field], QUARTER_CONTEXT)
+        for field in QUARTER_FIELDS
+    }
+
+
+def parse_quarter_filing(path, metadata):
+    """Parse one cached quarterly document into a panel row, or None."""
+    text = read_document(path)
+    if not text:
+        return None
+    facts = parse_quarter_document(text)
+    if facts["revenue"] is None and facts["pat"] is None:
+        return None
+    return {
+        "Security_ID": metadata.get("Security_ID"),
+        "ISIN": metadata.get("ISIN"),
+        "Symbol": metadata.get("Symbol"),
+        "Period_End": str(metadata.get("Period_End") or "")[:10],
+        "Available_From": metadata.get("Available_From"),
+        "Filing_Timestamp": metadata.get("Filing_Timestamp"),
+        "Seq_Number": metadata.get("Seq_Number"),
+        "Is_Consolidated": metadata.get("Is_Consolidated"),
+        "Revenue": facts["revenue"],
+        "Other_Income": facts["other_income"],
+        "PBT": facts["pbt"],
+        "PAT": facts["pat"],
+        "EPS_Basic": facts["eps_basic"],
+        "EPS_Diluted": facts["eps_diluted"],
+    }
+
+
 def _fiscal_year(period_end):
     """Indian fiscal year label: FY ending 31 March 2024 is 2024."""
     try:
@@ -336,12 +397,23 @@ def _fiscal_year(period_end):
     return parsed.year if parsed.month >= 4 else parsed.year
 
 
-def build_panel(filings, document_path_fn, *, workers=8, on_progress=None):
-    """Parse every cached filing into one long annual panel.
+def build_panel(
+    filings,
+    document_path_fn,
+    *,
+    workers=8,
+    on_progress=None,
+    parse_fn=None,
+    columns=PANEL_COLUMNS,
+):
+    """Parse every cached filing into one long panel.
 
     ``filings`` is the filing-metadata frame; ``document_path_fn`` maps a row to
     its cached document path. Parsing is IO-bound, so it is threaded.
+    ``parse_fn`` and ``columns`` default to the annual panel; the quarterly one
+    passes `parse_quarter_filing` and `QUARTER_PANEL_COLUMNS`.
     """
+    parse_fn = parse_fn or parse_filing
     from concurrent.futures import ThreadPoolExecutor
 
     records = filings.to_dict("records")
@@ -361,7 +433,7 @@ def build_panel(filings, document_path_fn, *, workers=8, on_progress=None):
     rows = []
     with ThreadPoolExecutor(max_workers=int(workers)) as pool:
         for index, row in enumerate(
-            pool.map(lambda job: parse_filing(job[0], job[1]), jobs), start=1
+            pool.map(lambda job: parse_fn(job[0], job[1]), jobs), start=1
         ):
             if row is not None:
                 rows.append(row)
@@ -369,9 +441,9 @@ def build_panel(filings, document_path_fn, *, workers=8, on_progress=None):
                 on_progress(index, len(jobs), len(rows))
 
     if not rows:
-        return pd.DataFrame(columns=list(PANEL_COLUMNS))
+        return pd.DataFrame(columns=list(columns))
     frame = pd.DataFrame(rows)
-    ordered = [column for column in PANEL_COLUMNS if column in frame.columns]
+    ordered = [column for column in columns if column in frame.columns]
     remaining = [column for column in frame.columns if column not in ordered]
     return frame.loc[:, ordered + remaining]
 

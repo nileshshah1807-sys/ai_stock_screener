@@ -14,6 +14,7 @@ import pandas as pd
 
 from backtest.fundamentals import (
     FundamentalPanel,
+    QuarterPanel,
     attach_valuation_inputs,
     coverage_report,
 )
@@ -257,6 +258,92 @@ class PersistenceTests(unittest.TestCase):
     def test_missing_file_yields_empty_panel(self):
         with TemporaryDirectory() as tmp:
             self.assertEqual(len(FundamentalPanel.load(Path(tmp) / "none.csv")), 0)
+
+
+def quarter(period, available, revenue, pat, consolidated=True, security="INE001A01"):
+    return {
+        "Security_ID": security,
+        "Period_End": period,
+        "Available_From": available,
+        "Is_Consolidated": consolidated,
+        "Revenue": revenue,
+        "PAT": pat,
+    }
+
+
+class QuarterPanelTests(unittest.TestCase):
+    """Latest-quarter growth, as knowable on the decision date."""
+
+    def panel(self, *rows):
+        return QuarterPanel(pd.DataFrame(list(rows)))
+
+    def base(self):
+        return [
+            quarter("2023-06-30", "2023-08-10", 100.0, 10.0),
+            quarter("2023-09-30", "2023-11-10", 110.0, 12.0),
+            quarter("2024-06-30", "2024-08-09", 150.0, 25.0),
+        ]
+
+    def test_growth_is_the_latest_quarter_against_the_year_ago_quarter(self):
+        row = self.panel(*self.base()).growth_as_of("INE001A01", "2024-08-30")
+        self.assertAlmostEqual(row["Revenue_Growth"], 0.5)
+        self.assertAlmostEqual(row["Earnings_Growth"], 1.5)
+        self.assertEqual(row["Quarter_Period_End"], "2024-06-30")
+
+    def test_a_quarter_is_invisible_before_it_was_filed(self):
+        panel = self.panel(*self.base())
+        # The June quarter was filed on 9 August; the day before, the newest
+        # pair visible is nothing recent enough to count as the latest quarter.
+        self.assertIsNone(panel.growth_as_of("INE001A01", "2024-08-08"))
+
+    def test_a_stale_quarter_is_not_reported_as_the_latest(self):
+        self.assertIsNone(self.panel(*self.base()).growth_as_of("INE001A01", "2025-03-31"))
+
+    def test_no_year_ago_quarter_means_no_growth(self):
+        rows = [quarter("2024-06-30", "2024-08-09", 150.0, 25.0)]
+        self.assertIsNone(self.panel(*rows).growth_as_of("INE001A01", "2024-08-30"))
+
+    def test_the_two_quarters_must_share_a_basis(self):
+        rows = [
+            quarter("2023-06-30", "2023-08-10", 60.0, 6.0, consolidated=False),
+            quarter("2024-06-30", "2024-08-09", 150.0, 25.0, consolidated=True),
+        ]
+        # A standalone base against a consolidated quarter is a change of
+        # basis, not 150% growth.
+        self.assertIsNone(self.panel(*rows).growth_as_of("INE001A01", "2024-08-30"))
+
+    def test_consolidated_is_preferred_when_both_bases_have_the_pair(self):
+        rows = self.base() + [
+            quarter("2023-06-30", "2023-08-10", 80.0, 8.0, consolidated=False),
+            quarter("2024-06-30", "2024-08-09", 88.0, 8.8, consolidated=False),
+        ]
+        row = self.panel(*rows).growth_as_of("INE001A01", "2024-08-30")
+        self.assertEqual(row["Quarter_Basis"], "consolidated")
+        self.assertAlmostEqual(row["Revenue_Growth"], 0.5)
+
+    def test_profit_against_a_year_ago_loss_has_no_growth_rate(self):
+        rows = [
+            quarter("2023-06-30", "2023-08-10", 100.0, -5.0),
+            quarter("2024-06-30", "2024-08-09", 150.0, 25.0),
+        ]
+        row = self.panel(*rows).growth_as_of("INE001A01", "2024-08-30")
+        self.assertAlmostEqual(row["Revenue_Growth"], 0.5)
+        self.assertTrue(np.isnan(row["Earnings_Growth"]))
+
+    def test_a_restatement_is_seen_only_after_it_was_published(self):
+        rows = self.base() + [quarter("2024-06-30", "2024-10-01", 140.0, 20.0)]
+        panel = self.panel(*rows)
+        self.assertAlmostEqual(panel.growth_as_of("INE001A01", "2024-08-30")["Revenue_Growth"], 0.5)
+        self.assertAlmostEqual(panel.growth_as_of("INE001A01", "2024-10-15")["Revenue_Growth"], 0.4)
+
+    def test_cross_section_carries_only_securities_with_a_pair(self):
+        rows = self.base() + [quarter("2024-06-30", "2024-08-09", 50.0, 5.0, security="INE002A01")]
+        frame = self.panel(*rows).cross_section(["INE001A01", "INE002A01", "INE003A01"], "2024-08-30")
+        self.assertEqual(frame["Security_ID"].tolist(), ["INE001A01"])
+
+    def test_missing_file_yields_empty_panel(self):
+        with TemporaryDirectory() as tmp:
+            self.assertEqual(len(QuarterPanel.load(Path(tmp) / "none.csv")), 0)
 
 
 if __name__ == "__main__":

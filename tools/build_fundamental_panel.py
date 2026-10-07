@@ -19,6 +19,13 @@ Usage::
 
     python -m tools.build_fundamental_panel
     python -m tools.build_fundamental_panel --workers 12
+    python -m tools.build_fundamental_panel --period quarterly
+
+``--period quarterly`` reads ``filings_quarterly.csv`` and the documents under
+``xbrl_quarterly/`` (``tools.backfill_xbrl --period quarterly``) and writes
+``quarterly_panel.csv``: one row per filing, both bases and every revision
+kept, because `backtest.fundamentals.QuarterPanel` chooses among them as of
+each decision date.
 """
 
 from __future__ import annotations
@@ -42,7 +49,9 @@ def main(argv=None):
     parser.add_argument("--root", default=str(DEFAULT_ROOT))
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--out", default=None)
+    parser.add_argument("--period", choices=("annual", "quarterly"), default="annual")
     args = parser.parse_args(argv)
+    quarterly = args.period == "quarterly"
 
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
@@ -53,9 +62,11 @@ def main(argv=None):
     from backtest.filings import attach_availability
     from backtest.security_master import SecurityMaster
     from backtest.xbrl import (
+        QUARTER_PANEL_COLUMNS,
         build_panel,
         coverage_summary,
         deduplicate_panel,
+        parse_quarter_filing,
     )
     from tools.backfill_xbrl import document_path
 
@@ -79,7 +90,7 @@ def main(argv=None):
     logger.info("Security master: %d securities", len(master))
 
     # --- filings + availability ------------------------------------------
-    filings_path = root / "filings_annual.csv"
+    filings_path = root / f"filings_{args.period}.csv"
     if not filings_path.exists():
         raise SystemExit(f"No filing metadata at {filings_path}")
     filings = pd.read_csv(
@@ -145,15 +156,41 @@ def main(argv=None):
 
     panel = build_panel(
         filings,
-        lambda seq, period: document_path(root, seq, period),
+        lambda seq, period: document_path(root, seq, period, args.period),
         workers=args.workers,
         on_progress=on_progress,
+        **(
+            {"parse_fn": parse_quarter_filing, "columns": QUARTER_PANEL_COLUMNS}
+            if quarterly
+            else {}
+        ),
     )
     logger.info(
         "Parsed %d rows in %.1fs", len(panel), time.monotonic() - started
     )
     if panel.empty:
         raise SystemExit("Parsed zero usable rows; check the XBRL cache")
+
+    if quarterly:
+        out = Path(args.out) if args.out else root / "quarterly_panel.csv"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        panel.to_csv(out, index=False)
+        logger.info("Quarterly panel written: %s", out)
+        ends = pd.to_datetime(panel["Period_End"], errors="coerce")
+        print()
+        print(
+            panel.assign(Year=ends.dt.year)
+            .groupby("Year")
+            .agg(
+                filings=("Security_ID", "size"),
+                securities=("Security_ID", "nunique"),
+                consolidated_pct=("Is_Consolidated", lambda s: round(100 * s.mean(), 1)),
+                revenue_pct=("Revenue", lambda s: round(100 * s.notna().mean(), 1)),
+                pat_pct=("PAT", lambda s: round(100 * s.notna().mean(), 1)),
+            )
+            .to_string()
+        )
+        return 0
 
     deduped = deduplicate_panel(panel)
     logger.info(

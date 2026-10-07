@@ -23,6 +23,8 @@ from backtest.xbrl import (
     derive_record,
     extract_fact,
     parse_document,
+    parse_quarter_document,
+    parse_quarter_filing,
     read_document,
 )
 
@@ -284,6 +286,40 @@ class CoverageTests(unittest.TestCase):
 
     def test_empty_panel_is_safe(self):
         self.assertEqual(coverage_summary(pd.DataFrame())["company_years"], 0)
+
+
+class QuarterParsingTests(unittest.TestCase):
+    def test_the_quarter_context_is_read_not_the_year_to_date(self):
+        facts = parse_quarter_document(DOCUMENT)
+        # OneD carries the quarter; FourD in the same document is 4.8x larger.
+        self.assertEqual(facts["revenue"], 3683116000.00)
+        # Reported only against FourD in this document, so absent for the quarter.
+        self.assertIsNone(facts["pat"])
+
+    def test_a_filing_becomes_a_quarter_row_with_its_availability(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "1.xml.gz"
+            with gzip.open(path, "wt", encoding="utf-8") as handle:
+                handle.write(DOCUMENT)
+            row = parse_quarter_filing(
+                path,
+                {
+                    "Security_ID": "INE001A01",
+                    "Period_End": "2024-03-31",
+                    "Available_From": "2024-05-17",
+                    "Is_Consolidated": True,
+                },
+            )
+        self.assertEqual(row["Revenue"], 3683116000.00)
+        self.assertEqual(row["Period_End"], "2024-03-31")
+        self.assertEqual(row["Available_From"], "2024-05-17")
+
+    def test_a_document_with_neither_line_is_dropped(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "2.xml.gz"
+            with gzip.open(path, "wt", encoding="utf-8") as handle:
+                handle.write("<xbrl></xbrl>")
+            self.assertIsNone(parse_quarter_filing(path, {"Period_End": "2024-03-31"}))
 
 
 if __name__ == "__main__":

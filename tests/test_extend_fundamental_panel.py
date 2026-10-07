@@ -7,8 +7,11 @@ import pandas as pd
 from tools.extend_fundamental_panel import (
     AVAILABILITY_LAG_DAYS,
     extend,
+    extend_quarters,
     overlap_report,
+    vendor_basis,
     vendor_panel_rows,
+    vendor_quarter_rows,
 )
 
 STATEMENTS = {
@@ -102,6 +105,109 @@ class ExtendTests(unittest.TestCase):
         self.assertEqual(count, 1)
         self.assertAlmostEqual(median, 1000.0 / 1010.0)
         self.assertEqual(within, 1.0)
+
+
+QUARTER_COLUMNS = [
+    "Security_ID", "ISIN", "Symbol", "Period_End", "Available_From", "Filing_Timestamp",
+    "Seq_Number", "Is_Consolidated", "Revenue", "Other_Income", "PBT", "PAT",
+    "EPS_Basic", "EPS_Diluted",
+]
+
+
+def filed_quarters(consolidated=True, scale=1.0):
+    """FY2024 in full and the first three quarters of FY2025, as filed."""
+    rows = []
+    for period, revenue in (
+        ("2023-06-30", 220.0), ("2023-09-30", 240.0), ("2023-12-31", 260.0), ("2024-03-31", 280.0),
+        ("2024-06-30", 270.0), ("2024-09-30", 290.0), ("2024-12-31", 310.0),
+    ):
+        rows.append(
+            {
+                "Security_ID": "INE001A01", "ISIN": "", "Symbol": "ACME", "Period_End": period,
+                "Available_From": (pd.Timestamp(period) + pd.Timedelta(days=40)).date().isoformat(),
+                "Filing_Timestamp": "", "Seq_Number": period, "Is_Consolidated": consolidated,
+                "Revenue": revenue * scale, "Other_Income": None, "PBT": None,
+                "PAT": revenue * scale / 10, "EPS_Basic": None, "EPS_Diluted": None,
+            }
+        )
+    frame = pd.DataFrame(rows, columns=QUARTER_COLUMNS)
+    return frame.assign(_consolidated=frame["Is_Consolidated"].astype(bool))
+
+
+QUARTER_STATEMENTS = {
+    "annual": {
+        "income": {
+            "periods": ["2024-03-31", "2025-03-31"],
+            # FY2024 is the sum of the four filed quarters; FY2025 implies a
+            # final quarter of 330.
+            "rows": {"revenue": [1000.0, 1200.0], "net_profit": [100.0, 120.0]},
+        }
+    },
+    "quarterly": {
+        "income": {
+            "periods": ["2025-06-30", "2025-09-30", "2026-03-31"],
+            "rows": {"revenue": [340.0, 360.0, 400.0], "net_profit": [34.0, 36.0, 40.0]},
+        }
+    },
+}
+
+
+class VendorBasisTests(unittest.TestCase):
+    def test_the_basis_whose_quarters_sum_to_the_vendor_year_is_chosen(self):
+        self.assertIs(vendor_basis(filed_quarters(True), 1000.0, "2024-03-31"), True)
+        self.assertIs(vendor_basis(filed_quarters(False), 1000.0, "2024-03-31"), False)
+
+    def test_no_basis_when_the_sources_disagree(self):
+        # Filed quarters sum to 600 against a vendor year of 1,000: a different
+        # entity, so its quarters must not be compared with the vendor's.
+        self.assertIsNone(vendor_basis(filed_quarters(True, scale=0.6), 1000.0, "2024-03-31"))
+
+    def test_no_basis_without_the_full_filed_year(self):
+        partial = filed_quarters(True).iloc[1:]
+        self.assertIsNone(vendor_basis(partial, 1000.0, "2024-03-31"))
+
+
+class VendorQuarterRowTests(unittest.TestCase):
+    def rows(self, filed=None):
+        filed = filed_quarters() if filed is None else filed
+        return {
+            row["Period_End"]: row
+            for row in vendor_quarter_rows(
+                "ACME", QUARTER_STATEMENTS, "INE001A01", filed, "2024-03-31"
+            )
+        }
+
+    def test_the_unreported_year_end_quarter_is_the_year_less_three_quarters(self):
+        derived = self.rows()["2025-03-31"]
+        self.assertAlmostEqual(derived["Revenue"], 1200.0 - (270.0 + 290.0 + 310.0))
+        self.assertAlmostEqual(derived["PAT"], 120.0 - (27.0 + 29.0 + 31.0))
+        # Filed with the annual accounts, so the annual deadline applies.
+        self.assertEqual(derived["Available_From"], "2025-05-31")
+
+    def test_vendor_quarters_follow_on_the_matched_basis(self):
+        rows = self.rows()
+        self.assertEqual(sorted(rows), ["2025-03-31", "2025-06-30", "2025-09-30", "2026-03-31"])
+        self.assertEqual(rows["2025-06-30"]["Revenue"], 340.0)
+        self.assertEqual(rows["2025-06-30"]["Available_From"], "2025-08-15")
+        self.assertEqual(rows["2026-03-31"]["Available_From"], "2026-05-31")
+        self.assertTrue(all(row["Is_Consolidated"] for row in rows.values()))
+
+    def test_a_company_whose_basis_cannot_be_matched_is_left_out(self):
+        self.assertEqual(self.rows(filed_quarters(True, scale=0.6)), {})
+
+    def test_extend_quarters_appends_and_counts(self):
+        panel = filed_quarters().drop(columns="_consolidated")
+        records = [
+            {"symbol": "ACME", "has_data": True, "statements": QUARTER_STATEMENTS},
+            {"symbol": "OTHER", "has_data": True, "statements": QUARTER_STATEMENTS},
+        ]
+        extended, vendor, stitched, skipped = extend_quarters(
+            panel, records, {"ACME": "INE001A01", "OTHER": "INE002A01"}
+        )
+        self.assertEqual((stitched, skipped), (1, 1))
+        self.assertEqual(len(vendor), 4)
+        self.assertEqual(len(extended), len(panel) + 4)
+        self.assertEqual(list(extended.columns), QUARTER_COLUMNS)
 
 
 if __name__ == "__main__":

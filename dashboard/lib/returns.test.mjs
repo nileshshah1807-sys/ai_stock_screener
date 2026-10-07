@@ -8,6 +8,7 @@ import {
   entrySessionAfter,
   indexReturns,
   modelForDate,
+  rankingTimeline,
   pickKey,
   pickOption,
   portfolioReturns,
@@ -18,6 +19,40 @@ import {
 } from "./returns.mjs";
 
 const close = (time, value) => ({ time, close: value });
+
+describe("rankingTimeline", () => {
+  const simulated = ["2026-07-31", "2026-08-07", "2026-09-25", "2026-10-07"];
+  const published = ["2026-08-11", "2026-09-25", "2026-10-08", "2026-10-09"];
+
+  it("uses a backtest ranking only where nothing was published, with no floor", () => {
+    const timeline = rankingTimeline(published, simulated, undefined);
+    assert.equal(timeline.liveFrom, "2026-08-11");
+    assert.deepEqual(timeline.dates, ["2026-07-31", "2026-08-07", ...published]);
+  });
+
+  it("keeps the backtest up to the floor and drops earlier published rankings", () => {
+    const timeline = rankingTimeline(published, simulated, "2026-10-08");
+    assert.equal(timeline.liveFrom, "2026-10-08");
+    assert.deepEqual(timeline.dates, [...simulated, "2026-10-08", "2026-10-09"]);
+  });
+
+  it("is the backtest alone until the first run on or after the floor", () => {
+    const timeline = rankingTimeline(["2026-08-11", "2026-10-07"], simulated, "2026-10-08");
+    assert.equal(timeline.liveFrom, "2026-10-08");
+    assert.deepEqual(timeline.dates, simulated);
+  });
+
+  it("has no timeline when there is no ranking at all", () => {
+    assert.equal(rankingTimeline([], [], "2026-10-08"), null);
+    assert.equal(rankingTimeline([], [], undefined), null);
+  });
+
+  it("still serves a market with published rankings and no backtest", () => {
+    const timeline = rankingTimeline(["2026-09-18", "2026-09-25"], [], undefined);
+    assert.equal(timeline.liveFrom, "2026-09-18");
+    assert.deepEqual(timeline.dates, ["2026-09-18", "2026-09-25"]);
+  });
+});
 
 describe("modelForDate", () => {
   it("labels NSE rankings by the era that produced them", () => {

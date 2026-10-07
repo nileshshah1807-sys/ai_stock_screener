@@ -167,8 +167,8 @@ earnings growth against the year-ago quarter (`FACTOR_GROWTH_QUARTER_SHARE`,
 0 restores 5.1). The block weights also change: value 0.25 -> 0.15, growth
 0.20 -> 0.25, momentum 0.25 -> 0.30, after a four-window ladder in which the
 lower value weight won the three windows outside 2020-2024 and lost that one.
-The quarter inputs have not been backtested -- the archive holds annual
-filings only -- so the evidence and its limits are stated in
+The quarter share was set first and backtested afterwards, once the quarterly
+filings were backfilled; the evidence and its limits are stated in
 [`docs/model_methodology.md`](docs/model_methodology.md).
 
 **Recommendation policy 5.3.0 gives the STRONG BUY stack a 2% band**

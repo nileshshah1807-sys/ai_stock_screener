@@ -723,6 +723,21 @@ class DashboardRepository:
             written += len(chunk)
         return written
 
+    def delete_simulated_rankings(self, before: str) -> None:
+        """Drop this market's backtest rankings dated before ``before``.
+
+        A rebuild under different weights ranks different symbols, and the
+        upsert key includes the symbol, so writing the new top 50 over the old
+        would leave every name that dropped out sitting beside its replacement.
+        """
+        self._request(
+            "DELETE",
+            "simulated_rankings",
+            params=self._scoped({"observed_on": f"lt.{before}"}),
+            headers={"Prefer": "return=minimal"},
+            retries=2,
+        )
+
     def upsert_simulated_states(
         self,
         rows: list[dict[str, Any]],

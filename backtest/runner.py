@@ -190,6 +190,7 @@ class WalkForwardRunner:
         max_statement_age_days=None,
         require_fundamentals=False,
         regime_provider=None,
+        quarter_panel=None,
     ):
         self.calendar = calendar
         self.history_panel = history_panel
@@ -201,6 +202,10 @@ class WalkForwardRunner:
         self.value_per_position = float(value_per_position)
         self.horizons = tuple(int(h) for h in horizons)
         self.fundamental_panel = fundamental_panel
+        # Optional point-in-time latest-quarter growth. Without it the frame
+        # carries neither quarter input and the growth block scores its annual
+        # inputs alone, as every backtest before Model 5.2 did.
+        self.quarter_panel = quarter_panel
         self.max_statement_age_days = max_statement_age_days
         # When true, a security with no visible statement is dropped rather than
         # scored on price alone. Scoring it anyway would let the fundamental
@@ -234,6 +239,13 @@ class WalkForwardRunner:
                 frame, signal_date
             )
             diagnostics.update(fundamental_diagnostics)
+        if self.quarter_panel is not None and frame is not None and len(frame):
+            quarters = self.quarter_panel.cross_section(
+                frame["Security_ID"].astype(str).tolist(), signal_date
+            )
+            diagnostics["with_quarter_growth"] = int(len(quarters))
+            if len(quarters):
+                frame = frame.merge(quarters, on="Security_ID", how="left")
         return frame, diagnostics
 
     def _attach_fundamentals(self, frame, signal_date):

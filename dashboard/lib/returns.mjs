@@ -206,6 +206,36 @@ export const MODEL_ERAS = {
 };
 
 /**
+ * The first published ranking the Returns page uses, per market.
+ *
+ * NSE published rankings from 2026-08-11 under three earlier models. When
+ * Model 5.2 replaced them the backtest was rebuilt through 2026-10-07 under
+ * 5.2 (`tools/backfill_returns_history.py publish --live-from`), so the page
+ * shows one model throughout: backtest before this date, published from it.
+ * The earlier published rankings stay in `screener_history`. A market with no
+ * entry uses every published ranking, as the US does -- it has no backtest.
+ */
+export const BACKTEST_UNTIL = { NSE: "2026-10-08" };
+
+/**
+ * Which ranking dates the page uses, and where published ones take over.
+ *
+ * @param {string[]} published ascending dates with a published ranking
+ * @param {string[]} simulated ascending dates with a backtest ranking
+ * @param {string | undefined} floor `BACKTEST_UNTIL` for the market, if any
+ * @returns {{ liveFrom: string, dates: string[] } | null} null when there is no ranking at all
+ */
+export function rankingTimeline(published, simulated, floor) {
+  const live = floor ? published.filter((date) => date >= floor) : published;
+  // Before the first run on or after the floor there is nothing published to
+  // use yet; the backtest is then the whole record rather than no record.
+  const liveFrom = live[0] ?? (simulated.length ? floor : undefined);
+  if (!liveFrom) return null;
+  const dates = [...simulated.filter((date) => date < liveFrom), ...live];
+  return dates.length ? { liveFrom, dates } : null;
+}
+
+/**
  * @param {string} market
  * @param {string} date ISO date of the ranking
  * @param {boolean} [backtest] the ranking came from `simulated_rankings`
