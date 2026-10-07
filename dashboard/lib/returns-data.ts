@@ -669,12 +669,18 @@ async function getLatestState(
   asOf: string,
   latestRunDate: string | null,
   symbols: string[],
+  asOfIsBacktest = false,
 ): Promise<Map<string, HistoryRow>> {
   if (!symbols.length) return new Map();
   // The snapshot carries the logo domain; history does not. They describe the
   // same run whenever the latest run is the latest ranking, which is always
   // true outside the minutes a publish is in flight.
-  const fromSnapshot = latestRunDate === asOf;
+  //
+  // A backtest ranking has no published row for its own date at all, so "now"
+  // is whatever was published last: without this the holdings of a record
+  // that ends on a backtest date lose their names, logos and current rank.
+  const fromSnapshot = latestRunDate !== null && (latestRunDate === asOf || asOfIsBacktest);
+  const stateDate = fromSnapshot ? (latestRunDate as string) : asOf;
   // A long rebalanced window can name several hundred symbols, which would
   // not fit one request's URL; the chunks go out together.
   const chunks: string[][] = [];
@@ -688,7 +694,7 @@ async function getLatestState(
             .from("screener_snapshot")
             .select("symbol, company, investment_rank, rating, stage, logo_domain")
             .eq("market", market)
-            .eq("run_date", asOf)
+            .eq("run_date", stateDate)
             .in("symbol", part)
         : supabase
             .from("screener_history")
@@ -818,7 +824,7 @@ export async function getReturnsReport(
       getAdjustedCloses(supabase, market.code, symbols, rankDate, sessions),
       // Every symbol the basket ever held: current holdings, and the names on
       // closed positions, which need their company and logo too.
-      getLatestState(supabase, market.code, asOf, latestRun?.run_date ?? null, symbols),
+      getLatestState(supabase, market.code, asOf, latestRun?.run_date ?? null, symbols, asOf < liveFrom),
     ]);
     return { tops, rounds, lastRound, closes, now };
   };

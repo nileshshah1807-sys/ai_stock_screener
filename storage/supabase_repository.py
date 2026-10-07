@@ -247,6 +247,57 @@ class SupabaseRepository:
         )
         return rows[0]
 
+    def save_outlook(self, outlook: dict[str, Any]) -> None:
+        self._request(
+            "POST",
+            "transcript_outlooks?on_conflict=transcript_id,model_name,analysis_version",
+            json=outlook,
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+
+    def outlook_transcript_ids(self, model_name: str, analysis_version: str) -> set[str]:
+        """Transcripts that already have an outlook from this model and version."""
+        ids: set[str] = set()
+        offset = 0
+        while True:
+            rows = self._request(
+                "GET",
+                "transcript_outlooks",
+                params={
+                    "select": "transcript_id",
+                    "model_name": f"eq.{model_name}",
+                    "analysis_version": f"eq.{analysis_version}",
+                    "order": "transcript_id.asc",
+                    "limit": "1000",
+                    "offset": str(offset),
+                },
+            )
+            ids.update(row["transcript_id"] for row in rows or [])
+            if not rows or len(rows) < 1000:
+                return ids
+            offset += 1000
+
+    def transcripts_for_outlook(self) -> list[dict[str, Any]]:
+        """Every transcript of this market, newest call first, without its text."""
+        transcripts: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            rows = self._request(
+                "GET",
+                "transcripts",
+                params={
+                    "select": "id,market,symbol,call_date,document_id,token_count,cleaned_text",
+                    "market": f"eq.{self.market}",
+                    "order": "call_date.desc.nullslast,id.asc",
+                    "limit": "500",
+                    "offset": str(offset),
+                },
+            )
+            transcripts.extend(rows or [])
+            if not rows or len(rows) < 500:
+                return transcripts
+            offset += 500
+
     def latest_sentiments(
         self,
         symbols: list[str],

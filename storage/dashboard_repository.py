@@ -738,6 +738,20 @@ class DashboardRepository:
             retries=2,
         )
 
+    def delete_simulated_states(self, before: str) -> None:
+        """Drop this market's weekly hold-rule sets dated before ``before``.
+
+        A rebuild that ends on a different day signals on different dates, so a
+        week the old build had and the new one does not would otherwise stay.
+        """
+        self._request(
+            "DELETE",
+            "simulated_states",
+            params=self._scoped({"observed_on": f"lt.{before}"}),
+            headers={"Prefer": "return=minimal"},
+            retries=2,
+        )
+
     def upsert_simulated_states(
         self,
         rows: list[dict[str, Any]],
