@@ -461,6 +461,27 @@ class OutlookRunTests(unittest.TestCase):
         self.assertEqual(saved, [])
         self.assertAlmostEqual(budget.spent, 0.004)
 
+    def test_latest_only_keeps_each_companys_newest_call(self):
+        class Repository:
+            def outlook_transcript_ids(self, model, version):
+                return {"b2"}
+
+            def transcripts_for_outlook(self):
+                # Newest call first, as the repository returns them.
+                return [
+                    {"id": "a2", "symbol": "AAA", "call_date": "2026-08-10"},
+                    {"id": "b2", "symbol": "BBB", "call_date": "2026-08-05"},
+                    {"id": "a1", "symbol": "AAA", "call_date": "2026-05-12"},
+                    {"id": "b1", "symbol": "BBB", "call_date": "2026-05-08"},
+                ]
+
+        everything = self.tool.pending_transcripts(Repository(), "m")
+        latest = self.tool.pending_transcripts(Repository(), "m", latest_only=True)
+
+        self.assertEqual([row["id"] for row in everything], ["a2", "a1", "b1"])
+        # BBB's newest call is done; its older one is not picked up in its place.
+        self.assertEqual([row["id"] for row in latest], ["a2"])
+
     def test_text_is_restored_from_storage_and_the_row_saved(self):
         repository, saved = self.repository({"t1": "archived call text"})
         with patch.object(self.tool, "analyse_transcript", self.fake_analyse(0.002)):

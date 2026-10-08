@@ -16,6 +16,7 @@ Usage::
 
     python -m tools.extract_transcript_outlook --dry-run        # count and estimate, no API calls
     python -m tools.extract_transcript_outlook --limit 5        # a first look
+    python -m tools.extract_transcript_outlook --latest-only     # each company's newest call
     python -m tools.extract_transcript_outlook --max-cost 4.5   # everything pending, capped
 
 Needs ``OPENROUTER_API_KEY``, ``SUPABASE_URL`` and ``SUPABASE_SERVICE_ROLE_KEY``,
@@ -69,9 +70,21 @@ def estimate_cost(transcripts, model):
     return (prompt * prices[0] + output * prices[1]) / 1_000_000
 
 
-def pending_transcripts(repository, model):
+def pending_transcripts(repository, model, latest_only=False):
+    """Transcripts with no outlook yet, newest call first.
+
+    ``latest_only`` keeps each company's most recent call, which is the only
+    one the screener reads; earlier calls matter for testing the score against
+    the returns that followed them.
+    """
     done = repository.outlook_transcript_ids(model, OUTLOOK_VERSION)
-    return [row for row in repository.transcripts_for_outlook() if row["id"] not in done]
+    transcripts = repository.transcripts_for_outlook()
+    if latest_only:
+        latest = {}
+        for row in transcripts:
+            latest.setdefault(row["symbol"], row)
+        transcripts = list(latest.values())
+    return [row for row in transcripts if row["id"] not in done]
 
 
 class Budget:
@@ -142,6 +155,10 @@ def main(argv=None):
     parser.add_argument("--limit", type=int, default=None, help="newest N pending calls only")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--max-cost", type=float, default=4.5, help="stop submitting after this many USD")
+    parser.add_argument(
+        "--latest-only", action="store_true",
+        help="each company's most recent call only (what the screener reads)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="count and estimate; no API calls, no writes")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -153,7 +170,7 @@ def main(argv=None):
 
     repository = SupabaseRepository.from_environment(args.market)
     try:
-        pending = pending_transcripts(repository, args.model)
+        pending = pending_transcripts(repository, args.model, latest_only=args.latest_only)
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 404:
             raise SystemExit(
