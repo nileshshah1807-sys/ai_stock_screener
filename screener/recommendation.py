@@ -1305,6 +1305,18 @@ class RecommendationPolicy:
             research = (
                 "Research_Score" if "Research_Score" in ranked else "Evidence_Score"
             )
+            # The published score first: the research score after the reverse
+            # DCF and the earnings-call evidence, which is what the reader is
+            # shown as the score. Ranking on the research score alone left a
+            # call that moved a stock's score unable to move its place, so the
+            # list sorted by score disagreed with the list sorted by rank.
+            # A company with no call is untouched, and so is every backtest
+            # week -- the archive has no calls -- where the two scores are
+            # equal. Evidence is clipped at 100, so the names an upbeat call
+            # lifts to the ceiling tie there; the research score orders them.
+            merit = ["Evidence_Score"]
+            if research != "Evidence_Score":
+                merit.append(research)
             if (
                 _as_bool(getattr(self.config, "RANK_BY_ELIGIBILITY_CLASS", False))
                 and "Eligibility_Class" in ranked
@@ -1312,11 +1324,11 @@ class RecommendationPolicy:
                 # Eligibility dominates, research score orders within a class.
                 assign(
                     "Investment_Rank",
-                    ["Eligibility_Class", research, "Gate_Severity", "_Symbol_Sort"],
-                    [True, False, True, True],
+                    ["Eligibility_Class", *merit, "Gate_Severity", "_Symbol_Sort"],
+                    [True, *([False] * len(merit)), True, True],
                 )
             else:
-                # Research merit alone. Point-in-time validation across four
+                # Merit alone. Point-in-time validation across four
                 # windows (`docs/Review/p0_implementation_plan.md`) found that
                 # sorting eligibility first cost 5-16 CAGR points wherever the
                 # gates bound, and contributed exactly nothing in the 2018-2020
@@ -1326,11 +1338,11 @@ class RecommendationPolicy:
                 # The gates are still computed, published and used for rating,
                 # so a failing name is labelled rather than hidden -- they are
                 # simply no longer a stock-selection input.
-                keys = [research, "_Symbol_Sort"]
-                ascending = [False, True]
+                keys = [*merit, "_Symbol_Sort"]
+                ascending = [*([False] * len(merit)), True]
                 if "Gate_Severity" in ranked:
-                    keys.insert(1, "Gate_Severity")
-                    ascending.insert(1, True)
+                    keys.insert(len(merit), "Gate_Severity")
+                    ascending.insert(len(merit), True)
                 assign("Investment_Rank", keys, ascending)
         else:
             assign(

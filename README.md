@@ -126,7 +126,12 @@ relative strength, and adds a market-regime overlay.
 risk 5%. 5.0 ran quality 35% / value 15%; ten points moved on the validation
 evidence below. Every weight is overridable with `FACTOR_WEIGHT_*`.
 
-**Ranking (5.1):** `Investment_Rank` orders on `Research_Score` alone.
+**Ranking (5.2):** `Investment_Rank` orders on the published score
+(`Evidence_Score`: the research score after the earnings-call evidence), with
+`Research_Score` breaking a tie at the 100 ceiling. A company with no scored
+call is ranked on its research score, exactly as before, and so is every
+backtest week -- the archive has no calls. Until 2026-10-08 the rank used
+`Research_Score` alone, so a call could move a stock's score but not its place.
 `RANK_BY_ELIGIBILITY_CLASS=false` is the default; setting it `true` restores the
 5.0 eligibility-first order. Ranking on `Decision_Score` is no longer reachable
 under the factor model, because that column is constant inside a capped class

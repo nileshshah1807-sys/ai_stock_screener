@@ -356,6 +356,59 @@ class RecommendationPolicyTests(unittest.TestCase):
         self.assertEqual(result.loc["NO_CALL", "Evidence_Score"], 60.0)
         self.assertEqual(result.loc["NO_CALL", "Transcript_Evidence_Contribution"], 0.0)
 
+    def factor_ranking(self, rows):
+        settings = self.two_sided_config()
+        settings.FACTOR_MODEL_ENABLED = True
+        frame = pd.DataFrame(
+            [
+                row(
+                    symbol,
+                    score,
+                    Factor_Model_Applied=True,
+                    Research_Score=score,
+                    **(
+                        {
+                            "Transcript_Blend_Eligible": True,
+                            "Transcript_Blend_Weight": 0.10,
+                            "Transcript_Effective_Score": call,
+                        }
+                        if call is not None
+                        else {}
+                    ),
+                )
+                for symbol, score, call in rows
+            ]
+        )
+        return finalize_recommendations(frame, settings).set_index("Symbol")
+
+    def test_the_rank_follows_the_published_score_not_the_research_score(self):
+        # Median call 65. LIFTED's call adds 2.0 and SUNK's takes 2.0 away, so
+        # each crosses NO_CALL, whose score no call touched.
+        result = self.factor_ranking(
+            [("SUNK", 71.0, 45.0), ("NO_CALL", 70.0, None), ("LIFTED", 69.0, 85.0), ("MID", 50.0, 65.0)]
+        )
+
+        self.assertEqual(result.loc["LIFTED", "Evidence_Score"], 71.0)
+        self.assertEqual(result.loc["SUNK", "Evidence_Score"], 69.0)
+        self.assertEqual(
+            result["Investment_Rank"].sort_values().index.tolist(),
+            ["LIFTED", "NO_CALL", "SUNK", "MID"],
+        )
+        self.assertEqual(result["Rank"].tolist(), result["Investment_Rank"].tolist())
+
+    def test_names_lifted_to_the_ceiling_are_ordered_by_research_score(self):
+        # Both calls push past 100 and are clipped there; the tie must not
+        # fall through to the alphabet.
+        result = self.factor_ranking(
+            [("AAA", 98.5, 95.0), ("ZZZ", 99.5, 95.0)]
+            + [(f"MID{n}", 50.0 - n, 65.0) for n in range(3)]
+        )
+
+        self.assertEqual(result.loc["AAA", "Evidence_Score"], 100.0)
+        self.assertEqual(result.loc["ZZZ", "Evidence_Score"], 100.0)
+        self.assertEqual(result.loc["ZZZ", "Investment_Rank"], 1)
+        self.assertEqual(result.loc["AAA", "Investment_Rank"], 2)
+
     def test_two_sided_transcript_falls_back_to_fifty_on_a_thin_run(self):
         result = finalize_recommendations(
             self.two_sided_frame(), self.two_sided_config(minimum=30)
