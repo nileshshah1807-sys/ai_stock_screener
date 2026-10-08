@@ -329,6 +329,15 @@ class Config:
     # Below this many scored calls the run median is not a stable centre, so
     # the adjustment falls back to 50.
     TRANSCRIPT_NEUTRAL_MIN_CALLS = _env_int("TRANSCRIPT_NEUTRAL_MIN_CALLS", 30)
+    # The language-model outlook of a call (sentiment/outlook.py: guidance,
+    # order book, capacity, demand, margins) takes this share of the transcript
+    # weight where the call has one, and tone keeps the rest; a call without an
+    # outlook is scored on tone alone. Half each is a judgment: there is no
+    # return history for the outlook score yet. 0 restores tone-only.
+    TRANSCRIPT_OUTLOOK_ENABLED = _env_bool("TRANSCRIPT_OUTLOOK_ENABLED", True)
+    TRANSCRIPT_OUTLOOK_SHARE = _env_float("TRANSCRIPT_OUTLOOK_SHARE", 0.5)
+    # Empty reads any model's extraction of the current outlook version.
+    TRANSCRIPT_OUTLOOK_MODEL = os.getenv("TRANSCRIPT_OUTLOOK_MODEL", "")
     REQUIRE_TRANSCRIPT_FOR_STRONG_BUY = _env_bool("REQUIRE_TRANSCRIPT_FOR_STRONG_BUY", False)
     TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS = _env_int("TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS", 180)
     TRANSCRIPT_MIN_PRIORITY_SCORE = _env_float("TRANSCRIPT_MIN_PRIORITY_SCORE", 55.0)

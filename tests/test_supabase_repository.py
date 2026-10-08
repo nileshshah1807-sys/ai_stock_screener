@@ -94,6 +94,44 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
         self.assertNotIn("structured_output", requested_selects[1])
         self.assertNotIn("structured_output", requested_selects[2])
 
+    def test_latest_outlooks_keeps_the_newest_call_of_each_symbol(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        calls = []
+
+        def request(method, path, **kwargs):
+            calls.append((path, kwargs["params"]))
+            # Newest first, as the query orders them.
+            return [
+                {"symbol": "RELIANCE", "call_date": "2026-07-20", "outlook_score": 71},
+                {"symbol": "RELIANCE", "call_date": "2026-04-22", "outlook_score": 40},
+                {"symbol": "TCS", "call_date": "2026-07-10", "outlook_score": 55},
+            ]
+
+        repository._request = request
+
+        result = repository.latest_outlooks(["reliance", "TCS"], "outlook-v1")
+
+        self.assertEqual(
+            {row["symbol"]: row["outlook_score"] for row in result},
+            {"RELIANCE": 71, "TCS": 55},
+        )
+        path, params = calls[0]
+        self.assertEqual(path, "transcript_outlooks")
+        self.assertEqual(params["market"], "eq.NSE")
+        self.assertEqual(params["symbol"], "in.(RELIANCE,TCS)")
+        self.assertEqual(params["analysis_version"], "eq.outlook-v1")
+        self.assertTrue(params["order"].startswith("call_date.desc"))
+        self.assertNotIn("model_name", params)
+
+    def test_latest_outlooks_can_be_pinned_to_one_model(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        seen = []
+        repository._request = lambda method, path, **kwargs: seen.append(kwargs["params"]) or []
+
+        repository.latest_outlooks(["A"], "outlook-v1", "vendor/model")
+
+        self.assertEqual(seen[0]["model_name"], "eq.vendor/model")
+
     def test_red_flag_snapshot_reads_are_batched(self):
         repository = SupabaseRepository("https://example.test", "service-role-key")
         calls = []

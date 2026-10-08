@@ -3,9 +3,10 @@
 Reads every transcript that has no outlook yet for the chosen model and
 `sentiment.outlook.OUTLOOK_VERSION`, sends each to OpenRouter, keeps only the
 items whose quoted sentence is found in the transcript, scores them and writes
-one row to ``transcript_outlooks``. Nothing here is read by the screener: the
-table is separate from ``transcript_sentiments``, so a run cannot change a
-published score.
+one row to ``transcript_outlooks``. The daily screener reads that table: the
+outlook of a company's latest call shares the transcript weight with its tone
+score (``TRANSCRIPT_OUTLOOK_SHARE``), so a run here moves the next published
+scores.
 
 Resumable -- a transcript already extracted is skipped -- and bounded: the run
 stops submitting once ``--max-cost`` is spent, so a small credit balance ends in

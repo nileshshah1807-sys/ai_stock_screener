@@ -359,6 +359,52 @@ class SupabaseRepository:
             rows.extend(batch_rows or [])
         return rows
 
+    def latest_outlooks(
+        self,
+        symbols: list[str],
+        analysis_version: str,
+        model_name: str | None = None,
+        batch_size: int = 200,
+    ) -> list[dict[str, Any]]:
+        """The newest call's outlook for each symbol, without the quotes.
+
+        ``points`` is the scored breakdown only; the quoted sentences stay in
+        the table. Scoped to this market for the same reason as
+        `latest_sentiments`.
+        """
+        normalized = list(dict.fromkeys(
+            str(symbol).strip().upper()
+            for symbol in symbols
+            if str(symbol).strip()
+        ))
+        latest: dict[str, dict[str, Any]] = {}
+        safe_batch_size = max(1, int(batch_size))
+        for start in range(0, len(normalized), safe_batch_size):
+            batch = normalized[start:start + safe_batch_size]
+            offset = 0
+            while True:
+                params = {
+                    "market": f"eq.{self.market}",
+                    "symbol": f"in.({','.join(batch)})",
+                    "analysis_version": f"eq.{analysis_version}",
+                    "select": (
+                        "symbol,call_date,outlook_score,verified_fields,"
+                        "model_name,points:extraction->points"
+                    ),
+                    "order": "call_date.desc.nullslast,created_at.desc,id.asc",
+                    "limit": "1000",
+                    "offset": str(offset),
+                }
+                if model_name:
+                    params["model_name"] = f"eq.{model_name}"
+                rows = self._request("GET", "transcript_outlooks", params=params)
+                for row in rows or []:
+                    latest.setdefault(str(row["symbol"]).upper(), row)
+                if not rows or len(rows) < 1000:
+                    break
+                offset += 1000
+        return list(latest.values())
+
     def upsert_red_flag_snapshots(self, snapshots: list[dict[str, Any]], batch_size: int = 250) -> int:
         fetched_at = datetime.now(UTC).isoformat()
         rows = [{**snapshot, "fetched_at": fetched_at} for snapshot in snapshots]

@@ -170,8 +170,35 @@ the top fifth by score returned +4.6% above the liquid universe over the next
 three months and the bottom fifth -0.1% (1,169 calls, rank correlation 0.10;
 0.02 at one month). One results season, and not separated from momentum, so
 the weight is left small: a top-5% call adds about 1.3 points to a percentile
-score. The score is still the word-list tone score; structured extraction is
-planned to replace it once it can be compared against returns.
+score.
+
+### Model 5.2 transcript evidence: what the call said, beside how it sounded
+
+The tone score is a word-list measure. `sentiment/outlook.py` adds a second
+reading of the same call by a language model: the guidance and whether it
+moved, the order book, capacity, demand and margins, each kept only if the
+sentence it was taken from is found in the transcript. Its 0-100
+`outlook_score` shares the transcript weight with tone:
+
+```text
+signal         = (1 - s) * (tone - median tone)
+                 + s * (outlook - median outlook)      call has an outlook
+signal         = tone - median tone                    call has none
+Evidence_Score = Score_After_DCF + w_tx * signal
+```
+
+`s` is `TRANSCRIPT_OUTLOOK_SHARE` (0.5); `w_tx` and its decay are unchanged,
+so the most a call can move a score is what it was before. Each reading is
+centred on its own median over the calls of the run, falling back to 50 below
+`TRANSCRIPT_NEUTRAL_MIN_CALLS`. An outlook counts only for the call the tone
+score came from and only when at least one extracted item was verified; a
+call without one is scored on tone at the full weight, not as a neutral
+outlook. A company with no eligible call is still not adjusted.
+
+**The half share and the point weights inside `outlook_score` are judgments.**
+Outlooks exist only for calls from April 2026, so there is no return history
+to fit either against, and the backtest, which has no calls, is unaffected.
+`TRANSCRIPT_OUTLOOK_SHARE=0` restores the tone-only score.
 
 ### Model 5.2 block weights: value 0.25 to 0.15
 

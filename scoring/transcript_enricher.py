@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from screener.numeric import round_half_up, round_series_half_up
+from sentiment.outlook import OUTLOOK_VERSION
 from storage.supabase_repository import SupabaseRepository
 from transcripts.periods import (
     CURRENT_CYCLE,
@@ -87,6 +88,9 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Blend_Weight"] = 0.0
         enriched["Transcript_Signal_Direction"] = "unknown"
         enriched["Transcript_Proposed_Delta_Core"] = 0.0
+        enriched["Transcript_Outlook_Score"] = np.nan
+        enriched["Transcript_Outlook_Verified_Fields"] = 0
+        enriched["Transcript_Outlook_Summary"] = ""
 
         repository = self.repository
         if repository is None:
@@ -190,6 +194,8 @@ class TranscriptSentimentEnricher:
                 evidence.status,
             )
 
+        self._attach_outlooks(enriched, repository, by_symbol)
+
         priority_weight = _weight(
             getattr(self.config, "TRANSCRIPT_SENTIMENT_WEIGHT", 0.15)
         )
@@ -276,6 +282,54 @@ class TranscriptSentimentEnricher:
         )
         enriched["Transcript_Priority_Applied"] = False
         return enriched
+
+    def _attach_outlooks(self, enriched, repository, sentiments_by_symbol):
+        """Add the language-model outlook of the call the tone score came from.
+
+        Evidence only, like the rest of the enricher: the recommendation policy
+        decides what the score is worth. An outlook is attached when it is for
+        the same call as the tone score, so both carry one recency weight, and
+        when at least one extracted item had its quote found in the transcript.
+        A call the model drew nothing verifiable from says nothing about the
+        outlook, and the column stays empty rather than reading a neutral 50.
+        """
+        if not getattr(self.config, "TRANSCRIPT_OUTLOOK_ENABLED", False):
+            return
+        records = repository.latest_outlooks(
+            enriched["Symbol"].astype(str).str.upper().tolist(),
+            OUTLOOK_VERSION,
+            getattr(self.config, "TRANSCRIPT_OUTLOOK_MODEL", "") or None,
+        )
+        by_symbol = {str(record["symbol"]).upper(): record for record in records}
+        for index, symbol in enriched["Symbol"].items():
+            key = str(symbol).upper()
+            record = by_symbol.get(key)
+            sentiment = sentiments_by_symbol.get(key)
+            if record is None or sentiment is None:
+                continue
+            call_date = str(record.get("call_date") or "")[:10]
+            if not call_date or call_date != str(sentiment.get("call_date") or "")[:10]:
+                continue
+            score = _number(record.get("outlook_score"))
+            verified = int(_number(record.get("verified_fields")) or 0)
+            if score is None or verified <= 0:
+                continue
+            enriched.at[index, "Transcript_Outlook_Score"] = round_half_up(score, 2)
+            enriched.at[index, "Transcript_Outlook_Verified_Fields"] = verified
+            enriched.at[index, "Transcript_Outlook_Summary"] = _outlook_summary(
+                record.get("points")
+            )
+
+
+def _outlook_summary(points, limit=4):
+    """The largest scored items of an outlook, as ``reason (+points)``."""
+    items = []
+    for item in points if isinstance(points, list) else []:
+        value = _number(item.get("points")) if isinstance(item, dict) else None
+        if value:
+            items.append((str(item.get("reason") or "").strip(), value))
+    items.sort(key=lambda item: -abs(item[1]))
+    return "; ".join(f"{reason} ({value:+g})" for reason, value in items[:limit] if reason)
 
 
 def rank_actionable_recommendations(scored_df):

@@ -69,6 +69,29 @@ class PriorCycleRepository:
         }]
 
 
+class OutlookRepository(FakeRepository):
+    """FakeRepository's call, with a language-model outlook stored beside it."""
+
+    def __init__(self, days_ago=31, verified_fields=3):
+        self.outlook = {
+            "symbol": "RELIANCE",
+            "call_date": str(date.today() - timedelta(days=days_ago)),
+            "outlook_score": 73.0,
+            "verified_fields": verified_fields,
+            "points": [
+                {"reason": "guidance raised", "points": 15.0},
+                {"reason": "demand outlook strong", "points": 8.0},
+                {"reason": "headwind: input costs", "points": -3.0},
+                {"reason": "guidance maintained", "points": 0},
+            ],
+        }
+        self.requested = None
+
+    def latest_outlooks(self, symbols, analysis_version, model_name=None):
+        self.requested = (symbols, analysis_version, model_name)
+        return [self.outlook]
+
+
 class TranscriptEnricherTests(unittest.TestCase):
     def test_recency_weight_matches_policy_boundaries(self):
         today = date(2026, 8, 5)
@@ -304,6 +327,45 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertIn("positive demand", summary)
         self.assertIn("margin pressure", summary)
         self.assertNotIn("Unclear", summary)
+
+    def enrich_with_outlook(self, repository, **settings):
+        source = pd.DataFrame({"Symbol": ["RELIANCE", "TCS"], "Combined_Score": [72.0, 65.0]})
+        config = SimpleNamespace(TRANSCRIPT_OUTLOOK_ENABLED=True, **settings)
+        return TranscriptSentimentEnricher(config, repository).enrich(source)
+
+    def test_outlook_of_the_scored_call_is_attached(self):
+        repository = OutlookRepository()
+        result = self.enrich_with_outlook(repository)
+
+        self.assertEqual(result.loc[0, "Transcript_Outlook_Score"], 73.0)
+        self.assertEqual(result.loc[0, "Transcript_Outlook_Verified_Fields"], 3)
+        self.assertEqual(
+            result.loc[0, "Transcript_Outlook_Summary"],
+            "guidance raised (+15); demand outlook strong (+8); headwind: input costs (-3)",
+        )
+        self.assertTrue(pd.isna(result.loc[1, "Transcript_Outlook_Score"]))
+        self.assertEqual(repository.requested, (["RELIANCE", "TCS"], "outlook-v1", None))
+        # Evidence only: the tone columns the policy reads are untouched.
+        self.assertEqual(result.loc[0, "Transcript_Effective_Score"], 80.0)
+
+    def test_outlook_of_an_older_call_is_not_attached(self):
+        result = self.enrich_with_outlook(OutlookRepository(days_ago=120))
+
+        self.assertTrue(pd.isna(result.loc[0, "Transcript_Outlook_Score"]))
+        self.assertEqual(result.loc[0, "Transcript_Outlook_Summary"], "")
+
+    def test_outlook_with_nothing_verified_is_absent_not_neutral(self):
+        result = self.enrich_with_outlook(OutlookRepository(verified_fields=0))
+
+        self.assertTrue(pd.isna(result.loc[0, "Transcript_Outlook_Score"]))
+
+    def test_outlooks_are_not_read_unless_enabled(self):
+        repository = OutlookRepository()
+        source = pd.DataFrame({"Symbol": ["RELIANCE"], "Combined_Score": [72.0]})
+        result = TranscriptSentimentEnricher(SimpleNamespace(), repository).enrich(source)
+
+        self.assertIsNone(repository.requested)
+        self.assertTrue(pd.isna(result.loc[0, "Transcript_Outlook_Score"]))
 
     def test_email_report_includes_transcript_summary_column(self):
         config = SimpleNamespace(
