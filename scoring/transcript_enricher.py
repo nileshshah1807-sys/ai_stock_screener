@@ -10,7 +10,12 @@ import numpy as np
 import pandas as pd
 
 from screener.numeric import round_half_up, round_series_half_up
-from sentiment.outlook import OUTLOOK_VERSION, compare_outlooks, summarise_changes
+from sentiment.outlook import (
+    OUTLOOK_VERSION,
+    compare_outlooks,
+    outlook_items,
+    summarise_changes,
+)
 from storage.supabase_repository import SupabaseRepository
 from transcripts.periods import (
     CURRENT_CYCLE,
@@ -332,12 +337,7 @@ class TranscriptSentimentEnricher:
             # The whole breakdown, for the stock page; the summary above is the
             # four largest items for the report.
             enriched.at[index, "Transcript_Outlook_Points"] = json.dumps(
-                [
-                    {"reason": str(item.get("reason") or ""), "points": _number(item.get("points")) or 0.0}
-                    for item in extraction.get("points") or []
-                    if isinstance(item, dict) and item.get("reason")
-                ],
-                separators=(",", ":"),
+                _outlook_breakdown(extraction), separators=(",", ":")
             )
             # Against the quarter before: what management kept to and what
             # moved. Shown beside the score, not part of it.
@@ -361,6 +361,32 @@ class TranscriptSentimentEnricher:
             enriched.at[index, "Transcript_Outlook_QoQ_Items"] = json.dumps(
                 changes, separators=(",", ":")
             )
+
+
+# A quote is one sentence; a transcript with a lost full stop can make it a
+# paragraph, and 2,300 of those would swell every published row.
+OUTLOOK_QUOTE_MAX_CHARACTERS = 400
+
+
+def _outlook_breakdown(extraction):
+    """Every scored item of a stored outlook with the sentence behind it."""
+    try:
+        items = outlook_items(extraction)
+    except (KeyError, TypeError, AttributeError):
+        # A row whose sections are not in the current shape: the stored points
+        # still say what was scored, without the quotes.
+        return [
+            {"reason": str(item.get("reason") or ""), "points": _number(item.get("points")) or 0.0, "quote": ""}
+            for item in extraction.get("points") or []
+            if isinstance(item, dict) and item.get("reason")
+        ]
+    breakdown = []
+    for reason, value, quote in items:
+        quote = " ".join(str(quote or "").split())
+        if len(quote) > OUTLOOK_QUOTE_MAX_CHARACTERS:
+            quote = quote[: OUTLOOK_QUOTE_MAX_CHARACTERS - 1].rstrip() + "…"
+        breakdown.append({"reason": reason, "points": value, "quote": quote})
+    return breakdown
 
 
 def _outlook_summary(points, limit=4):

@@ -38,9 +38,34 @@ test("scored items are listed largest first and unscored ones dropped", () => {
   assert.equal(outlook.median, 66);
   assert.equal(outlook.applied, true);
   assert.deepEqual(outlook.points, [
-    { reason: "Guided revenue growth 25% or more", points: 10 },
-    { reason: "Guidance maintained", points: 3 },
-    { reason: "Headwind: input costs", points: -3 },
+    { reason: "Guided revenue growth 25% or more", points: 10, quote: "" },
+    { reason: "Guidance maintained", points: 3, quote: "" },
+    { reason: "Headwind: input costs", points: -3, quote: "" },
+  ]);
+});
+
+test("items read off one sentence share a row and its quote", () => {
+  const guidance = "We expect revenue of INR1,550 crores to INR1,650 crores.";
+  const outlook = callOutlook({
+    Transcript_Outlook_Score: 77,
+    Transcript_Outlook_Points: JSON.stringify([
+      { reason: "guidance maintained", points: 3, quote: guidance },
+      { reason: "guided revenue growth 25% or more", points: 10, quote: guidance },
+      { reason: "demand outlook strong", points: 8, quote: "Demand remains healthy." },
+      { reason: "capacity planned", points: 1, quote: "" },
+      { reason: "headwind: freight costs", points: -3, quote: "" },
+    ]),
+  });
+  assert.deepEqual(outlook.points, [
+    {
+      reason: "Guidance maintained · guided revenue growth 25% or more",
+      points: 13,
+      quote: guidance,
+    },
+    { reason: "Demand outlook strong", points: 8, quote: "Demand remains healthy." },
+    // No quote is not a shared quote: these stay separate.
+    { reason: "Headwind: freight costs", points: -3, quote: "" },
+    { reason: "Capacity planned", points: 1, quote: "" },
   ]);
 });
 
@@ -52,8 +77,21 @@ test("changes since the previous call lead with what got worse", () => {
     previous.changes.map((item) => item.change),
     ["worse", "better", "kept"],
   );
-  assert.equal(previous.changes[0].text, "Guided growth cut 20% -> 15%");
+  assert.equal(previous.changes[0].text, "Guided growth cut 20% → 15%");
   assert.deepEqual([previous.kept, previous.better, previous.worse], [1, 1, 1]);
+});
+
+test("a commissioning month is written as a month, not as a number", () => {
+  const { previous } = callOutlook({
+    Transcript_Outlook_Score: 60,
+    Transcript_Outlook_Previous_Score: 62,
+    Transcript_Outlook_QoQ_Items: JSON.stringify([
+      { change: "worse", text: "commissioning slipped 2026-12 -> 2027-03" },
+      { change: "kept", text: "order book steady, 1,000 -> 1,020 crore" },
+    ]),
+  });
+  assert.equal(previous.changes[0].text, "Commissioning slipped Dec 2026 → Mar 2027");
+  assert.equal(previous.changes[1].text, "Order book steady, 1,000 → 1,020 crore");
 });
 
 test("a first call has no previous one to compare with", () => {
