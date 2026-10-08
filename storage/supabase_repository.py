@@ -144,6 +144,89 @@ class SupabaseRepository:
         )
         return rows[0]
 
+    # -- cover letters stored as transcripts -----------------------------------
+    #
+    # A filing that only says where the transcript can be found was, until
+    # transcripts/linked.py, stored and scored as the call. These let the
+    # worker find those rows and either give them the real text or remove them.
+
+    def short_transcripts(self, max_tokens: int) -> list[dict[str, Any]]:
+        """Transcripts of this market too short to be a call, with their filing."""
+        transcripts: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            rows = self._request(
+                "GET",
+                "transcripts",
+                params={
+                    "select": "id,market,document_id,symbol,call_date,token_count",
+                    "market": f"eq.{self.market}",
+                    "token_count": f"lt.{int(max_tokens)}",
+                    "order": "call_date.desc.nullslast,id.asc",
+                    "limit": "500",
+                    "offset": str(offset),
+                },
+            )
+            transcripts.extend(rows or [])
+            if not rows or len(rows) < 500:
+                break
+            offset += 500
+        filings: dict[str, dict[str, Any]] = {}
+        document_ids = [row["document_id"] for row in transcripts]
+        for start in range(0, len(document_ids), 100):
+            rows = self._request(
+                "GET",
+                "transcript_filing_documents",
+                params={
+                    "select": (
+                        "document_id,transcript_filings"
+                        "(id,attachment_url,announcement_date,attempt_count)"
+                    ),
+                    "document_id": f"in.({','.join(document_ids[start:start + 100])})",
+                },
+            )
+            for row in rows or []:
+                filing = row.get("transcript_filings") or {}
+                if isinstance(filing, list):
+                    filing = filing[0] if filing else {}
+                if filing:
+                    filings[row["document_id"]] = filing
+        return [{**row, "filing": filings.get(row["document_id"])} for row in transcripts]
+
+    def replace_transcript_text(self, transcript: dict[str, Any], text: str) -> None:
+        """Give a transcript new text and drop everything scored from the old.
+
+        The tone score and the outlook were computed on the cover letter; both
+        are removed so the next analysis pass reads the call.
+        """
+        self.delete_transcript_analyses(transcript["id"])
+        self._request(
+            "PATCH",
+            f"transcripts?id=eq.{transcript['id']}",
+            json={
+                "cleaned_text": text,
+                "token_count": (len(text) + 3) // 4,
+                "text_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            },
+            headers={"Prefer": "return=minimal"},
+        )
+
+    def delete_transcript_analyses(self, transcript_id: str) -> None:
+        for table in ("transcript_sentiments", "transcript_outlooks"):
+            self._request(
+                "DELETE",
+                f"{table}?transcript_id=eq.{transcript_id}",
+                headers={"Prefer": "return=minimal"},
+            )
+
+    def delete_transcript(self, transcript_id: str) -> None:
+        """Remove a transcript; its sentiments and outlooks go with it."""
+        self._request(
+            "DELETE",
+            f"transcripts?id=eq.{transcript_id}",
+            headers={"Prefer": "return=minimal"},
+        )
+
     def get_sentiment(self, transcript_id: str, model_name: str, analysis_version: str) -> dict[str, Any] | None:
         rows = self._request(
             "GET",

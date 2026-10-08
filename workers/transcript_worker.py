@@ -16,10 +16,20 @@ from storage.supabase_repository import SupabaseRepository
 from transcripts.cleaner import clean_transcript_text
 from transcripts.collector import discover_nse_transcripts, filing_payload
 from transcripts.extractor import extract_pdf_text
+from transcripts.linked import (
+    COVER_LETTER_MAX_CHARACTERS,
+    fetch_linked_transcript,
+    is_cover_letter,
+)
 from transcripts.periods import reporting_period_end_for_call
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+
+COVER_LETTER_ERROR = "cover letter; the transcript it links to was not found"
+# A company that has not put its transcript up after this many runs is not
+# going to; the filing stops being fetched three times a day.
+COVER_LETTER_MAX_ATTEMPTS = 15
 
 
 @dataclass(frozen=True)
@@ -32,6 +42,7 @@ class TranscriptSettings:
     max_documents_per_run: int = 60
     max_analyses_per_run: int = 60
     analysis_batch_size: int = 10
+    max_cover_letter_repairs_per_run: int = 250
 
     @classmethod
     def from_environment(cls) -> TranscriptSettings:
@@ -48,6 +59,9 @@ class TranscriptSettings:
             max_documents_per_run=max(1, int(os.getenv("TRANSCRIPT_MAX_DOCUMENTS_PER_RUN", "60"))),
             max_analyses_per_run=max(1, int(os.getenv("TRANSCRIPT_MAX_ANALYSES_PER_RUN", "60"))),
             analysis_batch_size=max(1, int(os.getenv("TRANSCRIPT_ANALYSIS_BATCH_SIZE", "10"))),
+            max_cover_letter_repairs_per_run=max(
+                0, int(os.getenv("TRANSCRIPT_MAX_COVER_LETTER_REPAIRS_PER_RUN", "250"))
+            ),
         )
 
 
@@ -55,9 +69,15 @@ class TranscriptWorker:
     def __init__(self, repository: SupabaseRepository, settings: TranscriptSettings):
         self.repository = repository
         self.settings = settings
+        self._cover_letters = {"resolved": 0, "unresolved": 0}
 
     def run(self) -> dict[str, int]:
-        summary = {"discovered": 0, "documents_ready": 0, "analyzed": 0, "deferred": 0, "failed": 0}
+        summary = {
+            "discovered": 0, "documents_ready": 0, "analyzed": 0, "deferred": 0, "failed": 0,
+            "cover_letters_resolved": 0, "cover_letters_unresolved": 0,
+            "cover_letters_repaired": 0, "cover_letters_removed": 0,
+        }
+        self._cover_letters = {"resolved": 0, "unresolved": 0}
         logger.info("Discovering NSE earnings transcripts from the last %s day(s)", self.settings.lookback_days)
         records = discover_nse_transcripts(self.settings.lookback_days)
         summary["discovered"] = len(records)
@@ -77,6 +97,12 @@ class TranscriptWorker:
                 except Exception as exc:
                     summary["failed"] += 1
                     logger.exception("Transcript collection failed: %s", exc)
+            summary["cover_letters_resolved"] = self._cover_letters["resolved"]
+            summary["cover_letters_unresolved"] = self._cover_letters["unresolved"]
+            try:
+                summary.update(self._repair_stored_cover_letters(download_directory))
+            except Exception as exc:  # noqa: BLE001 - a repair pass must not stop the scoring of real calls
+                logger.exception("Cover-letter repair failed: %s", exc)
         analysis_summary = self._analyze_pending_transcripts()
         summary["analyzed"] = analysis_summary["analyzed"]
         summary["deferred"] = analysis_summary["deferred"]
@@ -96,6 +122,11 @@ class TranscriptWorker:
         stored_filing = self.repository.upsert_filing(filing)
         if stored_filing["status"] in {"document_ready", "rejected"}:
             return False
+        if (
+            stored_filing.get("last_error") == COVER_LETTER_ERROR
+            and int(stored_filing.get("attempt_count") or 0) >= COVER_LETTER_MAX_ATTEMPTS
+        ):
+            return False
         try:
             attachment_url = filing.get("attachment_url") or ""
             if ".pdf" not in attachment_url.lower():
@@ -114,13 +145,30 @@ class TranscriptWorker:
                     self.settings.max_pages,
                 )
                 cleaned_text = clean_transcript_text(extracted.text)
-                if len(cleaned_text) < self.settings.min_text_characters:
-                    raise ValueError("cleaned transcript text is too short")
+                extraction_method = extracted.method
+                if is_cover_letter(cleaned_text):
+                    # The filing says where the transcript is, not what was
+                    # said. Scored as it stands it reads as a neutral call.
+                    linked = self._linked_transcript(
+                        pdf_path, download_directory, filing.get("announcement_date")
+                    )
+                    if linked is None:
+                        self._cover_letters["unresolved"] += 1
+                        self.repository.update_filing(
+                            stored_filing["id"],
+                            status="failed",
+                            attempt_count=int(stored_filing.get("attempt_count") or 0) + 1,
+                            last_error=COVER_LETTER_ERROR,
+                        )
+                        logger.info("Cover letter without a reachable transcript: %s", filing["symbol"])
+                        return False
+                    self._cover_letters["resolved"] += 1
+                    cleaned_text, extraction_method = linked.text, linked.method
                 if document is None:
                     document = self.repository.create_document({
                         "sha256": sha256,
                         "size_bytes": pdf_path.stat().st_size,
-                        "extraction_method": extracted.method,
+                        "extraction_method": extraction_method,
                     })
                 self.repository.upsert_transcript({
                     "document_id": document["id"],
@@ -142,6 +190,72 @@ class TranscriptWorker:
                 last_error=str(exc)[:1000],
             )
             raise
+
+    def _linked_transcript(self, pdf_path: Path, download_directory: Path, filed_at: str | None):
+        """The call a cover letter points at, or None. Never raises."""
+        try:
+            filed_on = date.fromisoformat(str(filed_at)[:10]) if filed_at else None
+        except ValueError:
+            filed_on = None
+        try:
+            found = fetch_linked_transcript(
+                pdf_path,
+                download_directory,
+                filed_on,
+                min_characters=self.settings.min_text_characters,
+                enable_ocr=self.settings.enable_ocr,
+                max_pages=self.settings.max_pages,
+            )
+        except Exception as exc:  # noqa: BLE001 - a company's website must not fail the run
+            logger.warning("Following a cover letter failed: %s", exc)
+            return None
+        if found is None:
+            return None
+        extraction, url = found
+        logger.info("Cover letter resolved to %s (%s characters)", url, len(extraction.text))
+        return extraction
+
+    def _repair_stored_cover_letters(self, download_directory: Path) -> dict[str, int]:
+        """Replace cover letters already stored as transcripts, or remove them.
+
+        Found: the row gets the call's text and loses the scores computed on
+        the letter, so the analysis below reads it afresh. Not found: the row
+        is removed -- a company with no transcript is unscored, which is what
+        it should have been -- and its filing is marked so that collection
+        tries the link again on later runs.
+        """
+        summary = {"cover_letters_repaired": 0, "cover_letters_removed": 0}
+        if self.repository.read_only or not self.settings.max_cover_letter_repairs_per_run:
+            return summary
+        stored = self.repository.short_transcripts(COVER_LETTER_MAX_CHARACTERS // 4)
+        for transcript in stored[: self.settings.max_cover_letter_repairs_per_run]:
+            filing = transcript.get("filing") or {}
+            linked = None
+            try:
+                if ".pdf" in str(filing.get("attachment_url") or "").lower():
+                    pdf_path = self._download_pdf(filing["attachment_url"], download_directory)
+                    linked = self._linked_transcript(
+                        pdf_path, download_directory,
+                        filing.get("announcement_date") or transcript.get("call_date"),
+                    )
+            except Exception as exc:  # noqa: BLE001 - leave this row for the next run
+                logger.warning("Cover letter for %s could not be re-read: %s", transcript.get("symbol"), exc)
+                continue
+            if linked is not None:
+                self.repository.replace_transcript_text(transcript, linked.text)
+                summary["cover_letters_repaired"] += 1
+                continue
+            self.repository.delete_transcript(transcript["id"])
+            if filing.get("id"):
+                self.repository.update_filing(
+                    filing["id"],
+                    status="failed",
+                    attempt_count=int(filing.get("attempt_count") or 0) + 1,
+                    last_error=COVER_LETTER_ERROR,
+                )
+            summary["cover_letters_removed"] += 1
+        logger.info("Stored cover letters: %s", summary)
+        return summary
 
     def _download_pdf(self, attachment_url: str, download_directory: Path) -> Path:
         from nse import NSE
