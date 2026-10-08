@@ -1,3 +1,4 @@
+import json
 import unittest
 from datetime import date, timedelta
 from types import SimpleNamespace
@@ -350,6 +351,11 @@ class TranscriptEnricherTests(unittest.TestCase):
             "guidance raised (+15); demand outlook strong (+8); headwind: input costs (-3)",
         )
         self.assertTrue(pd.isna(result.loc[1, "Transcript_Outlook_Score"]))
+        self.assertEqual(
+            json.loads(result.loc[0, "Transcript_Outlook_Points"])[0],
+            {"reason": "guidance raised", "points": 15.0},
+        )
+        self.assertEqual(result.loc[1, "Transcript_Outlook_Points"], "[]")
         self.assertEqual(repository.requested, (["RELIANCE", "TCS"], "outlook-v1", None))
         # Evidence only: the tone columns the policy reads are untouched.
         self.assertEqual(result.loc[0, "Transcript_Effective_Score"], 80.0)
@@ -375,6 +381,10 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertEqual(
             result.loc[0, "Transcript_Outlook_QoQ_Changes"],
             "guided growth cut 20% -> 15%; margin outlook down -> flat; 1 item unchanged",
+        )
+        self.assertEqual(
+            json.loads(result.loc[0, "Transcript_Outlook_QoQ_Items"])[0],
+            {"item": "guidance", "change": "worse", "text": "guided growth cut 20% -> 15%"},
         )
 
     def test_a_first_call_has_no_quarter_to_compare_with(self):

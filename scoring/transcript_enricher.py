@@ -91,6 +91,8 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Outlook_Score"] = np.nan
         enriched["Transcript_Outlook_Verified_Fields"] = 0
         enriched["Transcript_Outlook_Summary"] = ""
+        enriched["Transcript_Outlook_Points"] = "[]"
+        enriched["Transcript_Outlook_QoQ_Items"] = "[]"
         enriched["Transcript_Outlook_Previous_Call_Date"] = ""
         enriched["Transcript_Outlook_Previous_Score"] = np.nan
         enriched["Transcript_Outlook_QoQ_Delta"] = np.nan
@@ -327,6 +329,16 @@ class TranscriptSentimentEnricher:
             enriched.at[index, "Transcript_Outlook_Summary"] = _outlook_summary(
                 extraction.get("points")
             )
+            # The whole breakdown, for the stock page; the summary above is the
+            # four largest items for the report.
+            enriched.at[index, "Transcript_Outlook_Points"] = json.dumps(
+                [
+                    {"reason": str(item.get("reason") or ""), "points": _number(item.get("points")) or 0.0}
+                    for item in extraction.get("points") or []
+                    if isinstance(item, dict) and item.get("reason")
+                ],
+                separators=(",", ":"),
+            )
             # Against the quarter before: what management kept to and what
             # moved. Shown beside the score, not part of it.
             previous = record.get("previous") or {}
@@ -346,6 +358,9 @@ class TranscriptSentimentEnricher:
                     1 for change in changes if change["change"] == kind
                 )
             enriched.at[index, "Transcript_Outlook_QoQ_Changes"] = summarise_changes(changes)
+            enriched.at[index, "Transcript_Outlook_QoQ_Items"] = json.dumps(
+                changes, separators=(",", ":")
+            )
 
 
 def _outlook_summary(points, limit=4):

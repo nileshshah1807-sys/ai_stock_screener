@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { AddToWatchlist } from "@/components/watchlist/add-to-watchlist";
 import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
+import { CallOutlook } from "@/components/stock/call-outlook";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
@@ -637,14 +638,15 @@ export default async function StockPage({
       value: row.transcript_scoring_eligible ? "Yes" : "No",
       tone: row.transcript_scoring_eligible ? "positive" : "muted",
       hint: row.transcript_scoring_eligible
-        ? "Downside-only: can reduce conviction, never raise it."
+        ? "Measured against the median call of the run, so it can add or subtract."
         : "Visible for context; no score, rating, or rank effect.",
     },
     { label: "Evidence period", value: text(payload, "Transcript_Evidence_Period") },
     { label: "Expected period", value: text(payload, "Transcript_Expected_Period") },
     { label: "Call date", value: formatDate(text(payload, "Transcript_Call_Date")) },
     { label: "Age (days)", value: row.transcript_age_days ?? MISSING },
-    { label: "Score", value: formatScore(row.transcript_score) },
+    { label: "Tone score", value: formatScore(row.transcript_score) },
+    { label: "Outlook score", value: formatScore(numeric(payload, "Transcript_Outlook_Score")) },
     { label: "Guidance", value: row.transcript_guidance ?? MISSING },
     { label: "Risk", value: text(payload, "Transcript_Risk") },
     { label: "Management confidence", value: text(payload, "Transcript_Management_Confidence") },
@@ -839,6 +841,8 @@ export default async function StockPage({
 
                   <ExpectationsGap data={expectations} market={market} />
 
+                  <CallOutlook payload={payload} />
+
                   {/*
                     The ring gets a fixed narrow column and the waterfall gets the rest.
                     Previously they shared a 1.15:1 split, which left the ring floating in
@@ -917,7 +921,7 @@ export default async function StockPage({
 
                     <Panel
                       title="Management transcript"
-                      description="Downside-only evidence: a call can reduce conviction but never promote it."
+                      description="How the latest call sounded (tone) and what it said (outlook), each against the median call."
                     >
                       <FieldList fields={transcriptFields} columns={2} />
                     </Panel>
