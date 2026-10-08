@@ -582,6 +582,11 @@ alter table screener_history
 alter table screener_history
     add column if not exists advance_age_days integer;
 
+-- Market cap on the day, for the Returns page's size pick. Null on runs
+-- published before this column existed, where a size pick finds no names.
+alter table screener_history
+    add column if not exists market_cap numeric(20,2);
+
 create index if not exists screener_history_symbol_date_idx
     on screener_history (market, symbol, observed_on desc);
 create index if not exists screener_history_date_idx

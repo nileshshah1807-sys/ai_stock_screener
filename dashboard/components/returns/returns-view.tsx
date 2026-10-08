@@ -16,6 +16,8 @@ import type { Market } from "@/lib/markets";
 import {
   COST_PER_SIDE_PCT,
   RATING_PICKS,
+  SIZE_PICKS,
+  SIZE_PICK_MARKETS,
   REBALANCE_OPTIONS,
   STAGE_PICKS,
   START_PRESETS,
@@ -40,6 +42,7 @@ type Shown = {
   rebalance: string;
   rating: string;
   stage: string;
+  size: string;
   weights: string;
   invested: string;
   stop: string;
@@ -76,6 +79,7 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
       rebalance: report.rebalance.option,
       rating: reportPick.rating,
       stage: reportPick.stageFilter,
+      size: reportPick.sizeFilter,
       weights: report.weights,
       invested: String(report.investedPct),
       stop: report.stop.pct ? String(report.stop.pct) : "off",
@@ -96,10 +100,10 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
       router.push(url, { scroll: false });
     });
   };
-  // The two filters are written together, replacing the single `pick` of
+  // The filters are written together, replacing the single `pick` of
   // older links, so changing one keeps the other.
-  const setFilter = (patch: { rating?: string; stage?: string }) => {
-    const next = { rating: shown.rating, stage: shown.stage, ...patch };
+  const setFilter = (patch: { rating?: string; stage?: string; size?: string }) => {
+    const next = { rating: shown.rating, stage: shown.stage, size: shown.size, ...patch };
     push(patch, (params) => {
       params.delete("pick");
       for (const [name, value] of Object.entries(next)) {
@@ -216,6 +220,16 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
                 options={STAGE_PICKS.map(({ value, label, title }) => ({ value, label, title }))}
               />
             </Field>
+            {SIZE_PICK_MARKETS.includes(market.code) ? (
+              <Field label="Size">
+                <SegmentedControl
+                  label="Market-cap filter"
+                  value={shown.size}
+                  onChange={(value) => setFilter({ size: value })}
+                  options={SIZE_PICKS.map(({ value, label, title }) => ({ value, label, title }))}
+                />
+              </Field>
+            ) : null}
         </ControlGroup>
         <ControlGroup title="How to trade">
             <Field label="Rebalance">

@@ -62,6 +62,14 @@ alter table simulated_rankings
     add column if not exists rank_stage2 integer,
     add column if not exists rank_fresh_stage2 integer;
 
+-- Size pick: the top N of the names at or above a market-cap floor
+-- (`MIN_CAP_CR` in the backfill tool). `market_cap_cr` is the filed share
+-- count at that week's close, in crore, kept on every stored row so the floor
+-- can be combined with a rating or stage filter at read time.
+alter table simulated_rankings
+    add column if not exists market_cap_cr numeric(14,2),
+    add column if not exists rank_cap1000 integer;
+
 -- Hold rules: a pick decides what to buy; these sets decide what may be kept.
 -- One row per backtest week: every ranked name that is advancing (Stage 2 or
 -- S2 Candidate) and every name rated BUY or better (null in a week too thin

@@ -264,6 +264,9 @@ HISTORY_COLUMNS: list[tuple[str, str, str]] = [
     # Days since the current Stage 2 advance began, so the Returns page can
     # pick "fresh Stage 2" names from any past ranking.
     ("advance_age_days", "Advance_Age_Days", "int"),
+    # The Returns page's size pick filters past rankings on market cap, and
+    # the snapshot holds only the latest run's.
+    ("market_cap", "Market_Cap", "num:20,2"),
 ]
 
 

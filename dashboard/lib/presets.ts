@@ -11,6 +11,7 @@
  * would bury the thing the view is about.
  */
 
+import type { MarketCode } from "@/lib/markets";
 import { VIEW_KEYS, viewIsActive } from "@/lib/view-match.mjs";
 
 // Re-exported so callers keep importing view state from one place.
@@ -28,6 +29,8 @@ export type Preset = {
    * exclude nulls, so the preset would empty the grid rather than do nothing.
    */
   factorOnly?: boolean;
+  /** Shown only in this market: the view is stated in its currency units. */
+  market?: MarketCode;
 };
 
 export const PRESETS: readonly Preset[] = [
@@ -70,6 +73,14 @@ export const PRESETS: readonly Preset[] = [
       "Score 70+, in Stage 2 with an RS rating of 70+, most recent stage entry first. Context, not a signal: blending stage into the rank lowered returns in every validation window (P3), so this narrows the list without evidence that it improves it.",
     query: "minScore=70&stage=Stage+2&minRs=70&sort=stage2_entry_date&dir=desc",
     factorOnly: true,
+  },
+  {
+    id: "above-1000-cr",
+    label: "≥ ₹1,000 Cr",
+    description:
+      "The ranking without companies under ₹1,000 Cr of market cap. The rank numbers are unchanged, so gaps show where a smaller company sits. A narrower list, not a better one: on the backtest the smaller names earned more, with more single-stock blow-ups and higher trading costs.",
+    query: "minCapCr=1000",
+    market: "NSE",
   },
 ];
 

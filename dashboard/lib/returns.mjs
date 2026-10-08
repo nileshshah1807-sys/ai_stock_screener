@@ -70,16 +70,44 @@ export const STAGE_PICKS = [
 ];
 
 /**
- * The pick's key: "all", one filter ("buy", "fresh_stage2"), or a rating and
- * a stage filter joined by "+" ("strong_buy+fresh_stage2").
+ * A market-cap floor on what may take a slot. The ranking itself is untouched:
+ * a smaller company keeps its rank and is passed over. NSE only -- the floor
+ * is stated in crore, and the US has no backtest to compare it on.
+ *
+ * It has no hold rule. A holding that slips under the floor leaves the buy
+ * list and is sold at the next rebalance, like any name that drops out.
+ *
+ * On the backtest (2018-11 to 2026-09, top 20, four-weekly) the floor lowered
+ * return from 54% to 34% a year and left the maximum drawdown where it was;
+ * the pick exists so a reader can see that trade, and choose it knowingly.
+ */
+export const SIZE_PICK_MARKETS = ["NSE"];
+
+export const SIZE_PICKS = [
+  { value: "all", label: "All", title: "Any market cap" },
+  {
+    value: "cap1000",
+    label: "≥ ₹1,000 Cr",
+    title: "Only companies with a market cap of ₹1,000 Cr or more",
+    column: "rank_cap1000",
+    minCapCr: 1000,
+    phrase: "₹1,000 Cr+",
+  },
+];
+
+/**
+ * The pick's key: "all", one filter ("buy", "fresh_stage2"), or several
+ * joined by "+" ("strong_buy+fresh_stage2", "buy+cap1000").
  *
  * @param {string | null | undefined} rating
  * @param {string | null | undefined} stage
+ * @param {string | null | undefined} [size]
  */
-export function pickKey(rating, stage) {
+export function pickKey(rating, stage, size) {
   const parts = [
     RATING_PICKS.find((option) => option.value === rating),
     STAGE_PICKS.find((option) => option.value === stage),
+    SIZE_PICKS.find((option) => option.value === size),
   ].filter((option) => option && option.value !== "all");
   return parts.map((option) => option.value).join("+") || "all";
 }
@@ -90,7 +118,8 @@ export function pickKey(rating, stage) {
  *
  * A stock is bought when it passes every filter, and kept while it passes
  * every filter's hold rule (`holds`): a stage filter keeps it while it is
- * advancing, a rating filter while it is rated BUY or better.
+ * advancing, a rating filter while it is rated BUY or better. A size filter
+ * has no hold rule of its own.
  *
  * @param {string | null | undefined} key
  */
@@ -98,17 +127,21 @@ export function pickOption(key) {
   const values = String(key ?? "").split("+");
   const rating = RATING_PICKS.find((option) => option.value !== "all" && values.includes(option.value));
   const stage = STAGE_PICKS.find((option) => option.value !== "all" && values.includes(option.value));
-  const parts = [rating, stage].filter(Boolean);
+  const size = SIZE_PICKS.find((option) => option.value !== "all" && values.includes(option.value));
+  const parts = [rating, stage, size].filter(Boolean);
   return {
     value: parts.map((option) => option.value).join("+") || "all",
     rating: rating?.value ?? "all",
     stageFilter: stage?.value ?? "all",
+    sizeFilter: size?.value ?? "all",
+    /** Market-cap floor in crore, or null. */
+    minCapCr: size?.minCapCr ?? null,
     ratings: rating?.ratings ?? null,
     stage: stage?.stage ?? null,
     maxAdvanceAge: stage?.maxAdvanceAge ?? null,
     /** Each filter's stored backtest rank column; one for a single filter. */
     columns: parts.map((option) => /** @type {string} */ (option.column)),
-    holds: parts.map((option) => /** @type {string} */ (option.hold)),
+    holds: parts.filter((option) => option.hold).map((option) => /** @type {string} */ (option.hold)),
     phrase: parts.map((option) => option.phrase).join(", ") || null,
   };
 }

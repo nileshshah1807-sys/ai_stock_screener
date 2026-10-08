@@ -69,3 +69,8 @@ test("an empty view is never active", () => {
   assert.equal(viewIsActive(url(FRESH_STAGE_2), ""), false);
   assert.equal(viewIsActive(url(""), ""), false);
 });
+
+test("a size floor is part of the view it belongs to", () => {
+  assert.equal(viewIsActive(url("minCapCr=1000&rating=BUY"), "minCapCr=1000"), true);
+  assert.equal(viewIsActive(url("minCapCr=500"), "minCapCr=1000"), false);
+});
