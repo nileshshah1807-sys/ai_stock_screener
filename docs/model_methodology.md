@@ -187,18 +187,35 @@ signal         = tone - median tone                    call has none
 Evidence_Score = Score_After_DCF + w_tx * signal
 ```
 
-`s` is `TRANSCRIPT_OUTLOOK_SHARE` (0.5); `w_tx` and its decay are unchanged,
-so the most a call can move a score is what it was before. Each reading is
+`s` is `TRANSCRIPT_OUTLOOK_SHARE` (0.5). `w_tx` is `TRANSCRIPT_SENTIMENT_WEIGHT`,
+raised from 0.15 to 0.30 with this change and decayed as before, so a call can
+now move a score by about five points at most. Each reading is
 centred on its own median over the calls of the run, falling back to 50 below
 `TRANSCRIPT_NEUTRAL_MIN_CALLS`. An outlook counts only for the call the tone
 score came from and only when at least one extracted item was verified; a
 call without one is scored on tone at the full weight, not as a neutral
 outlook. A company with no eligible call is still not adjusted.
 
-**The half share and the point weights inside `outlook_score` are judgments.**
-Outlooks exist only for calls from April 2026, so there is no return history
-to fit either against, and the backtest, which has no calls, is unaffected.
-`TRANSCRIPT_OUTLOOK_SHARE=0` restores the tone-only score.
+Evidence, from the 2,105 usable calls of April to September 2026, each entered
+two sessions after the call and measured against the equal-weight universe:
+
+| | Tone | Outlook |
+|---|---|---|
+| April-June calls, next 21 sessions, rank correlation | 0.06 | 0.13 |
+| April-June calls, next 63 sessions | 0.12 | 0.08 |
+| July-September calls, next 21 sessions | 0.06 | 0.12 |
+
+Over a month a 50-75% outlook share ranked returns best in both seasons; over
+three months, which only the first season can show, 0-25% did. Half is inside
+both. For the weight, 597 calls held 7 August to 1 September had the model's
+score on the entry day: a point of the blended signal was followed by as much
+one-month excess return as 3.7 points of score (middle 80% of a bootstrap 1.6
+to 9.9; 2.9 after controlling for three-month momentum, with which the signal
+correlates 0.25). **That is one season at one horizon and is not a fitted
+weight**; it supports more than 0.15 and the weight is doubled, no further.
+The point weights inside `outlook_score` remain judgments. The backtest has no
+calls and is unaffected. `TRANSCRIPT_OUTLOOK_SHARE=0` restores the tone-only
+score and `TRANSCRIPT_SENTIMENT_WEIGHT=0.15` the old reach.
 
 ### Model 5.2 block weights: value 0.25 to 0.15
 
