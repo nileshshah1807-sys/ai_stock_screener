@@ -461,6 +461,7 @@ class RecommendationPolicy:
             getattr(self.config, "TRANSCRIPT_TWO_SIDED", False), False
         )
         neutral = 50.0
+        minimum = int(getattr(self.config, "TRANSCRIPT_NEUTRAL_MIN_CALLS", 30))
         if two_sided:
             # Management is upbeat almost by default: 94% of scored calls sat
             # above 50 on 2026-10-06 (median 65). Measured against 50, upside
@@ -469,10 +470,42 @@ class RecommendationPolicy:
             # scored call in the run, half of the covered names gain and half
             # lose, and a company with no call is untouched.
             scored = score_used[transcript_applied]
-            minimum = int(getattr(self.config, "TRANSCRIPT_NEUTRAL_MIN_CALLS", 30))
             if len(scored) >= minimum:
                 neutral = float(scored.median())
-        centered_delta = transcript_weight * (score_used - neutral)
+        signal = score_used - neutral
+
+        # The tone score measures how a call sounds; the outlook score what it
+        # said (sentiment/outlook.py). Where a call has both, they share the
+        # one transcript weight. A call with no outlook keeps the whole weight
+        # on tone -- the missing component leaves the average, it is not read
+        # as a neutral 50 -- so a run before any extraction is unchanged.
+        outlook_score = _numeric_series(frame, "Transcript_Outlook_Score").clip(0, 100)
+        outlook_share = max(
+            0.0,
+            min(1.0, float(getattr(self.config, "TRANSCRIPT_OUTLOOK_SHARE", 0.0))),
+        )
+        outlook_applied = (
+            transcript_applied & outlook_score.notna() & (outlook_share > 0)
+        )
+        outlook_neutral = 50.0
+        if two_sided and int(outlook_applied.sum()) >= minimum:
+            # Centred on its own median for the reason tone is: against 50 the
+            # adjustment would be a bonus for having an extractable call.
+            outlook_neutral = float(outlook_score[outlook_applied].median())
+        signal.loc[outlook_applied] = (
+            (1.0 - outlook_share) * signal.loc[outlook_applied]
+            + outlook_share * (outlook_score.loc[outlook_applied] - outlook_neutral)
+        )
+        frame["Transcript_Outlook_Applied"] = outlook_applied
+        frame["Transcript_Outlook_Share_Applied"] = np.where(
+            outlook_applied, outlook_share, 0.0
+        )
+        frame["Transcript_Outlook_Score_Used"] = outlook_score.where(
+            outlook_applied, np.nan
+        )
+        frame["Transcript_Outlook_Neutral_Score"] = round_half_up(outlook_neutral, 2)
+
+        centered_delta = transcript_weight * signal
         if two_sided:
             transcript_delta = centered_delta
             no_promotion = transcript_applied & False

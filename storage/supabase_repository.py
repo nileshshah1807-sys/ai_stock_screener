@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import requests
@@ -14,6 +14,17 @@ from screener.markets import resolve as resolve_market
 from storage.object_store import ObjectStore
 
 READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+# Results seasons are a quarter apart; two transcripts closer than this are
+# the same season's call and a follow-up meeting.
+PREVIOUS_CALL_MIN_GAP_DAYS = 45
+
+
+def _days_between(earlier: Any, later: Any) -> int:
+    """Whole days from ``earlier`` to ``later``; -1 when either is not a date."""
+    try:
+        return (date.fromisoformat(str(later)[:10]) - date.fromisoformat(str(earlier)[:10])).days
+    except ValueError:
+        return -1
 
 
 class SupabaseReadOnlyError(RuntimeError):
@@ -133,6 +144,89 @@ class SupabaseRepository:
         )
         return rows[0]
 
+    # -- cover letters stored as transcripts -----------------------------------
+    #
+    # A filing that only says where the transcript can be found was, until
+    # transcripts/linked.py, stored and scored as the call. These let the
+    # worker find those rows and either give them the real text or remove them.
+
+    def short_transcripts(self, max_tokens: int) -> list[dict[str, Any]]:
+        """Transcripts of this market too short to be a call, with their filing."""
+        transcripts: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            rows = self._request(
+                "GET",
+                "transcripts",
+                params={
+                    "select": "id,market,document_id,symbol,call_date,token_count",
+                    "market": f"eq.{self.market}",
+                    "token_count": f"lt.{int(max_tokens)}",
+                    "order": "call_date.desc.nullslast,id.asc",
+                    "limit": "500",
+                    "offset": str(offset),
+                },
+            )
+            transcripts.extend(rows or [])
+            if not rows or len(rows) < 500:
+                break
+            offset += 500
+        filings: dict[str, dict[str, Any]] = {}
+        document_ids = [row["document_id"] for row in transcripts]
+        for start in range(0, len(document_ids), 100):
+            rows = self._request(
+                "GET",
+                "transcript_filing_documents",
+                params={
+                    "select": (
+                        "document_id,transcript_filings"
+                        "(id,attachment_url,announcement_date,attempt_count)"
+                    ),
+                    "document_id": f"in.({','.join(document_ids[start:start + 100])})",
+                },
+            )
+            for row in rows or []:
+                filing = row.get("transcript_filings") or {}
+                if isinstance(filing, list):
+                    filing = filing[0] if filing else {}
+                if filing:
+                    filings[row["document_id"]] = filing
+        return [{**row, "filing": filings.get(row["document_id"])} for row in transcripts]
+
+    def replace_transcript_text(self, transcript: dict[str, Any], text: str) -> None:
+        """Give a transcript new text and drop everything scored from the old.
+
+        The tone score and the outlook were computed on the cover letter; both
+        are removed so the next analysis pass reads the call.
+        """
+        self.delete_transcript_analyses(transcript["id"])
+        self._request(
+            "PATCH",
+            f"transcripts?id=eq.{transcript['id']}",
+            json={
+                "cleaned_text": text,
+                "token_count": (len(text) + 3) // 4,
+                "text_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            },
+            headers={"Prefer": "return=minimal"},
+        )
+
+    def delete_transcript_analyses(self, transcript_id: str) -> None:
+        for table in ("transcript_sentiments", "transcript_outlooks"):
+            self._request(
+                "DELETE",
+                f"{table}?transcript_id=eq.{transcript_id}",
+                headers={"Prefer": "return=minimal"},
+            )
+
+    def delete_transcript(self, transcript_id: str) -> None:
+        """Remove a transcript; its sentiments and outlooks go with it."""
+        self._request(
+            "DELETE",
+            f"transcripts?id=eq.{transcript_id}",
+            headers={"Prefer": "return=minimal"},
+        )
+
     def get_sentiment(self, transcript_id: str, model_name: str, analysis_version: str) -> dict[str, Any] | None:
         rows = self._request(
             "GET",
@@ -217,17 +311,28 @@ class SupabaseRepository:
             transcript["company_name"] = company_names.get(transcript.get("document_id"), "")
         return transcripts
 
-    def company_names_by_document_id(self, document_ids: list[str]) -> dict[str, str]:
+    def company_names_by_document_id(
+        self, document_ids: list[str], batch_size: int = 100
+    ) -> dict[str, str]:
         if not document_ids:
             return {}
-        rows = self._request(
-            "GET",
-            "transcript_filing_documents",
-            params={
-                "select": "document_id,transcript_filings(company_name)",
-                "document_id": f"in.({','.join(document_ids)})",
-            },
-        )
+        # A UUID is 36 characters; a few hundred in one filter overruns the
+        # URL limit (414), so the ids go in batches.
+        rows: list[dict[str, Any]] = []
+        safe_batch_size = max(1, int(batch_size))
+        for start in range(0, len(document_ids), safe_batch_size):
+            batch = document_ids[start:start + safe_batch_size]
+            rows.extend(
+                self._request(
+                    "GET",
+                    "transcript_filing_documents",
+                    params={
+                        "select": "document_id,transcript_filings(company_name)",
+                        "document_id": f"in.({','.join(batch)})",
+                    },
+                )
+                or []
+            )
         company_names: dict[str, str] = {}
         for row in rows:
             filing = row.get("transcript_filings") or {}
@@ -358,6 +463,67 @@ class SupabaseRepository:
                 )
             rows.extend(batch_rows or [])
         return rows
+
+    def latest_outlooks(
+        self,
+        symbols: list[str],
+        analysis_version: str,
+        model_name: str | None = None,
+        batch_size: int = 200,
+    ) -> list[dict[str, Any]]:
+        """The newest call's outlook for each symbol.
+
+        Each row carries ``previous``: the same company's outlook from the
+        quarter before, or None. A second document from the same results
+        season -- an analyst meet days after the call -- is not a previous
+        quarter, so it must be at least `PREVIOUS_CALL_MIN_GAP_DAYS` older.
+        Scoped to this market for the same reason as `latest_sentiments`.
+        """
+        normalized = list(dict.fromkeys(
+            str(symbol).strip().upper()
+            for symbol in symbols
+            if str(symbol).strip()
+        ))
+        calls: dict[str, list[dict[str, Any]]] = {}
+        safe_batch_size = max(1, int(batch_size))
+        for start in range(0, len(normalized), safe_batch_size):
+            batch = normalized[start:start + safe_batch_size]
+            offset = 0
+            while True:
+                params = {
+                    "market": f"eq.{self.market}",
+                    "symbol": f"in.({','.join(batch)})",
+                    "analysis_version": f"eq.{analysis_version}",
+                    "select": (
+                        "symbol,call_date,outlook_score,verified_fields,"
+                        "model_name,extraction"
+                    ),
+                    "order": "call_date.desc.nullslast,created_at.desc,id.asc",
+                    "limit": "1000",
+                    "offset": str(offset),
+                }
+                if model_name:
+                    params["model_name"] = f"eq.{model_name}"
+                rows = self._request("GET", "transcript_outlooks", params=params)
+                for row in rows or []:
+                    calls.setdefault(str(row["symbol"]).upper(), []).append(row)
+                if not rows or len(rows) < 1000:
+                    break
+                offset += 1000
+        latest = []
+        for rows in calls.values():
+            # Newest first, as ordered.
+            newest = rows[0]
+            newest["previous"] = next(
+                (
+                    row for row in rows[1:]
+                    if _days_between(row.get("call_date"), newest.get("call_date"))
+                    >= PREVIOUS_CALL_MIN_GAP_DAYS
+                ),
+                None,
+            )
+            latest.append(newest)
+        return latest
 
     def upsert_red_flag_snapshots(self, snapshots: list[dict[str, Any]], batch_size: int = 250) -> int:
         fetched_at = datetime.now(UTC).isoformat()

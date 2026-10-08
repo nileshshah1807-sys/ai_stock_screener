@@ -3,9 +3,10 @@
 Reads every transcript that has no outlook yet for the chosen model and
 `sentiment.outlook.OUTLOOK_VERSION`, sends each to OpenRouter, keeps only the
 items whose quoted sentence is found in the transcript, scores them and writes
-one row to ``transcript_outlooks``. Nothing here is read by the screener: the
-table is separate from ``transcript_sentiments``, so a run cannot change a
-published score.
+one row to ``transcript_outlooks``. The daily screener reads that table: the
+outlook of a company's latest call shares the transcript weight with its tone
+score (``TRANSCRIPT_OUTLOOK_SHARE``), so a run here moves the next published
+scores.
 
 Resumable -- a transcript already extracted is skipped -- and bounded: the run
 stops submitting once ``--max-cost`` is spent, so a small credit balance ends in
@@ -15,6 +16,7 @@ Usage::
 
     python -m tools.extract_transcript_outlook --dry-run        # count and estimate, no API calls
     python -m tools.extract_transcript_outlook --limit 5        # a first look
+    python -m tools.extract_transcript_outlook --latest-only     # each company's newest call
     python -m tools.extract_transcript_outlook --max-cost 4.5   # everything pending, capped
 
 Needs ``OPENROUTER_API_KEY``, ``SUPABASE_URL`` and ``SUPABASE_SERVICE_ROLE_KEY``,
@@ -34,14 +36,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sentiment.outlook import DEFAULT_MODEL, OUTLOOK_VERSION, analyse_transcript  # noqa: E402
+from sentiment.outlook import (  # noqa: E402
+    DEFAULT_MODEL,
+    MAX_PRICE_PER_MILLION,
+    OUTLOOK_VERSION,
+    analyse_transcript,
+)
 from tools.publish_price_series import load_env_file  # noqa: E402
 
 logger = logging.getLogger("extract_transcript_outlook")
 
 # USD per million tokens, for the dry-run estimate only; a real run records the
-# cost the API reports. Read from OpenRouter's model list on 2026-10-07.
-ESTIMATE_PRICES = {DEFAULT_MODEL: (0.05, 1.20)}
+# cost the API reports. The price depends on which provider serves the call, so
+# the estimate uses the most a request is allowed to pay: it is a ceiling.
+ESTIMATE_PRICES = {DEFAULT_MODEL: MAX_PRICE_PER_MILLION}
 # `transcripts.token_count` is a whitespace-based estimate; a model tokenizer
 # produces somewhat more, and each request adds the instructions.
 TOKEN_INFLATION = 1.25
@@ -62,9 +70,21 @@ def estimate_cost(transcripts, model):
     return (prompt * prices[0] + output * prices[1]) / 1_000_000
 
 
-def pending_transcripts(repository, model):
+def pending_transcripts(repository, model, latest_only=False):
+    """Transcripts with no outlook yet, newest call first.
+
+    ``latest_only`` keeps each company's most recent call, which is the only
+    one the screener reads; earlier calls matter for testing the score against
+    the returns that followed them.
+    """
     done = repository.outlook_transcript_ids(model, OUTLOOK_VERSION)
-    return [row for row in repository.transcripts_for_outlook() if row["id"] not in done]
+    transcripts = repository.transcripts_for_outlook()
+    if latest_only:
+        latest = {}
+        for row in transcripts:
+            latest.setdefault(row["symbol"], row)
+        transcripts = list(latest.values())
+    return [row for row in transcripts if row["id"] not in done]
 
 
 class Budget:
@@ -108,6 +128,8 @@ def run(repository, transcripts, api_key, *, model, workers, budget):
             row = analyse_transcript(session(), api_key, transcript, text, model=model)
             repository.save_outlook(row)
         except Exception as exc:  # noqa: BLE001 - one bad call must not stop the run
+            # An unusable reply was still billed, and must count toward the cap.
+            budget.add(getattr(exc, "cost_usd", 0.0))
             with lock:
                 summary["failed"] += 1
             logger.warning("%s %s failed: %s", transcript.get("symbol"), transcript.get("call_date"), exc)
@@ -133,6 +155,10 @@ def main(argv=None):
     parser.add_argument("--limit", type=int, default=None, help="newest N pending calls only")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--max-cost", type=float, default=4.5, help="stop submitting after this many USD")
+    parser.add_argument(
+        "--latest-only", action="store_true",
+        help="each company's most recent call only (what the screener reads)",
+    )
     parser.add_argument("--dry-run", action="store_true", help="count and estimate; no API calls, no writes")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -144,7 +170,7 @@ def main(argv=None):
 
     repository = SupabaseRepository.from_environment(args.market)
     try:
-        pending = pending_transcripts(repository, args.model)
+        pending = pending_transcripts(repository, args.model, latest_only=args.latest_only)
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 404:
             raise SystemExit(
@@ -161,7 +187,7 @@ def main(argv=None):
         len(pending),
         args.model,
         OUTLOOK_VERSION,
-        "unknown (model not in the price table)" if estimate is None else f"${estimate:.2f}",
+        "unknown (model not in the price table)" if estimate is None else f"at most ${estimate:.2f}",
     )
     if args.dry_run or not pending:
         return 0

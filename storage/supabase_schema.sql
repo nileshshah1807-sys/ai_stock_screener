@@ -68,8 +68,8 @@ create table if not exists transcript_sentiments (
 
 -- What a call said, as extracted by a language model (sentiment/outlook.py):
 -- guidance and whether it moved, order book, capacity, demand, margins. Kept
--- apart from transcript_sentiments, which the screener reads for the word-list
--- tone score, so writing here cannot change a published score. `extraction`
+-- apart from transcript_sentiments, which holds the word-list tone score; the
+-- screener reads both and blends them (TRANSCRIPT_OUTLOOK_SHARE). `extraction`
 -- holds only items whose quoted sentence was found in the transcript, plus the
 -- point breakdown behind `outlook_score`; `unverified_fields` counts the items
 -- that were dropped for failing that check.

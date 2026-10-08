@@ -58,6 +58,7 @@ DECISION_COLUMNS = {
 STORED_TRANSCRIPT_INPUT_COLUMNS = {
     "Transcript_Call_Date",
     "Transcript_Score",
+    "Transcript_Outlook_Score",
     "Transcript_Risk",
     "Transcript_Guidance",
     "Transcript_Management_Confidence",

@@ -94,6 +94,80 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
         self.assertNotIn("structured_output", requested_selects[1])
         self.assertNotIn("structured_output", requested_selects[2])
 
+    def test_latest_outlooks_keeps_the_newest_call_of_each_symbol(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        calls = []
+
+        def request(method, path, **kwargs):
+            calls.append((path, kwargs["params"]))
+            # Newest first, as the query orders them.
+            return [
+                {"symbol": "RELIANCE", "call_date": "2026-07-20", "outlook_score": 71},
+                {"symbol": "RELIANCE", "call_date": "2026-04-22", "outlook_score": 40},
+                {"symbol": "TCS", "call_date": "2026-07-10", "outlook_score": 55},
+            ]
+
+        repository._request = request
+
+        result = repository.latest_outlooks(["reliance", "TCS"], "outlook-v1")
+
+        self.assertEqual(
+            {row["symbol"]: row["outlook_score"] for row in result},
+            {"RELIANCE": 71, "TCS": 55},
+        )
+        path, params = calls[0]
+        self.assertEqual(path, "transcript_outlooks")
+        self.assertEqual(params["market"], "eq.NSE")
+        self.assertEqual(params["symbol"], "in.(RELIANCE,TCS)")
+        self.assertEqual(params["analysis_version"], "eq.outlook-v1")
+        self.assertTrue(params["order"].startswith("call_date.desc"))
+        self.assertNotIn("model_name", params)
+        by_symbol = {row["symbol"]: row for row in result}
+        self.assertEqual(by_symbol["RELIANCE"]["previous"]["call_date"], "2026-04-22")
+        self.assertIsNone(by_symbol["TCS"]["previous"])
+
+    def test_a_second_document_of_the_same_season_is_not_the_previous_quarter(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        repository._request = lambda method, path, **kwargs: [
+            {"symbol": "GODREJCP", "call_date": "2026-09-07", "outlook_score": 60},
+            {"symbol": "GODREJCP", "call_date": "2026-08-14", "outlook_score": 62},
+            {"symbol": "GODREJCP", "call_date": "2026-05-13", "outlook_score": 70},
+        ]
+
+        newest = repository.latest_outlooks(["GODREJCP"], "outlook-v1")[0]
+
+        self.assertEqual(newest["call_date"], "2026-09-07")
+        self.assertEqual(newest["previous"]["call_date"], "2026-05-13")
+
+    def test_latest_outlooks_can_be_pinned_to_one_model(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        seen = []
+        repository._request = lambda method, path, **kwargs: seen.append(kwargs["params"]) or []
+
+        repository.latest_outlooks(["A"], "outlook-v1", "vendor/model")
+
+        self.assertEqual(seen[0]["model_name"], "eq.vendor/model")
+
+    def test_company_names_are_read_in_batches_that_fit_a_url(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        batches = []
+
+        def request(method, path, **kwargs):
+            ids = kwargs["params"]["document_id"].removeprefix("in.(").removesuffix(")").split(",")
+            batches.append(len(ids))
+            return [
+                {"document_id": item, "transcript_filings": {"company_name": f"Company {item}"}}
+                for item in ids
+            ]
+
+        repository._request = request
+
+        names = repository.company_names_by_document_id([f"d{n}" for n in range(250)])
+
+        self.assertEqual(batches, [100, 100, 50])
+        self.assertEqual(len(names), 250)
+        self.assertEqual(names["d249"], "Company d249")
+
     def test_red_flag_snapshot_reads_are_batched(self):
         repository = SupabaseRepository("https://example.test", "service-role-key")
         calls = []

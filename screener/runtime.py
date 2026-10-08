@@ -319,7 +319,13 @@ class Config:
 
     # --- Earnings transcript sentiment ---
     TRANSCRIPT_SENTIMENT_ENABLED = _env_bool("TRANSCRIPT_SENTIMENT_ENABLED", True)
-    TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 0.15)
+    # 0.15 -> 0.30 on 2026-10-09, with the outlook score. For 597 calls held
+    # 7 Aug - 1 Sep 2026, a point of the tone-and-outlook signal was followed
+    # by as much one-month excess return as 3.7 points of the model's score
+    # (middle 80% of a bootstrap: 1.6 to 9.9; 2.9 after controlling for the
+    # past three months' return). That would support a far larger weight; one
+    # results season at one horizon does not, so it is doubled and no more.
+    TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 0.30)
     # Model 5.2: transcript evidence moves the score both ways, measured against
     # the median scored call of the run instead of 50. False restores the
     # downside-only policy. Over the April-June 2026 calls the top fifth by
@@ -329,6 +335,18 @@ class Config:
     # Below this many scored calls the run median is not a stable centre, so
     # the adjustment falls back to 50.
     TRANSCRIPT_NEUTRAL_MIN_CALLS = _env_int("TRANSCRIPT_NEUTRAL_MIN_CALLS", 30)
+    # The language-model outlook of a call (sentiment/outlook.py: guidance,
+    # order book, capacity, demand, margins) takes this share of the transcript
+    # weight where the call has one, and tone keeps the rest; a call without an
+    # outlook is scored on tone alone. 0 restores tone-only. Half each, on two
+    # results seasons (2,105 calls): over the following month a share of 50-75%
+    # ranked returns best in both (rank correlation 0.12-0.13 against 0.06 for
+    # tone alone); over three months, measurable only for April-June calls,
+    # 0-25% did (0.117 against 0.108 at 50%). Half is inside both.
+    TRANSCRIPT_OUTLOOK_ENABLED = _env_bool("TRANSCRIPT_OUTLOOK_ENABLED", True)
+    TRANSCRIPT_OUTLOOK_SHARE = _env_float("TRANSCRIPT_OUTLOOK_SHARE", 0.5)
+    # Empty reads any model's extraction of the current outlook version.
+    TRANSCRIPT_OUTLOOK_MODEL = os.getenv("TRANSCRIPT_OUTLOOK_MODEL", "")
     REQUIRE_TRANSCRIPT_FOR_STRONG_BUY = _env_bool("REQUIRE_TRANSCRIPT_FOR_STRONG_BUY", False)
     TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS = _env_int("TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS", 180)
     TRANSCRIPT_MIN_PRIORITY_SCORE = _env_float("TRANSCRIPT_MIN_PRIORITY_SCORE", 55.0)

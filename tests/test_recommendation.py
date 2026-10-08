@@ -417,6 +417,87 @@ class RecommendationPolicyTests(unittest.TestCase):
         self.assertEqual(result.loc["WEAK", "Transcript_Neutral_Score"], 50.0)
         self.assertEqual(result.loc["WEAK", "Evidence_Score"], 60.5)
 
+    def outlook_frame(self):
+        # Tone median 65 (55, 60, 70, 80); outlook median 60 (50, 60, 70).
+        calls = (
+            ("WEAK_TONE_GOOD_OUTLOOK", 55.0, 70.0),
+            ("BOTH_WEAK", 60.0, 50.0),
+            ("STRONG_TONE", 80.0, 60.0),
+            ("TONE_ONLY", 70.0, None),
+        )
+        return pd.DataFrame(
+            [
+                row(
+                    symbol,
+                    60.0,
+                    Transcript_Blend_Eligible=True,
+                    Transcript_Blend_Weight=0.10,
+                    Transcript_Effective_Score=tone,
+                    Transcript_Outlook_Score=outlook,
+                )
+                for symbol, tone, outlook in calls
+            ]
+            + [row("NO_CALL", 60.0, Transcript_Outlook_Score=90.0)]
+        )
+
+    def outlook_config(self, share=0.5):
+        settings = self.two_sided_config()
+        settings.TRANSCRIPT_OUTLOOK_SHARE = share
+        return settings
+
+    def test_outlook_shares_the_transcript_weight_with_tone(self):
+        result = finalize_recommendations(
+            self.outlook_frame(), self.outlook_config()
+        ).set_index("Symbol")
+
+        # 0.10 * (0.5 * (tone - 65) + 0.5 * (outlook - 60))
+        self.assertEqual(result.loc["WEAK_TONE_GOOD_OUTLOOK", "Evidence_Score"], 60.0)
+        self.assertEqual(result.loc["BOTH_WEAK", "Evidence_Score"], 59.25)
+        self.assertEqual(result.loc["STRONG_TONE", "Evidence_Score"], 60.75)
+        self.assertEqual(result.loc["STRONG_TONE", "Transcript_Outlook_Neutral_Score"], 60.0)
+        self.assertEqual(result.loc["BOTH_WEAK", "Transcript_Outlook_Score_Used"], 50.0)
+        self.assertEqual(result.loc["BOTH_WEAK", "Transcript_Outlook_Share_Applied"], 0.5)
+
+    def test_a_call_without_an_outlook_keeps_the_whole_weight_on_tone(self):
+        result = finalize_recommendations(
+            self.outlook_frame(), self.outlook_config()
+        ).set_index("Symbol")
+
+        self.assertFalse(result.loc["TONE_ONLY", "Transcript_Outlook_Applied"])
+        self.assertEqual(result.loc["TONE_ONLY", "Evidence_Score"], 60.5)
+
+    def test_an_outlook_without_an_eligible_call_changes_nothing(self):
+        result = finalize_recommendations(
+            self.outlook_frame(), self.outlook_config()
+        ).set_index("Symbol")
+
+        self.assertFalse(result.loc["NO_CALL", "Transcript_Outlook_Applied"])
+        self.assertEqual(result.loc["NO_CALL", "Evidence_Score"], 60.0)
+
+    def test_a_zero_outlook_share_is_the_tone_only_policy(self):
+        with_outlooks = finalize_recommendations(
+            self.outlook_frame(), self.outlook_config(share=0.0)
+        ).set_index("Symbol")
+        without = finalize_recommendations(
+            self.outlook_frame().drop(columns="Transcript_Outlook_Score"),
+            self.two_sided_config(),
+        ).set_index("Symbol")
+
+        self.assertEqual(
+            with_outlooks["Evidence_Score"].tolist(), without["Evidence_Score"].tolist()
+        )
+        self.assertEqual(with_outlooks.loc["WEAK_TONE_GOOD_OUTLOOK", "Evidence_Score"], 59.0)
+
+    def test_outlook_falls_back_to_fifty_when_few_calls_have_one(self):
+        settings = self.outlook_config()
+        settings.TRANSCRIPT_NEUTRAL_MIN_CALLS = 4
+        result = finalize_recommendations(self.outlook_frame(), settings).set_index("Symbol")
+
+        # Four tone scores keep the tone median; three outlooks are too few.
+        self.assertEqual(result.loc["BOTH_WEAK", "Transcript_Neutral_Score"], 65.0)
+        self.assertEqual(result.loc["BOTH_WEAK", "Transcript_Outlook_Neutral_Score"], 50.0)
+        self.assertEqual(result.loc["BOTH_WEAK", "Evidence_Score"], 59.75)
+
     def test_downside_policy_overrides_promotional_evidence(self):
         source = pd.DataFrame(
             [

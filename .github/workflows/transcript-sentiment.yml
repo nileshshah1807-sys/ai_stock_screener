@@ -66,3 +66,17 @@ jobs:
 
       - name: Collect and analyze transcripts
         run: python -m workers.transcript_worker
+
+      # The outlook of each new call, which the daily screener blends with the
+      # tone score. Resumable and capped: a quarter's calls cost about $2 in
+      # all, so the cap only bounds a run that goes wrong. A call still pending
+      # here is scored on tone alone, so a failure degrades and does not block.
+      - name: Extract call outlooks
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::warning::OPENROUTER_API_KEY secret is not set; outlook extraction skipped"
+            exit 0
+          fi
+          python -m tools.extract_transcript_outlook --max-cost 0.50

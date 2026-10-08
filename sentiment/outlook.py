@@ -38,6 +38,12 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 # Calls longer than this are cut from the end. The median call is ~45,000
 # characters; the cap only bounds the cost of a pathological document.
 MAX_TRANSCRIPT_CHARACTERS = 160_000
+# The same model is sold by some thirty providers at prices a factor of ten
+# apart, and OpenRouter's default routing does not pick the cheapest. Requests
+# go to the cheapest provider first and never to one above these prices, USD
+# per million tokens (prompt, completion).
+MAX_PRICE_PER_MILLION = (0.10, 1.20)
+MAX_OUTPUT_TOKENS = 3000
 
 GUIDANCE_DIRECTIONS = ("raised", "maintained", "lowered", "none")
 TRENDS = ("up", "flat", "down", "unknown")
@@ -137,7 +143,21 @@ quarter just reported.
 - tailwinds and headwinds: at most three each, specific to this company \
 (a new approval, a customer win, a tariff, a raw-material cost), not general \
 optimism.
-Return JSON matching the schema and nothing else."""
+
+Answer with one JSON object and nothing else -- no explanation, no code fence. \
+It has exactly these keys; where a set of values is listed, use one of them:
+{
+  "guidance": {"direction": "raised|maintained|lowered|none", "metric": string or null, \
+"growth_pct": number or null, "quote": string or null},
+  "order_book": {"value_inr_crore": number or null, "revenue_cover_years": number or null, \
+"trend": "up|flat|down|unknown", "quote": string or null},
+  "capacity": {"state": "operational|ramping|under_construction|planned|none", \
+"commissioning": "YYYY-MM" or null, "quote": string or null},
+  "demand": {"tone": "strong|stable|weak|unknown", "quote": string or null},
+  "margin": {"trend": "up|flat|down|unknown", "quote": string or null},
+  "tailwinds": [{"what": string, "quote": string}],
+  "headwinds": [{"what": string, "quote": string}]
+}"""
 
 
 def build_messages(company: str, symbol: str, call_date: str, text: str) -> list[dict[str, str]]:
@@ -290,20 +310,163 @@ def outlook_score(verified: dict[str, Any]) -> float:
     return round(min(100.0, max(0.0, total)), 2)
 
 
+_DEMAND_ORDER = {"weak": -1, "stable": 0, "strong": 1}
+_TREND_ORDER = {"down": -1, "flat": 0, "up": 1}
+_CAPACITY_ORDER = {"planned": 1, "under_construction": 2, "ramping": 3, "operational": 4}
+# Guided growth within a point of the last call's is the same guidance, and an
+# order book within 5% the same book: both are restated loosely from memory.
+GUIDANCE_TOLERANCE_PCT = 1.0
+ORDER_BOOK_TOLERANCE = 0.05
+
+
+def _percent(value: float) -> str:
+    return f"{value:g}%"
+
+
+def _ranked_change(item, label, order, previous, current):
+    """A change in a field whose values have a natural order, or None."""
+    before, after = order.get(previous), order.get(current)
+    if before is None or after is None:
+        return None
+    if after == before:
+        return {"item": item, "change": "kept", "text": f"{label} still {current}"}
+    change = "better" if after > before else "worse"
+    return {"item": item, "change": change, "text": f"{label} {previous} -> {current}"}
+
+
+def compare_outlooks(previous: dict[str, Any], current: dict[str, Any]) -> list[dict[str, str]]:
+    """What a call changed from the company's previous one.
+
+    Each entry is ``{"item", "change", "text"}`` with ``change`` one of
+    ``better``, ``worse``, ``kept`` or ``not_restated``. An item is compared
+    only where both calls stated it: silence in one of them is not a change.
+    The one exception is guidance that was given and is not repeated, reported
+    as ``not_restated`` -- worth a look, and not counted against the company,
+    because it is as often the extraction missing a sentence as management
+    dropping a number.
+
+    Two limits. Guided growth is compared as stated, so across a financial
+    year-end the two figures are for different years. And both sides are one
+    reading of one call: a "change" can be the model picking a different
+    project or segment the second time.
+    """
+    changes: list[dict[str, str]] = []
+
+    before, after = previous.get("guidance") or {}, current.get("guidance") or {}
+    was, now = before.get("direction") or "none", after.get("direction") or "none"
+    old_growth, new_growth = _number(before.get("growth_pct")), _number(after.get("growth_pct"))
+    if was != "none" and now == "none":
+        changes.append({"item": "guidance", "change": "not_restated", "text": "guidance not restated"})
+    elif was != "none" and old_growth is not None and new_growth is not None:
+        move = new_growth - old_growth
+        span = f"{_percent(old_growth)} -> {_percent(new_growth)}"
+        if abs(move) < GUIDANCE_TOLERANCE_PCT:
+            changes.append({
+                "item": "guidance", "change": "kept",
+                "text": f"guided growth held at {_percent(new_growth)}",
+            })
+        else:
+            changes.append({
+                "item": "guidance", "change": "better" if move > 0 else "worse",
+                "text": f"guided growth {'raised' if move > 0 else 'cut'} {span}",
+            })
+    elif was != "none" and now == "raised":
+        changes.append({"item": "guidance", "change": "better", "text": "guidance raised"})
+    elif was != "none" and now == "lowered":
+        changes.append({"item": "guidance", "change": "worse", "text": "guidance lowered"})
+    elif was != "none" and now == "maintained":
+        changes.append({"item": "guidance", "change": "kept", "text": "guidance maintained"})
+
+    before, after = previous.get("order_book") or {}, current.get("order_book") or {}
+    old_book, new_book = _number(before.get("value_inr_crore")), _number(after.get("value_inr_crore"))
+    if old_book and new_book and old_book > 0:
+        move = new_book / old_book - 1.0
+        span = f"{old_book:,.0f} -> {new_book:,.0f} crore"
+        if abs(move) < ORDER_BOOK_TOLERANCE:
+            changes.append({"item": "order_book", "change": "kept", "text": f"order book steady, {span}"})
+        else:
+            changes.append({
+                "item": "order_book", "change": "better" if move > 0 else "worse",
+                "text": f"order book {'up' if move > 0 else 'down'} {abs(move) * 100:.0f}%, {span}",
+            })
+
+    before, after = previous.get("capacity") or {}, current.get("capacity") or {}
+    old_stage = _CAPACITY_ORDER.get(before.get("state"))
+    new_stage = _CAPACITY_ORDER.get(after.get("state"))
+    old_date, new_date = str(before.get("commissioning") or ""), str(after.get("commissioning") or "")
+    dated = bool(re.fullmatch(r"\d{4}-\d{2}", old_date) and re.fullmatch(r"\d{4}-\d{2}", new_date))
+    if dated and new_date != old_date:
+        # YYYY-MM sorts as text.
+        changes.append({
+            "item": "capacity", "change": "worse" if new_date > old_date else "better",
+            "text": f"commissioning {'slipped' if new_date > old_date else 'pulled forward'} "
+                    f"{old_date} -> {new_date}",
+        })
+    elif old_stage and new_stage and new_stage > old_stage:
+        changes.append({
+            "item": "capacity", "change": "better",
+            "text": f"capacity progressed {before['state']} -> {after['state']}".replace("_", " "),
+        })
+    elif dated:
+        changes.append({"item": "capacity", "change": "kept", "text": f"commissioning date held at {new_date}"})
+    # A later call at an earlier stage is a different project, not a retreat.
+
+    demand = _ranked_change(
+        "demand", "demand outlook", _DEMAND_ORDER,
+        (previous.get("demand") or {}).get("tone"), (current.get("demand") or {}).get("tone"),
+    )
+    margin = _ranked_change(
+        "margin", "margin outlook", _TREND_ORDER,
+        (previous.get("margin") or {}).get("trend"), (current.get("margin") or {}).get("trend"),
+    )
+    changes.extend(change for change in (demand, margin) if change)
+    return changes
+
+
+def summarise_changes(changes: list[dict[str, str]]) -> str:
+    """The changes that moved, worst first; what was kept is counted, not listed."""
+    order = {"worse": 0, "better": 1, "not_restated": 2}
+    moved = sorted(
+        (change for change in changes if change["change"] in order),
+        key=lambda change: order[change["change"]],
+    )
+    kept = sum(1 for change in changes if change["change"] == "kept")
+    parts = [change["text"] for change in moved]
+    if kept:
+        parts.append(f"{kept} item{'s' if kept != 1 else ''} unchanged")
+    return "; ".join(parts)
+
+
+class ExtractionError(ValueError):
+    """A reply that could not be used. It was still paid for: ``cost_usd``."""
+
+    def __init__(self, message: str, cost_usd: float = 0.0):
+        super().__init__(message)
+        self.cost_usd = float(cost_usd or 0.0)
+
+
 def parse_response(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """``(extraction, usage)`` from an OpenRouter chat-completion response."""
+    usage = payload.get("usage") or {}
+    cost = float(usage.get("cost") or 0.0)
     choices = payload.get("choices") or []
     if not choices:
-        raise ValueError(f"no choices in response: {str(payload)[:300]}")
+        raise ExtractionError(f"no choices in response: {str(payload)[:300]}", cost)
     content = (choices[0].get("message") or {}).get("content") or ""
+    if choices[0].get("finish_reason") == "length":
+        # Cut off mid-object, or the tokens went on reasoning before any answer.
+        raise ExtractionError("reply hit the output limit before the JSON was complete", cost)
     # A model that ignores response_format wraps the object in a code fence.
     match = re.search(r"\{.*\}", content, re.DOTALL)
     if not match:
-        raise ValueError("response carried no JSON object")
-    extraction = json.loads(match.group(0))
+        raise ExtractionError("response carried no JSON object", cost)
+    try:
+        extraction = json.loads(match.group(0))
+    except json.JSONDecodeError as exc:
+        raise ExtractionError(f"response JSON did not parse: {exc}", cost) from exc
     if not isinstance(extraction, dict):
-        raise ValueError("response JSON is not an object")
-    return extraction, payload.get("usage") or {}
+        raise ExtractionError("response JSON is not an object", cost)
+    return extraction, usage
 
 
 def request_extraction(session, api_key: str, messages, *, model: str = DEFAULT_MODEL, timeout: int = 180):
@@ -315,8 +478,18 @@ def request_extraction(session, api_key: str, messages, *, model: str = DEFAULT_
             "model": model,
             "messages": messages,
             "temperature": 0,
-            "max_tokens": 2000,
+            "max_tokens": MAX_OUTPUT_TOKENS,
             "usage": {"include": True},
+            # Extraction, not problem solving: left on, the model spends the
+            # whole reply thinking and never reaches the object.
+            "reasoning": {"enabled": False},
+            "provider": {
+                "sort": "price",
+                "max_price": {
+                    "prompt": MAX_PRICE_PER_MILLION[0],
+                    "completion": MAX_PRICE_PER_MILLION[1],
+                },
+            },
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {"name": "call_outlook", "strict": True, "schema": SCHEMA},

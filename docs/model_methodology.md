@@ -170,8 +170,52 @@ the top fifth by score returned +4.6% above the liquid universe over the next
 three months and the bottom fifth -0.1% (1,169 calls, rank correlation 0.10;
 0.02 at one month). One results season, and not separated from momentum, so
 the weight is left small: a top-5% call adds about 1.3 points to a percentile
-score. The score is still the word-list tone score; structured extraction is
-planned to replace it once it can be compared against returns.
+score.
+
+### Model 5.2 transcript evidence: what the call said, beside how it sounded
+
+The tone score is a word-list measure. `sentiment/outlook.py` adds a second
+reading of the same call by a language model: the guidance and whether it
+moved, the order book, capacity, demand and margins, each kept only if the
+sentence it was taken from is found in the transcript. Its 0-100
+`outlook_score` shares the transcript weight with tone:
+
+```text
+signal         = (1 - s) * (tone - median tone)
+                 + s * (outlook - median outlook)      call has an outlook
+signal         = tone - median tone                    call has none
+Evidence_Score = Score_After_DCF + w_tx * signal
+```
+
+`s` is `TRANSCRIPT_OUTLOOK_SHARE` (0.5). `w_tx` is `TRANSCRIPT_SENTIMENT_WEIGHT`,
+raised from 0.15 to 0.30 with this change and decayed as before, so a call can
+now move a score by about five points at most. Each reading is
+centred on its own median over the calls of the run, falling back to 50 below
+`TRANSCRIPT_NEUTRAL_MIN_CALLS`. An outlook counts only for the call the tone
+score came from and only when at least one extracted item was verified; a
+call without one is scored on tone at the full weight, not as a neutral
+outlook. A company with no eligible call is still not adjusted.
+
+Evidence, from the 2,105 usable calls of April to September 2026, each entered
+two sessions after the call and measured against the equal-weight universe:
+
+| | Tone | Outlook |
+|---|---|---|
+| April-June calls, next 21 sessions, rank correlation | 0.06 | 0.13 |
+| April-June calls, next 63 sessions | 0.12 | 0.08 |
+| July-September calls, next 21 sessions | 0.06 | 0.12 |
+
+Over a month a 50-75% outlook share ranked returns best in both seasons; over
+three months, which only the first season can show, 0-25% did. Half is inside
+both. For the weight, 597 calls held 7 August to 1 September had the model's
+score on the entry day: a point of the blended signal was followed by as much
+one-month excess return as 3.7 points of score (middle 80% of a bootstrap 1.6
+to 9.9; 2.9 after controlling for three-month momentum, with which the signal
+correlates 0.25). **That is one season at one horizon and is not a fitted
+weight**; it supports more than 0.15 and the weight is doubled, no further.
+The point weights inside `outlook_score` remain judgments. The backtest has no
+calls and is unaffected. `TRANSCRIPT_OUTLOOK_SHARE=0` restores the tone-only
+score and `TRANSCRIPT_SENTIMENT_WEIGHT=0.15` the old reach.
 
 ### Model 5.2 block weights: value 0.25 to 0.15
 

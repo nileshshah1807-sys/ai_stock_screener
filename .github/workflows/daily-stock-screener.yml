@@ -87,7 +87,7 @@ jobs:
       ATTACH_CSV: "True"
       ATTACH_PDF: "True"
       TRANSCRIPT_SENTIMENT_ENABLED: "True"
-      TRANSCRIPT_SENTIMENT_WEIGHT: "0.15"
+      TRANSCRIPT_SENTIMENT_WEIGHT: "0.30"
       # A call is not mandatory. Missing transcript evidence must remain neutral.
       REQUIRE_TRANSCRIPT_FOR_STRONG_BUY: "False"
       TRANSCRIPT_MIN_PRIORITY_SCORE: "55"
