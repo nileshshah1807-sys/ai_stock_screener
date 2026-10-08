@@ -209,13 +209,17 @@ export const MODEL_ERAS = {
  * The first published ranking the Returns page uses, per market.
  *
  * NSE published rankings from 2026-08-11 under three earlier models. When
- * Model 5.2 replaced them the backtest was rebuilt through 2026-10-07 under
- * 5.2 (`tools/backfill_returns_history.py publish --live-from`), so the page
+ * Model 5.2 replaced them the backtest was rebuilt under 5.2
+ * (`tools/backfill_returns_history.py publish --live-from`), so the page
  * shows one model throughout: backtest before this date, published from it.
+ * The date is the first run Model 5.2 produced. The backtest scores from the
+ * filing archive and the run from the vendor's fuller statements, so on a day
+ * both exist they rank differently, and the published ranking is the one a
+ * reader was actually shown.
  * The earlier published rankings stay in `screener_history`. A market with no
  * entry uses every published ranking, as the US does -- it has no backtest.
  */
-export const BACKTEST_UNTIL = { NSE: "2026-10-08" };
+export const BACKTEST_UNTIL = { NSE: "2026-10-07" };
 
 /**
  * Which ranking dates the page uses, and where published ones take over.

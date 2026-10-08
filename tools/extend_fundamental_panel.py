@@ -19,6 +19,13 @@ revenue, profit and equity (printed on every run).
 Only fiscal years the archive panel does not already hold are added, so the
 filed figures always win where they exist. NSE only.
 
+The vendor does not report EPS for every year, and the share count is implied
+by it (profit over EPS). A year without one would leave the backtest with no
+market cap and so no value block at all. Such a year takes the share count of
+the nearest earlier year that has one, scaled by the change in paid-up equity
+capital, and its EPS is profit over that count. A face-value split inside the
+gap leaves paid-up capital unchanged and is not seen.
+
 The quarterly panel is extended the same way, when the root has one. The
 vendor's quarters (about five, the most recent) are appended after the last
 filed quarter, each dated ``QUARTER_LAG_DAYS`` after its period end. Growth is
@@ -102,7 +109,7 @@ def vendor_panel_rows(symbol, statements, security_id, isin=""):
     annual = (statements or {}).get("annual") or {}
     income = annual.get("income") or {}
     balance, cashflow = annual.get("balance") or {}, annual.get("cashflow") or {}
-    rows = []
+    rows, capital = [], []
     for index, period in enumerate(income.get("periods") or []):
         balance_at, cash_at = _position(balance, period), _position(cashflow, period)
         revenue = _value(income, "revenue", index)
@@ -152,7 +159,32 @@ def vendor_panel_rows(symbol, statements, security_id, isin=""):
                 "Has_Cash_Flow": cash_at is not None,
             }
         )
+        capital.append(_value(balance, "equity_capital", balance_at))
+    _carry_share_count(rows, capital)
     return rows
+
+
+def _carry_share_count(rows, capital):
+    """Give a year with no reported EPS a share count, and the EPS it implies.
+
+    The count is the nearest earlier year's, scaled by the change in paid-up
+    equity capital where both years report it. Rows are filled in place.
+    """
+    known = None
+    for index in np.argsort([row["Period_End"] for row in rows], kind="stable"):
+        row, paid_up = rows[index], capital[index]
+        if pd.notna(row["Shares_Outstanding"]):
+            known = (row["Shares_Outstanding"], paid_up)
+            continue
+        if known is None:
+            continue
+        shares, base = known
+        if pd.notna(paid_up) and pd.notna(base) and paid_up > 0 and base > 0:
+            shares = shares * paid_up / base
+        row["Shares_Outstanding"] = shares
+        if pd.isna(row["EPS_Basic"]):
+            row["EPS_Basic"] = row["EPS_Diluted"] = _ratio(row["PAT"], shares)
+        known = (shares, paid_up)
 
 
 def extend(panel, vendor):

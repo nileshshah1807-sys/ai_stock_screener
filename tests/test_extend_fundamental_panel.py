@@ -79,6 +79,48 @@ class VendorPanelRowTests(unittest.TestCase):
         self.assertEqual(vendor_panel_rows("ACME", None, "INE001A01"), [])
 
 
+def statements_without_latest_eps(capital):
+    return {
+        "annual": {
+            "income": {
+                "periods": ["2025-03-31", "2026-03-31"],
+                "rows": {"net_profit": [150.0, 264.0], "eps": [15.0, None]},
+            },
+            "balance": {
+                "periods": ["2025-03-31", "2026-03-31"],
+                "rows": {"equity_capital": capital},
+            },
+        }
+    }
+
+
+class MissingEpsTests(unittest.TestCase):
+    def latest(self, capital):
+        return vendor_panel_rows("ACME", statements_without_latest_eps(capital), "INE001A01")[-1]
+
+    def test_a_year_without_eps_takes_the_earlier_count_scaled_by_paid_up_capital(self):
+        latest = self.latest([100.0, 110.0])
+        self.assertAlmostEqual(latest["Shares_Outstanding"], 11.0)
+        self.assertAlmostEqual(latest["EPS_Basic"], 24.0)
+        self.assertAlmostEqual(latest["EPS_Diluted"], 24.0)
+
+    def test_without_paid_up_capital_the_earlier_count_is_carried_unchanged(self):
+        latest = self.latest([100.0, None])
+        self.assertAlmostEqual(latest["Shares_Outstanding"], 10.0)
+        self.assertAlmostEqual(latest["EPS_Basic"], 26.4)
+
+    def test_no_earlier_count_leaves_the_year_unreported(self):
+        statements = statements_without_latest_eps([100.0, 110.0])
+        statements["annual"]["income"]["rows"]["eps"] = [None, None]
+        for row in vendor_panel_rows("ACME", statements, "INE001A01"):
+            self.assertTrue(pd.isna(row["Shares_Outstanding"]))
+            self.assertTrue(pd.isna(row["EPS_Basic"]))
+
+    def test_a_reported_eps_is_never_replaced(self):
+        rows = vendor_panel_rows("ACME", STATEMENTS, "INE001A01")
+        self.assertEqual([row["EPS_Basic"] for row in rows], [10.5, 15.0])
+
+
 class ExtendTests(unittest.TestCase):
     def vendor(self):
         frame = pd.DataFrame(vendor_panel_rows("ACME", STATEMENTS, "INE001A01"))
