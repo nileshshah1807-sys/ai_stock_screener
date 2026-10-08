@@ -132,6 +132,26 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
 
         self.assertEqual(seen[0]["model_name"], "eq.vendor/model")
 
+    def test_company_names_are_read_in_batches_that_fit_a_url(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        batches = []
+
+        def request(method, path, **kwargs):
+            ids = kwargs["params"]["document_id"].removeprefix("in.(").removesuffix(")").split(",")
+            batches.append(len(ids))
+            return [
+                {"document_id": item, "transcript_filings": {"company_name": f"Company {item}"}}
+                for item in ids
+            ]
+
+        repository._request = request
+
+        names = repository.company_names_by_document_id([f"d{n}" for n in range(250)])
+
+        self.assertEqual(batches, [100, 100, 50])
+        self.assertEqual(len(names), 250)
+        self.assertEqual(names["d249"], "Company d249")
+
     def test_red_flag_snapshot_reads_are_batched(self):
         repository = SupabaseRepository("https://example.test", "service-role-key")
         calls = []

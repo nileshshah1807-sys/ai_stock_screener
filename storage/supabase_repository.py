@@ -217,17 +217,28 @@ class SupabaseRepository:
             transcript["company_name"] = company_names.get(transcript.get("document_id"), "")
         return transcripts
 
-    def company_names_by_document_id(self, document_ids: list[str]) -> dict[str, str]:
+    def company_names_by_document_id(
+        self, document_ids: list[str], batch_size: int = 100
+    ) -> dict[str, str]:
         if not document_ids:
             return {}
-        rows = self._request(
-            "GET",
-            "transcript_filing_documents",
-            params={
-                "select": "document_id,transcript_filings(company_name)",
-                "document_id": f"in.({','.join(document_ids)})",
-            },
-        )
+        # A UUID is 36 characters; a few hundred in one filter overruns the
+        # URL limit (414), so the ids go in batches.
+        rows: list[dict[str, Any]] = []
+        safe_batch_size = max(1, int(batch_size))
+        for start in range(0, len(document_ids), safe_batch_size):
+            batch = document_ids[start:start + safe_batch_size]
+            rows.extend(
+                self._request(
+                    "GET",
+                    "transcript_filing_documents",
+                    params={
+                        "select": "document_id,transcript_filings(company_name)",
+                        "document_id": f"in.({','.join(batch)})",
+                    },
+                )
+                or []
+            )
         company_names: dict[str, str] = {}
         for row in rows:
             filing = row.get("transcript_filings") or {}
