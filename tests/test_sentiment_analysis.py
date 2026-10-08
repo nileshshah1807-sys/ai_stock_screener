@@ -394,6 +394,17 @@ class OutlookRequestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_response({"choices": []})
 
+    def test_a_reply_cut_off_at_the_output_limit_is_an_error_that_keeps_its_cost(self):
+        from sentiment.outlook import ExtractionError
+
+        payload = {
+            "choices": [{"finish_reason": "length", "message": {"content": "{\"demand\": {"}}],
+            "usage": {"cost": 0.0053},
+        }
+        with self.assertRaises(ExtractionError) as raised:
+            parse_response(payload)
+        self.assertAlmostEqual(raised.exception.cost_usd, 0.0053)
+
 
 class OutlookRunTests(unittest.TestCase):
     """The extraction run, with the API and the database replaced by fakes."""
@@ -428,8 +439,27 @@ class OutlookRunTests(unittest.TestCase):
         rows = [{"token_count": 10_000}, {"token_count": 12_000}]
         estimate = self.tool.estimate_cost(rows, self.tool.DEFAULT_MODEL)
         prompt = (10_000 + 12_000) * 1.25 + 2 * 1000
-        self.assertAlmostEqual(estimate, (prompt * 0.05 + 2 * 800 * 1.20) / 1_000_000)
+        # Priced at the most a request may pay, so the estimate is a ceiling.
+        self.assertAlmostEqual(estimate, (prompt * 0.10 + 2 * 800 * 1.20) / 1_000_000)
         self.assertIsNone(self.tool.estimate_cost(rows, "someone/unpriced-model"))
+
+    def test_an_unusable_reply_still_counts_toward_the_budget(self):
+        from sentiment.outlook import ExtractionError
+
+        def analyse(session, api_key, transcript, text, *, model):
+            raise ExtractionError("response carried no JSON object", cost_usd=0.004)
+
+        repository, saved = self.repository({})
+        budget = self.tool.Budget(1.0)
+        with patch.object(self.tool, "analyse_transcript", analyse):
+            summary = self.tool.run(
+                repository, [{"id": "t1", "cleaned_text": "call text"}], "key",
+                model="m", workers=1, budget=budget,
+            )
+
+        self.assertEqual(summary["failed"], 1)
+        self.assertEqual(saved, [])
+        self.assertAlmostEqual(budget.spent, 0.004)
 
     def test_text_is_restored_from_storage_and_the_row_saved(self):
         repository, saved = self.repository({"t1": "archived call text"})

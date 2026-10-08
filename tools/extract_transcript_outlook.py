@@ -35,14 +35,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sentiment.outlook import DEFAULT_MODEL, OUTLOOK_VERSION, analyse_transcript  # noqa: E402
+from sentiment.outlook import (  # noqa: E402
+    DEFAULT_MODEL,
+    MAX_PRICE_PER_MILLION,
+    OUTLOOK_VERSION,
+    analyse_transcript,
+)
 from tools.publish_price_series import load_env_file  # noqa: E402
 
 logger = logging.getLogger("extract_transcript_outlook")
 
 # USD per million tokens, for the dry-run estimate only; a real run records the
-# cost the API reports. Read from OpenRouter's model list on 2026-10-07.
-ESTIMATE_PRICES = {DEFAULT_MODEL: (0.05, 1.20)}
+# cost the API reports. The price depends on which provider serves the call, so
+# the estimate uses the most a request is allowed to pay: it is a ceiling.
+ESTIMATE_PRICES = {DEFAULT_MODEL: MAX_PRICE_PER_MILLION}
 # `transcripts.token_count` is a whitespace-based estimate; a model tokenizer
 # produces somewhat more, and each request adds the instructions.
 TOKEN_INFLATION = 1.25
@@ -109,6 +115,8 @@ def run(repository, transcripts, api_key, *, model, workers, budget):
             row = analyse_transcript(session(), api_key, transcript, text, model=model)
             repository.save_outlook(row)
         except Exception as exc:  # noqa: BLE001 - one bad call must not stop the run
+            # An unusable reply was still billed, and must count toward the cap.
+            budget.add(getattr(exc, "cost_usd", 0.0))
             with lock:
                 summary["failed"] += 1
             logger.warning("%s %s failed: %s", transcript.get("symbol"), transcript.get("call_date"), exc)
@@ -162,7 +170,7 @@ def main(argv=None):
         len(pending),
         args.model,
         OUTLOOK_VERSION,
-        "unknown (model not in the price table)" if estimate is None else f"${estimate:.2f}",
+        "unknown (model not in the price table)" if estimate is None else f"at most ${estimate:.2f}",
     )
     if args.dry_run or not pending:
         return 0
