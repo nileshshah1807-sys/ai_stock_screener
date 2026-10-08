@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import requests
@@ -14,6 +14,17 @@ from screener.markets import resolve as resolve_market
 from storage.object_store import ObjectStore
 
 READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+# Results seasons are a quarter apart; two transcripts closer than this are
+# the same season's call and a follow-up meeting.
+PREVIOUS_CALL_MIN_GAP_DAYS = 45
+
+
+def _days_between(earlier: Any, later: Any) -> int:
+    """Whole days from ``earlier`` to ``later``; -1 when either is not a date."""
+    try:
+        return (date.fromisoformat(str(later)[:10]) - date.fromisoformat(str(earlier)[:10])).days
+    except ValueError:
+        return -1
 
 
 class SupabaseReadOnlyError(RuntimeError):
@@ -377,18 +388,20 @@ class SupabaseRepository:
         model_name: str | None = None,
         batch_size: int = 200,
     ) -> list[dict[str, Any]]:
-        """The newest call's outlook for each symbol, without the quotes.
+        """The newest call's outlook for each symbol.
 
-        ``points`` is the scored breakdown only; the quoted sentences stay in
-        the table. Scoped to this market for the same reason as
-        `latest_sentiments`.
+        Each row carries ``previous``: the same company's outlook from the
+        quarter before, or None. A second document from the same results
+        season -- an analyst meet days after the call -- is not a previous
+        quarter, so it must be at least `PREVIOUS_CALL_MIN_GAP_DAYS` older.
+        Scoped to this market for the same reason as `latest_sentiments`.
         """
         normalized = list(dict.fromkeys(
             str(symbol).strip().upper()
             for symbol in symbols
             if str(symbol).strip()
         ))
-        latest: dict[str, dict[str, Any]] = {}
+        calls: dict[str, list[dict[str, Any]]] = {}
         safe_batch_size = max(1, int(batch_size))
         for start in range(0, len(normalized), safe_batch_size):
             batch = normalized[start:start + safe_batch_size]
@@ -400,7 +413,7 @@ class SupabaseRepository:
                     "analysis_version": f"eq.{analysis_version}",
                     "select": (
                         "symbol,call_date,outlook_score,verified_fields,"
-                        "model_name,points:extraction->points"
+                        "model_name,extraction"
                     ),
                     "order": "call_date.desc.nullslast,created_at.desc,id.asc",
                     "limit": "1000",
@@ -410,11 +423,24 @@ class SupabaseRepository:
                     params["model_name"] = f"eq.{model_name}"
                 rows = self._request("GET", "transcript_outlooks", params=params)
                 for row in rows or []:
-                    latest.setdefault(str(row["symbol"]).upper(), row)
+                    calls.setdefault(str(row["symbol"]).upper(), []).append(row)
                 if not rows or len(rows) < 1000:
                     break
                 offset += 1000
-        return list(latest.values())
+        latest = []
+        for rows in calls.values():
+            # Newest first, as ordered.
+            newest = rows[0]
+            newest["previous"] = next(
+                (
+                    row for row in rows[1:]
+                    if _days_between(row.get("call_date"), newest.get("call_date"))
+                    >= PREVIOUS_CALL_MIN_GAP_DAYS
+                ),
+                None,
+            )
+            latest.append(newest)
+        return latest
 
     def upsert_red_flag_snapshots(self, snapshots: list[dict[str, Any]], batch_size: int = 250) -> int:
         fetched_at = datetime.now(UTC).isoformat()

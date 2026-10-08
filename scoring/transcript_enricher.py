@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from screener.numeric import round_half_up, round_series_half_up
-from sentiment.outlook import OUTLOOK_VERSION
+from sentiment.outlook import OUTLOOK_VERSION, compare_outlooks, summarise_changes
 from storage.supabase_repository import SupabaseRepository
 from transcripts.periods import (
     CURRENT_CYCLE,
@@ -91,6 +91,13 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Outlook_Score"] = np.nan
         enriched["Transcript_Outlook_Verified_Fields"] = 0
         enriched["Transcript_Outlook_Summary"] = ""
+        enriched["Transcript_Outlook_Previous_Call_Date"] = ""
+        enriched["Transcript_Outlook_Previous_Score"] = np.nan
+        enriched["Transcript_Outlook_QoQ_Delta"] = np.nan
+        enriched["Transcript_Outlook_QoQ_Better"] = 0
+        enriched["Transcript_Outlook_QoQ_Worse"] = 0
+        enriched["Transcript_Outlook_QoQ_Kept"] = 0
+        enriched["Transcript_Outlook_QoQ_Changes"] = ""
 
         repository = self.repository
         if repository is None:
@@ -316,9 +323,29 @@ class TranscriptSentimentEnricher:
                 continue
             enriched.at[index, "Transcript_Outlook_Score"] = round_half_up(score, 2)
             enriched.at[index, "Transcript_Outlook_Verified_Fields"] = verified
+            extraction = record.get("extraction") or {}
             enriched.at[index, "Transcript_Outlook_Summary"] = _outlook_summary(
-                record.get("points")
+                extraction.get("points")
             )
+            # Against the quarter before: what management kept to and what
+            # moved. Shown beside the score, not part of it.
+            previous = record.get("previous") or {}
+            previous_score = _number(previous.get("outlook_score"))
+            if previous_score is None or int(_number(previous.get("verified_fields")) or 0) <= 0:
+                continue
+            changes = compare_outlooks(previous.get("extraction") or {}, extraction)
+            enriched.at[index, "Transcript_Outlook_Previous_Call_Date"] = str(
+                previous.get("call_date") or ""
+            )[:10]
+            enriched.at[index, "Transcript_Outlook_Previous_Score"] = round_half_up(previous_score, 2)
+            enriched.at[index, "Transcript_Outlook_QoQ_Delta"] = round_half_up(
+                score - previous_score, 2
+            )
+            for column, kind in (("Better", "better"), ("Worse", "worse"), ("Kept", "kept")):
+                enriched.at[index, f"Transcript_Outlook_QoQ_{column}"] = sum(
+                    1 for change in changes if change["change"] == kind
+                )
+            enriched.at[index, "Transcript_Outlook_QoQ_Changes"] = summarise_changes(changes)
 
 
 def _outlook_summary(points, limit=4):

@@ -122,6 +122,22 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
         self.assertEqual(params["analysis_version"], "eq.outlook-v1")
         self.assertTrue(params["order"].startswith("call_date.desc"))
         self.assertNotIn("model_name", params)
+        by_symbol = {row["symbol"]: row for row in result}
+        self.assertEqual(by_symbol["RELIANCE"]["previous"]["call_date"], "2026-04-22")
+        self.assertIsNone(by_symbol["TCS"]["previous"])
+
+    def test_a_second_document_of_the_same_season_is_not_the_previous_quarter(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        repository._request = lambda method, path, **kwargs: [
+            {"symbol": "GODREJCP", "call_date": "2026-09-07", "outlook_score": 60},
+            {"symbol": "GODREJCP", "call_date": "2026-08-14", "outlook_score": 62},
+            {"symbol": "GODREJCP", "call_date": "2026-05-13", "outlook_score": 70},
+        ]
+
+        newest = repository.latest_outlooks(["GODREJCP"], "outlook-v1")[0]
+
+        self.assertEqual(newest["call_date"], "2026-09-07")
+        self.assertEqual(newest["previous"]["call_date"], "2026-05-13")
 
     def test_latest_outlooks_can_be_pinned_to_one_model(self):
         repository = SupabaseRepository("https://example.test", "service-role-key")

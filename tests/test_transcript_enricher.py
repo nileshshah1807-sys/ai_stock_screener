@@ -72,18 +72,24 @@ class PriorCycleRepository:
 class OutlookRepository(FakeRepository):
     """FakeRepository's call, with a language-model outlook stored beside it."""
 
-    def __init__(self, days_ago=31, verified_fields=3):
+    def __init__(self, days_ago=31, verified_fields=3, previous=None):
         self.outlook = {
             "symbol": "RELIANCE",
             "call_date": str(date.today() - timedelta(days=days_ago)),
             "outlook_score": 73.0,
             "verified_fields": verified_fields,
-            "points": [
-                {"reason": "guidance raised", "points": 15.0},
-                {"reason": "demand outlook strong", "points": 8.0},
-                {"reason": "headwind: input costs", "points": -3.0},
-                {"reason": "guidance maintained", "points": 0},
-            ],
+            "extraction": {
+                "guidance": {"direction": "maintained", "growth_pct": 15.0},
+                "demand": {"tone": "strong"},
+                "margin": {"trend": "flat"},
+                "points": [
+                    {"reason": "guidance raised", "points": 15.0},
+                    {"reason": "demand outlook strong", "points": 8.0},
+                    {"reason": "headwind: input costs", "points": -3.0},
+                    {"reason": "guidance maintained", "points": 0},
+                ],
+            },
+            "previous": previous,
         }
         self.requested = None
 
@@ -347,6 +353,36 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertEqual(repository.requested, (["RELIANCE", "TCS"], "outlook-v1", None))
         # Evidence only: the tone columns the policy reads are untouched.
         self.assertEqual(result.loc[0, "Transcript_Effective_Score"], 80.0)
+
+    def test_outlook_is_compared_with_the_quarter_before(self):
+        previous = {
+            "call_date": "2026-05-12",
+            "outlook_score": 81.0,
+            "verified_fields": 4,
+            "extraction": {
+                "guidance": {"direction": "maintained", "growth_pct": 20.0},
+                "demand": {"tone": "strong"},
+                "margin": {"trend": "down"},
+            },
+        }
+        result = self.enrich_with_outlook(OutlookRepository(previous=previous))
+
+        self.assertEqual(result.loc[0, "Transcript_Outlook_Previous_Call_Date"], "2026-05-12")
+        self.assertEqual(result.loc[0, "Transcript_Outlook_QoQ_Delta"], -8.0)
+        self.assertEqual(result.loc[0, "Transcript_Outlook_QoQ_Worse"], 1)
+        self.assertEqual(result.loc[0, "Transcript_Outlook_QoQ_Better"], 1)
+        self.assertEqual(result.loc[0, "Transcript_Outlook_QoQ_Kept"], 1)
+        self.assertEqual(
+            result.loc[0, "Transcript_Outlook_QoQ_Changes"],
+            "guided growth cut 20% -> 15%; margin outlook down -> flat; 1 item unchanged",
+        )
+
+    def test_a_first_call_has_no_quarter_to_compare_with(self):
+        result = self.enrich_with_outlook(OutlookRepository())
+
+        self.assertEqual(result.loc[0, "Transcript_Outlook_Score"], 73.0)
+        self.assertTrue(pd.isna(result.loc[0, "Transcript_Outlook_QoQ_Delta"]))
+        self.assertEqual(result.loc[0, "Transcript_Outlook_QoQ_Changes"], "")
 
     def test_outlook_of_an_older_call_is_not_attached(self):
         result = self.enrich_with_outlook(OutlookRepository(days_ago=120))

@@ -406,6 +406,88 @@ class OutlookRequestTests(unittest.TestCase):
         self.assertAlmostEqual(raised.exception.cost_usd, 0.0053)
 
 
+class OutlookChangeTests(unittest.TestCase):
+    def changes(self, previous, current):
+        from sentiment.outlook import compare_outlooks
+
+        return {item["item"]: (item["change"], item["text"]) for item in compare_outlooks(previous, current)}
+
+    def test_guided_growth_is_compared_as_a_number_whatever_the_label(self):
+        # "Maintained" on both calls, and five points lower: that is a cut.
+        changes = self.changes(
+            {"guidance": {"direction": "maintained", "growth_pct": 20}},
+            {"guidance": {"direction": "maintained", "growth_pct": 15}},
+        )
+        self.assertEqual(changes["guidance"], ("worse", "guided growth cut 20% -> 15%"))
+
+    def test_guided_growth_within_a_point_is_kept(self):
+        changes = self.changes(
+            {"guidance": {"direction": "maintained", "growth_pct": 15}},
+            {"guidance": {"direction": "maintained", "growth_pct": 15.5}},
+        )
+        self.assertEqual(changes["guidance"][0], "kept")
+
+    def test_guidance_given_and_then_dropped_is_flagged_not_penalised(self):
+        changes = self.changes(
+            {"guidance": {"direction": "raised", "growth_pct": 20}},
+            {"guidance": {"direction": "none", "growth_pct": None}},
+        )
+        self.assertEqual(changes["guidance"], ("not_restated", "guidance not restated"))
+
+    def test_an_item_one_call_did_not_state_is_not_a_change(self):
+        changes = self.changes(
+            {"demand": {"tone": "unknown"}, "margin": {"trend": "up"}, "guidance": {"direction": "none"}},
+            {"demand": {"tone": "weak"}, "margin": {"trend": "unknown"}, "guidance": {"direction": "raised"}},
+        )
+        self.assertEqual(changes, {})
+
+    def test_demand_and_margin_move_along_their_scale(self):
+        changes = self.changes(
+            {"demand": {"tone": "strong"}, "margin": {"trend": "down"}},
+            {"demand": {"tone": "stable"}, "margin": {"trend": "up"}},
+        )
+        self.assertEqual(changes["demand"], ("worse", "demand outlook strong -> stable"))
+        self.assertEqual(changes["margin"], ("better", "margin outlook down -> up"))
+
+    def test_order_book_moves_past_the_tolerance(self):
+        changes = self.changes(
+            {"order_book": {"value_inr_crore": 1000}}, {"order_book": {"value_inr_crore": 1300}}
+        )
+        self.assertEqual(changes["order_book"], ("better", "order book up 30%, 1,000 -> 1,300 crore"))
+        steady = self.changes(
+            {"order_book": {"value_inr_crore": 1000}}, {"order_book": {"value_inr_crore": 1020}}
+        )
+        self.assertEqual(steady["order_book"][0], "kept")
+
+    def test_a_later_commissioning_date_is_a_slip(self):
+        changes = self.changes(
+            {"capacity": {"state": "under_construction", "commissioning": "2026-12"}},
+            {"capacity": {"state": "under_construction", "commissioning": "2027-03"}},
+        )
+        self.assertEqual(changes["capacity"], ("worse", "commissioning slipped 2026-12 -> 2027-03"))
+
+    def test_capacity_moving_on_a_stage_is_progress_and_back_a_stage_is_nothing(self):
+        forward = self.changes(
+            {"capacity": {"state": "under_construction"}}, {"capacity": {"state": "operational"}}
+        )
+        self.assertEqual(forward["capacity"], ("better", "capacity progressed under construction -> operational"))
+        back = self.changes(
+            {"capacity": {"state": "operational"}}, {"capacity": {"state": "planned"}}
+        )
+        self.assertNotIn("capacity", back)
+
+    def test_summary_lists_what_moved_worst_first_and_counts_the_rest(self):
+        from sentiment.outlook import summarise_changes
+
+        summary = summarise_changes([
+            {"item": "demand", "change": "kept", "text": "demand outlook still strong"},
+            {"item": "margin", "change": "better", "text": "margin outlook down -> up"},
+            {"item": "guidance", "change": "worse", "text": "guidance lowered"},
+        ])
+        self.assertEqual(summary, "guidance lowered; margin outlook down -> up; 1 item unchanged")
+        self.assertEqual(summarise_changes([]), "")
+
+
 class OutlookRunTests(unittest.TestCase):
     """The extraction run, with the API and the database replaced by fakes."""
 
