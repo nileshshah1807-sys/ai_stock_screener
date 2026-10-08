@@ -413,6 +413,8 @@ export type ScreenerFilters = {
   /** Entry timing. Stage labels as published; RS rating on 1-99. */
   stage?: string[];
   minRs?: number;
+  /** Market-cap floor in crore of the market's currency. NSE views only. */
+  minCapCr?: number;
   sort?: string;
   dir?: "asc" | "desc";
   page?: number;

@@ -378,6 +378,9 @@ export type ReturnsReport =
 
 type Pick = ReturnType<typeof pickOption>;
 
+/** `screener_history.market_cap` is in currency units; a size pick's floor is in crore. */
+const RUPEES_PER_CRORE = 1e7;
+
 /**
  * The top N of every ranking a portfolio is rebuilt from, within a pick.
  *
@@ -471,6 +474,7 @@ async function getRankingTops(
         if (pick.ratings) query = query.in("rating", pick.ratings);
         if (pick.stage) query = query.eq("stage", pick.stage);
         if (pick.maxAdvanceAge) query = query.lte("advance_age_days", pick.maxAdvanceAge);
+        if (pick.minCapCr) query = query.gte("market_cap", pick.minCapCr * RUPEES_PER_CRORE);
         return query.order("investment_rank").limit(depth);
       }),
     );
@@ -482,8 +486,7 @@ async function getRankingTops(
 }
 
 /**
- * Each backtest week's list for a rating filter and a stage filter together,
- * in rank order.
+ * Each backtest week's list for two or three filters together, in rank order.
  *
  * The backtest stores only the top 50 of each single filter, so a stock that
  * passes both is stored when it is in either list's top 50, and the combined
@@ -528,6 +531,7 @@ async function getCombinedBacktestTops(
           if (pick.ratings) query = query.in("rating", pick.ratings);
           if (pick.stage) query = query.eq("stage", pick.stage);
           if (pick.maxAdvanceAge) query = query.lte("advance_age_days", pick.maxAdvanceAge);
+          if (pick.minCapCr) query = query.gte("market_cap_cr", pick.minCapCr);
           return query.order("observed_on").order("investment_rank");
         }),
       ),

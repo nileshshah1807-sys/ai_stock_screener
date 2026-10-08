@@ -548,6 +548,22 @@ describe("pickOption", () => {
     assert.equal(pickOption("buy+nonsense").value, "buy");
   });
 
+  it("adds a size floor as a third filter, with no hold rule of its own", () => {
+    const size = pickOption("cap1000");
+    assert.equal(size.sizeFilter, "cap1000");
+    assert.equal(size.minCapCr, 1000);
+    assert.deepEqual(size.columns, ["rank_cap1000"]);
+    assert.deepEqual(size.holds, []);
+    const both = pickOption("cap1000+buy");
+    assert.equal(both.value, "buy+cap1000");
+    assert.deepEqual(both.columns, ["rank_buy", "rank_cap1000"]);
+    assert.deepEqual(both.holds, ["buy_plus"]);
+    assert.equal(both.phrase, "BUY-or-better, ₹1,000 Cr+");
+    assert.equal(pickOption("buy").minCapCr, null);
+    assert.equal(pickKey("all", "stage2", "cap1000"), "stage2+cap1000");
+    assert.equal(pickKey("buy", "all", "nonsense"), "buy");
+  });
+
   it("builds the key from the two filters", () => {
     assert.equal(pickKey("all", "all"), "all");
     assert.equal(pickKey(null, "stage2"), "stage2");

@@ -98,6 +98,21 @@ class PickRankTests(unittest.TestCase):
         self.assertEqual(by["E"]["rank_fresh_stage2"], 2)
         self.assertEqual(by["E"]["investment_rank"], 5)
 
+    def test_the_size_pick_passes_only_a_known_market_cap_at_or_above_the_floor(self):
+        fills = self.fills()
+        # A is under the floor, B exactly on it, C unknown, D and E above.
+        fills["Market_Cap"] = [9.99e9, 1e10, None, 5e10, 2e10]
+        rows = top_rankings(fills, {key: key for key in "ABCDE"}, top_n=2)
+        by = {row["symbol"]: row for row in rows}
+        self.assertEqual(by["A"]["market_cap_cr"], 999.0)
+        self.assertIsNone(by["A"]["rank_cap1000"])
+        self.assertEqual(by["B"]["rank_cap1000"], 1)
+        self.assertEqual(by["D"]["rank_cap1000"], 2)
+        # C has no filed share count, and E is the third to pass a top 2.
+        self.assertIsNone(by["C"]["market_cap_cr"])
+        self.assertIsNone(by["C"]["rank_cap1000"])
+        self.assertIsNone(by["E"]["rank_cap1000"])
+
     def test_a_week_without_quality_coverage_is_not_rated(self):
         fills = self.fills().assign(Quality_Coverage_Sufficient=[False, False, False, True, False])
         rows = top_rankings(fills, {key: key for key in "ABCDE"}, top_n=5, rate=lambda row, day: "BUY")

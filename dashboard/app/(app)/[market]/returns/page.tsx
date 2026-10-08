@@ -4,7 +4,7 @@ import { ChevronRight } from "lucide-react";
 import { ReturnsView } from "@/components/returns/returns-view";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug } from "@/lib/markets";
-import { COST_PER_SIDE_PCT, DEFAULT_TOP_N, INVESTED_OPTIONS, STOP_OPTIONS, TOP_N_OPTIONS, pickKey } from "@/lib/returns.mjs";
+import { COST_PER_SIDE_PCT, DEFAULT_TOP_N, INVESTED_OPTIONS, STOP_OPTIONS, SIZE_PICK_MARKETS, TOP_N_OPTIONS, pickKey } from "@/lib/returns.mjs";
 import { getReturnsReport } from "@/lib/returns-data";
 
 export const metadata: Metadata = { title: "Returns" };
@@ -29,11 +29,13 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
   const requestedTop = Number(first(query.top));
   const topN = TOP_N_OPTIONS.includes(requestedTop) ? requestedTop : DEFAULT_TOP_N;
   const costs = first(query.costs) !== "gross";
-  // Two filters, `rating` and `stage`; a link from before they split carries
+  // Three filters, `rating`, `stage` and `size`; a link from before they split carries
   // one `pick` value, which is still a valid key.
   const rating = first(query.rating);
   const stage = first(query.stage);
-  const pick = rating || stage ? pickKey(rating, stage) : first(query.pick);
+  // A size floor is offered only where the market has one.
+  const size = SIZE_PICK_MARKETS.includes(market.code) ? first(query.size) : undefined;
+  const pick = rating || stage || size ? pickKey(rating, stage, size) : first(query.pick);
 
   const report = await getReturnsReport(market, {
     from: first(query.from),

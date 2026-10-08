@@ -34,6 +34,7 @@ const NUMERIC_LABELS: Record<string, (value: string) => string> = {
   minQuality: (value) => `Quality ≥ P${value}`,
   minMomentum: (value) => `Momentum ≥ P${value}`,
   minRs: (value) => `RS ≥ ${value}`,
+  minCapCr: (value) => `Market cap ≥ ₹${Number(value).toLocaleString("en-IN")} Cr`,
 };
 
 type Chip = { key: string; value?: string; label: string };

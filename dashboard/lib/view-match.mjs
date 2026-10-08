@@ -33,6 +33,7 @@ export const VIEW_KEYS = [
   "aboveMa200",
   "stage",
   "minRs",
+  "minCapCr",
   "sort",
   "dir",
   "cols",

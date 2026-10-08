@@ -39,6 +39,7 @@ import {
   type SavedView,
 } from "@/lib/presets";
 import { cn } from "@/lib/utils";
+import { useMarket } from "@/components/market-provider";
 
 const CHIP =
   "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium " +
@@ -66,6 +67,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const market = useMarket();
   const [, startTransition] = useTransition();
 
   // localStorage does not exist on the server, so the server snapshot is empty
@@ -81,8 +83,13 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
   const [draftName, setDraftName] = useState("");
 
   const presets = useMemo(
-    () => PRESETS.filter((preset) => factorModel || !preset.factorOnly),
-    [factorModel],
+    () =>
+      PRESETS.filter(
+        (preset) =>
+          (factorModel || !preset.factorOnly) &&
+          (!preset.market || preset.market === market.code),
+      ),
+    [factorModel, market.code],
   );
 
   const apply = useCallback(

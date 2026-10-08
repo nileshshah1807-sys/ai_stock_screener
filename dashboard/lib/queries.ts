@@ -21,6 +21,8 @@ export const PAGE_SIZE = 100;
 
 /** PostgREST caps a single response; anything universe-wide must be paged. */
 const FETCH_CHUNK = 1000;
+/** `market_cap` is stored in currency units; a size floor is stated in crore. */
+const RUPEES_PER_CRORE = 1e7;
 
 /**
  * Chunk offsets for a universe-wide read, given a known row count.
@@ -421,6 +423,11 @@ export async function getSnapshotPage(
   }
   if (typeof filters.minRs === "number") {
     query = query.gte("rs_rating", filters.minRs);
+  }
+  // An unreported market cap is excluded, as PostgREST drops nulls from a
+  // comparison: a size floor cannot vouch for a size it was never told.
+  if (typeof filters.minCapCr === "number") {
+    query = query.gte("market_cap", filters.minCapCr * RUPEES_PER_CRORE);
   }
 
   const sortColumn =

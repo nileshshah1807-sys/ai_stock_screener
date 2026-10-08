@@ -93,6 +93,9 @@ FRESH_STAGE2_DAYS = 30
 #: Picks the Returns page offers, each a predicate on one ranked row. Every
 #: filter's own top N is stored with its rank inside that filter, so a
 #: filtered top 10 is as cheap to read as the plain one.
+#: The size pick's floor, in crore: `SIZE_PICKS` in dashboard/lib/returns.mjs.
+MIN_CAP_CR = 1000.0
+
 PICKS = {
     "rank_buy": lambda row: row["rating"] in ("BUY", "STRONG BUY"),
     "rank_strong_buy": lambda row: row["rating"] == "STRONG BUY",
@@ -100,7 +103,18 @@ PICKS = {
     "rank_fresh_stage2": lambda row: row["stage"] == "Stage 2"
     and row["advance_age_days"] is not None
     and row["advance_age_days"] <= FRESH_STAGE2_DAYS,
+    # An unknown market cap does not pass: the floor cannot vouch for it.
+    "rank_cap1000": lambda row: row["market_cap_cr"] is not None
+    and row["market_cap_cr"] >= MIN_CAP_CR,
 }
+
+
+def _crore_or_none(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if number != number or number <= 0 else round_half_up(number / 1e7, 2)
 
 
 def gated_rating(row, regime, config=None):
@@ -164,6 +178,9 @@ def top_rankings(fills, current_symbol, top_n=TOP_N, rate=None):
                 "research_score": round_half_up(float(row["Research_Score"]), 2),
                 "stage": stage if isinstance(stage, str) and stage else None,
                 "advance_age_days": _int_or_none(row.get("Advance_Age_Days")),
+                # Filed share count at the week's own close, so a size pick
+                # sees the company as large as it was then, not as it is now.
+                "market_cap_cr": _crore_or_none(row.get("Market_Cap")),
                 "rating": rate(row, day) if rated else None,
                 "model_version": MODEL_VERSION,
             }
@@ -555,6 +572,8 @@ def publish(args):
         for column in ("stage", "rating"):
             if isinstance(row.get(column), float):
                 row[column] = None
+        if row.get("market_cap_cr") != row.get("market_cap_cr"):
+            row["market_cap_cr"] = None
         for column in integer_columns:
             row[column] = _int_or_none(row.get(column))
     states = json.loads((source / "simulated_states.json").read_text())

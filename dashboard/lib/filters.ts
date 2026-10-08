@@ -47,6 +47,7 @@ export function parseFilters(params: RawParams): ScreenerFilters {
     aboveMa200: str(params.aboveMa200) === "1",
     stage: list(params.stage),
     minRs: num(params.minRs),
+    minCapCr: num(params.minCapCr),
     sort: str(params.sort) ?? "investment_rank",
     dir: dir === "asc" || dir === "desc" ? dir : undefined,
     page: Math.max(1, num(params.page) ?? 1),
