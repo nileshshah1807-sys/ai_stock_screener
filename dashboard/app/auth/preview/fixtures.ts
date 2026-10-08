@@ -225,6 +225,30 @@ export const previewDetailRow: SnapshotRowWithPayload = {
   fund_fields_present: 23,
   fund_fields_expected: 25,
   payload: {
+    // What management said: a guided call with a previous quarter to compare,
+    // one long quote, one item without a quote, and a slip since last time.
+    Transcript_Call_Date: "2026-08-05",
+    Transcript_Outlook_Score: 77,
+    Transcript_Outlook_Neutral_Score: 66,
+    Transcript_Outlook_Applied: true,
+    Transcript_Outlook_Points: JSON.stringify([
+      { reason: "guidance maintained", points: 3, quote: "For '27, we expect to deliver a revenue of INR1,550 crores to INR1,650 crores with an EBITDA of INR240 crores to INR250 crores, excluding price fluctuation due to geopolitical events." },
+      { reason: "guided revenue growth 25% or more", points: 10, quote: "For '27, we expect to deliver a revenue of INR1,550 crores to INR1,650 crores with an EBITDA of INR240 crores to INR250 crores, excluding price fluctuation due to geopolitical events." },
+      { reason: "capacity under construction", points: 3, quote: "We have charted about the capex of about INR250 to INR300 crores as a Phase 1 of our expansion plan towards existing products." },
+      { reason: "demand outlook strong", points: 8, quote: "On the volume front, we remain positive, supported by the healthy order book and continued traction from both domestic customers as well as the global customers." },
+      { reason: "margin outlook improving", points: 6, quote: "Going forward, we expect the overall pricing scenario to normalize from the elevated levels, and consequently, margins to improve." },
+      { reason: "tailwind: REACH registration in six to seven products", points: 2, quote: "We have completed REACH registration in six to seven products, which opens the European market for us." },
+      { reason: "headwind: higher freight costs and trade policy uncertainty", points: -3, quote: "" },
+    ]),
+    Transcript_Outlook_Previous_Call_Date: "2026-05-14",
+    Transcript_Outlook_Previous_Score: 81,
+    Transcript_Outlook_QoQ_Delta: -4,
+    Transcript_Outlook_QoQ_Items: JSON.stringify([
+      { item: "capacity", change: "worse", text: "commissioning slipped 2026-12 -> 2027-03" },
+      { item: "margin", change: "better", text: "margin outlook flat -> up" },
+      { item: "guidance", change: "kept", text: "guided growth held at 33%" },
+      { item: "demand", change: "kept", text: "demand outlook still strong" },
+    ]),
     // Deliberately includes the value shapes that used to force a horizontal
     // scrollbar on the source-record panel: an ISO timestamp, a long sentence,
     // and fixed-scale decimals with trailing zeros.

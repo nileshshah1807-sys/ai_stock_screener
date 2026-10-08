@@ -80,9 +80,16 @@ class OutlookRepository(FakeRepository):
             "outlook_score": 73.0,
             "verified_fields": verified_fields,
             "extraction": {
-                "guidance": {"direction": "maintained", "growth_pct": 15.0},
-                "demand": {"tone": "strong"},
-                "margin": {"trend": "flat"},
+                "guidance": {
+                    "direction": "maintained", "metric": "revenue", "growth_pct": 15.0,
+                    "quote": "We   maintain our guidance of 15% revenue\ngrowth for the year.",
+                },
+                "order_book": {"value_inr_crore": None, "revenue_cover_years": None, "trend": "unknown", "quote": None},
+                "capacity": {"state": "none", "commissioning": None, "quote": None},
+                "demand": {"tone": "strong", "quote": "Demand remains strong across our markets."},
+                "margin": {"trend": "flat", "quote": "Margins should hold at these levels."},
+                "tailwinds": [],
+                "headwinds": [{"what": "input costs", "quote": "x" * 600}],
                 "points": [
                     {"reason": "guidance raised", "points": 15.0},
                     {"reason": "demand outlook strong", "points": 8.0},
@@ -351,10 +358,21 @@ class TranscriptEnricherTests(unittest.TestCase):
             "guidance raised (+15); demand outlook strong (+8); headwind: input costs (-3)",
         )
         self.assertTrue(pd.isna(result.loc[1, "Transcript_Outlook_Score"]))
+        breakdown = json.loads(result.loc[0, "Transcript_Outlook_Points"])
+        # Rebuilt from the stored sections, so each item has its sentence; the
+        # two guidance items share one, with the line break and spacing tidied.
         self.assertEqual(
-            json.loads(result.loc[0, "Transcript_Outlook_Points"])[0],
-            {"reason": "guidance raised", "points": 15.0},
+            breakdown[:2],
+            [
+                {"reason": "guidance maintained", "points": 3.0,
+                 "quote": "We maintain our guidance of 15% revenue growth for the year."},
+                {"reason": "guided revenue growth 15-25%", "points": 6.0,
+                 "quote": "We maintain our guidance of 15% revenue growth for the year."},
+            ],
         )
+        self.assertEqual(breakdown[2]["quote"], "Demand remains strong across our markets.")
+        self.assertEqual(len(breakdown[-1]["quote"]), 400)
+        self.assertTrue(breakdown[-1]["quote"].endswith("…"))
         self.assertEqual(result.loc[1, "Transcript_Outlook_Points"], "[]")
         self.assertEqual(repository.requested, (["RELIANCE", "TCS"], "outlook-v1", None))
         # Evidence only: the tone columns the policy reads are untouched.

@@ -43,20 +43,62 @@ function sentence(value) {
 
 const CHANGE_ORDER = { worse: 0, better: 1, not_restated: 2, kept: 3 };
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * The screener writes changes for a CSV: "slipped 2026-12 -> 2027-03". On the
+ * page that reads as "slipped Dec 2026 → Mar 2027".
+ */
+function readable(value) {
+  return value
+    .replace(/\b(\d{4})-(0[1-9]|1[0-2])\b(?!-\d)/g, (_, year, month) => `${MONTHS[Number(month) - 1]} ${year}`)
+    .replace(/\s*->\s*/g, " → ");
+}
+
+/**
+ * One row per statement, not per scored item.
+ *
+ * "Guidance maintained" and "guided revenue growth 25% or more" are two scores
+ * read off one sentence. Listed apart they would show the same quote twice;
+ * joined, the row says what was said once and carries both scores.
+ */
+function groupByQuote(items) {
+  const rows = [];
+  const byQuote = new Map();
+  for (const item of items) {
+    const row = item.quote ? byQuote.get(item.quote) : undefined;
+    if (row) {
+      row.reason = `${row.reason} · ${item.reason}`;
+      row.points += item.points;
+      continue;
+    }
+    const added = { reason: sentence(item.reason), points: item.points, quote: item.quote };
+    if (item.quote) byQuote.set(item.quote, added);
+    rows.push(added);
+  }
+  return rows;
+}
+
 export function callOutlook(payload) {
   const source = payload ?? {};
   const score = number(source.Transcript_Outlook_Score);
   if (score === null) return null;
 
-  const points = list(source.Transcript_Outlook_Points)
-    .map((item) => ({ reason: sentence(item?.reason), points: number(item?.points) ?? 0 }))
-    .filter((item) => item.reason && item.points !== 0)
+  const points = groupByQuote(
+    list(source.Transcript_Outlook_Points)
+      .map((item) => ({
+        reason: text(item?.reason),
+        points: number(item?.points) ?? 0,
+        quote: text(item?.quote),
+      }))
+      .filter((item) => item.reason && item.points !== 0),
+  )
     // Largest effect first, whichever way it points.
     .sort((a, b) => Math.abs(b.points) - Math.abs(a.points));
 
   const previousScore = number(source.Transcript_Outlook_Previous_Score);
   const changes = list(source.Transcript_Outlook_QoQ_Items)
-    .map((item) => ({ change: text(item?.change), text: sentence(item?.text) }))
+    .map((item) => ({ change: text(item?.change), text: readable(sentence(item?.text)) }))
     .filter((item) => item.text && item.change in CHANGE_ORDER)
     .sort((a, b) => CHANGE_ORDER[a.change] - CHANGE_ORDER[b.change]);
 

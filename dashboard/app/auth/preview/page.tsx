@@ -5,6 +5,7 @@ import { DEFAULT_MARKET } from "@/lib/markets";
 import { RatingBadge } from "@/components/rating-badge";
 import { SummaryTiles } from "@/components/summary-tiles";
 import { ScreenerTable } from "@/components/screener/screener-table";
+import { CallOutlook } from "@/components/stock/call-outlook";
 import { DecisionScore } from "@/components/stock/decision-score";
 import { FieldList, Panel } from "@/components/stock/field-list";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
@@ -152,6 +153,11 @@ export default function PreviewPage() {
           <Panel title="How this score was produced">
             <ScoreWaterfall row={previewDetailRow} />
           </Panel>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Call outlook</h2>
+          <CallOutlook payload={previewDetailRow.payload} />
         </section>
 
         <section className="flex flex-col gap-3">

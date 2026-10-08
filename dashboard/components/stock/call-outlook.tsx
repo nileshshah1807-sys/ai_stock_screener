@@ -1,4 +1,4 @@
-import { ArrowDownRight, ArrowUpRight, Check, Minus } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Check, ChevronRight, Minus } from "lucide-react";
 
 import { callOutlook, followThrough } from "@/lib/call-outlook.mjs";
 import { formatDate, formatScore } from "@/lib/format";
@@ -24,6 +24,46 @@ function ChangeIcon({ change }: { change: string }) {
   return <Minus className="size-3.5 text-muted-foreground" aria-hidden />;
 }
 
+function Points({ value }: { value: number }) {
+  return (
+    <span
+      className={`tabular shrink-0 font-mono text-xs ${value > 0 ? "text-positive" : "text-negative"}`}
+    >
+      {signed(value)}
+    </span>
+  );
+}
+
+/**
+ * One scored statement. With a quote it opens to the sentence; without one it
+ * is a plain row, indented to the same edge so the labels stay in one column.
+ */
+function ScoredItem({ item }: { item: { reason: string; points: number; quote: string } }) {
+  if (!item.quote) {
+    return (
+      <div className="flex items-baseline gap-2 py-2 pl-[22px]">
+        <span className="min-w-0 flex-1 break-words">{item.reason}</span>
+        <Points value={item.points} />
+      </div>
+    );
+  }
+  return (
+    <details className="group/item">
+      <summary className="flex cursor-pointer items-baseline gap-2 rounded py-2 marker:content-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          className="size-3.5 shrink-0 translate-y-0.5 text-muted-foreground transition-transform group-open/item:rotate-90"
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1 break-words">{item.reason}</span>
+        <Points value={item.points} />
+      </summary>
+      <blockquote className="mb-3 ml-[22px] border-l-2 border-border pl-3 text-[13px] leading-relaxed text-muted-foreground">
+        &ldquo;{item.quote}&rdquo;
+      </blockquote>
+    </details>
+  );
+}
+
 const CHANGE_LABELS: Record<string, string> = {
   worse: "Weaker",
   better: "Stronger",
@@ -38,6 +78,10 @@ const CHANGE_LABELS: Record<string, string> = {
  * guidance, order book, capacity, demand and margins, each kept only if the
  * sentence it came from was found in the transcript. The points are the
  * breakdown of the outlook score, which shares the transcript weight with tone.
+ *
+ * That sentence is one click away rather than on the page. Eight quotes of two
+ * lines each would bury the breakdown they support; closed, a row is a label
+ * and a number, and opening it gives management's own words for that one item.
  *
  * The comparison with the previous call is display evidence: it is not in the
  * score. "Kept" means the two calls agree, not that results met the guidance.
@@ -98,19 +142,19 @@ export function CallOutlook({ payload }: { payload: Record<string, unknown> }) {
 
       <div className="mt-5 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div>
-          <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground">
-            Behind the score
-          </h3>
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="text-[11px] uppercase tracking-wider text-muted-foreground">
+              Behind the score
+            </h3>
+            {outlook.points.some((item) => item.quote) ? (
+              <p className="text-[11px] text-muted-foreground">Open an item for management&rsquo;s words</p>
+            ) : null}
+          </div>
           {outlook.points.length ? (
             <ul className="mt-2 divide-y divide-border">
               {outlook.points.map((item) => (
-                <li key={item.reason} className="flex items-baseline justify-between gap-4 py-1.5 text-sm">
-                  <span className="min-w-0 break-words">{item.reason}</span>
-                  <span
-                    className={`tabular shrink-0 font-mono text-xs ${item.points > 0 ? "text-positive" : "text-negative"}`}
-                  >
-                    {signed(item.points)}
-                  </span>
+                <li key={item.reason} className="text-sm">
+                  <ScoredItem item={item} />
                 </li>
               ))}
             </ul>
@@ -128,7 +172,7 @@ export function CallOutlook({ payload }: { payload: Record<string, unknown> }) {
           {previous && previous.changes.length ? (
             <ul className="mt-2 divide-y divide-border">
               {previous.changes.map((item) => (
-                <li key={item.text} className="flex items-start gap-2 py-1.5 text-sm">
+                <li key={item.text} className="flex items-start gap-2 py-2 text-sm">
                   <span className="mt-0.5 shrink-0">
                     <ChangeIcon change={item.change} />
                   </span>

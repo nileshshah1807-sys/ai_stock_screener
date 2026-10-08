@@ -406,6 +406,30 @@ class OutlookRequestTests(unittest.TestCase):
         self.assertAlmostEqual(raised.exception.cost_usd, 0.0053)
 
 
+class OutlookItemTests(unittest.TestCase):
+    def test_each_scored_item_carries_the_sentence_it_came_from(self):
+        from sentiment.outlook import _EMPTY, outlook_items
+
+        verified = {section: dict(empty) for section, empty in _EMPTY.items()}
+        verified["guidance"] = {"direction": "raised", "metric": "revenue", "growth_pct": 30, "quote": "G"}
+        verified["demand"] = {"tone": "weak", "quote": "D"}
+        verified["tailwinds"] = [{"what": "new approval", "quote": "T"}]
+        verified["headwinds"] = []
+
+        self.assertEqual(outlook_items(verified), [
+            ("guidance raised", 15.0, "G"),
+            ("guided revenue growth 25% or more", 10.0, "G"),
+            ("demand outlook weak", -10.0, "D"),
+            ("tailwind: new approval", 2.0, "T"),
+        ])
+        self.assertEqual(outlook_points(verified), [
+            ("guidance raised", 15.0),
+            ("guided revenue growth 25% or more", 10.0),
+            ("demand outlook weak", -10.0),
+            ("tailwind: new approval", 2.0),
+        ])
+
+
 class OutlookChangeTests(unittest.TestCase):
     def changes(self, previous, current):
         from sentiment.outlook import compare_outlooks

@@ -242,66 +242,76 @@ def _number(value: Any) -> float | None:
     return number if number == number else None
 
 
-def outlook_points(verified: dict[str, Any]) -> list[tuple[str, float]]:
-    """The scored items of a verified extraction, as ``(reason, points)``."""
-    points: list[tuple[str, float]] = []
+def outlook_items(verified: dict[str, Any]) -> list[tuple[str, float, str | None]]:
+    """The scored items of a verified extraction, as ``(reason, points, quote)``.
+
+    The quote is the transcript sentence the item was taken from. Two items
+    read off one statement -- guidance maintained, and the growth it guided --
+    carry the same quote.
+    """
+    points: list[tuple[str, float, str | None]] = []
 
     guidance = verified["guidance"]
     direction = guidance.get("direction")
     if direction == "raised":
-        points.append(("guidance raised", 15.0))
+        points.append(("guidance raised", 15.0, guidance.get("quote")))
     elif direction == "lowered":
-        points.append(("guidance lowered", -20.0))
+        points.append(("guidance lowered", -20.0, guidance.get("quote")))
     elif direction == "maintained":
-        points.append(("guidance maintained", 3.0))
+        points.append(("guidance maintained", 3.0, guidance.get("quote")))
     growth = _number(guidance.get("growth_pct"))
     if growth is not None and direction != "none":
         if growth >= 25:
-            points.append(("guided revenue growth 25% or more", 10.0))
+            points.append(("guided revenue growth 25% or more", 10.0, guidance.get("quote")))
         elif growth >= 15:
-            points.append(("guided revenue growth 15-25%", 6.0))
+            points.append(("guided revenue growth 15-25%", 6.0, guidance.get("quote")))
         elif growth >= 5:
-            points.append(("guided revenue growth 5-15%", 2.0))
+            points.append(("guided revenue growth 5-15%", 2.0, guidance.get("quote")))
         elif growth < 0:
-            points.append(("guided revenue decline", -10.0))
+            points.append(("guided revenue decline", -10.0, guidance.get("quote")))
 
     order_book = verified["order_book"]
     if order_book.get("trend") == "up":
-        points.append(("order book rising", 8.0))
+        points.append(("order book rising", 8.0, order_book.get("quote")))
     elif order_book.get("trend") == "down":
-        points.append(("order book falling", -8.0))
+        points.append(("order book falling", -8.0, order_book.get("quote")))
     cover = _number(order_book.get("revenue_cover_years"))
     if cover is not None:
         if cover >= 2:
-            points.append(("order book covers two years or more of revenue", 6.0))
+            points.append(("order book covers two years or more of revenue", 6.0, order_book.get("quote")))
         elif cover >= 1:
-            points.append(("order book covers a year or more of revenue", 3.0))
+            points.append(("order book covers a year or more of revenue", 3.0, order_book.get("quote")))
 
     state = verified["capacity"].get("state")
     if state in ("operational", "ramping"):
-        points.append(("new capacity producing", 6.0))
+        points.append(("new capacity producing", 6.0, verified["capacity"].get("quote")))
     elif state == "under_construction":
-        points.append(("capacity under construction", 3.0))
+        points.append(("capacity under construction", 3.0, verified["capacity"].get("quote")))
     elif state == "planned":
-        points.append(("capacity planned", 1.0))
+        points.append(("capacity planned", 1.0, verified["capacity"].get("quote")))
 
     tone = verified["demand"].get("tone")
     if tone == "strong":
-        points.append(("demand outlook strong", 8.0))
+        points.append(("demand outlook strong", 8.0, verified["demand"].get("quote")))
     elif tone == "weak":
-        points.append(("demand outlook weak", -10.0))
+        points.append(("demand outlook weak", -10.0, verified["demand"].get("quote")))
 
     margin = verified["margin"].get("trend")
     if margin == "up":
-        points.append(("margin outlook improving", 6.0))
+        points.append(("margin outlook improving", 6.0, verified["margin"].get("quote")))
     elif margin == "down":
-        points.append(("margin outlook worsening", -8.0))
+        points.append(("margin outlook worsening", -8.0, verified["margin"].get("quote")))
 
     for item in verified["tailwinds"]:
-        points.append((f"tailwind: {item['what']}", 2.0))
+        points.append((f"tailwind: {item['what']}", 2.0, item.get("quote")))
     for item in verified["headwinds"]:
-        points.append((f"headwind: {item['what']}", -3.0))
+        points.append((f"headwind: {item['what']}", -3.0, item.get("quote")))
     return points
+
+
+def outlook_points(verified: dict[str, Any]) -> list[tuple[str, float]]:
+    """The scored items of a verified extraction, as ``(reason, points)``."""
+    return [(reason, value) for reason, value, _ in outlook_items(verified)]
 
 
 def outlook_score(verified: dict[str, Any]) -> float:
