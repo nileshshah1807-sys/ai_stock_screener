@@ -21,7 +21,7 @@ publishing should not have to repeat it::
     python -m tools.backfill_returns_history build --out reports_advanced/returns_backfill
     python -m tools.backfill_returns_history publish --from reports_advanced/returns_backfill --dry-run
     python -m tools.backfill_returns_history publish --from reports_advanced/returns_backfill
-    python -m tools.backfill_returns_history publish --from OUT --live-from 2026-10-08
+    python -m tools.backfill_returns_history publish --from OUT --live-from 2026-10-07
     python -m tools.backfill_returns_history annotate-live --dry-run
 
 ``build`` needs the local backtest archive (``reports_advanced/backtest``).
