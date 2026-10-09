@@ -315,6 +315,23 @@ class OutlookQuoteTests(unittest.TestCase):
     def test_a_two_word_quote_proves_nothing(self):
         self.assertFalse(quote_found("very strong", "demand remains very strong"))
 
+    def test_a_bare_agreement_is_not_a_margin_outlook(self):
+        call = CALL + "\nAnalyst: So margins improve from here? Management: Yes, that is correct."
+        agreed = extraction(margin={"trend": "up", "quote": "Yes, that is correct."})
+        verified, kept, dropped = verify_quotes(agreed, call)
+        self.assertEqual(verified["margin"]["trend"], "unknown")
+        self.assertEqual((kept, dropped), (4, 1))
+        # The same four words are still enough for any other section.
+        self.assertTrue(quote_found("Yes, that is correct.", "management yes that is correct."))
+
+    def test_a_scope_alone_claims_nothing(self):
+        silent = extraction(guidance={
+            "direction": "none", "scope": "company", "metric": None, "growth_pct": None, "quote": None,
+        })
+        verified, kept, dropped = verify_quotes(silent, CALL)
+        self.assertEqual(verified["guidance"]["scope"], "none")
+        self.assertEqual((kept, dropped), (4, 0))
+
     def test_list_items_are_checked_one_by_one(self):
         listed = extraction(
             tailwinds=[
@@ -353,6 +370,18 @@ class OutlookScoreTests(unittest.TestCase):
                    "quote": "We are raising our revenue growth guidance for FY27 to 30% from 25% earlier."}
         _, points = self.score(guidance=lowered)
         self.assertEqual(points["guidance lowered"], -20.0)
+
+    def test_growth_guided_for_a_segment_scores_as_the_companys(self):
+        segment = {"direction": "maintained", "scope": "segment", "metric": "oncology revenue", "growth_pct": 100,
+                   "quote": "We are raising our revenue growth guidance for FY27 to 30% from 25% earlier."}
+        _, points = self.score(guidance=segment)
+        self.assertEqual(points["guidance maintained"], 3.0)
+        self.assertEqual(points["guided revenue growth 25% or more"], 10.0)
+
+    def test_an_outlook_stored_before_scopes_scores_as_it_did(self):
+        # The fixture carries no scope, as every outlook stored before 2026-10-09.
+        _, points = self.score()
+        self.assertEqual(points["guided revenue growth 25% or more"], 10.0)
 
     def test_planned_capacity_is_worth_almost_nothing(self):
         planned = {"state": "planned", "commissioning": None,
@@ -443,6 +472,13 @@ class OutlookChangeTests(unittest.TestCase):
             {"guidance": {"direction": "maintained", "growth_pct": 15}},
         )
         self.assertEqual(changes["guidance"], ("worse", "guided growth cut 20% -> 15%"))
+
+    def test_a_segments_growth_is_not_compared_with_the_companys(self):
+        changes = self.changes(
+            {"guidance": {"direction": "maintained", "scope": "company", "growth_pct": 40}},
+            {"guidance": {"direction": "maintained", "scope": "segment", "growth_pct": 100}},
+        )
+        self.assertEqual(changes["guidance"], ("kept", "guidance maintained"))
 
     def test_guided_growth_within_a_point_is_kept(self):
         changes = self.changes(
