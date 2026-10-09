@@ -32,6 +32,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Not bumped for the guidance scope and the margin quote rule (2026-10-09): the
+# version is how a stored outlook is found and how a transcript is known to be
+# done, so a new one would hide every earlier call until it was extracted
+# again. Both bind at extraction and neither changes what a stored outlook
+# scores.
 OUTLOOK_VERSION = "outlook-v1"
 DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -46,6 +51,7 @@ MAX_PRICE_PER_MILLION = (0.10, 1.20)
 MAX_OUTPUT_TOKENS = 3000
 
 GUIDANCE_DIRECTIONS = ("raised", "maintained", "lowered", "none")
+GUIDANCE_SCOPES = ("company", "segment", "none")
 TRENDS = ("up", "flat", "down", "unknown")
 DEMAND_TONES = ("strong", "stable", "weak", "unknown")
 CAPACITY_STATES = ("operational", "ramping", "under_construction", "planned", "none")
@@ -63,9 +69,10 @@ SCHEMA: dict[str, Any] = {
         "guidance": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["direction", "metric", "growth_pct", "quote"],
+            "required": ["direction", "scope", "metric", "growth_pct", "quote"],
             "properties": {
                 "direction": {"enum": list(GUIDANCE_DIRECTIONS)},
+                "scope": {"enum": list(GUIDANCE_SCOPES)},
                 "metric": {"type": ["string", "null"]},
                 "growth_pct": _NUMBER,
                 "quote": _QUOTE,
@@ -129,6 +136,10 @@ that states it. If you cannot quote it, the value is null (or "none" / \
 guidance changed from what it gave before; "maintained" if it restates or \
 reaffirms earlier guidance; "none" if no guidance is given. A first-time \
 number with no reference to earlier guidance is "maintained".
+- guidance.scope: "company" if the guidance is for the company's total \
+revenue or earnings; "segment" if it is for one segment, division, product \
+line, geography or subsidiary; "none" if no guidance is given. When both are \
+given, report the company's.
 - guidance.growth_pct: the guided revenue growth for the current or next \
 financial year, in percent, as one number (the midpoint of a range). Null if \
 the guidance is not a revenue growth rate.
@@ -140,6 +151,10 @@ subsidiary's figure. revenue_cover_years only if management states it.
 for intentions. commissioning is the stated start as YYYY-MM, else null.
 - demand.tone and margin.trend describe management's stated outlook, not the \
 quarter just reported.
+- margin.trend is "up" or "down" only if management says margins will rise or \
+fall from here, and the quote is that sentence in full. A margin that rose or \
+fell in the reported quarter, a margin to be sustained or held, and a bare \
+"yes" to an analyst's question are "flat" or "unknown".
 - tailwinds and headwinds: at most three each, specific to this company \
 (a new approval, a customer win, a tariff, a raw-material cost), not general \
 optimism.
@@ -147,7 +162,8 @@ optimism.
 Answer with one JSON object and nothing else -- no explanation, no code fence. \
 It has exactly these keys; where a set of values is listed, use one of them:
 {
-  "guidance": {"direction": "raised|maintained|lowered|none", "metric": string or null, \
+  "guidance": {"direction": "raised|maintained|lowered|none", \
+"scope": "company|segment|none", "metric": string or null, \
 "growth_pct": number or null, "quote": string or null},
   "order_book": {"value_inr_crore": number or null, "revenue_cover_years": number or null, \
 "trend": "up|flat|down|unknown", "quote": string or null},
@@ -174,20 +190,29 @@ def _normalise(text: str) -> str:
     return re.sub(r"[^a-z0-9%.]+", " ", str(text).lower()).strip()
 
 
-def quote_found(quote: str | None, normalised_transcript: str) -> bool:
+QUOTE_MIN_WORDS = 4
+# A margin outlook is a statement about what comes next, and "Yes, that's
+# correct" to an analyst's question is in every transcript: it passed the
+# four-word test and scored as margins improving.
+SECTION_QUOTE_MIN_WORDS = {"margin": 6}
+
+
+def quote_found(quote: str | None, normalised_transcript: str, min_words: int = QUOTE_MIN_WORDS) -> bool:
     """Whether ``quote`` occurs in the transcript, ignoring spacing and case.
 
     A model trims or rejoins a sentence at a line break, so the test is on the
-    normalised text; a quote shorter than four words proves nothing and fails.
+    normalised text; a quote shorter than ``min_words`` proves nothing and fails.
     """
     needle = _normalise(quote or "")
-    if len(needle.split()) < 4:
+    if len(needle.split()) < min_words:
         return False
     return needle in normalised_transcript
 
 
 _EMPTY = {
-    "guidance": {"direction": "none", "metric": None, "growth_pct": None, "quote": None},
+    "guidance": {
+        "direction": "none", "scope": "none", "metric": None, "growth_pct": None, "quote": None,
+    },
     "order_book": {"value_inr_crore": None, "revenue_cover_years": None, "trend": "unknown", "quote": None},
     "capacity": {"state": "none", "commissioning": None, "quote": None},
     "demand": {"tone": "unknown", "quote": None},
@@ -196,9 +221,12 @@ _EMPTY = {
 
 
 def _stated(section: str, value: dict[str, Any]) -> bool:
-    """Whether a section claims anything beyond its empty default."""
+    """Whether a section claims anything beyond its empty default.
+
+    A scope is a description of the guidance, not a claim of its own.
+    """
     empty = _EMPTY[section]
-    return any(value.get(key) != empty[key] for key in empty if key != "quote")
+    return any(value.get(key) != empty[key] for key in empty if key not in ("quote", "scope"))
 
 
 def verify_quotes(extraction: dict[str, Any], transcript: str) -> tuple[dict[str, Any], int, int]:
@@ -216,7 +244,9 @@ def verify_quotes(extraction: dict[str, Any], transcript: str) -> tuple[dict[str
         }
         if not _stated(section, value):
             verified[section] = dict(empty)
-        elif quote_found(value.get("quote"), haystack):
+        elif quote_found(
+            value.get("quote"), haystack, SECTION_QUOTE_MIN_WORDS.get(section, QUOTE_MIN_WORDS)
+        ):
             verified[section] = value
             kept += 1
         else:
@@ -248,6 +278,11 @@ def outlook_items(verified: dict[str, Any]) -> list[tuple[str, float, str | None
     The quote is the transcript sentence the item was taken from. Two items
     read off one statement -- guidance maintained, and the growth it guided --
     carry the same quote.
+
+    Growth guided for one segment scores as the company's would: few calls
+    guide a segment, and those that do guide the one that matters. The scope
+    only keeps a segment's growth from being compared with the company's in
+    `compare_outlooks`.
     """
     points: list[tuple[str, float, str | None]] = []
 
@@ -365,6 +400,9 @@ def compare_outlooks(previous: dict[str, Any], current: dict[str, Any]) -> list[
     before, after = previous.get("guidance") or {}, current.get("guidance") or {}
     was, now = before.get("direction") or "none", after.get("direction") or "none"
     old_growth, new_growth = _number(before.get("growth_pct")), _number(after.get("growth_pct"))
+    if "segment" in (before.get("scope"), after.get("scope")):
+        # A segment's growth against the company's, or another segment's.
+        old_growth = new_growth = None
     if was != "none" and now == "none":
         changes.append({"item": "guidance", "change": "not_restated", "text": "guidance not restated"})
     elif was != "none" and old_growth is not None and new_growth is not None:
