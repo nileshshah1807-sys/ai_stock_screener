@@ -217,7 +217,7 @@ nothing that scores, and exports three signals:
 |---|---|
 | `Expected_EPS_Change_Pct` | Forward EPS implied by `Forward_PE`, against trailing `EPS` |
 | `Implied_Growth_Gap_Pct` | `DCF_Implied_FCF_CAGR` minus `DCF_Assumed_Growth`, in points |
-| `Guidance_Transition` / `Guidance_Downgraded` | Last quarter's guidance against this quarter's |
+| `Guidance_Transition` / `Guidance_Downgraded` | Last quarter's guidance against this quarter's, from the call's outlook where it has one |
 
 plus `Expectations_Status` and a one-sentence `Expectations_Warning`.
 
