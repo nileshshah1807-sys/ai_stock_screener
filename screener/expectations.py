@@ -56,10 +56,15 @@ The three signals
 * **Guidance transition** -- last quarter's guidance against this quarter's.
   Management withdrawing a commitment it made a quarter ago is a forward signal
   the transcript score cannot express, because v5.x applies transcript evidence
-  only on the downside and "unclear" is not scored as adverse.
+  only on the downside and "unclear" is not scored as adverse. Where the call
+  has a language-model outlook, the transition is the outlook's: the keyword
+  reader behind `Transcript_Guidance` misses guidance given in other words,
+  and the stock page shows the outlook beside this card.
 """
 
 from __future__ import annotations
+
+import json
 
 import numpy as np
 import pandas as pd
@@ -181,6 +186,35 @@ def guidance_transition(
     return label, downgraded.fillna(False)
 
 
+def outlook_guidance(frame: pd.DataFrame) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Guidance against the previous call, as the call's outlook read it.
+
+    Returns ``(read, label, downgraded)``. ``read`` marks the rows whose call
+    has an outlook, and for those the keyword transition is not used at all:
+    the two readers disagree often enough that "raised -> unclear" appeared
+    above an outlook quoting the sentence that raised the guidance. The label
+    is the outlook's own comparison, so it is empty when there is no previous
+    outlook or neither call gave guidance -- one reader's previous call against
+    the other's current one is not a transition.
+    """
+    read = _numeric(frame, "Transcript_Outlook_Score").notna()
+    label = pd.Series("", index=frame.index, dtype=object)
+    downgraded = pd.Series(False, index=frame.index, dtype=bool)
+    items = _text(frame, "Transcript_Outlook_QoQ_Items")
+    for index in frame.index[read]:
+        try:
+            changes = json.loads(items.loc[index] or "[]")
+        except ValueError:
+            continue
+        for change in changes if isinstance(changes, list) else []:
+            if isinstance(change, dict) and change.get("item") == "guidance":
+                text = str(change.get("text") or "").strip()
+                label.at[index] = text[:1].upper() + text[1:]
+                downgraded.at[index] = bool(text) and change.get("change") == "worse"
+                break
+    return read, label, downgraded
+
+
 def attach_expectations_gap(frame: pd.DataFrame, config=None) -> pd.DataFrame:
     """Attach the expectations-gap columns. Additive; changes nothing existing."""
     if frame is None or len(frame) == 0:
@@ -226,6 +260,14 @@ def attach_expectations_gap(frame: pd.DataFrame, config=None) -> pd.DataFrame:
         _text(working, "Transcript_Previous_Guidance"),
         _text(working, "Transcript_Guidance"),
         eligible,
+    )
+    guidance_note = "Guidance moved " + label + " on the latest call."
+    from_outlook, outlook_label, outlook_downgraded = outlook_guidance(working)
+    from_outlook &= eligible
+    label = label.mask(from_outlook, outlook_label)
+    downgraded = downgraded.mask(from_outlook, outlook_downgraded)
+    guidance_note = guidance_note.mask(
+        from_outlook, outlook_label + " on the latest call."
     )
     working["Guidance_Transition"] = label
     working["Guidance_Downgraded"] = downgraded
@@ -277,7 +319,7 @@ def attach_expectations_gap(frame: pd.DataFrame, config=None) -> pd.DataFrame:
     notes = append(
         notes,
         downgraded,
-        "Guidance moved " + label + " on the latest call.",
+        guidance_note,
     )
 
     working["Expectations_Warning"] = notes

@@ -149,6 +149,66 @@ class GuidanceTransitionTests(unittest.TestCase):
         self.assertEqual(out["Guidance_Transition"], "")
         self.assertFalse(out["Guidance_Downgraded"])
 
+    def test_the_outlook_of_the_call_replaces_the_keyword_reading(self):
+        """The keyword reader missed a raise the outlook quoted from the call."""
+        out = attach_expectations_gap(
+            frame(
+                Transcript_Previous_Guidance="raised",
+                Transcript_Guidance="unclear",
+                Transcript_Outlook_Score=79.0,
+                Transcript_Outlook_QoQ_Items=(
+                    '[{"item":"guidance","change":"better","text":"guidance raised"},'
+                    '{"item":"margin","change":"kept","text":"margin outlook still up"}]'
+                ),
+            )
+        ).iloc[0]
+        self.assertEqual(out["Guidance_Transition"], "Guidance raised")
+        self.assertFalse(out["Guidance_Downgraded"])
+        self.assertEqual(out["Expectations_Warning"], "")
+
+    def test_guidance_the_outlook_reads_as_cut_is_a_downgrade(self):
+        out = attach_expectations_gap(
+            frame(
+                Transcript_Outlook_Score=41.0,
+                Transcript_Outlook_QoQ_Items=(
+                    '[{"item":"guidance","change":"worse",'
+                    '"text":"guided growth cut 20% -> 15%"}]'
+                ),
+            )
+        ).iloc[0]
+        self.assertEqual(out["Guidance_Transition"], "Guided growth cut 20% -> 15%")
+        self.assertTrue(out["Guidance_Downgraded"])
+        self.assertEqual(
+            out["Expectations_Warning"],
+            "Guided growth cut 20% -> 15% on the latest call.",
+        )
+
+    def test_an_outlook_with_no_previous_call_shows_no_transition(self):
+        """Not the keyword reader's previous call against the outlook's current."""
+        out = attach_expectations_gap(
+            frame(
+                Transcript_Previous_Guidance="raised",
+                Transcript_Guidance="unclear",
+                Transcript_Outlook_Score=62.0,
+                Transcript_Outlook_QoQ_Items="[]",
+            )
+        ).iloc[0]
+        self.assertEqual(out["Guidance_Transition"], "")
+        self.assertFalse(out["Guidance_Downgraded"])
+        self.assertEqual(out["Expectations_Warning"], "")
+
+    def test_a_call_without_an_outlook_keeps_the_keyword_reading(self):
+        out = attach_expectations_gap(
+            frame(
+                Transcript_Previous_Guidance="raised",
+                Transcript_Guidance="unclear",
+                Transcript_Outlook_Score=np.nan,
+                Transcript_Outlook_QoQ_Items="[]",
+            )
+        ).iloc[0]
+        self.assertEqual(out["Guidance_Transition"], "raised -> unclear")
+        self.assertTrue(out["Guidance_Downgraded"])
+
     def test_unrecognised_guidance_words_are_not_ranked(self):
         label, down = guidance_transition(
             pd.Series(["raised"]), pd.Series(["???"]), pd.Series([True])
