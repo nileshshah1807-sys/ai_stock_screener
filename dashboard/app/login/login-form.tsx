@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
+import { Info, Loader2, MailCheck, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,28 +11,34 @@ import { requestMagicLink, type LoginState } from "./actions";
 
 const INITIAL: LoginState = { status: "idle" };
 
-export function LoginForm({ initialError }: { initialError: string | null }) {
+/**
+ * `notice` is why the visitor landed here -- a spent link, a session that ran
+ * out. It is drawn as a note above the field rather than as a field error:
+ * nothing they typed was wrong, so the input is not marked invalid for it.
+ */
+export function LoginForm({ notice }: { notice: string | null }) {
   // Explicit type arguments: inferring from the initial value widens `status`
   // to string and loses the discriminated union.
   const [state, formAction, pending] = useActionState<LoginState, FormData>(
     requestMagicLink,
-    initialError
-      ? { status: "error", message: initialError }
-      : INITIAL,
+    INITIAL,
   );
 
   if (state.status === "sent") {
     return (
-      <div
-        className="panel animate-rise p-5"
-        role="status"
-        aria-live="polite"
-      >
-        <CheckCircle2 className="size-5 text-positive" aria-hidden />
-        <p className="mt-2.5 text-sm font-medium">Check your inbox</p>
+      <div className="animate-rise" role="status" aria-live="polite">
+        <span className="flex size-10 items-center justify-center rounded-full bg-positive/10">
+          <MailCheck className="size-5 text-positive" aria-hidden />
+        </span>
+        <p className="mt-4 text-sm font-medium">Check your inbox</p>
         <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
-        <p className="mt-3 text-xs text-muted-foreground">
-          The link expires in one hour and can be used once.
+        {state.email ? (
+          <p className="mt-3 truncate rounded-full bg-(--control) px-4 py-2 text-sm font-medium">
+            {state.email}
+          </p>
+        ) : null}
+        <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+          The link works once and expires in one hour. Open it in this browser.
         </p>
       </div>
     );
@@ -40,6 +46,16 @@ export function LoginForm({ initialError }: { initialError: string | null }) {
 
   return (
     <form action={formAction} className="space-y-4">
+      {notice && state.status === "idle" ? (
+        <p
+          role="status"
+          className="flex items-start gap-2.5 rounded-row bg-(--control) px-4 py-3 text-sm leading-relaxed"
+        >
+          <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+          {notice}
+        </p>
+      ) : null}
+
       <div className="space-y-2">
         <Label htmlFor="email">Email address</Label>
         <Input

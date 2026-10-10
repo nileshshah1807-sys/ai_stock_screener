@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { isSessionExpired } from "@/lib/session-policy.mjs";
+
 /**
  * Next.js 16 renamed Middleware to Proxy. Same execution model: this runs
  * before the request completes.
@@ -9,7 +11,8 @@ import { NextResponse, type NextRequest } from "next/server";
  * not a session-management or authorization solution:
  *
  *   1. refresh the Supabase auth token and write the rotated cookies
- *   2. perform an *optimistic* redirect for requests with no session at all
+ *   2. end a session that has outlived its lifetime (lib/session-policy.mjs)
+ *   3. perform an *optimistic* redirect for requests with no session at all
  *
  * It does not decide whether a signed-in user is on the invite list. That
  * check lives in requireAccess() (lib/auth.ts) and, authoritatively, in the
@@ -61,12 +64,38 @@ export async function proxy(request: NextRequest) {
   // session" fails closed: the request goes to the login page rather than
   // through to data.
   let signedIn = false;
+  let sessionExpired = false;
   const authStarted = performance.now();
   try {
     const { data, error } = await supabase.auth.getClaims();
     signedIn = !error && Boolean(data?.claims?.sub);
+    sessionExpired = signedIn && isSessionExpired(data?.claims);
   } catch (error) {
     console.error("Auth check failed in proxy", error);
+  }
+
+  // Refreshing above would otherwise keep one sign-in alive indefinitely. Past
+  // its lifetime the session is revoked at Supabase -- `local` scope, so only
+  // this browser's session and not the same person's phone -- and the request
+  // carries on as signed out.
+  if (sessionExpired) {
+    signedIn = false;
+    let revoked = false;
+    try {
+      const { error } = await supabase.auth.signOut({ scope: "local" });
+      revoked = !error;
+    } catch (error) {
+      console.error("Could not revoke an expired session in proxy", error);
+    }
+    if (!revoked) {
+      // signOut() leaves the cookies in place when the auth service cannot be
+      // reached. Drop them here regardless: the browser must not go on
+      // presenting a session this app has stopped honouring.
+      request.cookies
+        .getAll()
+        .filter(({ name }) => name.startsWith("sb-"))
+        .forEach(({ name }) => response.cookies.delete(name));
+    }
   }
   if (process.env.SCREENER_TRACE === "1") {
     console.log(
@@ -83,7 +112,14 @@ export async function proxy(request: NextRequest) {
     redirectUrl.pathname = "/login";
     // Preserve the destination so a deep link survives the login round trip.
     redirectUrl.searchParams.set("next", `${pathname}${search}`);
-    return NextResponse.redirect(redirectUrl);
+    if (sessionExpired) {
+      redirectUrl.searchParams.set("error", "session_expired");
+    }
+    const redirectResponse = NextResponse.redirect(redirectUrl);
+    // The cleared auth cookies were written to `response`; a redirect is a new
+    // object and would leave them behind.
+    response.cookies.getAll().forEach((cookie) => redirectResponse.cookies.set(cookie));
+    return redirectResponse;
   }
 
   if (signedIn && pathname.startsWith("/login")) {

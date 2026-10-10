@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
+import { isSessionExpired } from "@/lib/session-policy.mjs";
 import { createClient } from "@/lib/supabase/server";
 
 export type AccessLevel = "viewer" | "admin";
@@ -46,6 +47,13 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   const email = typeof claims?.email === "string" ? claims.email.trim() : "";
 
   if (error || !claims?.sub || !email) {
+    return null;
+  }
+
+  // The proxy ends an over-age session before a page renders. Repeated here
+  // because this is the gate route handlers and actions rely on, and a session
+  // can cross its limit between the two checks.
+  if (isSessionExpired(claims)) {
     return null;
   }
 

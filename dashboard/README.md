@@ -106,6 +106,24 @@ Supabase's built-in SMTP is rate-limited (a few messages per hour). That is
 workable for a small invite list; configure a custom SMTP provider if you add
 more people.
 
+**Sign-in email.** Supabase sends it, so the template cannot be deployed from
+this repo: `emails/magic-link.html` is the source of record. After editing it,
+paste the whole file into Authentication → Email Templates → Magic Link and set
+the subject to `Sign in to Winnow`. The template loads the brand mark from
+`{{ .SiteURL }}/email/winnow-mark.png`, so the project's Site URL (URL
+Configuration) must be the deployed dashboard's origin. The sender name is the
+one configured under SMTP Settings.
+
+**Session lifetime.** A sign-in lasts seven days from the moment the link was
+used, however recently the dashboard was opened; after that `proxy.ts` revokes
+the session and sends the next request to the login page. Set
+`SESSION_MAX_AGE_HOURS` to change it. The rule is in `lib/session-policy.mjs`
+and reads the signed `amr` claim, so it cannot be extended from the browser.
+It is enforced by this app, not by Supabase: a refresh token copied out of a
+browser stays exchangeable at the Supabase API until this app next sees that
+session. Closing that gap is Supabase's own "Time-box user sessions" setting
+(Authentication → Sessions), which needs a paid plan.
+
 ### 3. Load a run
 
 ```powershell

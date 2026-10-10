@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+    <title>Sign in to Winnow</title>
+    <!-- Source: dashboard/emails/magic-link.html. Edit there, then paste into Supabase; see dashboard/README.md. -->
+  </head>
+  <body style="margin: 0; padding: 0; background-color: #eceef3; -webkit-text-size-adjust: 100%;">
+    <!-- Inbox preview line; hidden in the opened message. -->
+    <div style="display: none; max-height: 0; overflow: hidden; opacity: 0; color: transparent; mso-hide: all;">
+      Your sign-in link for Winnow. It works once and expires in one hour.
+    </div>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #eceef3;">
+      <tr>
+        <td align="center" style="padding: 40px 16px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 480px;">
+            <!-- Brand: the same mark-in-a-disc and wordmark as the app header. -->
+            <tr>
+              <td align="center" style="padding: 0 0 24px 0;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="padding: 0 10px 0 0; vertical-align: middle;">
+                      <img src="{{ .SiteURL }}/email/winnow-mark.png" width="36" height="36" alt="" style="display: block; border: 0; border-radius: 18px;" />
+                    </td>
+                    <td style="vertical-align: middle; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 18px; line-height: 28px; font-weight: 600; letter-spacing: -0.2px; color: #1c1b1b;">
+                      Winnow
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Panel -->
+            <tr>
+              <td style="background-color: #ffffff; border: 1px solid #e3e4e9; border-radius: 24px; padding: 40px 36px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                  <tr>
+                    <td style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -0.3px; color: #1c1b1b;">
+                      Sign in to Winnow
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 12px 0 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 24px; color: #5e5e63;">
+                      Use the button below to sign in as
+                      <span style="color: #1c1b1b; font-weight: 500;">{{ .Email }}</span>.
+                      The link works once and expires in one hour.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 28px 0 0 0;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                          <td align="center" bgcolor="#000000" style="background-color: #000000; border-radius: 999px;">
+                            <a href="{{ .ConfirmationURL }}" target="_blank" style="display: inline-block; padding: 13px 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 20px; font-weight: 500; color: #ffffff; text-decoration: none; border-radius: 999px;">
+                              Sign in
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 28px 0 0 0;">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                          <td style="border-top: 1px solid #e3e4e9; font-size: 0; line-height: 0;">&nbsp;</td>
+                        </tr>
+                      </table>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 20px 0 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 20px; color: #5e5e63;">
+                      Open the link in the same browser you requested it from.
+                      If the button does not work, copy this address into that
+                      browser:
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 8px 0 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 20px; word-break: break-all;">
+                      <a href="{{ .ConfirmationURL }}" target="_blank" style="color: #1c1b1b; text-decoration: underline;">{{ .ConfirmationURL }}</a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td align="center" style="padding: 24px 16px 0 16px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 18px; color: #5e5e63;">
+                You are receiving this because a sign-in was requested for this
+                address. If that was not you, ignore this email and nothing
+                will happen.
+                <br /><br />
+                Winnow is a private research dashboard. Research model output,
+                not investment advice.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
