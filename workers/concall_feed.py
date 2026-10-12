@@ -29,7 +29,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from screener.numeric import round_half_up, safe_float
-from sentiment.outlook import OUTLOOK_VERSION, outlook_items
+from sentiment.outlook import OUTLOOK_VERSION, STANCES, outlook_items
 from transcripts.periods import reporting_period_end_for_call
 from transcripts.recordings import SPEECH_METHOD_PREFIX
 
@@ -108,6 +108,19 @@ def highlights(extraction: dict[str, Any] | None, limit: int = HIGHLIGHTS) -> li
     return chosen
 
 
+def management_stance(extraction: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """``(view, quote)`` as the outlook read it, or ``(None, None)``.
+
+    None for a call read before the outlook asked the question, and for one
+    the model could not place: neither is a neutral call.
+    """
+    stance = extraction.get("stance") if isinstance(extraction, dict) else None
+    view = stance.get("view") if isinstance(stance, dict) else None
+    if view not in STANCES or view == "unknown":
+        return None, None
+    return view, str(stance.get("quote") or "").strip() or None
+
+
 def build_feed(
     transcripts: Iterable[dict[str, Any]],
     companies: dict[str, str | None],
@@ -139,6 +152,7 @@ def build_feed(
         )
         tone = safe_float(sentiment.get("overall_score"))
         outlook_score = safe_float(outlook.get("outlook_score"))
+        stance, stance_quote = management_stance(outlook.get("extraction"))
         rows.append({
             "symbol": symbol,
             "quarter": quarter,
@@ -153,6 +167,8 @@ def build_feed(
             "tone_score": None if tone is None else round_half_up(tone, 2),
             "tone_percentile": None,
             "guidance_direction": sentiment.get("guidance_direction"),
+            "management_stance": stance,
+            "management_stance_quote": stance_quote,
             "outlook_score": None if outlook_score is None else round_half_up(outlook_score, 2),
             "highlights": highlights(outlook.get("extraction")),
         })
@@ -191,14 +207,36 @@ def run(repo, *, today: date | None = None, dry_run: bool = False) -> dict[str, 
     counts["calls"] = len(rows)
     counts["from_recording"] = sum(1 for row in rows if row["source"] == SOURCE_RECORDING)
     if not dry_run:
-        try:
-            counts["written"] = repo.replace_concall_feed(rows, since)
-        except Exception as exc:  # noqa: BLE001 - the page keeps its previous rows
-            logger.warning(
-                "%s concall feed not written (%s). Apply storage/concalls_schema.sql.", repo.market, exc
-            )
+        counts["written"] = _write(repo, rows, since)
     logger.info("%s concall feed: %s%s", repo.market, counts, " (dry run, nothing written)" if dry_run else "")
     return counts
+
+
+STANCE_COLUMNS = ("management_stance", "management_stance_quote")
+
+
+def _write(repo, rows: list[dict[str, Any]], since: str) -> int:
+    """Write the feed; without the stance where the table has no column for it yet.
+
+    The stance columns arrived after the table. A deployment that has not
+    re-applied the schema keeps its page -- every call, minus the stance --
+    instead of losing the feed to two unknown columns.
+    """
+    try:
+        return repo.replace_concall_feed(rows, since)
+    except Exception as exc:  # noqa: BLE001 - try once more without the newer columns
+        logger.warning(
+            "%s concall feed rejected (%s); writing without the management stance. "
+            "Re-apply storage/concalls_schema.sql.",
+            repo.market,
+            exc,
+        )
+    try:
+        older = [{key: value for key, value in row.items() if key not in STANCE_COLUMNS} for row in rows]
+        return repo.replace_concall_feed(older, since)
+    except Exception as exc:  # noqa: BLE001 - the page keeps its previous rows
+        logger.warning("%s concall feed not written (%s). Apply storage/concalls_schema.sql.", repo.market, exc)
+        return 0
 
 
 def main(argv: list[str] | None = None) -> int:

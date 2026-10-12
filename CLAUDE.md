@@ -145,6 +145,16 @@ the scheduled workflows set the same flag.
   `workers/concall_feed.py` derives `concall_feed` (one row per call, no
   text) for the dashboard's Concalls page; the table is in
   `storage/concalls_schema.sql` and must be applied by hand.
+- **Management's stance is read by the outlook step and never scored.** The
+  outlook request also asks how management itself sees what is ahead
+  (`stance`: bullish to bearish, with the sentence behind it). It is display
+  evidence for the Concalls page and deliberately outside `verified_fields`,
+  which is how the screener knows a call stated something scorable. Do not
+  label a call from the word-list tone score: its risk component counts
+  vocabulary, and called a wealth manager "Bearish" for discussing market
+  risk. `OUTLOOK_VERSION` was not bumped, so calls read earlier have no
+  stance until `tools.extract_transcript_outlook --refresh-since` reads them
+  again -- which can also move their outlook scores.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChevronRight, Mic } from "lucide-react";
 
 import { MISSING } from "@/lib/format";
-import { highlightList, outlookTone, sourceLabel, toneLabel } from "@/lib/concalls.mjs";
+import { highlightList, outlookTone, sourceLabel, stanceLabel } from "@/lib/concalls.mjs";
 import type { Concall } from "@/lib/concalls";
 import { marketPath, type Market } from "@/lib/markets";
 import { cn } from "@/lib/utils";
@@ -65,24 +65,23 @@ export function Highlight({ item }: { item: { text: string; tone: string; quote:
 function Measure({
   label,
   value,
-  detail,
+  title,
   tone,
 }: {
   label: string;
   value: string;
-  detail?: string | null;
+  /** Shown on hover: the sentence a judgment was read from. */
+  title?: string | null;
   tone?: string | null;
 }) {
   return (
     <div className="min-w-0">
       <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className={cn("text-sm font-semibold", tone ? TONES[tone] : "")}>
+      <dd
+        title={title || undefined}
+        className={cn("text-sm font-semibold", tone ? TONES[tone] : "", title ? "cursor-help" : "")}
+      >
         {value}
-        {detail ? (
-          <span className="tabular ml-1.5 font-mono text-[11px] font-normal text-muted-foreground">
-            {detail}
-          </span>
-        ) : null}
       </dd>
     </div>
   );
@@ -95,12 +94,12 @@ function Measure({
  * and each can open to a quote, which a fixed-height row cannot hold; and on
  * a phone the three blocks stack in the order a reader wants them.
  *
- * A call with no tone score or outlook shows a dash, not a neutral word:
- * unscored is not the same as scored-and-average.
+ * A call with no stance or outlook shows a dash, not a neutral word: not
+ * read is not the same as read-and-average.
  */
 export function ConcallRow({ call, market }: { call: Concall; market: Market }) {
   const source = sourceLabel(call.source);
-  const tone = toneLabel(call.tone_percentile);
+  const stance = stanceLabel(call.management_stance, call.management_stance_quote);
   const highlights = highlightList(call.highlights);
   const outlook = call.outlook_score;
 
@@ -148,9 +147,10 @@ export function ConcallRow({ call, market }: { call: Concall; market: Market }) 
 
       <dl className="grid grid-cols-2 gap-x-4 md:justify-items-end md:text-right">
         <Measure
-          label="Management tone"
-          value={tone?.label ?? MISSING}
-          tone={tone?.tone}
+          label="Management stance"
+          value={stance?.label ?? MISSING}
+          title={stance?.quote ? `\u201c${stance.quote}\u201d` : null}
+          tone={stance?.tone}
         />
         <Measure
           label="Outlook"

@@ -344,6 +344,32 @@ class OutlookQuoteTests(unittest.TestCase):
         self.assertEqual((kept, dropped), (6, 1))
 
 
+class OutlookStanceTests(unittest.TestCase):
+    """Management's stance is shown beside a call and never scored."""
+
+    STRONG = {"view": "optimistic", "quote": "Demand from export customers remains very strong."}
+
+    def test_a_stance_is_kept_with_the_sentence_behind_it(self):
+        verified, _, _ = verify_quotes(extraction(stance=self.STRONG), CALL)
+        self.assertEqual(verified["stance"], self.STRONG)
+
+    def test_a_stance_whose_sentence_is_not_in_the_call_is_unknown(self):
+        invented = {"view": "bullish", "quote": "We have never been more confident about the year ahead."}
+        for stance in (invented, {"view": "bullish", "quote": None}, {"view": "elated", "quote": self.STRONG["quote"]}, None, "bullish"):
+            verified, _, _ = verify_quotes(extraction(stance=stance), CALL)
+            self.assertEqual(verified["stance"], {"view": "unknown", "quote": None})
+
+    def test_a_stance_moves_neither_the_counts_nor_the_score(self):
+        without = verify_quotes(extraction(), CALL)
+        with_stance = verify_quotes(extraction(stance=self.STRONG), CALL)
+        self.assertEqual(with_stance[1:], without[1:])
+        self.assertEqual(outlook_score(with_stance[0]), outlook_score(without[0]))
+        self.assertEqual(outlook_points(with_stance[0]), outlook_points(without[0]))
+        # A call that said nothing else is still a call with nothing to score.
+        silent = verify_quotes({"stance": self.STRONG}, CALL)
+        self.assertEqual((silent[1], silent[2], outlook_score(silent[0])), (0, 0, 50.0))
+
+
 class OutlookScoreTests(unittest.TestCase):
     def score(self, **overrides):
         verified, _, _ = verify_quotes(extraction(**overrides), CALL)
@@ -405,7 +431,7 @@ class OutlookRequestTests(unittest.TestCase):
     def test_every_schema_section_is_required(self):
         self.assertEqual(
             set(SCHEMA["required"]),
-            {"guidance", "order_book", "capacity", "demand", "margin", "tailwinds", "headwinds"},
+            {"guidance", "order_book", "capacity", "demand", "margin", "tailwinds", "headwinds", "stance"},
         )
 
     def test_a_fenced_response_is_still_parsed(self):

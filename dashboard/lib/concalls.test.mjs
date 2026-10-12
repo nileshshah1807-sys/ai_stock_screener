@@ -2,27 +2,32 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  STANCE_FILTERS,
   callAfterRun,
   groupByCallDate,
   highlightList,
   outlookTone,
+  searchTerm,
   sourceLabel,
-  toneLabel,
+  stanceLabel,
 } from "./concalls.mjs";
 
-test("tone is a word for each fifth of the season's calls", () => {
-  assert.deepEqual(
-    [95, 80, 79.99, 60, 45, 20, 19.9, 0].map((standing) => toneLabel(standing).label),
-    ["Bullish", "Bullish", "Optimistic", "Optimistic", "Neutral", "Cautious", "Bearish", "Bearish"],
-  );
-  assert.equal(toneLabel("72.5").tone, "positive");
-  assert.equal(toneLabel(10).tone, "negative");
+test("management's stance is the word the outlook step chose, with its sentence", () => {
+  assert.deepEqual(stanceLabel("optimistic", " We expect a strong second half. "), {
+    label: "Optimistic",
+    tone: "positive",
+    quote: "We expect a strong second half.",
+  });
+  assert.equal(stanceLabel("Bearish", null).tone, "negative");
+  assert.equal(stanceLabel("neutral").tone, "muted");
+  assert.equal(stanceLabel("cautious").quote, "");
 });
 
-test("an unscored call gets no word rather than the lowest one", () => {
-  assert.equal(toneLabel(null), null);
-  assert.equal(toneLabel(undefined), null);
-  assert.equal(toneLabel(""), null);
+test("a call with no stance gets no word rather than a neutral one", () => {
+  assert.equal(stanceLabel(null), null);
+  assert.equal(stanceLabel(""), null);
+  assert.equal(stanceLabel("unknown"), null);
+  assert.equal(stanceLabel("elated"), null);
 });
 
 test("a call read from its recording says so", () => {
@@ -81,4 +86,21 @@ test("a call held after the one the run scored is announced, and only then", () 
   assert.equal(callAfterRun(call, "2026-10-16T00:00:00"), null);
   assert.equal(callAfterRun(null, "2026-07-15"), null);
   assert.equal(callAfterRun({ call_date: "soon" }, "2026-07-15"), null);
+});
+
+test("a search is reduced to what a company name can contain", () => {
+  assert.equal(searchTerm("  anand   rathi "), "anand rathi");
+  assert.equal(searchTerm("M&M"), "M&M");
+  // PostgREST filter syntax and wildcards never reach the query.
+  assert.equal(searchTerm("a,symbol.eq.X)*%(\"b"), "a symbol.eq.X b");
+  assert.equal(searchTerm(["tcs", "infy"]), "tcs");
+  assert.equal(searchTerm(undefined), "");
+  assert.equal(searchTerm("x".repeat(200)).length, 60);
+});
+
+test("the stance filter offers the five stances, best first", () => {
+  assert.deepEqual(
+    STANCE_FILTERS.map((item) => item.value),
+    ["bullish", "optimistic", "neutral", "cautious", "bearish"],
+  );
 });
