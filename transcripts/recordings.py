@@ -43,8 +43,10 @@ _CALL_CATEGORY = "con. call"
 _RECORDING_WORDS = re.compile(r"\b(?:audio|recording|webcast)\b", re.IGNORECASE)
 _SCHEDULE_WORDS = re.compile(r"schedule of meet", re.IGNORECASE)
 # Not anchored: a link that wraps across lines in the notice is rejoined with
-# whatever text followed it, and is cut back to the extension.
-_AUDIO_PATH = re.compile(r"\.(?:mp3|m4a|wav|aac|ogg|wma|mp4)(?![a-z0-9])", re.IGNORECASE)
+# whatever text followed it ("...call.mp3Thanking you"), and is cut back to the
+# extension. Only the extension ignores case: a capital after it starts the
+# next sentence, while a lower-case letter or a digit is more of the name.
+_AUDIO_PATH = re.compile(r"(?i:\.(?:mp3|m4a|wav|aac|ogg|wma|mp4))(?![a-z0-9])")
 _VIDEO_HOSTS = ("youtube.com", "youtu.be", "vimeo.com")
 _EXCHANGE_HOSTS = ("nseindia.com", "bseindia.com")
 _URL = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
