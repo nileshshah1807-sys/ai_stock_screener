@@ -29,6 +29,7 @@ from screener.liquidity import (
     filter_execution_universe,
 )
 from screener.market_data import AlternativeData, BacktestEngine, PriceCache, TechnicalEnhancer, fmt_cr, fmt_f, fmt_pct
+from screener.quarterly_results import QuarterlyResultsCollector
 from screener.recommendation import finalize_recommendations
 from screener.reporting import EmailReporter, InteractiveDashboard, WhatsAppReporter
 from screener.runtime import Config, IPv4SMTP, IPv4SMTP_SSL, configure_runtime_cache, load_local_config
@@ -346,6 +347,14 @@ def run_daily_analysis():
     if merged_df.empty:
         raise RuntimeError("No symbols remain after merging technical and fundamental data")
 
+    # Quote metadata trails the exchange through every results season: a
+    # company files its quarter within minutes and the vendor republishes it
+    # days or weeks later. Where the market has an index of results filings,
+    # the two latest-quarter growth inputs are measured from the filings
+    # before anything scores them; the vendor's figures stand for the rest.
+    quarterly_results = QuarterlyResultsCollector(config)
+    merged_df = quarterly_results.enrich(merged_df)
+
     # Annual statements supply every input Yahoo's quote metadata cannot: total
     # assets, EBIT, gross profit, cash-flow history and multi-year series. They
     # restate quarterly at most, so a long cache TTL keeps the daily marginal
@@ -457,6 +466,7 @@ def run_daily_analysis():
     # symbol failures otherwise make two runs with identical code/config look
     # reproducible while ranking different cross-sections.
     collection_diagnostics = dict(collector.collection_diagnostics)
+    collection_diagnostics.update(quarterly_results.diagnostics)
     collection_diagnostics.update(
         {
             "analysis_as_of": analysis_now.isoformat(timespec="seconds"),

@@ -203,7 +203,7 @@ A ratio is recomputed only if all needed denominators are valid (and nonzero whe
 
 ### 5.4 Fundamental collection and failure behavior
 
-Fundamentals come from Yahoo quote metadata and use a seven-day cache by default. The collector requires a cache schema containing company metadata, raw valuation denominators, sector/industry, and provenance. It fetches at a throttled rate and retains stale cached rows on a transient request failure. A fundamental record is left-joined to technical rows:
+Fundamentals come from Yahoo quote metadata and use a seven-day cache by default. On NSE the two latest-quarter growth figures are then replaced, where a company's results filings support it, by figures measured from the filings (`screener/quarterly_results.py::QuarterlyResultsCollector`, enabled by `QUARTERLY_RESULTS_FILINGS_ENABLED`); the rest of the record is unchanged. The collector requires a cache schema containing company metadata, raw valuation denominators, sector/industry, and provenance. It fetches at a throttled rate and retains stale cached rows on a transient request failure. A fundamental record is left-joined to technical rows:
 
 ```text
 research universe = successfully collected technical symbols

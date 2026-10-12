@@ -62,6 +62,11 @@ class MarketProfile:
     # display order. Chosen from what Yahoo actually serves: Nifty Microcap 250
     # has no Yahoo series, so the NSE set stops at Smallcap 250.
     headline_indices: tuple[tuple[str, str], ...] = ()
+    # Key into ``screener.quarterly_results``: the exchange's own index of
+    # results filings, from which latest-quarter growth is measured ahead of
+    # the vendor republishing it. None where no such index is wired, and the
+    # vendor's two growth figures are scored as served.
+    quarterly_results_provider: str | None = None
     # Key into ``screener.session_bars``: where the expected session's bar can
     # be taken from when the price vendor has not served it. NSE publishes the
     # bhavcopy every evening; no free US equivalent exists, so it is None there
@@ -113,6 +118,7 @@ _NSE_PROFILE = MarketProfile(
         ("NIFTYMIDCAP150.NS", "Nifty Midcap 150"),
         ("NIFTYSMLCAP250.NS", "Nifty Smallcap 250"),
     ),
+    quarterly_results_provider="nse_integrated_filings",
     session_bar_fallback="nse_bhavcopy",
     action_ledger="nse_actions",
     max_open_gap=1.30,

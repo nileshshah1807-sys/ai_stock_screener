@@ -35,6 +35,7 @@ from .price_basis import (
     restate_price_basis,
 )
 from .price_probe import probe_expected_session
+from .quarterly_results import VENDOR_QUARTER_COLUMN, vendor_quarter_end
 from .session_bars import SessionBarSource, patch_expected_session_bar
 from .stage import stage_features
 
@@ -1346,6 +1347,13 @@ class StockDataCollector:
                     "Gross_Margin": info.get("grossMargins"),
                     "Revenue_Growth": info.get("revenueGrowth"),
                     "Earnings_Growth": info.get("earningsGrowth"),
+                    # Which quarter the two growth figures above describe.
+                    # Plumbing for screener/quarterly_results.py, which must
+                    # not replace them with an older filing; it is dropped
+                    # from the frame there and never reaches the export.
+                    VENDOR_QUARTER_COLUMN: vendor_quarter_end(
+                        info.get("mostRecentQuarter")
+                    ),
                     "EPS": info.get("trailingEps"),
                     "Dividend_Yield": info.get("dividendYield"),
                     "Dividend_Rate": info.get("dividendRate"),
