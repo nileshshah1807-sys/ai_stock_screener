@@ -52,13 +52,17 @@ export type ConcallQuery = {
   symbols?: string[] | null;
   /** Calls read from a recording only: the ones no transcript exists for yet. */
   recordingOnly?: boolean;
+  /** Symbol or company containing this text, already through `searchTerm`. */
+  search?: string;
+  /** One management stance: `bullish` ... `bearish`. */
+  stance?: string | null;
   limit?: number;
 };
 
 /** Calls for one market, newest first. */
 export async function getConcalls(
   market: MarketCode,
-  { symbols = null, recordingOnly = false, limit = 150 }: ConcallQuery = {},
+  { symbols = null, recordingOnly = false, search = "", stance = null, limit = 150 }: ConcallQuery = {},
 ): Promise<Concall[]> {
   if (symbols && symbols.length === 0) return [];
   const supabase = await createClient();
@@ -66,6 +70,8 @@ export async function getConcalls(
     let query = supabase.from("concall_feed").select(columns).eq("market", market);
     if (symbols) query = query.in("symbol", symbols);
     if (recordingOnly) query = query.eq("source", "recording");
+    if (search) query = query.or(`symbol.ilike.*${search}*,company.ilike.*${search}*`);
+    if (stance) query = query.eq("management_stance", stance);
     return query
       .order("call_date", { ascending: false })
       .order("symbol", { ascending: true })

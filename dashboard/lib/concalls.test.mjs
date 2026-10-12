@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  STANCE_FILTERS,
   callAfterRun,
   groupByCallDate,
   highlightList,
   outlookTone,
+  searchTerm,
   sourceLabel,
   stanceLabel,
 } from "./concalls.mjs";
@@ -84,4 +86,21 @@ test("a call held after the one the run scored is announced, and only then", () 
   assert.equal(callAfterRun(call, "2026-10-16T00:00:00"), null);
   assert.equal(callAfterRun(null, "2026-07-15"), null);
   assert.equal(callAfterRun({ call_date: "soon" }, "2026-07-15"), null);
+});
+
+test("a search is reduced to what a company name can contain", () => {
+  assert.equal(searchTerm("  anand   rathi "), "anand rathi");
+  assert.equal(searchTerm("M&M"), "M&M");
+  // PostgREST filter syntax and wildcards never reach the query.
+  assert.equal(searchTerm("a,symbol.eq.X)*%(\"b"), "a symbol.eq.X b");
+  assert.equal(searchTerm(["tcs", "infy"]), "tcs");
+  assert.equal(searchTerm(undefined), "");
+  assert.equal(searchTerm("x".repeat(200)).length, 60);
+});
+
+test("the stance filter offers the five stances, best first", () => {
+  assert.deepEqual(
+    STANCE_FILTERS.map((item) => item.value),
+    ["bullish", "optimistic", "neutral", "cautious", "bearish"],
+  );
 });

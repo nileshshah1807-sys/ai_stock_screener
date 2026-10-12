@@ -114,3 +114,22 @@ export function callAfterRun(call, scoredCallDate) {
   const scored = /^\d{4}-\d{2}-\d{2}$/.test(given) ? given : "";
   return held > scored ? call : null;
 }
+
+/** The stances a call can be filtered by, in the order they are offered. */
+export const STANCE_FILTERS = Object.entries(STANCES).map(([value, { label }]) => ({ value, label }));
+
+/**
+ * A search box's text, made safe to place inside a PostgREST `or=(...)`
+ * filter: commas, brackets, quotes and wildcards are that filter's own
+ * syntax, and a company name needs none of them. Capped, because the text
+ * comes from a URL.
+ */
+export function searchTerm(value) {
+  const first = Array.isArray(value) ? value[0] : value;
+  if (typeof first !== "string") return "";
+  return first
+    .replace(/[^\p{L}\p{N}&.' -]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+}

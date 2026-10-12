@@ -1,10 +1,12 @@
 import Link from "next/link";
 import type { Metadata } from "next";
+import { Search } from "lucide-react";
 
 import { ConcallRow } from "@/components/concalls/concall-row";
 import { Reveal } from "@/components/motion";
+import { Input } from "@/components/ui/input";
 import { getConcalls } from "@/lib/concalls";
-import { groupByCallDate } from "@/lib/concalls.mjs";
+import { STANCE_FILTERS, groupByCallDate, searchTerm } from "@/lib/concalls.mjs";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { getWatchedSymbols } from "@/lib/notifications";
@@ -69,21 +71,30 @@ export default async function ConcallsPage({
   const watched = await getWatchedSymbols(market.code);
   const scope = watched.length && query.scope === "watchlists" ? "watchlists" : "all";
   const recordingOnly = query.source === "recording";
+  const search = searchTerm(query.q);
+  const stance = STANCE_FILTERS.find((item) => item.value === query.stance)?.value ?? null;
+  const filtered = Boolean(search || stance || recordingOnly || scope === "watchlists");
 
   const calls = await getConcalls(market.code, {
     symbols: scope === "watchlists" ? watched : null,
     recordingOnly,
+    search,
+    stance,
     limit: FEED_LIMIT,
   });
   const groups = groupByCallDate(calls);
 
   const base = marketPath(market.slug, "/concalls");
-  const href = (next: { scope?: string; recording?: boolean }) => {
-    const search = new URLSearchParams();
+  // Every filter keeps the others: narrowing by stance does not drop the search.
+  const href = (next: { scope?: string; recording?: boolean; stance?: string | null }) => {
+    const url = new URLSearchParams();
     // Only the non-default is spelled out, so the plain URL is the default view.
-    if ((next.scope ?? scope) === "watchlists") search.set("scope", "watchlists");
-    if (next.recording ?? recordingOnly) search.set("source", "recording");
-    const text = search.toString();
+    if ((next.scope ?? scope) === "watchlists") url.set("scope", "watchlists");
+    if (next.recording ?? recordingOnly) url.set("source", "recording");
+    const nextStance = next.stance === undefined ? stance : next.stance;
+    if (nextStance) url.set("stance", nextStance);
+    if (search) url.set("q", search);
+    const text = url.toString();
     return text ? `${base}?${text}` : base;
   };
 
@@ -97,6 +108,30 @@ export default async function ConcallsPage({
             : `Earnings calls are read for NSE only; there is no recording or transcript source for ${market.label} yet.`}
         </p>
       </div>
+
+      {/*
+        A plain GET form: the search is part of the URL like every other
+        filter here, so it needs no client code and a result can be bookmarked.
+        The hidden fields carry the filters already chosen through the submit.
+      */}
+      <form action={base} method="get" role="search" className="relative max-w-sm">
+        <Search
+          className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          type="search"
+          name="q"
+          defaultValue={search}
+          placeholder="Search a company or symbol"
+          aria-label="Search calls by company or symbol"
+          autoComplete="off"
+          className="pl-10"
+        />
+        {scope === "watchlists" ? <input type="hidden" name="scope" value="watchlists" /> : null}
+        {recordingOnly ? <input type="hidden" name="source" value="recording" /> : null}
+        {stance ? <input type="hidden" name="stance" value={stance} /> : null}
+      </form>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {watched.length ? (
@@ -116,6 +151,16 @@ export default async function ConcallsPage({
           <FilterLink href={href({ recording: true })} active={recordingOnly}>
             Awaiting transcript
           </FilterLink>
+        </nav>
+        <nav aria-label="Management stance" className="flex flex-wrap items-center gap-1.5">
+          <FilterLink href={href({ stance: null })} active={stance === null}>
+            Any stance
+          </FilterLink>
+          {STANCE_FILTERS.map((item) => (
+            <FilterLink key={item.value} href={href({ stance: item.value })} active={stance === item.value}>
+              {item.label}
+            </FilterLink>
+          ))}
         </nav>
       </div>
 
@@ -140,7 +185,7 @@ export default async function ConcallsPage({
           ))}
           {calls.length === FEED_LIMIT ? (
             <p className="text-center text-xs text-muted-foreground">
-              Showing the latest {FEED_LIMIT} calls.
+              Showing the latest {FEED_LIMIT} calls. Search or filter to see further back.
             </p>
           ) : null}
           <p className="max-w-3xl border-t pt-4 text-xs leading-relaxed text-muted-foreground">
@@ -155,17 +200,31 @@ export default async function ConcallsPage({
       ) : (
         <div className="panel px-5 py-10 text-center">
           <p className="text-sm font-medium">
-            {recordingOnly
-              ? "No call is waiting for its transcript."
-              : scope === "watchlists"
-                ? "No recent calls for the companies on your watchlists."
-                : "No calls yet."}
+            {search
+              ? `No calls match \u201c${search}\u201d.`
+              : stance
+                ? "No calls with that stance."
+                : recordingOnly
+                  ? "No call is waiting for its transcript."
+                  : scope === "watchlists"
+                    ? "No recent calls for the companies on your watchlists."
+                    : "No calls yet."}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {market.code === "NSE"
-              ? "Calls appear here the evening they are held, once the company files its recording."
-              : `Calls are read for NSE only.`}
+            {market.code !== "NSE"
+              ? "Calls are read for NSE only."
+              : filtered
+                ? "Calls go back about six months."
+                : "Calls appear here the evening they are held, once the company files its recording."}
           </p>
+          {filtered ? (
+            <Link
+              href={base}
+              className="mt-3 inline-block rounded text-xs font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Clear search and filters
+            </Link>
+          ) : null}
         </div>
       )}
     </div>
