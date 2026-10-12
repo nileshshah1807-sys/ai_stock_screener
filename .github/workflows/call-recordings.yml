@@ -206,3 +206,11 @@ jobs:
 
       - name: Publish the concall feed
         run: python -m workers.concall_feed
+
+      # The bell in the dashboard's header. The Financial statements workflow
+      # records events three times a day; run here as well, a call stored
+      # above is announced now and not at that workflow's next slot. It is
+      # idempotent, so the two never announce one call twice.
+      - name: Record events for notifications
+        if: ${{ !cancelled() }}
+        run: python -m workers.market_events --market "${MARKET}"
