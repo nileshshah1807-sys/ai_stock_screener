@@ -114,6 +114,7 @@ Run both files in the Supabase SQL Editor, in order:
 ```text
 storage/supabase_schema.sql     # transcripts + red flags (may already be applied)
 storage/dashboard_schema.sql    # this dashboard's tables, views, and RLS
+storage/concalls_schema.sql     # the Concalls page's feed (after dashboard_schema.sql)
 ```
 
 Then invite yourself (the SQL Editor runs as owner, bypassing RLS):
