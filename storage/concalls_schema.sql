@@ -44,6 +44,11 @@ create table if not exists concall_feed (
     -- could not place. Shown, never scored.
     management_stance text,
     management_stance_quote text,
+    -- The call's outlook under the names a screener run publishes it by
+    -- (Transcript_Outlook_Score, _Points, _Previous_Score, ...), so the stock
+    -- page's "What management said" can show a call before a run has scored
+    -- it. Null where the outlook verified nothing.
+    outlook_detail jsonb,
     -- Up to three of [{"text", "tone": "positive"|"negative", "quote"}].
     highlights jsonb not null default '[]'::jsonb,
     updated_at timestamptz not null default now(),
@@ -55,6 +60,7 @@ create table if not exists concall_feed (
 -- columns added since the table first shipped are added here.
 alter table concall_feed add column if not exists management_stance text;
 alter table concall_feed add column if not exists management_stance_quote text;
+alter table concall_feed add column if not exists outlook_detail jsonb;
 
 create index if not exists concall_feed_recent_idx
     on concall_feed (market, call_date desc);

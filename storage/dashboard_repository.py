@@ -686,7 +686,7 @@ class DashboardRepository:
                     "id,symbol,quarter,call_date,"
                     "transcript_documents(extraction_method),"
                     "transcript_sentiments(overall_score,guidance_direction,created_at),"
-                    "transcript_outlooks(outlook_score,extraction,analysis_version,created_at)"
+                    "transcript_outlooks(outlook_score,verified_fields,extraction,analysis_version,created_at)"
                 ),
                 "call_date": f"gte.{since}",
                 "order": "call_date.desc,id.asc",

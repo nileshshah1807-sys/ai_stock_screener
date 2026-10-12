@@ -98,21 +98,45 @@ export function groupByCallDate(calls) {
 }
 
 /**
- * The call the stock page should announce: one held after the call the
- * published run scored, or null.
+ * What the stock page's "What management said" should read: the published
+ * run's own fields, or a newer call's from the concall feed.
  *
- * The stock page reads a run, and a run is a day old by the next evening. A
- * call transcribed tonight is in the feed at once but reaches "What management
- * said" only when the screener next runs. Dates compare as ISO strings; a run
- * that scored no call at all is older than any call.
+ * The page reads a run, and the screener runs once a day. A call transcribed
+ * this evening is read for its outlook within the hour, so until the next run
+ * the panel would describe last quarter's call. When the feed has a call held
+ * after the one the run scored, with an outlook to show, the panel reads that
+ * call instead and says it is not in the score yet. Once a run scores it the
+ * dates match and the panel is the run's again -- one panel throughout.
+ *
+ * The feed's detail carries the same field names a run publishes, so it is
+ * laid over the run's. Two things stay the run's: the median it compares
+ * against, and the fact that this call has not been applied.
+ *
+ * Dates compare as ISO strings; anything that is not a date -- the page's
+ * dash for "none" included -- is no call, older than any.
  */
-export function callAfterRun(call, scoredCallDate) {
-  const held = typeof call?.call_date === "string" ? call.call_date.slice(0, 10) : "";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(held)) return null;
-  // Anything that is not a date -- the page's dash for "none" included -- is no call.
-  const given = typeof scoredCallDate === "string" ? scoredCallDate.trim().slice(0, 10) : "";
-  const scored = /^\d{4}-\d{2}-\d{2}$/.test(given) ? given : "";
-  return held > scored ? call : null;
+export function callPanelSource(payload, call) {
+  const run = payload ?? {};
+  const fromRun = { payload: run, pending: null };
+  const isoDate = (value) => {
+    const text = typeof value === "string" ? value.trim().slice(0, 10) : "";
+    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+  };
+  const held = isoDate(call?.call_date);
+  const detail = call?.outlook_detail;
+  if (!held || held <= isoDate(run.Transcript_Call_Date)) return fromRun;
+  if (!detail || typeof detail !== "object" || number(detail.Transcript_Outlook_Score) === null) return fromRun;
+  return {
+    payload: {
+      Transcript_Outlook_Neutral_Score: run.Transcript_Outlook_Neutral_Score,
+      ...detail,
+      Transcript_Outlook_Applied: false,
+    },
+    pending: {
+      source: sourceLabel(call.source),
+      stance: stanceLabel(call.management_stance, call.management_stance_quote),
+    },
+  };
 }
 
 /** The stances a call can be filtered by, in the order they are offered. */

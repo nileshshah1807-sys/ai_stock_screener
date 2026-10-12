@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import {
   STANCE_FILTERS,
-  callAfterRun,
+  callPanelSource,
   groupByCallDate,
   highlightList,
   outlookTone,
@@ -74,18 +74,54 @@ test("calls are grouped by the day they were held", () => {
   assert.deepEqual(groupByCallDate(null), []);
 });
 
-test("a call held after the one the run scored is announced, and only then", () => {
-  const call = { symbol: "A", call_date: "2026-10-12" };
-  assert.equal(callAfterRun(call, "2026-07-15"), call);
-  // A run that scored no call is older than any call.
-  assert.equal(callAfterRun(call, ""), call);
-  assert.equal(callAfterRun(call, undefined), call);
-  assert.equal(callAfterRun(call, "\u2014"), call);
-  // The run already has this call, or its transcript filed days later.
-  assert.equal(callAfterRun(call, "2026-10-12"), null);
-  assert.equal(callAfterRun(call, "2026-10-16T00:00:00"), null);
-  assert.equal(callAfterRun(null, "2026-07-15"), null);
-  assert.equal(callAfterRun({ call_date: "soon" }, "2026-07-15"), null);
+const RUN = {
+  Transcript_Call_Date: "2026-07-15",
+  Transcript_Outlook_Score: 53,
+  Transcript_Outlook_Neutral_Score: 66,
+  Transcript_Outlook_Applied: true,
+};
+const NEWER = {
+  call_date: "2026-10-12",
+  source: "recording",
+  management_stance: "optimistic",
+  outlook_detail: {
+    Transcript_Call_Date: "2026-10-12",
+    Transcript_Outlook_Score: 67,
+    Transcript_Outlook_Previous_Score: 53,
+  },
+};
+
+test("a call held after the one the run scored takes the panel, marked as not applied", () => {
+  const { payload, pending } = callPanelSource(RUN, NEWER);
+  assert.equal(payload.Transcript_Call_Date, "2026-10-12");
+  assert.equal(payload.Transcript_Outlook_Score, 67);
+  assert.equal(payload.Transcript_Outlook_Previous_Score, 53);
+  // The run's median still applies; its "applied" does not.
+  assert.equal(payload.Transcript_Outlook_Neutral_Score, 66);
+  assert.equal(payload.Transcript_Outlook_Applied, false);
+  assert.equal(pending.source.label, "From the recording");
+  assert.equal(pending.stance.label, "Optimistic");
+});
+
+test("the panel is the run's own once the run has the call, or when there is nothing newer to show", () => {
+  const same = { payload: RUN, pending: null };
+  assert.deepEqual(callPanelSource({ ...RUN, Transcript_Call_Date: "2026-10-12" }, NEWER), {
+    payload: { ...RUN, Transcript_Call_Date: "2026-10-12" },
+    pending: null,
+  });
+  // The run scored the transcript filed days after the call.
+  assert.equal(callPanelSource({ ...RUN, Transcript_Call_Date: "2026-10-16" }, NEWER).pending, null);
+  assert.deepEqual(callPanelSource(RUN, null), same);
+  // A newer call not yet read for its outlook has nothing to put in the panel.
+  assert.deepEqual(callPanelSource(RUN, { ...NEWER, outlook_detail: null }), same);
+  assert.deepEqual(callPanelSource(RUN, { ...NEWER, call_date: "soon" }), same);
+});
+
+test("a run that scored no call is older than any call", () => {
+  for (const date of ["", undefined, "\u2014"]) {
+    assert.equal(callPanelSource({ Transcript_Call_Date: date }, NEWER).payload.Transcript_Outlook_Score, 67);
+  }
+  assert.equal(callPanelSource(null, NEWER).pending.source.provisional, true);
 });
 
 test("a search is reduced to what a company name can contain", () => {
