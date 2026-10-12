@@ -126,6 +126,25 @@ the scheduled workflows set the same flag.
   it. A new kind is one function in the worker and one entry in
   `dashboard/lib/notifications.mjs`; the tables are in
   `storage/notifications_schema.sql` and must be applied by hand.
+- **An NSE call is read the evening it is held, from its recording; the filed
+  transcript replaces it.** A company files its transcript days after the
+  call but a "link of recording" notice the same evening. The Earnings call
+  recordings workflow (`workers/call_recordings.py`) downloads the audio the
+  notice names, cuts it at pauses, transcribes one piece per runner with
+  `faster-whisper` (`requirements-speech.txt`, outside the production lock),
+  and stores the text as an ordinary transcript whose document's
+  `extraction_method` starts `speech:`. Tone, outlook and the screener read
+  it unchanged -- no scoring code knows the difference. When the transcript
+  worker stores the filed transcript it deletes the recording's
+  (`delete_speech_transcripts`): left beside it, the recording would be that
+  call's "previous quarter" in `latest_transcript_sentiment`. Only a notice
+  that names an audio file is served; one that points at an investor page,
+  or a recording not in English, waits for the filed transcript. The speech
+  text has no speaker labels, so the tone score reads it as one voice -- its
+  agreement with the filed transcript's score has not been measured yet.
+  `workers/concall_feed.py` derives `concall_feed` (one row per call, no
+  text) for the dashboard's Concalls page; the table is in
+  `storage/concalls_schema.sql` and must be applied by hand.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and
@@ -154,11 +173,13 @@ screener/     live scoring path (scoring/ is a package: constants, points,
               fundamental, sector_models, technical, engine); markets.py and
               universe.py hold the per-market facts and universe sources
 backtest/     point-in-time simulation, deliberately separate from the live path
-workers/      scheduled jobs (dashboard publish, transcripts, red flags)
+workers/      scheduled jobs (dashboard publish, transcripts, call recordings,
+              red flags)
 storage/      Supabase repositories
 validation/   reproducibility manifests and replay
 dashboard/    Next.js front end, with its own README; routes are nested
-              under /[market] (/nse, /us)
+              under /[market] (/nse, /us). Market and Concalls share the
+              header's Tools tab (`lib/tools.ts`, the `(tools)` route group)
 ```
 
 ## Gotchas

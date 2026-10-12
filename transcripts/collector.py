@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -44,6 +45,16 @@ def discover_nse_transcripts(
     retry_delay_seconds: float = 5.0,
 ) -> list[dict[str, Any]]:
     """Fetch a bounded NSE window, retrying transient discovery failures."""
+    return discover_nse_announcements(lookback_days, is_earnings_transcript, attempts, retry_delay_seconds)
+
+
+def discover_nse_announcements(
+    lookback_days: int,
+    matches: Callable[[dict[str, Any]], bool],
+    attempts: int = 3,
+    retry_delay_seconds: float = 5.0,
+) -> list[dict[str, Any]]:
+    """The announcements of a bounded NSE window that ``matches`` accepts, newest first."""
     from nse import NSE
 
     end_date = date.today()
@@ -64,9 +75,9 @@ def discover_nse_transcripts(
         except Exception:
             if attempt == attempts:
                 raise
-            logger.warning("NSE transcript discovery attempt %s/%s failed", attempt, attempts)
+            logger.warning("NSE announcement discovery attempt %s/%s failed", attempt, attempts)
             time.sleep(max(0.0, retry_delay_seconds))
-    matching = [record for record in records if is_earnings_transcript(record)]
+    matching = [record for record in records if matches(record)]
     return sorted(
         matching,
         key=lambda record: _parse_nse_datetime(record.get("an_dt") or record.get("sort_date")) or "",

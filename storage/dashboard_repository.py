@@ -675,6 +675,51 @@ class DashboardRepository:
             },
         )
 
+    # -- concall feed ----------------------------------------------------------
+
+    def calls_since(self, since: str) -> list[dict[str, Any]]:
+        """Stored calls held on or after ``since``, with their scores and no text."""
+        return self._paged(
+            "transcripts",
+            {
+                "select": (
+                    "id,symbol,quarter,call_date,"
+                    "transcript_documents(extraction_method),"
+                    "transcript_sentiments(overall_score,guidance_direction,created_at),"
+                    "transcript_outlooks(outlook_score,extraction,analysis_version,created_at)"
+                ),
+                "call_date": f"gte.{since}",
+                "order": "call_date.desc,id.asc",
+            },
+            page=200,
+        )
+
+    def concall_call_dates(self) -> dict[tuple[str, str], str]:
+        """The call date each feed row carries, keyed by (symbol, quarter)."""
+        rows = self._paged(
+            "concall_feed", {"select": "symbol,quarter,call_date", "order": "symbol.asc,quarter.asc"}
+        )
+        return {(str(row["symbol"]), str(row["quarter"])[:10]): str(row["call_date"])[:10] for row in rows}
+
+    def replace_concall_feed(self, rows: list[dict[str, Any]], since: str, chunk_size: int = 200) -> int:
+        """Write the feed's rows and drop calls older than ``since``."""
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "concall_feed?on_conflict=market,symbol,quarter",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                retries=2,
+            )
+        self._request(
+            "DELETE",
+            "concall_feed",
+            params=self._scoped({"call_date": f"lt.{since}"}),
+            headers={"Prefer": "return=minimal"},
+            retries=2,
+        )
+        return len(rows)
+
     def insert_market_events(
         self, rows: list[dict[str, Any]], chunk_size: int = 200
     ) -> int:

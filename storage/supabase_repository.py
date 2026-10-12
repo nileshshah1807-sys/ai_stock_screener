@@ -144,6 +144,44 @@ class SupabaseRepository:
         )
         return rows[0]
 
+    # -- transcripts made from a call's recording ------------------------------
+    #
+    # workers/call_recordings.py stores a call the evening it is held, from the
+    # recording. Its document's extraction_method starts "speech:". The filed
+    # transcript, when it comes, replaces it.
+
+    def has_transcript(self, symbol: str, quarter: str) -> bool:
+        """Whether any transcript of this market's company is stored for the quarter."""
+        rows = self._request(
+            "GET",
+            "transcripts",
+            params={
+                "select": "id",
+                "market": f"eq.{self.market}",
+                "symbol": f"eq.{symbol}",
+                "quarter": f"eq.{quarter}",
+                "limit": "1",
+            },
+        )
+        return bool(rows)
+
+    def delete_speech_transcripts(self, symbol: str, quarter: str) -> int:
+        """Remove the quarter's transcripts made from a recording; returns how many."""
+        rows = self._request(
+            "GET",
+            "transcripts",
+            params={
+                "select": "id,transcript_documents!inner(extraction_method)",
+                "market": f"eq.{self.market}",
+                "symbol": f"eq.{symbol}",
+                "quarter": f"eq.{quarter}",
+                "transcript_documents.extraction_method": "like.speech:*",
+            },
+        )
+        for row in rows or []:
+            self.delete_transcript(row["id"])
+        return len(rows or [])
+
     # -- cover letters stored as transcripts -----------------------------------
     #
     # A filing that only says where the transcript can be found was, until

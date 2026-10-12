@@ -1,0 +1,12 @@
+# Speech to text for earnings-call recordings (transcripts/speech.py). Only the
+# call-recordings workflow installs this: its plan job on top of the core lock
+# and its piece jobs on its own, which is why the packages they share are
+# constrained to the core lock's versions. Deliberately outside requirements.in
+# -- nothing in the scoring path imports it, and it must not reach the run
+# manifest. Edit this file, then regenerate the lock (see its header).
+-c requirements-ci.txt
+
+faster-whisper>=1.1.0
+imageio-ffmpeg>=0.5.1
+numpy>=1.24.0
+requests>=2.31.0
