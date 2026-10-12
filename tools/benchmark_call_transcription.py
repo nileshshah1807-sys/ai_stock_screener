@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
 import time
 import traceback
@@ -190,13 +191,27 @@ def download_audio(url: str, folder: Path, index: int) -> Path | None:
         return None
 
 
+def decode_audio(path: Path):
+    """The recording as 16 kHz mono samples, decoded by ffmpeg.
+
+    faster-whisper's own decoder passes PyAV an argument a newer PyAV rejects;
+    handing it samples keeps the benchmark independent of that pairing.
+    """
+    import numpy as np
+
+    command = ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(path), "-f", "f32le", "-ac", "1", "-ar", "16000", "-"]
+    raw = subprocess.run(command, check=True, capture_output=True).stdout
+    return np.frombuffer(raw, dtype=np.float32)
+
+
 def transcribe(path: Path, model_name: str, threads: int) -> dict:
     from faster_whisper import WhisperModel
 
+    audio = decode_audio(path)
     loaded_at = time.monotonic()
     model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=threads)
     started_at = time.monotonic()
-    segments, info = model.transcribe(str(path), vad_filter=True, beam_size=1, condition_on_previous_text=False)
+    segments, info = model.transcribe(audio, vad_filter=True, beam_size=1, condition_on_previous_text=False)
     text = " ".join(segment.text.strip() for segment in segments)
     seconds = time.monotonic() - started_at
     middle = max(0, len(text) // 2 - SAMPLE_CHARACTERS // 2)

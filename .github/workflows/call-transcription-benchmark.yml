@@ -41,6 +41,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       # faster-whisper is deliberately outside the locks until the measurement
       # says the approach is worth adopting.
       - name: Install dependencies
