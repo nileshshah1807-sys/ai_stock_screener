@@ -158,7 +158,8 @@ class RestateActionTests(unittest.TestCase):
         _, changes = restate_price_basis(
             _history(pre=105.0, post=100.0), (EX_DATE,), TZ, max_open_gap=CAP
         )
-        self.assertEqual(changes, [(EX_DATE, CHANGE_ACTION, 1.05)])
+        self.assertEqual([change[:2] for change in changes], [(EX_DATE, CHANGE_ACTION)])
+        self.assertAlmostEqual(changes[0][2], 1.05)
 
     def test_an_ex_date_with_no_price_cut_restates_nothing(self):
         frame = _history(pre=100.0, post=100.0)
@@ -219,6 +220,17 @@ class RestateOpenGapTests(unittest.TestCase):
 
         self.assertEqual(changes, [(EX_DATE, CHANGE_OPEN_GAP, 4.0)])
         self.assertTrue((restated["Adj Close"].round(6) == 98.0).all())
+
+    def test_a_change_the_vendor_already_bridged_is_not_restated_twice(self):
+        # The raw close falls fourfold but the adjusted close runs straight on.
+        frame = _history()
+        frame["Adj Close"] = 98.0
+        for ex_dates in ((), (EX_DATE,)):
+            restated, changes = restate_price_basis(
+                frame, ex_dates, TZ, max_open_gap=CAP
+            )
+            self.assertIs(restated, frame)
+            self.assertEqual(changes, [])
 
     def test_a_gap_upwards_is_restated_too(self):
         restated, changes = restate_price_basis(

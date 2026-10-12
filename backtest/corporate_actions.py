@@ -179,12 +179,18 @@ def open_gap_factor(prev_close, bar_open, bar_close, max_open_gap):
     band). The bar's own close has to sit within the cap of its open, so one
     bad opening print is not read as a change of basis.
     """
-    prices = pd.to_numeric(
-        pd.Series([prev_close, bar_open, bar_close]), errors="coerce"
-    )
-    if prices.isna().any() or (prices < MIN_PRICE_FOR_OPEN_GAP).any():
+    # Plain floats: this runs once per bar of every security in the archive.
+    try:
+        prev_close, bar_open, bar_close = (
+            float(prev_close), float(bar_open), float(bar_close)
+        )
+    except (TypeError, ValueError):
         return None
-    prev_close, bar_open, bar_close = (float(value) for value in prices)
+    # NaN fails the comparison, so a missing price is rejected here as well.
+    if not all(
+        price >= MIN_PRICE_FOR_OPEN_GAP for price in (prev_close, bar_open, bar_close)
+    ):
+        return None
     factor = prev_close / bar_open
     if max(factor, 1.0 / factor) <= max_open_gap:
         return None

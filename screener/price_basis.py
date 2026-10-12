@@ -29,6 +29,11 @@ Every adjusted close before the change is divided by the factor. Only ``Adj
 Close`` moves: raw closes still price turnover, and the high and low follow the
 adjusted close as they already do.
 
+The gap is measured on the vendor's *adjusted* basis -- each bar's open and
+close scaled by its own ``Adj Close / Close``. Where the vendor did bridge a
+change in its adjusted close, there is then no gap left to find, and nothing is
+restated twice.
+
 A bar that gaps beyond the cap and straight back is not a change of basis but a
 bad print, and is dropped.
 
@@ -164,9 +169,18 @@ def _bars(frame, market_timezone):
     index = frame.index
     local = index.tz_convert(market_timezone) if index.tz is not None else index
     dates = np.array([stamp.date() for stamp in local])
-    close = pd.to_numeric(frame["Close"], errors="coerce").to_numpy(dtype=float)
+    raw = pd.to_numeric(frame["Close"], errors="coerce").to_numpy(dtype=float)
     opens = pd.to_numeric(frame["Open"], errors="coerce").to_numpy(dtype=float)
-    traded = np.flatnonzero(np.isfinite(close) & (close > 0))
+    traded = np.flatnonzero(np.isfinite(raw) & (raw > 0))
+    # Onto the vendor's adjusted basis, bar by bar.
+    close = raw
+    if "Adj Close" in frame.columns:
+        adjusted = pd.to_numeric(frame["Adj Close"], errors="coerce").to_numpy(
+            dtype=float
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = np.where(np.isfinite(adjusted) & (raw > 0), adjusted / raw, 1.0)
+        close, opens = raw * ratio, opens * ratio
     return dates, opens, close, traded
 
 
