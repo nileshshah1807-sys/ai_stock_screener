@@ -50,8 +50,6 @@ const COLUMNS = `${BASE_COLUMNS}, management_stance, management_stance_quote`;
 export type ConcallQuery = {
   /** Restrict to these symbols. An empty list matches nothing. */
   symbols?: string[] | null;
-  /** Calls read from a recording only: the ones no transcript exists for yet. */
-  recordingOnly?: boolean;
   /** Symbol or company containing this text, already through `searchTerm`. */
   search?: string;
   /** One management stance: `bullish` ... `bearish`. */
@@ -62,14 +60,13 @@ export type ConcallQuery = {
 /** Calls for one market, newest first. */
 export async function getConcalls(
   market: MarketCode,
-  { symbols = null, recordingOnly = false, search = "", stance = null, limit = 150 }: ConcallQuery = {},
+  { symbols = null, search = "", stance = null, limit = 150 }: ConcallQuery = {},
 ): Promise<Concall[]> {
   if (symbols && symbols.length === 0) return [];
   const supabase = await createClient();
   const read = (columns: string) => {
     let query = supabase.from("concall_feed").select(columns).eq("market", market);
     if (symbols) query = query.in("symbol", symbols);
-    if (recordingOnly) query = query.eq("source", "recording");
     if (search) query = query.or(`symbol.ilike.*${search}*,company.ilike.*${search}*`);
     if (stance) query = query.eq("management_stance", stance);
     return query
