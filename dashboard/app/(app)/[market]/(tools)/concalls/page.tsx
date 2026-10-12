@@ -70,14 +70,12 @@ export default async function ConcallsPage({
 
   const watched = await getWatchedSymbols(market.code);
   const scope = watched.length && query.scope === "watchlists" ? "watchlists" : "all";
-  const recordingOnly = query.source === "recording";
   const search = searchTerm(query.q);
   const stance = STANCE_FILTERS.find((item) => item.value === query.stance)?.value ?? null;
-  const filtered = Boolean(search || stance || recordingOnly || scope === "watchlists");
+  const filtered = Boolean(search || stance || scope === "watchlists");
 
   const calls = await getConcalls(market.code, {
     symbols: scope === "watchlists" ? watched : null,
-    recordingOnly,
     search,
     stance,
     limit: FEED_LIMIT,
@@ -86,11 +84,10 @@ export default async function ConcallsPage({
 
   const base = marketPath(market.slug, "/concalls");
   // Every filter keeps the others: narrowing by stance does not drop the search.
-  const href = (next: { scope?: string; recording?: boolean; stance?: string | null }) => {
+  const href = (next: { scope?: string; stance?: string | null }) => {
     const url = new URLSearchParams();
     // Only the non-default is spelled out, so the plain URL is the default view.
     if ((next.scope ?? scope) === "watchlists") url.set("scope", "watchlists");
-    if (next.recording ?? recordingOnly) url.set("source", "recording");
     const nextStance = next.stance === undefined ? stance : next.stance;
     if (nextStance) url.set("stance", nextStance);
     if (search) url.set("q", search);
@@ -129,7 +126,6 @@ export default async function ConcallsPage({
           className="pl-10"
         />
         {scope === "watchlists" ? <input type="hidden" name="scope" value="watchlists" /> : null}
-        {recordingOnly ? <input type="hidden" name="source" value="recording" /> : null}
         {stance ? <input type="hidden" name="stance" value={stance} /> : null}
       </form>
 
@@ -144,14 +140,6 @@ export default async function ConcallsPage({
             </FilterLink>
           </nav>
         ) : null}
-        <nav aria-label="Source of the call's text" className="flex items-center gap-1.5">
-          <FilterLink href={href({ recording: false })} active={!recordingOnly}>
-            Every call
-          </FilterLink>
-          <FilterLink href={href({ recording: true })} active={recordingOnly}>
-            Awaiting transcript
-          </FilterLink>
-        </nav>
         <nav aria-label="Management stance" className="flex flex-wrap items-center gap-1.5">
           <FilterLink href={href({ stance: null })} active={stance === null}>
             Any stance
@@ -204,11 +192,9 @@ export default async function ConcallsPage({
               ? `No calls match \u201c${search}\u201d.`
               : stance
                 ? "No calls with that stance."
-                : recordingOnly
-                  ? "No call is waiting for its transcript."
-                  : scope === "watchlists"
-                    ? "No recent calls for the companies on your watchlists."
-                    : "No calls yet."}
+                : scope === "watchlists"
+                  ? "No recent calls for the companies on your watchlists."
+                  : "No calls yet."}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {market.code !== "NSE"
