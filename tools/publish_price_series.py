@@ -151,7 +151,10 @@ def load_archive(root, *, start=None, end=None):
     from backtest.calendar import CalendarLedger
     from backtest.corporate_actions import ActionStore, AdjustmentTable
     from backtest.security_master import SecurityMaster
-    from workers.price_series_publisher import collect_observations
+    from workers.price_series_publisher import (
+        apply_demerger_factors,
+        collect_observations,
+    )
 
     store = BhavcopyStore(root / "bhavcopy")
     sessions = sorted(set(CalendarLedger(root / "calendar.csv").sessions())
@@ -177,7 +180,11 @@ def load_archive(root, *, start=None, end=None):
     actions_path = root / "corporate_actions.csv"
     table = None
     if actions_path.exists():
-        table = AdjustmentTable(ActionStore(actions_path).load(), master=master)
+        actions = ActionStore(actions_path).load()
+        table = AdjustmentTable(actions, master=master)
+        # After the table is built from the ledger: a demerger has no ratio
+        # there, and unadjusted it draws as a crash the holders never took.
+        apply_demerger_factors(store, sessions, actions, master, table)
         logger.info("Corporate actions: %s", table.summary())
     else:
         # Without it a split reads as a ~50% crash, which is worse than no chart.

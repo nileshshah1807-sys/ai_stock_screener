@@ -67,6 +67,10 @@ class MarketProfile:
     # bhavcopy every evening; no free US equivalent exists, so it is None there
     # and a vendor gap fails the alignment guard as before.
     session_bar_fallback: str | None = None
+    # Key into ``screener.demergers``: the feed naming which symbols demerged,
+    # so their vendor history can be restated across the ex-date. Yahoo applies
+    # no adjustment to an NSE demerger; no US feed is wired, so it is None there.
+    demerger_ledger: str | None = None
 
 
 _NSE_PROFILE = MarketProfile(
@@ -104,6 +108,7 @@ _NSE_PROFILE = MarketProfile(
         ("NIFTYSMLCAP250.NS", "Nifty Smallcap 250"),
     ),
     session_bar_fallback="nse_bhavcopy",
+    demerger_ledger="nse_actions",
 )
 
 _US_PROFILE = MarketProfile(
