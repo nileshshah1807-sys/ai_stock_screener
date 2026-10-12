@@ -6,6 +6,9 @@ import { AddToWatchlist } from "@/components/watchlist/add-to-watchlist";
 import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
 import { CallOutlook } from "@/components/stock/call-outlook";
+import { LatestCall } from "@/components/stock/latest-call";
+import { getConcalls } from "@/lib/concalls";
+import { callAfterRun } from "@/lib/concalls.mjs";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
@@ -213,9 +216,12 @@ export default async function StockPage({
   // needed to render the Watch control's initial checked state, so they are
   // fetched here rather than by the client on open -- a popover that opens empty
   // and then fills in is worse than one that opens correct.
-  const [watchlists, watchlistMembership] = await Promise.all([
+  // The company's newest call rides along: one row, and only shown when it is
+  // newer than the call this run scored (see LatestCall).
+  const [watchlists, watchlistMembership, calls] = await Promise.all([
     getWatchlists(market.code),
     getWatchlistMembership(market.code, symbol),
+    getConcalls(market.code, { symbols: [symbol], limit: 1 }),
   ]);
 
   // Last completed session's move. Now that the model publishes it, the row is
@@ -840,6 +846,10 @@ export default async function StockPage({
                   ) : null}
 
                   <ExpectationsGap data={expectations} market={market} />
+
+                  <LatestCall
+                    call={callAfterRun(calls[0], text(payload, "Transcript_Call_Date"))}
+                  />
 
                   <CallOutlook payload={payload} />
 

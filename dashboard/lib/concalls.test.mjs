@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { groupByCallDate, highlightList, outlookTone, sourceLabel, toneLabel } from "./concalls.mjs";
+import {
+  callAfterRun,
+  groupByCallDate,
+  highlightList,
+  outlookTone,
+  sourceLabel,
+  toneLabel,
+} from "./concalls.mjs";
 
 test("tone is a word for each fifth of the season's calls", () => {
   assert.deepEqual(
@@ -60,4 +67,18 @@ test("calls are grouped by the day they were held", () => {
     [["2026-10-12", 2], ["2026-10-10", 1]],
   );
   assert.deepEqual(groupByCallDate(null), []);
+});
+
+test("a call held after the one the run scored is announced, and only then", () => {
+  const call = { symbol: "A", call_date: "2026-10-12" };
+  assert.equal(callAfterRun(call, "2026-07-15"), call);
+  // A run that scored no call is older than any call.
+  assert.equal(callAfterRun(call, ""), call);
+  assert.equal(callAfterRun(call, undefined), call);
+  assert.equal(callAfterRun(call, "\u2014"), call);
+  // The run already has this call, or its transcript filed days later.
+  assert.equal(callAfterRun(call, "2026-10-12"), null);
+  assert.equal(callAfterRun(call, "2026-10-16T00:00:00"), null);
+  assert.equal(callAfterRun(null, "2026-07-15"), null);
+  assert.equal(callAfterRun({ call_date: "soon" }, "2026-07-15"), null);
 });
