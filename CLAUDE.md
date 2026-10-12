@@ -74,6 +74,17 @@ the scheduled workflows set the same flag.
   The patched symbols are listed in the run diagnostics under
   `technical_session_bar_patched_symbols`. There is no US source, so a Yahoo
   gap there still fails the alignment guard.
+- **A demerger is restated, in the chart and in the screen, from the ex-date
+  open.** Neither Yahoo nor NSE's daily file adjusts for one, so the parent's
+  ex-date price cut reads as a crash of 40-90% that its holders never took.
+  `demerger_price_factor` in `backtest/corporate_actions.py` is the one rule:
+  previous close over the ex-date open. `workers/price_series_publisher.py`
+  applies it to the chart from the archive; `DEMERGER_ADJUSTMENT_ENABLED` (set
+  in the NSE workflow) makes `screener/demergers.py` apply it to Yahoo's
+  adjusted close for symbols NSE's action feed names, listed in the run
+  diagnostics under `technical_demerger_restated_symbols`. It is display-grade:
+  the backtest still excludes a position that spans a demerger. If the feed
+  cannot be read the run warns and scores the vendor's history as served.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and

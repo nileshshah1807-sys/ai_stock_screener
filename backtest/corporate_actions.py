@@ -23,6 +23,11 @@ they are **flagged rather than approximated**: the affected security is marked
 around its ex-date and the run excludes it instead of silently mis-adjusting it.
 Guessing there would put a fabricated return into the result, which is exactly
 what P0 exists to prevent.
+
+A chart and a live screen cannot exclude a security, though: they have to draw
+and score it. For those readers alone a demerger gets a *display-grade* factor,
+``demerger_price_factor``, taken from the exchange's ex-date price discovery.
+The backtest never applies it -- its table still blocks the position.
 """
 
 from __future__ import annotations
@@ -129,6 +134,28 @@ def _dividend_amount(text):
         if match:
             return float(match.group(1))
     return None
+
+
+def demerger_price_factor(prev_close, ex_open):
+    """Divisor restating pre-demerger prices onto the post-demerger basis.
+
+    On the ex-date the parent opens through a special price-discovery session,
+    so ``prev_close / ex_open`` is the market's own split of the old price
+    between what stays and what was carved out. A holder's value is unchanged
+    across that open, which is what dividing every earlier price by the factor
+    draws.
+
+    Display-grade, not exact: the open also carries one overnight's ordinary
+    move, and the carved-out company's later return is not followed. ``None``
+    when either price is missing or the open is not below the previous close --
+    a demerger cannot add value to the parent, so that is noise, not a ratio.
+    """
+    prev_close = pd.to_numeric(prev_close, errors="coerce")
+    ex_open = pd.to_numeric(ex_open, errors="coerce")
+    if pd.isna(prev_close) or pd.isna(ex_open) or prev_close <= 0 or ex_open <= 0:
+        return None
+    factor = float(prev_close) / float(ex_open)
+    return factor if factor > 1.0 else None
 
 
 def classify_action(subject):
@@ -359,6 +386,18 @@ class AdjustmentTable:
                 self._dividends.setdefault(key, []).append((ex_date, float(dividend)))
             elif action in UNADJUSTABLE_ACTIONS:
                 self._blocked.setdefault(key, []).append((ex_date, action))
+
+    def add_derived_factor(self, key, ex_date, factor):
+        """Record a price factor that did not come from an action's subject.
+
+        For readers that must draw a security through an unadjustable action
+        (see ``demerger_price_factor``). The action still blocks: a backtest
+        given this table would exclude the position exactly as before.
+        """
+        entry = (_as_date(ex_date), float(factor))
+        entries = self._factors.setdefault(str(key), [])
+        if entry[1] > 0 and all(existing[0] != entry[0] for existing in entries):
+            entries.append(entry)
 
     def securities_with_actions_since(self, since):
         """Securities with a *ratio* action on or after ``since``.

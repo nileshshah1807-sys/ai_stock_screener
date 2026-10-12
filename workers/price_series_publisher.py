@@ -72,6 +72,88 @@ def collect_observations(store, sessions, master, adjustment_table):
     return observations, {key: value[1] for key, value in latest_symbol.items()}
 
 
+# A demerged parent can stay suspended for a few sessions past its ex-date; its
+# first bar after that still quotes the pre-demerger close as ``Prev_Close``.
+DEMERGER_SESSION_SEARCH = 10
+
+
+def apply_demerger_factors(store, sessions, actions, master, adjustment_table):
+    """Give the chart's adjustment table a factor for every demerger it can price.
+
+    The ledger carries no ratio for a demerger, so the parent's ex-date price
+    cut would otherwise be drawn as a crash its holders never took. The factor
+    comes from the security's own first bar on or after the ex-date.
+
+    Returns the applied adjustments as ``(symbol, session, factor)`` and the
+    symbols that could not be priced, so a run reports both.
+    """
+    from backtest.corporate_actions import (
+        ACTION_DEMERGER,
+        _parse_ex_date,
+        demerger_price_factor,
+    )
+    from backtest.security_master import isin_core
+
+    applied, unpriced = [], []
+    if actions is None or len(actions) == 0 or "Action_Type" not in actions.columns:
+        return applied, unpriced
+    demergers = actions[actions["Action_Type"] == ACTION_DEMERGER]
+    seen = set()
+    for record in demergers.to_dict("records"):
+        ex_date = _parse_ex_date(record.get("Ex_Date"))
+        isin = str(record.get("ISIN") or "").strip().upper()
+        symbol = str(record.get("Symbol") or "").strip().upper()
+        if ex_date is None or (isin, ex_date) in seen:
+            continue
+        seen.add((isin, ex_date))
+        if ex_date < sessions[0] or ex_date > sessions[-1]:
+            continue
+
+        factor = None
+        candidates = [day for day in sessions if day >= ex_date]
+        for day in candidates[:DEMERGER_SESSION_SEARCH]:
+            frame = store.load_day(day)
+            if frame is None or frame.empty:
+                continue
+            isins = frame["ISIN"].astype(str).str.upper()
+            rows = frame[isins == isin]
+            if rows.empty:
+                # The feed often quotes an ISIN the company has since replaced
+                # through a face-value change. The core of the ISIN survives
+                # that, and the ticker may not.
+                rows = frame[isins.map(isin_core) == isin_core(isin)]
+            if rows.empty:
+                continue
+            bar = rows.iloc[0]
+            factor = demerger_price_factor(bar.get("Prev_Close"), bar.get("Open"))
+            if factor is not None:
+                traded = str(bar["ISIN"]).strip().upper()
+                key = master.security_id_for_isin(traded) or traded
+                adjustment_table.add_derived_factor(key, day, factor)
+                applied.append((symbol, day, factor))
+            # The first traded bar decides either way: a later one no longer
+            # quotes the pre-demerger close.
+            break
+        else:
+            unpriced.append(symbol)
+
+    if applied:
+        logger.info(
+            "Demerger adjustments: %d applied (%s)",
+            len(applied),
+            ", ".join(
+                f"{symbol} {day.isoformat()} /{factor:.3f}"
+                for symbol, day, factor in applied
+            ),
+        )
+    if unpriced:
+        logger.warning(
+            "Demergers with no bar to price them from, left unadjusted: %s",
+            ", ".join(sorted(unpriced)),
+        )
+    return applied, unpriced
+
+
 def build_rows(sessions, observations, symbols, *, min_points=MIN_POINTS):
     """Encode one row per symbol, newest security winning a reused ticker."""
     by_symbol: dict[str, dict] = {}

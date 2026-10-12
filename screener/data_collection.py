@@ -18,6 +18,7 @@ import pandas as pd
 import yfinance as yf
 
 from . import universe as universe_sources
+from .demergers import DemergerLedger, history_window, restate_for_demergers
 from .market_data import (
     PriceCache,
     TechnicalEnhancer,
@@ -260,10 +261,12 @@ class StockDataCollector:
         completion_cutoff=None,
         market_timezone=None,
         session_bar_loader=None,
+        demerger_loader=None,
     ):
         self.config = config
         # Injected in tests so the fallback never reaches the exchange.
         self._session_bar_loader = session_bar_loader
+        self._demerger_loader = demerger_loader
         self.market_profile = active_profile(config)
         self.collection_diagnostics = {
             "schema_version": 1,
@@ -436,6 +439,16 @@ class StockDataCollector:
             self.config.OUTPUT_DIR / "session_bar_cache",
             loader=self._session_bar_loader,
         )
+
+    def _demerger_ledger(self, as_of):
+        """The market's demerger ledger for this run, or ``None``."""
+        provider = self.market_profile.demerger_ledger
+        if provider is None or not _setting_enabled(
+            getattr(self.config, "DEMERGER_ADJUSTMENT_ENABLED", False)
+        ):
+            return None
+        start, end = history_window(as_of)
+        return DemergerLedger(provider, start, end, loader=self._demerger_loader)
 
     def get_comprehensive_stock_list(self):
         """Return the sorted research universe for this run's market.
@@ -611,6 +624,8 @@ class StockDataCollector:
             )
         session_bars = self._session_bar_source(expected_price_session)
         session_bar_patched = []
+        demerger_ledger = self._demerger_ledger(analysis_as_of.date())
+        demerger_restated = []
         batch_size = 30
         for i in range(0, len(vendor_symbols), batch_size):
             batch = vendor_symbols[i : i + batch_size]
@@ -656,6 +671,17 @@ class StockDataCollector:
                         if price_data.empty:
                             failed.append(clean_sym)
                             continue
+                        if demerger_ledger is not None:
+                            # After the completed-bar selection: an ex-date bar
+                            # the run will not score must not restate the
+                            # history it is about to be dropped from.
+                            price_data, restated = restate_for_demergers(
+                                price_data,
+                                demerger_ledger.ex_dates(clean_sym),
+                                self.market_timezone,
+                            )
+                            if restated:
+                                demerger_restated.append(clean_sym)
                         raw_close_aligned = pd.to_numeric(price_data["Close"], errors="coerce")
                         adjusted_close_aligned = pd.to_numeric(
                             price_data.get("Adj Close", price_data["Close"]), errors="coerce"
@@ -951,6 +977,22 @@ class StockDataCollector:
                 len(fresh_symbols),
                 expected_price_session.isoformat(),
                 session_bars.provider,
+            )
+        # Recorded for the run manifest: whose history was restated across a
+        # demerger, and whether the ledger that names them could be read.
+        demerger_restated = sorted(set(demerger_restated) & fresh_symbols)
+        self.collection_diagnostics["technical_demerger_restated_symbols"] = (
+            demerger_restated
+        )
+        self.collection_diagnostics["technical_demerger_ledger_status"] = (
+            demerger_ledger.status if demerger_ledger is not None else "disabled"
+        )
+        if demerger_restated:
+            logger.info(
+                "%d symbols had their price history restated across a "
+                "demerger: %s",
+                len(demerger_restated),
+                ", ".join(demerger_restated),
             )
         provider_failed_symbols = sorted(set(to_download) - fresh_symbols)
         prior_by_symbol = {}
