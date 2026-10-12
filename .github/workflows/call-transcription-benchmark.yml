@@ -1,0 +1,61 @@
+name: Call transcription benchmark
+run-name: Call transcription benchmark (${{ github.event_name }})
+
+# A measurement, not a production job: it reads NSE's recording notices,
+# transcribes a few recordings with an open-source model on the runner's own
+# cores, and writes the timings to the job summary. Nothing is stored.
+on:
+  push:
+    branches: ["test/call-audio-transcription"]
+  workflow_dispatch:
+    inputs:
+      days:
+        description: Days of announcements to read
+        default: "14"
+      recordings:
+        description: Recordings to transcribe
+        default: "2"
+      models:
+        description: faster-whisper models, space separated
+        default: "small large-v3-turbo"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: call-transcription-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      BENCHMARK_DAYS: ${{ inputs.days || '14' }}
+      BENCHMARK_RECORDINGS: ${{ inputs.recordings || '2' }}
+      BENCHMARK_MODELS: ${{ inputs.models || 'small large-v3-turbo' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # faster-whisper is deliberately outside the locks until the measurement
+      # says the approach is worth adopting.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-ci.txt
+          python -m pip install faster-whisper
+
+      - name: Runner size
+        run: nproc && free -g
+
+      # The model list is split on spaces on purpose.
+      - name: Measure
+        run: |
+          python -m tools.benchmark_call_transcription \
+            --days "$BENCHMARK_DAYS" \
+            --transcribe "$BENCHMARK_RECORDINGS" \
+            --models $BENCHMARK_MODELS
