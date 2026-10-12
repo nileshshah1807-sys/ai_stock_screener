@@ -247,8 +247,35 @@ def normalise_index(records):
     return frame.drop(columns="_seq").reset_index(drop=True)
 
 
+def first_filings(records):
+    """When each company first filed each quarter: ``{(symbol, period): time}``.
+
+    The earliest broadcast across bases. A revision is served with no
+    broadcast time and is left out: it restates a quarter, it does not
+    announce one.
+    """
+    first = {}
+    for record in records or ():
+        symbol = str(record.get("symbol") or "").strip().upper()
+        period_end = _parse_stamp(record.get("qe_Date"))
+        broadcast = _parse_stamp(record.get("broadcast_Date"))
+        if not symbol or period_end is None or broadcast is None:
+            continue
+        key = (symbol, period_end.date())
+        if key not in first or broadcast < first[key]:
+            first[key] = broadcast
+    return first
+
+
 def fetch_index(start, end, *, session=None, timeout=60):
     """Every results filing broadcast between two dates, normalised."""
+    return normalise_index(
+        fetch_index_records(start, end, session=session, timeout=timeout)
+    )
+
+
+def fetch_index_records(start, end, *, session=None, timeout=60):
+    """Every results filing broadcast between two dates, as the exchange serves it."""
     if session is None:
         import requests
 
@@ -282,7 +309,7 @@ def fetch_index(start, end, *, session=None, timeout=60):
         # A year and a half of results is tens of thousands of filings; none
         # at all is a failed fetch, not a quiet period.
         raise ValueError("integrated-filing index returned no filings")
-    return normalise_index(collected)
+    return collected
 
 
 def parse_quarter_facts(text):

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { requireAccess } from "@/lib/auth";
 import { marketFromSlug } from "@/lib/markets";
+import { getBellState } from "@/lib/notifications";
 import { getLatestRun } from "@/lib/queries";
 import { mark, trace } from "@/lib/trace";
 
@@ -32,13 +33,16 @@ export default async function MarketLayout({
   // The parent layout already verified access, and getViewer is wrapped in
   // React's cache(), so this resolves from that render's cache rather than
   // spending a second session round trip.
-  const [viewer, run] = await Promise.all([
+  // The bell's state rides along with the manifest for the same reason: read
+  // once per market visit, not once per page.
+  const [viewer, run, notifications] = await Promise.all([
     trace("  requireAccess", () => requireAccess()),
     trace("  getLatestRun", () => getLatestRun(market.code)),
+    trace("  getBellState", () => getBellState(market.code)),
   ]);
 
   return (
-    <AppShell run={run} viewer={viewer} market={market}>
+    <AppShell run={run} viewer={viewer} market={market} notifications={notifications}>
       {children}
     </AppShell>
   );

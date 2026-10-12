@@ -111,3 +111,14 @@ jobs:
             --time-budget-minutes 50 \
             ${SYMBOLS:+--symbols ${SYMBOLS}} \
             ${DRY_RUN}
+
+      # What the bell in the dashboard's header counts: a result filed, a call
+      # transcript stored (workers/market_events.py). After the refresh above
+      # because the US has no filing index, so a US result is the statements
+      # gaining a quarter. Runs even if that step failed -- NSE results and
+      # transcripts do not depend on it -- and is idempotent.
+      - name: Record events for notifications
+        if: ${{ !cancelled() }}
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.market_events --market "${MARKET}" ${DRY_RUN}

@@ -634,6 +634,77 @@ class DashboardRepository:
             )
         return written
 
+    # -- notifications ----------------------------------------------------
+
+    def snapshot_companies(self) -> dict[str, str | None]:
+        """Symbol -> company name for this market's newest published run."""
+        run = self.latest_completed_run()
+        if not run:
+            return {}
+        rows = self._paged(
+            "screener_snapshot",
+            {
+                "select": "symbol,company",
+                "run_date": f"eq.{run['run_date']}",
+                "order": "symbol.asc",
+            },
+        )
+        return {str(row["symbol"]): row.get("company") for row in rows if row.get("symbol")}
+
+    def recorded_event_keys(self, kind: str) -> dict[str, str]:
+        """Each symbol's latest recorded event key of ``kind``, baselines included."""
+        rows = self._paged(
+            "market_events",
+            {"select": "symbol,event_key", "kind": f"eq.{kind}", "order": "id.asc"},
+        )
+        latest: dict[str, str] = {}
+        for row in rows:
+            symbol, key = str(row["symbol"]), str(row["event_key"])
+            if key > latest.get(symbol, ""):
+                latest[symbol] = key
+        return latest
+
+    def recent_transcripts(self, since: str) -> list[dict[str, Any]]:
+        """Call transcripts stored at or after ``since`` (an ISO timestamp)."""
+        return self._paged(
+            "transcripts",
+            {
+                "select": "symbol,quarter,call_date,created_at",
+                "created_at": f"gte.{since}",
+                "order": "created_at.asc",
+            },
+        )
+
+    def insert_market_events(
+        self, rows: list[dict[str, Any]], chunk_size: int = 200
+    ) -> int:
+        """Record events not already recorded; returns how many were new.
+
+        Idempotent on (market, kind, symbol, event_key): a worker that sees the
+        same filing on its next run writes nothing, and the first sighting
+        keeps its ``detected_at``.
+        """
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            inserted = self._request(
+                "POST",
+                "market_events?on_conflict=market,kind,symbol,event_key&select=id",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=ignore-duplicates,return=representation"},
+                retries=2,
+            )
+            written += len(inserted or [])
+        return written
+
+    def prune_market_events(self, before: str) -> None:
+        """Drop events first seen before ``before`` (an ISO timestamp)."""
+        self._request(
+            "DELETE",
+            "market_events",
+            params=self._scoped({"detected_at": f"lt.{before}"}),
+            headers={"Prefer": "return=minimal"},
+        )
+
     def delete_stale_snapshot_rows(self, run_date: str, symbols: Iterable[str]) -> None:
         """Remove rows for a re-ingested date that the new run no longer covers.
 

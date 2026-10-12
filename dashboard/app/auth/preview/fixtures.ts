@@ -3,6 +3,7 @@ import type {
   SnapshotRow,
   SnapshotRowWithPayload,
 } from "@/lib/types";
+import type { BellState } from "@/lib/notifications";
 import type { FinancialStatementsRow, NewListingRow } from "@/lib/queries";
 
 /**
@@ -615,3 +616,47 @@ export const previewNewListings: NewListingRow[] = [
   listing({ symbol: "VTMLTD", company: "VTM Limited", listed_on: "2026-09-23", sessions: 32, last_close: 44.5, change_since_first_pct: 93.9, market_cap: 4475320500, median_turnover_20d: 3807455 }),
   listing({ symbol: "SLOWCO", company: "Slow Traders Limited", listed_on: "2026-03-02", status: "below_liquidity_floor", sessions: 140, last_close: 88.1, change_since_first_pct: -12.4, market_cap: 2100000000, median_turnover_20d: 1200000 }),
 ];
+
+/**
+ * The header bell with two unread events and one already read, so the badge,
+ * the unread mark and both kinds are all on screen. `seenAt` sits between
+ * them; the times are fixed, so the relative ages in the popover simply read
+ * as old.
+ */
+export const previewNotifications: BellState = {
+  watching: true,
+  unread: 2,
+  seenAt: "2026-08-14T06:00:00Z",
+  events: [
+    {
+      id: 3,
+      symbol: "ALPHAENG",
+      company: "Alpha Engineering Ltd",
+      kind: "results",
+      event_key: "2026-06-30",
+      occurred_at: "2026-08-14T10:37:00Z",
+      detected_at: "2026-08-14T11:00:00Z",
+      detail: { period: "2026-06-30", source: "filing" },
+    },
+    {
+      id: 2,
+      symbol: "BETAPUMP",
+      company: "Beta Pumps and Compressors Ltd",
+      kind: "transcript",
+      event_key: "2026-08-13",
+      occurred_at: "2026-08-14T07:10:00Z",
+      detected_at: "2026-08-14T09:00:00Z",
+      detail: { quarter: "2026-06-30", call_date: "2026-08-13" },
+    },
+    {
+      id: 1,
+      symbol: "GAMMAVALV",
+      company: "Gamma Valves Ltd",
+      kind: "results",
+      event_key: "2026-06-30",
+      occurred_at: "2026-08-12T12:05:00Z",
+      detected_at: "2026-08-12T15:00:00Z",
+      detail: { period: "2026-06-30", source: "filing" },
+    },
+  ],
+};

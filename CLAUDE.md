@@ -114,6 +114,18 @@ the scheduled workflows set the same flag.
   ex-date** (`AdjustmentTable.key_for`). Keyed on the feed's ISIN alone, a
   split whose ISIN the archive never saw matches no price row and is silently
   dropped.
+- **Notifications are events derived from data other jobs already collect.**
+  `workers/market_events.py` (a step in the Financial statements workflow)
+  writes `market_events`, one row per `(market, kind, symbol, event_key)`,
+  written once: a `results` event from NSE's filing index, or in the US from
+  the stored statements gaining a quarter (no filing index there, so the first
+  sighting of a company is a hidden baseline, not an announcement), and a
+  `transcript` event from the transcript tables. The dashboard's bell counts
+  events recorded after the viewer's `notification_reads.seen_at`, scoped to
+  their watchlists when they have any. Display evidence only: nothing scores
+  it. A new kind is one function in the worker and one entry in
+  `dashboard/lib/notifications.mjs`; the tables are in
+  `storage/notifications_schema.sql` and must be applied by hand.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and

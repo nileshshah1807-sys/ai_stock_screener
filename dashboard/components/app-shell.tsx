@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { Activity, ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut, TrendingUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { FreshnessBanner } from "@/components/freshness-banner";
+import { HealthLink } from "@/components/health-link";
+import { NotificationBell } from "@/components/notifications/bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavLink } from "@/components/nav-link";
 import { MarketProvider } from "@/components/market-provider";
@@ -12,6 +14,7 @@ import { MarketSwitch } from "@/components/market-switch";
 import { GlassTrack } from "@/components/glass-track";
 import { formatDate } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
+import type { BellState } from "@/lib/notifications";
 import type { ScreenerRun } from "@/lib/types";
 import type { Viewer } from "@/lib/auth";
 
@@ -19,9 +22,14 @@ import { signOut } from "@/app/login/actions";
 
 /*
  * Five destinations. The comment on AppShell notes this group stays comfortable
- * to about six before it needs an overflow menu; Market is the fifth, which is
- * also the most an iOS-style tab bar holds on a phone. The next destination
- * needs that overflow menu, not a sixth tab.
+ * to about six before it needs an overflow menu; five is also the most an
+ * iOS-style tab bar holds on a phone. The next destination needs that overflow
+ * menu, not a sixth tab.
+ *
+ * Run health was the sixth and now lives in the account capsule (HealthLink):
+ * it is about the system that produced the rankings, not a place the stocks
+ * are, and notifications -- the other thing about "what changed" -- sit beside
+ * it there.
  *
  * Markets are deliberately NOT in this list. Which market you are looking at
  * and which view you are looking at are independent axes -- every destination
@@ -35,7 +43,6 @@ const NAV = [
   { path: "/watchlists", label: "Watchlists", icon: Bookmark },
   { path: "/movers", label: "Movers", icon: ArrowLeftRight },
   { path: "/returns", label: "Returns", icon: TrendingUp },
-  { path: "/health", label: "Run health", icon: Activity },
 ] as const;
 
 function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
@@ -84,12 +91,17 @@ function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
  * control -- it is labelled and titled with the address so the identity is
  * available to a screen reader and on hover, but sign-out is the button beside
  * it rather than a menu hidden behind this.
+ *
+ * Hidden below `sm`. The capsule gained the bell and run health, and on a
+ * 430px phone five circles left the brand 30px -- it rendered as "W". This is
+ * the one item of the five that does nothing when pressed, and sign-out
+ * already names the account in its label, so it is the one that gives way.
  */
 function Avatar({ viewer }: { viewer: Viewer }) {
   const initials = viewer.email.slice(0, 2).toUpperCase();
   return (
     <span
-      className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-[0.6875rem] font-semibold tracking-[0.02em] text-primary-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.2)]"
+      className="hidden size-9 shrink-0 items-center justify-center rounded-full bg-primary text-[0.6875rem] sm:flex font-semibold tracking-[0.02em] text-primary-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.2)]"
       title={viewer.email}
       aria-label={`Signed in as ${viewer.email}`}
     >
@@ -158,11 +170,13 @@ export function AppShell({
   run,
   viewer,
   market,
+  notifications,
   children,
 }: {
   run: ScreenerRun | null;
   viewer: Viewer;
   market: Market;
+  notifications: BellState;
   children: React.ReactNode;
 }) {
   return (
@@ -273,8 +287,25 @@ export function AppShell({
             identity zone everything the icons do not need.
           */}
           <div className="flex shrink-0 items-center justify-end xl:flex-1">
+            {/*
+              Left to right: what changed, how the system is doing, how it
+              looks, leaving, who. The bell leads because it is the one control
+              here that carries news; the avatar closes the capsule as it
+              always has. `key` on the bell so switching market resets its
+              count to that market's rather than carrying the other's over.
+            */}
             <div className="glass flex items-center gap-0.5 rounded-full p-0.5">
-              <ThemeToggle />
+              <NotificationBell key={market.slug} market={market} state={notifications} />
+              <HealthLink href={marketPath(market.slug, "/health")} />
+              {/*
+                Not on a phone. With the avatar already gone there, this is
+                what keeps the capsule at the three circles it had before the
+                bell and run health arrived, and so keeps "Winnow" readable
+                beside it. The theme still follows the phone's own setting.
+              */}
+              <span className="hidden sm:contents">
+                <ThemeToggle />
+              </span>
               <SignOut viewer={viewer} />
               <Avatar viewer={viewer} />
             </div>
