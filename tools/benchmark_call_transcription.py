@@ -27,6 +27,7 @@ import os
 import re
 import sys
 import time
+import traceback
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -126,8 +127,24 @@ def _pdf_links(path: Path) -> list[str]:
         document.close()
 
 
-def discover(days: int) -> tuple[list[RecordingNotice], int]:
-    """Recording notices in the window, classified, and the count of call schedules."""
+def discover(days: int, attempts: int = 3) -> tuple[list[RecordingNotice], int]:
+    """Recording notices in the window, classified, and the count of call schedules.
+
+    NSE turns away a share of first requests from a hosted runner, so the read
+    is retried the way the transcript collector retries its own.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            return _discover_once(days)
+        except Exception as exc:
+            if attempt == attempts:
+                raise
+            print(f"  discovery attempt {attempt}/{attempts} failed: {exc}", file=sys.stderr)
+            time.sleep(10 * attempt)
+    raise AssertionError("unreachable")
+
+
+def _discover_once(days: int) -> tuple[list[RecordingNotice], int]:
     from nse import NSE
 
     end = datetime.now()
@@ -227,7 +244,21 @@ def report(notices: list[RecordingNotice], schedules: int, days: int, runs: list
     return "\n".join(lines) + "\n"
 
 
+def _annotate(level: str, message: str) -> None:
+    """Surface a line as a run annotation, which is readable without the log."""
+    if os.getenv("GITHUB_ACTIONS"):
+        print(f"::{level}::" + message.replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
+
+
 def main() -> None:
+    try:
+        _run()
+    except Exception:
+        _annotate("error", traceback.format_exc()[-3000:])
+        raise
+
+
+def _run() -> None:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("--days", type=int, default=14, help="window of NSE announcements to read")
     parser.add_argument("--url", action="append", default=[], help="a recording to transcribe instead of discovering one")
@@ -262,6 +293,15 @@ def main() -> None:
 
     text = report(notices, schedules, arguments.days, runs, arguments.threads)
     print(text)
+    kinds = Counter(notice.kind for notice in notices)
+    _annotate("notice", f"notices={len(notices)} schedules={schedules} " + " ".join(f"[{kind}]={kinds[kind]}" for kind in _ORDER))
+    for run in runs:
+        _annotate(
+            "notice",
+            f"{run['recording']} {run['model']}: audio {run['audio_minutes']:.1f} min, language {run['language']}, "
+            f"load {run['load_seconds']:.0f}s, transcribe {run['seconds']:.0f}s, {run['speed']:.1f}x real time, "
+            f"{run['words']} words\n{run['sample']}",
+        )
     summary_path = os.getenv("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as handle:
