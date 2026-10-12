@@ -7,22 +7,25 @@ import {
   highlightList,
   outlookTone,
   sourceLabel,
-  toneLabel,
+  stanceLabel,
 } from "./concalls.mjs";
 
-test("tone is a word for each fifth of the season's calls", () => {
-  assert.deepEqual(
-    [95, 80, 79.99, 60, 45, 20, 19.9, 0].map((standing) => toneLabel(standing).label),
-    ["Bullish", "Bullish", "Optimistic", "Optimistic", "Neutral", "Cautious", "Bearish", "Bearish"],
-  );
-  assert.equal(toneLabel("72.5").tone, "positive");
-  assert.equal(toneLabel(10).tone, "negative");
+test("management's stance is the word the outlook step chose, with its sentence", () => {
+  assert.deepEqual(stanceLabel("optimistic", " We expect a strong second half. "), {
+    label: "Optimistic",
+    tone: "positive",
+    quote: "We expect a strong second half.",
+  });
+  assert.equal(stanceLabel("Bearish", null).tone, "negative");
+  assert.equal(stanceLabel("neutral").tone, "muted");
+  assert.equal(stanceLabel("cautious").quote, "");
 });
 
-test("an unscored call gets no word rather than the lowest one", () => {
-  assert.equal(toneLabel(null), null);
-  assert.equal(toneLabel(undefined), null);
-  assert.equal(toneLabel(""), null);
+test("a call with no stance gets no word rather than a neutral one", () => {
+  assert.equal(stanceLabel(null), null);
+  assert.equal(stanceLabel(""), null);
+  assert.equal(stanceLabel("unknown"), null);
+  assert.equal(stanceLabel("elated"), null);
 });
 
 test("a call read from its recording says so", () => {

@@ -38,12 +38,23 @@ create table if not exists concall_feed (
     tone_percentile numeric(5,2),
     guidance_direction text,
     outlook_score numeric(5,2),
+    -- Management's overall stance as the outlook step read it: bullish,
+    -- optimistic, neutral, cautious or bearish, with the sentence behind it.
+    -- Null for a call read before the question was asked, or one the model
+    -- could not place. Shown, never scored.
+    management_stance text,
+    management_stance_quote text,
     -- Up to three of [{"text", "tone": "positive"|"negative", "quote"}].
     highlights jsonb not null default '[]'::jsonb,
     updated_at timestamptz not null default now(),
 
     primary key (market, symbol, quarter)
 );
+
+-- `create table if not exists` above is a no-op on an existing deployment, so
+-- columns added since the table first shipped are added here.
+alter table concall_feed add column if not exists management_stance text;
+alter table concall_feed add column if not exists management_stance_quote text;
 
 create index if not exists concall_feed_recent_idx
     on concall_feed (market, call_date desc);

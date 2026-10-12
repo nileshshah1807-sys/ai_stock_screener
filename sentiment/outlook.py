@@ -55,6 +55,10 @@ GUIDANCE_SCOPES = ("company", "segment", "none")
 TRENDS = ("up", "flat", "down", "unknown")
 DEMAND_TONES = ("strong", "stable", "weak", "unknown")
 CAPACITY_STATES = ("operational", "ramping", "under_construction", "planned", "none")
+# Management's overall stance on what is ahead, for display beside a call.
+# Read by the same request because the model already has the whole call in
+# front of it; never scored -- see `verify_quotes`.
+STANCES = ("bullish", "optimistic", "neutral", "cautious", "bearish", "unknown")
 
 _QUOTE = {"type": ["string", "null"]}
 _NUMBER = {"type": ["number", "null"]}
@@ -63,7 +67,7 @@ SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": [
-        "guidance", "order_book", "capacity", "demand", "margin", "tailwinds", "headwinds",
+        "guidance", "order_book", "capacity", "demand", "margin", "tailwinds", "headwinds", "stance",
     ],
     "properties": {
         "guidance": {
@@ -113,6 +117,12 @@ SCHEMA: dict[str, Any] = {
         },
         "tailwinds": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/item"}},
         "headwinds": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/item"}},
+        "stance": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["view", "quote"],
+            "properties": {"view": {"enum": list(STANCES)}, "quote": _QUOTE},
+        },
     },
     "$defs": {
         "item": {
@@ -158,6 +168,14 @@ fell in the reported quarter, a margin to be sustained or held, and a bare \
 - tailwinds and headwinds: at most three each, specific to this company \
 (a new approval, a customer win, a tariff, a raw-material cost), not general \
 optimism.
+- stance.view: management's own overall view of the company's prospects from \
+here, judged from what management says and not from analysts' questions: \
+"bullish" if it expects clearly better performance and says so plainly; \
+"optimistic" if positive with caveats; "neutral" if balanced or steady; \
+"cautious" if it stresses difficulties ahead; "bearish" if it expects \
+performance to worsen. The quote is the one management sentence that best \
+shows it. "unknown" with a null quote if the call gives no basis. Decide this \
+last; it must not change any other answer.
 
 Answer with one JSON object and nothing else -- no explanation, no code fence. \
 It has exactly these keys; where a set of values is listed, use one of them:
@@ -172,7 +190,8 @@ It has exactly these keys; where a set of values is listed, use one of them:
   "demand": {"tone": "strong|stable|weak|unknown", "quote": string or null},
   "margin": {"trend": "up|flat|down|unknown", "quote": string or null},
   "tailwinds": [{"what": string, "quote": string}],
-  "headwinds": [{"what": string, "quote": string}]
+  "headwinds": [{"what": string, "quote": string}],
+  "stance": {"view": "bullish|optimistic|neutral|cautious|bearish|unknown", "quote": string or null}
 }"""
 
 
@@ -261,7 +280,22 @@ def verify_quotes(extraction: dict[str, Any], transcript: str) -> tuple[dict[str
             else:
                 dropped += 1
         verified[section] = items
+    verified["stance"] = _verified_stance(extraction.get("stance"), haystack)
     return verified, kept, dropped
+
+
+def _verified_stance(value: Any, haystack: str) -> dict[str, Any]:
+    """Management's stance, kept only with a sentence of the call behind it.
+
+    Outside the counts on purpose. `verified_fields` is how the screener knows
+    a call stated something it can score, and a stance is a reading of the
+    whole call, not a statement: counted, it would make a call that said
+    nothing scorable at a neutral 50.
+    """
+    view = value.get("view") if isinstance(value, dict) else None
+    if view in STANCES and view != "unknown" and quote_found(value.get("quote"), haystack):
+        return {"view": view, "quote": str(value["quote"])}
+    return {"view": "unknown", "quote": None}
 
 
 def _number(value: Any) -> float | None:

@@ -18,6 +18,7 @@ Usage::
     python -m tools.extract_transcript_outlook --limit 5        # a first look
     python -m tools.extract_transcript_outlook --latest-only     # each company's newest call
     python -m tools.extract_transcript_outlook --max-cost 4.5   # everything pending, capped
+    python -m tools.extract_transcript_outlook --refresh-since 2026-10-01   # read this season's calls again
 
 Needs ``OPENROUTER_API_KEY``, ``SUPABASE_URL`` and ``SUPABASE_SERVICE_ROLE_KEY``,
 from the environment or ``.env``, and the ``transcript_outlooks`` table from
@@ -70,15 +71,25 @@ def estimate_cost(transcripts, model):
     return (prompt * prices[0] + output * prices[1]) / 1_000_000
 
 
-def pending_transcripts(repository, model, latest_only=False):
+def pending_transcripts(repository, model, latest_only=False, refresh_since=None):
     """Transcripts with no outlook yet, newest call first.
 
     ``latest_only`` keeps each company's most recent call, which is the only
     one the screener reads; earlier calls matter for testing the score against
     the returns that followed them.
+
+    ``refresh_since`` (an ISO date) also returns calls held on or after it that
+    already have an outlook, to be read again and overwritten -- how a question
+    added to the extraction reaches calls read before it was asked. A second
+    reading can differ from the first, so their outlook scores can move.
     """
     done = repository.outlook_transcript_ids(model, OUTLOOK_VERSION)
     transcripts = repository.transcripts_for_outlook()
+    if refresh_since:
+        done = {
+            row["id"] for row in transcripts
+            if row["id"] in done and str(row.get("call_date") or "") < refresh_since
+        }
     if latest_only:
         latest = {}
         for row in transcripts:
@@ -159,6 +170,10 @@ def main(argv=None):
         "--latest-only", action="store_true",
         help="each company's most recent call only (what the screener reads)",
     )
+    parser.add_argument(
+        "--refresh-since", default=None, metavar="YYYY-MM-DD",
+        help="also read again calls held on or after this date that already have an outlook",
+    )
     parser.add_argument("--dry-run", action="store_true", help="count and estimate; no API calls, no writes")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -170,7 +185,9 @@ def main(argv=None):
 
     repository = SupabaseRepository.from_environment(args.market)
     try:
-        pending = pending_transcripts(repository, args.model, latest_only=args.latest_only)
+        pending = pending_transcripts(
+            repository, args.model, latest_only=args.latest_only, refresh_since=args.refresh_since
+        )
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 404:
             raise SystemExit(

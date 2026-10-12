@@ -9,7 +9,7 @@ import unittest
 from datetime import date
 
 from sentiment.outlook import OUTLOOK_VERSION
-from workers.concall_feed import build_feed, highlights, run
+from workers.concall_feed import build_feed, highlights, management_stance, run
 
 COMPANIES = {"ALPHA": "Alpha Ltd", "BETA": "Beta Ltd"}
 
@@ -22,6 +22,7 @@ EXTRACTION = {
     "tailwinds": [],
     "headwinds": [{"what": "freight costs", "quote": "Freight costs are a headwind."}],
     "points": [],
+    "stance": {"view": "optimistic", "quote": "We now expect eighteen percent growth."},
 }
 
 
@@ -61,6 +62,18 @@ class HighlightTests(unittest.TestCase):
         self.assertEqual(highlights(None), [])
 
 
+class StanceTests(unittest.TestCase):
+    def test_the_stance_the_outlook_read_with_its_sentence(self):
+        self.assertEqual(
+            management_stance(EXTRACTION), ("optimistic", "We now expect eighteen percent growth.")
+        )
+
+    def test_a_call_read_before_the_question_was_asked_has_no_stance(self):
+        earlier = {key: value for key, value in EXTRACTION.items() if key != "stance"}
+        for extraction in (earlier, {"stance": {"view": "unknown", "quote": None}}, {"stance": "bullish"}, None):
+            self.assertEqual(management_stance(extraction), (None, None))
+
+
 class FeedTests(unittest.TestCase):
     def test_a_call_read_from_its_recording_says_so(self):
         (row,) = build_feed([call("ALPHA", "2026-10-12", speech=True, tone=61.5, outlook=68)], COMPANIES)
@@ -70,6 +83,7 @@ class FeedTests(unittest.TestCase):
         )
         self.assertEqual((row["tone_score"], row["outlook_score"], row["guidance_direction"]), (61.5, 68.0, "raised"))
         self.assertEqual(len(row["highlights"]), 3)
+        self.assertEqual(row["management_stance"], "optimistic")
 
     def test_the_filed_transcript_wins_and_the_call_keeps_the_day_it_was_held(self):
         rows = build_feed(
@@ -103,6 +117,8 @@ class FeedTests(unittest.TestCase):
         self.assertIsNone(by_symbol["GAMMA"]["tone_percentile"])
         self.assertIsNone(by_symbol["GAMMA"]["tone_score"])
         self.assertIsNone(by_symbol["GAMMA"]["company"])
+        # No outlook read, so no stance -- not a neutral one.
+        self.assertIsNone(by_symbol["GAMMA"]["management_stance"])
 
     def test_newest_call_first_and_calls_without_a_date_are_left_out(self):
         rows = build_feed(
@@ -142,9 +158,10 @@ class FeedTests(unittest.TestCase):
 class FakeRepository:
     market = "NSE"
 
-    def __init__(self, calls, readable=True):
+    def __init__(self, calls, readable=True, reject_stance=False):
         self.calls = calls
         self.readable = readable
+        self.reject_stance = reject_stance
         self.written = None
 
     def concall_call_dates(self):
@@ -160,6 +177,8 @@ class FakeRepository:
         return COMPANIES
 
     def replace_concall_feed(self, rows, since):
+        if self.reject_stance and any("management_stance" in row for row in rows):
+            raise RuntimeError("Could not find the 'management_stance' column")
         self.written = (rows, since)
         return len(rows)
 
@@ -171,6 +190,13 @@ class RunTests(unittest.TestCase):
         self.assertEqual(counts, {"calls": 1, "from_recording": 1, "written": 1})
         self.assertEqual(repository.since, "2026-03-26")
         self.assertEqual(repository.written[1], "2026-03-26")
+
+    def test_a_table_without_the_stance_columns_still_gets_its_calls(self):
+        repository = FakeRepository([call("ALPHA", "2026-10-12", tone=60, outlook=64)], reject_stance=True)
+        self.assertEqual(run(repository, today=date(2026, 10, 12))["written"], 1)
+        (row,) = repository.written[0]
+        self.assertNotIn("management_stance", row)
+        self.assertEqual(row["outlook_score"], 64.0)
 
     def test_a_dry_run_writes_nothing(self):
         repository = FakeRepository([call("ALPHA", "2026-10-12", tone=60)])

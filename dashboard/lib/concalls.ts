@@ -32,13 +32,20 @@ export type Concall = {
   /** Where the tone stands among the season's calls, 0-100; null when unscored. */
   tone_percentile: number | null;
   guidance_direction: string | null;
+  /** bullish | optimistic | neutral | cautious | bearish; null when not read. */
+  management_stance?: string | null;
+  /** The sentence of the call the stance was read from. */
+  management_stance_quote?: string | null;
   outlook_score: number | null;
   highlights: ConcallHighlight[];
   updated_at: string;
 };
 
-const COLUMNS =
+const BASE_COLUMNS =
   "symbol, company, quarter, call_date, source, tone_score, tone_percentile, guidance_direction, outlook_score, highlights, updated_at";
+// Added after the table first shipped; see getConcalls for what happens
+// while a deployment has not re-applied storage/concalls_schema.sql.
+const COLUMNS = `${BASE_COLUMNS}, management_stance, management_stance_quote`;
 
 export type ConcallQuery = {
   /** Restrict to these symbols. An empty list matches nothing. */
@@ -55,13 +62,21 @@ export async function getConcalls(
 ): Promise<Concall[]> {
   if (symbols && symbols.length === 0) return [];
   const supabase = await createClient();
-  let query = supabase.from("concall_feed").select(COLUMNS).eq("market", market);
-  if (symbols) query = query.in("symbol", symbols);
-  if (recordingOnly) query = query.eq("source", "recording");
-  const { data, error } = await query
-    .order("call_date", { ascending: false })
-    .order("symbol", { ascending: true })
-    .limit(limit);
+  const read = (columns: string) => {
+    let query = supabase.from("concall_feed").select(columns).eq("market", market);
+    if (symbols) query = query.in("symbol", symbols);
+    if (recordingOnly) query = query.eq("source", "recording");
+    return query
+      .order("call_date", { ascending: false })
+      .order("symbol", { ascending: true })
+      .limit(limit);
+  };
+  let { data, error } = await read(COLUMNS);
+  if (error) {
+    // A table without the stance columns still has every call; the page
+    // shows them without a stance instead of showing nothing.
+    ({ data, error } = await read(BASE_COLUMNS));
+  }
   if (error) {
     console.error("getConcalls failed", error.message);
     return [];

@@ -1,5 +1,5 @@
 import { Highlight } from "@/components/concalls/concall-row";
-import { highlightList, outlookTone, sourceLabel } from "@/lib/concalls.mjs";
+import { highlightList, outlookTone, sourceLabel, stanceLabel } from "@/lib/concalls.mjs";
 import type { Concall } from "@/lib/concalls";
 import { formatDate, formatScore } from "@/lib/format";
 
@@ -27,6 +27,7 @@ export function LatestCall({ call }: { call: Concall | null }) {
   const source = sourceLabel(call.source);
   const highlights = highlightList(call.highlights);
   const tone = outlookTone(call.outlook_score);
+  const stance = stanceLabel(call.management_stance, call.management_stance_quote);
 
   return (
     <section className="panel p-5 sm:p-6">
@@ -51,6 +52,19 @@ export function LatestCall({ call }: { call: Concall | null }) {
           )}
         </div>
         <dl className="sm:text-right">
+          {stance ? (
+            <>
+              <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                Management stance
+              </dt>
+              <dd
+                title={stance.quote ? `\u201c${stance.quote}\u201d` : undefined}
+                className={`mb-3 mt-0.5 text-sm font-semibold ${TONES[stance.tone]} ${stance.quote ? "cursor-help" : ""}`}
+              >
+                {stance.label}
+              </dd>
+            </>
+          ) : null}
           <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">Outlook score</dt>
           <dd className={`tabular mt-0.5 text-sm font-semibold ${tone ? TONES[tone] : ""}`}>
             {formatScore(call.outlook_score)}

@@ -15,28 +15,29 @@ function number(value) {
 }
 
 /**
- * Management's tone as one of five words, from where the call's tone score
- * stands among the season's calls.
+ * Management's stance as the outlook step read it, with the sentence behind it.
  *
- * Standing, not score: the tone score has no natural scale and most calls sit
- * within a few points of each other, so a fixed cut-off would call nearly
- * every call the same thing. Fifths of the season's calls say which calls
- * sounded better than most. A call with no standing gets no word -- an
- * unscored call is not a bearish one.
+ * A language model reads the whole call for its outlook and is asked, last,
+ * how management itself sees what is ahead. This is that answer -- a judgment
+ * with a quote, not a count of words. (The page first labelled calls from the
+ * word-list tone score, and called a wealth manager "Bearish" for discussing
+ * market risk, which is its business.)
+ *
+ * Null for a call read before the question was asked or one the model could
+ * not place: no stance is not a neutral one.
  */
-const TONE_STEPS = [
-  { from: 80, label: "Bullish", tone: "positive" },
-  { from: 60, label: "Optimistic", tone: "positive" },
-  { from: 40, label: "Neutral", tone: "muted" },
-  { from: 20, label: "Cautious", tone: "negative" },
-  { from: 0, label: "Bearish", tone: "negative" },
-];
+const STANCES = {
+  bullish: { label: "Bullish", tone: "positive" },
+  optimistic: { label: "Optimistic", tone: "positive" },
+  neutral: { label: "Neutral", tone: "muted" },
+  cautious: { label: "Cautious", tone: "negative" },
+  bearish: { label: "Bearish", tone: "negative" },
+};
 
-export function toneLabel(percentile) {
-  const standing = number(percentile);
-  if (standing === null) return null;
-  const step = TONE_STEPS.find((item) => standing >= item.from) ?? TONE_STEPS[TONE_STEPS.length - 1];
-  return { label: step.label, tone: step.tone };
+export function stanceLabel(stance, quote) {
+  const known = typeof stance === "string" ? STANCES[stance.trim().toLowerCase()] : undefined;
+  if (!known) return null;
+  return { ...known, quote: typeof quote === "string" ? quote.trim() : "" };
 }
 
 /**
