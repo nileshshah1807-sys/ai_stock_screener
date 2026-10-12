@@ -23,12 +23,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from screener.numeric import round_half_up, safe_float
 from sentiment.outlook import OUTLOOK_VERSION, outlook_items
+from transcripts.periods import reporting_period_end_for_call
 from transcripts.recordings import SPEECH_METHOD_PREFIX
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,25 @@ FEED_DAYS = 200
 HIGHLIGHTS = 3
 SOURCE_RECORDING = "recording"
 SOURCE_TRANSCRIPT = "transcript"
+
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _quarter(transcript: dict[str, Any]) -> str | None:
+    """The quarter end a stored call explains, as a date.
+
+    Transcripts stored by an early version of the worker carry a label
+    ("2026-Q3") where later ones carry the quarter end. The label does not say
+    whose third quarter, so those are dated from the call by the worker's own
+    rule -- the one that produced every later row's quarter.
+    """
+    stored = str(transcript.get("quarter") or "")[:10]
+    if _ISO_DATE.fullmatch(stored):
+        return stored
+    try:
+        return reporting_period_end_for_call(date.fromisoformat(str(transcript.get("call_date"))[:10])).isoformat()
+    except ValueError:
+        return None
 
 
 def _one(value: Any) -> dict[str, Any]:
@@ -102,7 +123,7 @@ def build_feed(
     calls: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for transcript in transcripts:
         symbol = str(transcript.get("symbol") or "").strip().upper()
-        quarter = str(transcript.get("quarter") or "")[:10]
+        quarter = _quarter(transcript)
         if symbol and quarter and transcript.get("call_date"):
             calls.setdefault((symbol, quarter), []).append(transcript)
 

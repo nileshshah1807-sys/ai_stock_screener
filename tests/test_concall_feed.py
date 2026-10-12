@@ -104,16 +104,32 @@ class FeedTests(unittest.TestCase):
         self.assertIsNone(by_symbol["GAMMA"]["tone_score"])
         self.assertIsNone(by_symbol["GAMMA"]["company"])
 
-    def test_newest_call_first_and_calls_without_a_quarter_are_left_out(self):
+    def test_newest_call_first_and_calls_without_a_date_are_left_out(self):
         rows = build_feed(
             [
                 call("BETA", "2026-10-11", tone=50),
                 call("ALPHA", "2026-10-12", tone=70),
-                call("ALPHA", "2026-07-20", tone=40, quarter=None),
+                call("ALPHA", None, tone=40),
             ],
             COMPANIES,
         )
         self.assertEqual([row["symbol"] for row in rows], ["ALPHA", "BETA"])
+
+    def test_a_quarter_stored_as_a_label_or_not_at_all_is_dated_from_the_call(self):
+        # Early rows carry "2026-Q3"; the feed's quarter is a date column.
+        rows = build_feed(
+            [
+                call("ALPHA", "2026-07-20", tone=40, quarter="2026-Q3"),
+                call("BETA", "2026-07-22", tone=45, quarter=None),
+                # The same call stored twice, once under each form, is one row.
+                call("ALPHA", "2026-07-24", tone=42, quarter="2026-06-30"),
+            ],
+            COMPANIES,
+        )
+        self.assertEqual(
+            sorted((row["symbol"], row["quarter"]) for row in rows),
+            [("ALPHA", "2026-06-30"), ("BETA", "2026-06-30")],
+        )
 
     def test_an_outlook_from_another_version_is_not_shown(self):
         stored = call("ALPHA", "2026-10-12", tone=60, outlook=70)

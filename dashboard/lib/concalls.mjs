@@ -95,3 +95,21 @@ export function groupByCallDate(calls) {
   }
   return groups;
 }
+
+/**
+ * The call the stock page should announce: one held after the call the
+ * published run scored, or null.
+ *
+ * The stock page reads a run, and a run is a day old by the next evening. A
+ * call transcribed tonight is in the feed at once but reaches "What management
+ * said" only when the screener next runs. Dates compare as ISO strings; a run
+ * that scored no call at all is older than any call.
+ */
+export function callAfterRun(call, scoredCallDate) {
+  const held = typeof call?.call_date === "string" ? call.call_date.slice(0, 10) : "";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(held)) return null;
+  // Anything that is not a date -- the page's dash for "none" included -- is no call.
+  const given = typeof scoredCallDate === "string" ? scoredCallDate.trim().slice(0, 10) : "";
+  const scored = /^\d{4}-\d{2}-\d{2}$/.test(given) ? given : "";
+  return held > scored ? call : null;
+}
