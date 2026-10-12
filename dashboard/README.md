@@ -58,6 +58,36 @@ figure built on them as backtest. Its "all ranked stocks" comparison is
 `universe_index`, a daily equal-weight index the publisher appends to each run.
 Both tables are in `storage/returns_backfill_schema.sql`.
 
+## Notifications
+
+The bell in the header's account capsule, and `/[market]/notifications`.
+
+```text
+GitHub Actions: financial-statements.yml  (03:00, 09:00, 15:00 UTC)
+        └─ python -m workers.market_events --market NSE|US
+                    │   results     NSE: the exchange's results-filing index
+                    │               US:  the stored statements gaining a quarter
+                    │   transcript  a call transcript stored in the last week
+                    ▼
+        Supabase: market_events        (shared; one row per event, written once)
+                  notification_reads   (per viewer and market: when they last looked)
+```
+
+Unread is everything recorded after the viewer's `seen_at`; opening the bell or
+the page moves it to now. Both are scoped to the viewer's watchlists when they
+have any, with the whole market one filter away on the page: in a results
+season the market files hundreds of results a day, and a badge that is always
+full says nothing.
+
+The bell's state is read in the market layout, so it costs three small reads
+per market visit, not per page. Every read degrades to "nothing" if the tables
+are missing, so this code can deploy before `storage/notifications_schema.sql`
+is applied; the bell is simply empty until it is.
+
+Wording, the unread rule and day grouping live in `lib/notifications.mjs`
+(tested in `lib/notifications.test.mjs`). A kind that file does not know still
+renders, by its name.
+
 ## Access control
 
 Invite-only, enforced at three layers:
