@@ -18,7 +18,7 @@ const TONES: Record<string, string> = {
  * the same disclosure the stock page's "What management said" uses, so a
  * claim about a call is always one click from management's own words.
  */
-export function Highlight({ item }: { item: { text: string; tone: string; quote: string } }) {
+function Highlight({ item }: { item: { text: string; tone: string; quote: string } }) {
   const dot = (
     <span
       aria-hidden

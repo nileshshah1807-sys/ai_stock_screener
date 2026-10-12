@@ -26,7 +26,7 @@ EXTRACTION = {
 }
 
 
-def call(symbol, call_date, *, speech=False, tone=None, outlook=None, quarter="2026-09-30"):
+def call(symbol, call_date, *, speech=False, tone=None, outlook=None, quarter="2026-09-30", verified=4):
     return {
         "id": f"{symbol}-{call_date}-{speech}",
         "symbol": symbol,
@@ -40,6 +40,7 @@ def call(symbol, call_date, *, speech=False, tone=None, outlook=None, quarter="2
         if outlook is None
         else [{
             "outlook_score": outlook,
+            "verified_fields": verified,
             "extraction": EXTRACTION,
             "analysis_version": OUTLOOK_VERSION,
             "created_at": "2026-10-12T15:05:00",
@@ -72,6 +73,55 @@ class StanceTests(unittest.TestCase):
         earlier = {key: value for key, value in EXTRACTION.items() if key != "stance"}
         for extraction in (earlier, {"stance": {"view": "unknown", "quote": None}}, {"stance": "bullish"}, None):
             self.assertEqual(management_stance(extraction), (None, None))
+
+
+class OutlookDetailTests(unittest.TestCase):
+    """The stock page's panel reads these fields, from a run or from here."""
+
+    def detail(self, *stored):
+        rows = build_feed(list(stored), COMPANIES)
+        return {(row["symbol"], row["quarter"]): row["outlook_detail"] for row in rows}
+
+    def test_a_call_carries_its_score_and_every_scored_item_under_the_runs_names(self):
+        detail = self.detail(call("ALPHA", "2026-10-12", speech=True, tone=60, outlook=67))[("ALPHA", "2026-09-30")]
+        self.assertEqual(detail["Transcript_Call_Date"], "2026-10-12")
+        self.assertEqual(detail["Transcript_Outlook_Score"], 67.0)
+        self.assertIn(
+            {"reason": "guidance raised", "points": 15.0, "quote": "We now expect eighteen percent growth."},
+            detail["Transcript_Outlook_Points"],
+        )
+        self.assertNotIn("Transcript_Outlook_Previous_Score", detail)
+
+    def test_the_quarter_before_is_compared_as_a_run_would(self):
+        details = self.detail(
+            call("ALPHA", "2026-10-12", tone=60, outlook=67),
+            call("ALPHA", "2026-07-15", tone=55, outlook=53, quarter="2026-06-30"),
+            call("BETA", "2026-07-20", tone=55, outlook=80, quarter="2026-06-30"),
+        )
+        detail = details[("ALPHA", "2026-09-30")]
+        self.assertEqual(
+            (detail["Transcript_Outlook_Previous_Call_Date"], detail["Transcript_Outlook_Previous_Score"]),
+            ("2026-07-15", 53.0),
+        )
+        self.assertEqual(detail["Transcript_Outlook_QoQ_Delta"], 14.0)
+        self.assertTrue(all("change" in item for item in detail["Transcript_Outlook_QoQ_Items"]))
+        # The earlier call has nothing before it, and another company's call is not it.
+        self.assertNotIn("Transcript_Outlook_Previous_Score", details[("ALPHA", "2026-06-30")])
+
+    def test_a_second_document_from_the_same_season_is_not_the_quarter_before(self):
+        details = self.detail(
+            call("ALPHA", "2026-10-12", tone=60, outlook=67),
+            call("ALPHA", "2026-09-20", tone=55, outlook=53, quarter="2026-06-30"),
+        )
+        self.assertNotIn("Transcript_Outlook_Previous_Score", details[("ALPHA", "2026-09-30")])
+
+    def test_an_outlook_with_nothing_verified_has_no_detail(self):
+        details = self.detail(
+            call("ALPHA", "2026-10-12", tone=60, outlook=50, verified=0),
+            call("BETA", "2026-10-11", tone=60),
+        )
+        self.assertIsNone(details[("ALPHA", "2026-09-30")])
+        self.assertIsNone(details[("BETA", "2026-09-30")])
 
 
 class FeedTests(unittest.TestCase):
@@ -177,7 +227,7 @@ class FakeRepository:
         return COMPANIES
 
     def replace_concall_feed(self, rows, since):
-        if self.reject_stance and any("management_stance" in row for row in rows):
+        if self.reject_stance and any("management_stance" in row or "outlook_detail" in row for row in rows):
             raise RuntimeError("Could not find the 'management_stance' column")
         self.written = (rows, since)
         return len(rows)
@@ -196,6 +246,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual(run(repository, today=date(2026, 10, 12))["written"], 1)
         (row,) = repository.written[0]
         self.assertNotIn("management_stance", row)
+        self.assertNotIn("outlook_detail", row)
         self.assertEqual(row["outlook_score"], 64.0)
 
     def test_a_dry_run_writes_nothing(self):

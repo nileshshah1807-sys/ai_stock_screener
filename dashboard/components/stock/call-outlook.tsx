@@ -89,7 +89,21 @@ const CHANGE_LABELS: Record<string, string> = {
  * Renders nothing without an outlook. A company with no call, or a call nothing
  * verifiable was drawn from, has no outlook -- which is not a neutral one.
  */
-export function CallOutlook({ payload }: { payload: Record<string, unknown> }) {
+export function CallOutlook({
+  payload,
+  pending = null,
+}: {
+  payload: Record<string, unknown>;
+  /**
+   * Set when the payload is a call newer than the one the published run
+   * scored (see callPanelSource): where its text came from and management's
+   * stance, for the line that says it is not in the score yet.
+   */
+  pending?: {
+    source: { label: string; title: string };
+    stance: { label: string; quote: string } | null;
+  } | null;
+}) {
   const outlook = callOutlook(payload);
   if (!outlook) return null;
 
@@ -104,7 +118,24 @@ export function CallOutlook({ payload }: { payload: Record<string, unknown> }) {
         <h2 className="text-heading font-semibold">What management said</h2>
         <p className="text-[11px] text-muted-foreground">
           {outlook.callDate ? `Call of ${formatDate(outlook.callDate)} · ` : ""}
-          {outlook.applied ? "In the score, with the tone of the call" : "Shown for context; not in the score"}
+          {pending ? (
+            <>
+              <span title={pending.source.title}>{pending.source.label}</span>
+              {pending.stance ? (
+                <>
+                  {" · "}
+                  <span title={pending.stance.quote ? `\u201c${pending.stance.quote}\u201d` : undefined}>
+                    Management {pending.stance.label.toLowerCase()}
+                  </span>
+                </>
+              ) : null}
+              {" · In the score from the next screener run"}
+            </>
+          ) : outlook.applied ? (
+            "In the score, with the tone of the call"
+          ) : (
+            "Shown for context; not in the score"
+          )}
         </p>
       </div>
 

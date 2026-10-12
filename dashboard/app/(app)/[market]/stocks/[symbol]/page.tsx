@@ -6,9 +6,8 @@ import { AddToWatchlist } from "@/components/watchlist/add-to-watchlist";
 import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
 import { CallOutlook } from "@/components/stock/call-outlook";
-import { LatestCall } from "@/components/stock/latest-call";
-import { getConcalls } from "@/lib/concalls";
-import { callAfterRun } from "@/lib/concalls.mjs";
+import { getLatestConcall } from "@/lib/concalls";
+import { callPanelSource } from "@/lib/concalls.mjs";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
@@ -216,12 +215,12 @@ export default async function StockPage({
   // needed to render the Watch control's initial checked state, so they are
   // fetched here rather than by the client on open -- a popover that opens empty
   // and then fills in is worse than one that opens correct.
-  // The company's newest call rides along: one row, and only shown when it is
-  // newer than the call this run scored (see LatestCall).
-  const [watchlists, watchlistMembership, calls] = await Promise.all([
+  // The company's newest call rides along: one row, and "What management
+  // said" reads it when it is newer than the call this run scored.
+  const [watchlists, watchlistMembership, latestCall] = await Promise.all([
     getWatchlists(market.code),
     getWatchlistMembership(market.code, symbol),
-    getConcalls(market.code, { symbols: [symbol], limit: 1 }),
+    getLatestConcall(market.code, symbol),
   ]);
 
   // Last completed session's move. Now that the model publishes it, the row is
@@ -847,11 +846,7 @@ export default async function StockPage({
 
                   <ExpectationsGap data={expectations} market={market} />
 
-                  <LatestCall
-                    call={callAfterRun(calls[0], text(payload, "Transcript_Call_Date"))}
-                  />
-
-                  <CallOutlook payload={payload} />
+                  <CallOutlook {...callPanelSource(payload, latestCall)} />
 
                   {/*
                     The ring gets a fixed narrow column and the waterfall gets the rest.

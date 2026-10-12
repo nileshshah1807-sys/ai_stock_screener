@@ -28,8 +28,10 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from scoring.transcript_enricher import _outlook_breakdown
 from screener.numeric import round_half_up, safe_float
-from sentiment.outlook import OUTLOOK_VERSION, STANCES, outlook_items
+from sentiment.outlook import OUTLOOK_VERSION, STANCES, compare_outlooks, outlook_items
+from storage.supabase_repository import PREVIOUS_CALL_MIN_GAP_DAYS
 from transcripts.periods import reporting_period_end_for_call
 from transcripts.recordings import SPEECH_METHOD_PREFIX
 
@@ -121,6 +123,55 @@ def management_stance(extraction: dict[str, Any] | None) -> tuple[str | None, st
     return view, str(stance.get("quote") or "").strip() or None
 
 
+def _verified_outlook(outlook: dict[str, Any]) -> bool:
+    """Whether a stored outlook is one the screener would score: something verified."""
+    return safe_float(outlook.get("outlook_score")) is not None and int(
+        safe_float(outlook.get("verified_fields")) or 0
+    ) > 0
+
+
+def outlook_detail(
+    call_date: str, outlook: dict[str, Any], previous: tuple[str, dict[str, Any]] | None
+) -> dict[str, Any] | None:
+    """A call's outlook in the fields the stock page's panel reads from a run.
+
+    The screener writes these into every snapshot row
+    (`TranscriptEnricher._attach_outlooks`), which is why the panel shows a
+    call only after a run has scored it. Built here by the same rules and
+    under the same names, the panel can show a call the evening it is read and
+    hand over to the run's own row without changing what it says.
+
+    None where the screener would attach nothing: an outlook with no verified
+    item says nothing, which is not a neutral 50.
+    """
+    if not _verified_outlook(outlook):
+        return None
+    score = safe_float(outlook["outlook_score"])
+    extraction = outlook.get("extraction") or {}
+    detail: dict[str, Any] = {
+        "Transcript_Call_Date": call_date,
+        "Transcript_Outlook_Score": round_half_up(score, 2),
+        "Transcript_Outlook_Points": _outlook_breakdown(extraction),
+    }
+    if previous and _verified_outlook(previous[1]):
+        previous_date, earlier = previous
+        previous_score = safe_float(earlier["outlook_score"])
+        detail |= {
+            "Transcript_Outlook_Previous_Call_Date": previous_date,
+            "Transcript_Outlook_Previous_Score": round_half_up(previous_score, 2),
+            "Transcript_Outlook_QoQ_Delta": round_half_up(score - previous_score, 2),
+            "Transcript_Outlook_QoQ_Items": compare_outlooks(earlier.get("extraction") or {}, extraction),
+        }
+    return detail
+
+
+def _days_apart(earlier: str, later: str) -> int:
+    try:
+        return (date.fromisoformat(later[:10]) - date.fromisoformat(earlier[:10])).days
+    except ValueError:
+        return -1
+
+
 def build_feed(
     transcripts: Iterable[dict[str, Any]],
     companies: dict[str, str | None],
@@ -141,6 +192,10 @@ def build_feed(
             calls.setdefault((symbol, quarter), []).append(transcript)
 
     rows = []
+    # Each row's outlook and the date of the transcript it was read from, in
+    # row order and again by company for finding the quarter before.
+    read: list[tuple[str, dict[str, Any]]] = []
+    outlooks: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for (symbol, quarter), stored in calls.items():
         filed = [transcript for transcript in stored if not _from_recording(transcript)]
         # The filed transcript wins; among several of one kind, the latest.
@@ -171,9 +226,32 @@ def build_feed(
             "management_stance_quote": stance_quote,
             "outlook_score": None if outlook_score is None else round_half_up(outlook_score, 2),
             "highlights": highlights(outlook.get("extraction")),
+            "outlook_detail": None,
         })
+        # Dated as the screener dates it -- by the transcript read -- so "the
+        # quarter before" is the same call here as in a run.
+        read.append((str(chosen.get("call_date"))[:10], outlook))
+        outlooks.setdefault(symbol, []).append(read[-1])
+    for row, (call_date, outlook) in zip(rows, read):
+        row["outlook_detail"] = outlook_detail(
+            row["call_date"], outlook, _previous_call(outlooks[row["symbol"]], call_date)
+        )
     _rank_tone(rows)
     return sorted(rows, key=lambda row: (row["call_date"], row["symbol"]), reverse=True)
+
+
+def _previous_call(
+    calls: list[tuple[str, dict[str, Any]]], call_date: str
+) -> tuple[str, dict[str, Any]] | None:
+    """The company's latest call at least a results season before ``call_date``.
+
+    The gap is `latest_outlooks`' own: a second document from one season is
+    not a previous quarter.
+    """
+    earlier = [
+        call for call in calls if _days_apart(call[0], call_date) >= PREVIOUS_CALL_MIN_GAP_DAYS
+    ]
+    return max(earlier, key=lambda call: call[0], default=None)
 
 
 def _rank_tone(rows: list[dict[str, Any]]) -> None:
@@ -212,21 +290,22 @@ def run(repo, *, today: date | None = None, dry_run: bool = False) -> dict[str, 
     return counts
 
 
-STANCE_COLUMNS = ("management_stance", "management_stance_quote")
+# Columns added after the table first shipped, newest first.
+STANCE_COLUMNS = ("outlook_detail", "management_stance", "management_stance_quote")
 
 
 def _write(repo, rows: list[dict[str, Any]], since: str) -> int:
-    """Write the feed; without the stance where the table has no column for it yet.
+    """Write the feed; without its newer columns where the table lacks them.
 
-    The stance columns arrived after the table. A deployment that has not
-    re-applied the schema keeps its page -- every call, minus the stance --
-    instead of losing the feed to two unknown columns.
+    Some columns arrived after the table. A deployment that has not re-applied
+    the schema keeps its page -- every call, minus what those columns hold --
+    instead of losing the feed to an unknown column.
     """
     try:
         return repo.replace_concall_feed(rows, since)
     except Exception as exc:  # noqa: BLE001 - try once more without the newer columns
         logger.warning(
-            "%s concall feed rejected (%s); writing without the management stance. "
+            "%s concall feed rejected (%s); writing without the newer columns. "
             "Re-apply storage/concalls_schema.sql.",
             repo.market,
             exc,

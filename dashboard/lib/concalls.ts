@@ -41,6 +41,11 @@ export type Concall = {
   updated_at: string;
 };
 
+/** A call with its outlook in the fields a screener run publishes it by. */
+export type ConcallWithOutlook = Concall & {
+  outlook_detail: Record<string, unknown> | null;
+};
+
 const BASE_COLUMNS =
   "symbol, company, quarter, call_date, source, tone_score, tone_percentile, guidance_direction, outlook_score, highlights, updated_at";
 // Added after the table first shipped; see getConcalls for what happens
@@ -85,4 +90,32 @@ export async function getConcalls(
     return [];
   }
   return (data as unknown as Concall[]) ?? [];
+}
+
+/**
+ * A company's newest call with its full outlook, or null.
+ *
+ * For the stock page, which shows it when it is newer than the call the
+ * published run scored. Null on any failure -- a missing table, or one
+ * without the `outlook_detail` column yet -- and the page then shows the
+ * run's own call, as it did before this existed.
+ */
+export async function getLatestConcall(
+  market: MarketCode,
+  symbol: string,
+): Promise<ConcallWithOutlook | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("concall_feed")
+    .select(`${COLUMNS}, outlook_detail`)
+    .eq("market", market)
+    .eq("symbol", symbol)
+    .order("call_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("getLatestConcall failed", error.message);
+    return null;
+  }
+  return (data as unknown as ConcallWithOutlook | null) ?? null;
 }
