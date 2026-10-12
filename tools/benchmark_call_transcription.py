@@ -14,6 +14,12 @@ Usage::
     python -m tools.benchmark_call_transcription --days 14
     python -m tools.benchmark_call_transcription --days 14 --transcribe 2 --models small large-v3-turbo
     python -m tools.benchmark_call_transcription --url https://example.com/call.mp3 --transcribe 1
+    python -m tools.benchmark_call_transcription --days 14 --transcribe 2 --plan 4
+    python -m tools.benchmark_call_transcription --url https://example.com/call.mp3 --start 0 --end 780.5
+
+``--plan`` cuts each recording into that many pieces at a quiet moment and
+prints them as a job matrix; ``--start``/``--end`` transcribe one piece. One
+runner per piece is how a call is finished in a fraction of its own length.
 
 ``--transcribe`` needs ``faster-whisper``, which is not in the locks: the
 benchmark workflow installs it for the run. Under GitHub Actions the report is
@@ -23,6 +29,7 @@ also written to the job summary.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -41,6 +48,7 @@ import requests
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 MAX_AUDIO_BYTES = 250 * 1024 * 1024
 SAMPLE_CHARACTERS = 700
+SAMPLE_RATE = 16_000
 
 _CALL_CATEGORY = "con. call"
 _RECORDING_WORDS = re.compile(r"\b(?:audio|recording|webcast)\b", re.IGNORECASE)
@@ -172,7 +180,10 @@ def _discover_once(days: int) -> tuple[list[RecordingNotice], int]:
 
 def download_audio(url: str, folder: Path, index: int) -> Path | None:
     try:
-        with requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=120, stream=True) as response:
+        parts = urlsplit(url)
+        # Some investor sites serve the file only to a request that names their own page.
+        headers = {"User-Agent": USER_AGENT, "Referer": f"{parts.scheme}://{parts.netloc}/"}
+        with requests.get(url, headers=headers, timeout=120, stream=True) as response:
             response.raise_for_status()
             if "html" in response.headers.get("Content-Type", "").lower():
                 return None
@@ -191,23 +202,85 @@ def download_audio(url: str, folder: Path, index: int) -> Path | None:
         return None
 
 
-def decode_audio(path: Path):
-    """The recording as 16 kHz mono samples, decoded by ffmpeg.
+def decode_audio(path: Path, start: float | None = None, end: float | None = None):
+    """The recording, or one piece of it, as 16 kHz mono samples decoded by ffmpeg.
 
     faster-whisper's own decoder passes PyAV an argument a newer PyAV rejects;
     handing it samples keeps the benchmark independent of that pairing.
     """
     import numpy as np
 
-    command = ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(path), "-f", "f32le", "-ac", "1", "-ar", "16000", "-"]
+    command = ["ffmpeg", "-nostdin", "-loglevel", "error", "-i", str(path)]
+    if start:
+        command += ["-ss", f"{start:.3f}"]
+    if end is not None:
+        command += ["-t", f"{end - (start or 0.0):.3f}"]
+    command += ["-f", "f32le", "-ac", "1", "-ar", str(SAMPLE_RATE), "-"]
     raw = subprocess.run(command, check=True, capture_output=True).stdout
     return np.frombuffer(raw, dtype=np.float32)
 
 
-def transcribe(path: Path, model_name: str, threads: int) -> dict:
+def cut_points(samples, parts: int, search_seconds: float = 20.0, window_seconds: float = 0.5) -> list[float]:
+    """Where to cut a recording into ``parts`` pieces, in seconds, ends included.
+
+    An even cut lands mid-word as often as not, and both pieces then guess at
+    the half they got. Each cut moves to the quietest half second within
+    ``search_seconds`` of its even position, which on a call is a pause
+    between speakers.
+    """
+    import numpy as np
+
+    total = len(samples)
+    window = max(1, int(window_seconds * SAMPLE_RATE))
+    reach = int(search_seconds * SAMPLE_RATE)
+    points = [0.0]
+    for part in range(1, max(1, parts)):
+        target = total * part // parts
+        low = max(0, target - reach)
+        loudness = np.abs(samples[low : min(total, target + reach)])
+        windows = len(loudness) // window
+        if not windows:
+            points.append(target / SAMPLE_RATE)
+            continue
+        quietest = int(loudness[: windows * window].reshape(windows, window).mean(axis=1).argmin())
+        points.append((low + quietest * window + window // 2) / SAMPLE_RATE)
+    points.append(total / SAMPLE_RATE)
+    return points
+
+
+def plan(urls: list[str], recordings: int, parts: int, models: list[str], folder: Path) -> list[dict]:
+    """One matrix entry per recording, model and piece, for recordings this machine can fetch."""
+    entries: list[dict] = []
+    planned = 0
+    for url in urls:
+        if planned >= recordings:
+            break
+        path = download_audio(url, folder, planned + 1)
+        if path is None:
+            continue
+        planned += 1
+        points = cut_points(decode_audio(path), parts)
+        path.unlink()
+        for model_name in models:
+            entries += [
+                {
+                    "recording": planned,
+                    "url": url,
+                    "model": model_name,
+                    "part": part,
+                    "parts": len(points) - 1,
+                    "start": round(points[part - 1], 3),
+                    "end": round(points[part], 3),
+                }
+                for part in range(1, len(points))
+            ]
+    return entries
+
+
+def transcribe(path: Path, model_name: str, threads: int, start: float | None = None, end: float | None = None) -> dict:
     from faster_whisper import WhisperModel
 
-    audio = decode_audio(path)
+    audio = decode_audio(path, start, end)
     loaded_at = time.monotonic()
     model = WhisperModel(model_name, device="cpu", compute_type="int8", cpu_threads=threads)
     started_at = time.monotonic()
@@ -280,6 +353,10 @@ def _run() -> None:
     parser.add_argument("--transcribe", type=int, default=0, help="how many recordings to transcribe")
     parser.add_argument("--models", nargs="+", default=["small"], help="faster-whisper model names")
     parser.add_argument("--threads", type=int, default=os.cpu_count() or 4)
+    parser.add_argument("--plan", type=int, default=0, help="cut each recording into this many pieces and print the job matrix")
+    parser.add_argument("--start", type=float, default=None, help="transcribe from this second of the recording")
+    parser.add_argument("--end", type=float, default=None, help="transcribe up to this second of the recording")
+    parser.add_argument("--label", default=None, help="what to call the recording in the report")
     arguments = parser.parse_args()
 
     notices: list[RecordingNotice] = []
@@ -288,6 +365,21 @@ def _run() -> None:
     if not urls:
         notices, schedules = discover(arguments.days)
         urls = [notice.url for notice in notices if notice.kind in (DIRECT, EMBEDDED) and notice.url]
+
+    if arguments.plan:
+        with TemporaryDirectory(prefix="call_audio_") as folder:
+            entries = plan(urls, arguments.transcribe, arguments.plan, arguments.models, Path(folder))
+        if not entries:
+            raise SystemExit("no recording could be downloaded, so there is nothing to plan")
+        matrix = json.dumps({"include": entries})
+        print(matrix)
+        kinds = Counter(notice.kind for notice in notices)
+        _annotate("notice", f"notices={len(notices)} schedules={schedules} " + " ".join(f"[{kind}]={kinds[kind]}" for kind in _ORDER))
+        output_path = os.getenv("GITHUB_OUTPUT")
+        if output_path:
+            with open(output_path, "a", encoding="utf-8") as handle:
+                handle.write(f"matrix={matrix}\n")
+        return
 
     runs: list[dict] = []
     with TemporaryDirectory(prefix="call_audio_") as folder:
@@ -302,8 +394,8 @@ def _run() -> None:
             megabytes = path.stat().st_size / 1e6
             for model_name in arguments.models:
                 print(f"Transcribing recording {transcribed} with {model_name}...", file=sys.stderr)
-                result = transcribe(path, model_name, arguments.threads)
-                runs.append({"recording": f"#{transcribed} ({megabytes:.1f} MB)", **result})
+                result = transcribe(path, model_name, arguments.threads, arguments.start, arguments.end)
+                runs.append({"recording": arguments.label or f"#{transcribed} ({megabytes:.1f} MB)", **result})
             path.unlink()
 
     text = report(notices, schedules, arguments.days, runs, arguments.threads)

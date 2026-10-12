@@ -1,9 +1,11 @@
 name: Call transcription benchmark
 run-name: Call transcription benchmark (${{ github.event_name }})
 
-# A measurement, not a production job: it reads NSE's recording notices,
-# transcribes a few recordings with an open-source model on the runner's own
-# cores, and writes the timings to the job summary. Nothing is stored.
+# A measurement, not a production job: it reads NSE's recording notices, cuts
+# a few recordings into pieces at a quiet moment, and transcribes every piece
+# on a runner of its own with an open-source model. A call is then finished in
+# the time of its slowest piece. Timings go to each job's summary and
+# annotations. Nothing is stored.
 on:
   push:
     branches: ["test/call-audio-transcription"]
@@ -15,6 +17,9 @@ on:
       recordings:
         description: Recordings to transcribe
         default: "2"
+      parts:
+        description: Pieces to cut each recording into (1 leaves it whole)
+        default: "4"
       models:
         description: faster-whisper models, space separated
         default: "small large-v3-turbo"
@@ -27,12 +32,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  benchmark:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     env:
       BENCHMARK_DAYS: ${{ inputs.days || '14' }}
       BENCHMARK_RECORDINGS: ${{ inputs.recordings || '2' }}
+      BENCHMARK_PARTS: ${{ inputs.parts || '4' }}
       BENCHMARK_MODELS: ${{ inputs.models || 'small large-v3-turbo' }}
     steps:
       - uses: actions/checkout@v6
@@ -44,21 +52,56 @@ jobs:
       - name: Install ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
-      # faster-whisper is deliberately outside the locks until the measurement
-      # says the approach is worth adopting.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-ci.txt
-          python -m pip install faster-whisper
-
-      - name: Runner size
-        run: nproc && free -g
 
       # The model list is split on spaces on purpose.
-      - name: Measure
+      - name: Find recordings and cut them
+        id: plan
         run: |
           python -m tools.benchmark_call_transcription \
             --days "$BENCHMARK_DAYS" \
             --transcribe "$BENCHMARK_RECORDINGS" \
+            --plan "$BENCHMARK_PARTS" \
             --models $BENCHMARK_MODELS
+
+  piece:
+    needs: plan
+    name: "#${{ matrix.recording }} ${{ matrix.model }} ${{ matrix.part }}/${{ matrix.parts }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    env:
+      RECORDING_URL: ${{ matrix.url }}
+      PIECE_LABEL: "#${{ matrix.recording }} part ${{ matrix.part }}/${{ matrix.parts }}"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      # faster-whisper is deliberately outside the locks until the measurement
+      # says the approach is worth adopting; a piece needs nothing else.
+      - name: Install dependencies
+        run: python -m pip install faster-whisper requests
+
+      - name: Runner size
+        run: nproc && free -g
+
+      - name: Transcribe the piece
+        run: |
+          python -m tools.benchmark_call_transcription \
+            --url "$RECORDING_URL" \
+            --transcribe 1 \
+            --start "${{ matrix.start }}" \
+            --end "${{ matrix.end }}" \
+            --label "$PIECE_LABEL" \
+            --models "${{ matrix.model }}"
