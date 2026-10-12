@@ -105,10 +105,11 @@ jobs:
       # after the close. The bhavcopy is published in the evening, so the
       # 16:30 IST slot may run before it exists; the later slots do not.
       PRICE_BAR_FALLBACK_ENABLED: "True"
-      # Yahoo applies no adjustment to an NSE demerger, so the parent's ex-date
-      # price cut scores as a crash. NSE's action feed names the demergers and
-      # the history before each ex-date is restated (screener/demergers.py).
-      DEMERGER_ADJUSTMENT_ENABLED: "True"
+      # Yahoo applies no adjustment to an NSE demerger or rights issue, and
+      # back-adjusts some splits only part of the way, so the price cut scores
+      # as a crash. History before each such change of basis is restated, and
+      # single-session bad prints are dropped (screener/price_basis.py).
+      PRICE_BASIS_RESTATEMENT_ENABLED: "True"
       # NSE/CMTR/71775 plus partial modification NSE/CMTR/72260,
       # weekday Capital Market holidays known as of 10-Aug-2026.
       # Update annually from the official NSE circular; it is config-hashed.

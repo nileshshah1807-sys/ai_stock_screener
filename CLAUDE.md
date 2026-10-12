@@ -74,17 +74,29 @@ the scheduled workflows set the same flag.
   The patched symbols are listed in the run diagnostics under
   `technical_session_bar_patched_symbols`. There is no US source, so a Yahoo
   gap there still fails the alignment guard.
-- **A demerger is restated, in the chart and in the screen, from the ex-date
-  open.** Neither Yahoo nor NSE's daily file adjusts for one, so the parent's
-  ex-date price cut reads as a crash of 40-90% that its holders never took.
-  `demerger_price_factor` in `backtest/corporate_actions.py` is the one rule:
-  previous close over the ex-date open. `workers/price_series_publisher.py`
-  applies it to the chart from the archive; `DEMERGER_ADJUSTMENT_ENABLED` (set
-  in the NSE workflow) makes `screener/demergers.py` apply it to Yahoo's
-  adjusted close for symbols NSE's action feed names, listed in the run
-  diagnostics under `technical_demerger_restated_symbols`. It is display-grade:
-  the backtest still excludes a position that spans a demerger. If the feed
-  cannot be read the run warns and scores the vendor's history as served.
+- **A change of price basis is restated from the bars, in the chart and in
+  the screen.** Neither NSE's action feed nor Yahoo can be drawn or scored as
+  served: the feed has no ratio for a demerger or a rights issue, quotes ISINs
+  the security never traded under, misdates some actions and omits fund unit
+  splits; Yahoo adjusts for neither demergers nor rights issues and
+  back-adjusts some splits only part of the way. Each leaves a cliff of 30-90%
+  that no holder took. Two rules in `backtest/corporate_actions.py` size a
+  change from the security's own bars: `ex_date_price_factor` (previous close
+  over the ex-date open, for an action the feed names) and `open_gap_factor`
+  (an open beyond `MarketProfile.max_open_gap` was not traded to -- NSE caps
+  its opening auction at 20%; the US does not, so the rule is off there).
+  `workers/price_series_publisher.reconcile_with_prices` applies both to the
+  chart and checks every stated ratio against the gap the price actually
+  showed. `PRICE_BASIS_RESTATEMENT_ENABLED` (set in the NSE workflow) makes
+  `screener/price_basis.py` apply both to Yahoo's adjusted close and drop
+  single-session bad prints; see `technical_price_basis_restated_symbols`,
+  `technical_bad_print_symbols` and `technical_action_ledger_status` in the
+  run diagnostics. All of it is display-grade: the backtest still excludes a
+  position that spans a demerger, rights issue or buyback.
+- **An action is keyed by ISIN, then ISIN core, then ticker as of the
+  ex-date** (`AdjustmentTable.key_for`). Keyed on the feed's ISIN alone, a
+  split whose ISIN the archive never saw matches no price row and is silently
+  dropped.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and

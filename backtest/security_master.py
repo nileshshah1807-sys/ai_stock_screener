@@ -335,6 +335,15 @@ class SecurityMaster:
                     self._isin_to_security[isin] = security_id
             for span in _parse_symbol_spans(record.get("Symbols")):
                 self._symbol_spans.append((span[0], span[1], span[2], security_id))
+        # An ISIN's core survives a face-value change, so it identifies the
+        # security even under an ISIN this archive never saw trade. Kept only
+        # where it is unambiguous: a core shared by two securities names neither.
+        cores = {}
+        for isin, security_id in self._isin_to_security.items():
+            cores.setdefault(isin_core(isin), set()).add(security_id)
+        self._core_to_security = {
+            core: next(iter(ids)) for core, ids in cores.items() if len(ids) == 1
+        }
 
     @classmethod
     def load(cls, path):
@@ -355,6 +364,16 @@ class SecurityMaster:
     def security_id_for_isin(self, isin):
         """Permanent id for any ISIN the security traded under, pre- or post-split."""
         return self._isin_to_security.get(str(isin).strip().upper())
+
+    def security_id_for_isin_core(self, isin):
+        """Permanent id for an ISIN matched on its core alone, or ``None``.
+
+        For an ISIN quoted by a source other than the price archive -- the
+        corporate-action feed routinely names one the company had already
+        replaced, or has replaced since. ``None`` when the core is unknown or
+        belongs to more than one security.
+        """
+        return self._core_to_security.get(isin_core(isin))
 
     def record(self, identifier):
         """Master row for a ``Security_ID`` or any of its ISINs."""

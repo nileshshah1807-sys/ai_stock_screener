@@ -18,7 +18,6 @@ import pandas as pd
 import yfinance as yf
 
 from . import universe as universe_sources
-from .demergers import DemergerLedger, history_window, restate_for_demergers
 from .market_data import (
     PriceCache,
     TechnicalEnhancer,
@@ -29,6 +28,12 @@ from .market_data import (
     normalize_market_holidays,
 )
 from .markets import active_profile, bare_symbol, ticker_for
+from .price_basis import (
+    CHANGE_BAD_PRINT,
+    ActionLedger,
+    history_window,
+    restate_price_basis,
+)
 from .price_probe import probe_expected_session
 from .session_bars import SessionBarSource, patch_expected_session_bar
 from .stage import stage_features
@@ -261,12 +266,12 @@ class StockDataCollector:
         completion_cutoff=None,
         market_timezone=None,
         session_bar_loader=None,
-        demerger_loader=None,
+        action_loader=None,
     ):
         self.config = config
         # Injected in tests so the fallback never reaches the exchange.
         self._session_bar_loader = session_bar_loader
-        self._demerger_loader = demerger_loader
+        self._action_loader = action_loader
         self.market_profile = active_profile(config)
         self.collection_diagnostics = {
             "schema_version": 1,
@@ -440,15 +445,20 @@ class StockDataCollector:
             loader=self._session_bar_loader,
         )
 
-    def _demerger_ledger(self, as_of):
-        """The market's demerger ledger for this run, or ``None``."""
-        provider = self.market_profile.demerger_ledger
-        if provider is None or not _setting_enabled(
-            getattr(self.config, "DEMERGER_ADJUSTMENT_ENABLED", False)
+    def _price_basis_rules(self, as_of):
+        """``(action ledger, opening cap)`` for this run; both ``None`` when off."""
+        if not _setting_enabled(
+            getattr(self.config, "PRICE_BASIS_RESTATEMENT_ENABLED", False)
         ):
-            return None
-        start, end = history_window(as_of)
-        return DemergerLedger(provider, start, end, loader=self._demerger_loader)
+            return None, None
+        profile = self.market_profile
+        ledger = None
+        if profile.action_ledger is not None:
+            start, end = history_window(as_of)
+            ledger = ActionLedger(
+                profile.action_ledger, start, end, loader=self._action_loader
+            )
+        return ledger, profile.max_open_gap
 
     def get_comprehensive_stock_list(self):
         """Return the sorted research universe for this run's market.
@@ -624,8 +634,9 @@ class StockDataCollector:
             )
         session_bars = self._session_bar_source(expected_price_session)
         session_bar_patched = []
-        demerger_ledger = self._demerger_ledger(analysis_as_of.date())
-        demerger_restated = []
+        action_ledger, max_open_gap = self._price_basis_rules(analysis_as_of.date())
+        basis_restated = []
+        bad_prints = []
         batch_size = 30
         for i in range(0, len(vendor_symbols), batch_size):
             batch = vendor_symbols[i : i + batch_size]
@@ -671,17 +682,26 @@ class StockDataCollector:
                         if price_data.empty:
                             failed.append(clean_sym)
                             continue
-                        if demerger_ledger is not None:
-                            # After the completed-bar selection: an ex-date bar
-                            # the run will not score must not restate the
-                            # history it is about to be dropped from.
-                            price_data, restated = restate_for_demergers(
+                        if action_ledger is not None or max_open_gap is not None:
+                            # After the completed-bar selection: a bar the run
+                            # will not score must not restate the history it
+                            # is about to be dropped from.
+                            price_data, basis_changes = restate_price_basis(
                                 price_data,
-                                demerger_ledger.ex_dates(clean_sym),
+                                action_ledger.ex_dates(clean_sym)
+                                if action_ledger is not None
+                                else (),
                                 self.market_timezone,
+                                max_open_gap=max_open_gap,
                             )
-                            if restated:
-                                demerger_restated.append(clean_sym)
+                            kinds = {change[1] for change in basis_changes}
+                            if CHANGE_BAD_PRINT in kinds:
+                                bad_prints.append(clean_sym)
+                            if kinds - {CHANGE_BAD_PRINT}:
+                                basis_restated.append(clean_sym)
+                            if price_data.empty:
+                                failed.append(clean_sym)
+                                continue
                         raw_close_aligned = pd.to_numeric(price_data["Close"], errors="coerce")
                         adjusted_close_aligned = pd.to_numeric(
                             price_data.get("Adj Close", price_data["Close"]), errors="coerce"
@@ -978,21 +998,24 @@ class StockDataCollector:
                 expected_price_session.isoformat(),
                 session_bars.provider,
             )
-        # Recorded for the run manifest: whose history was restated across a
-        # demerger, and whether the ledger that names them could be read.
-        demerger_restated = sorted(set(demerger_restated) & fresh_symbols)
-        self.collection_diagnostics["technical_demerger_restated_symbols"] = (
-            demerger_restated
+        # Recorded for the run manifest: whose history was restated onto
+        # today's basis, whose had a bad print dropped, and whether the ledger
+        # that names the unadjusted actions could be read.
+        basis_restated = sorted(set(basis_restated) & fresh_symbols)
+        bad_prints = sorted(set(bad_prints) & fresh_symbols)
+        self.collection_diagnostics["technical_price_basis_restated_symbols"] = (
+            basis_restated
         )
-        self.collection_diagnostics["technical_demerger_ledger_status"] = (
-            demerger_ledger.status if demerger_ledger is not None else "disabled"
+        self.collection_diagnostics["technical_bad_print_symbols"] = bad_prints
+        self.collection_diagnostics["technical_action_ledger_status"] = (
+            action_ledger.status if action_ledger is not None else "disabled"
         )
-        if demerger_restated:
+        if basis_restated or bad_prints:
             logger.info(
-                "%d symbols had their price history restated across a "
-                "demerger: %s",
-                len(demerger_restated),
-                ", ".join(demerger_restated),
+                "Price basis: %d symbols restated across a change the vendor "
+                "missed, %d with a bad print dropped",
+                len(basis_restated),
+                len(bad_prints),
             )
         provider_failed_symbols = sorted(set(to_download) - fresh_symbols)
         prior_by_symbol = {}
