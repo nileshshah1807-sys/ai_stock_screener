@@ -617,6 +617,24 @@ class Config:
     SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "").strip()
     STATEMENT_MIN_YEARS_FOR_CAGR = _env_int("STATEMENT_MIN_YEARS_FOR_CAGR", 4)
 
+    # Measure latest-quarter growth (Revenue_Growth, Earnings_Growth) from the
+    # exchange's results filings where the market has an index of them (see
+    # screener/quarterly_results.py), with the vendor's figures for whatever
+    # the filings cannot serve. Off unless a workflow opts in, so an unset
+    # environment behaves exactly as before and no test reaches the exchange.
+    QUARTERLY_RESULTS_FILINGS_ENABLED = _env_bool(
+        "QUARTERLY_RESULTS_FILINGS_ENABLED", False
+    )
+    # A cold cache needs two documents per company; afterwards only what was
+    # filed since the last run. The cap bounds the cold build, most-traded
+    # names first, and the following run fetches the remainder.
+    QUARTERLY_RESULTS_MAX_DOCUMENTS_PER_RUN = _env_int(
+        "QUARTERLY_RESULTS_MAX_DOCUMENTS_PER_RUN", 6000
+    )
+    # The latest filed quarter must have ended within this many days to count
+    # as current: the value the quarter inputs were backtested under.
+    QUARTERLY_RESULTS_MAX_AGE_DAYS = _env_int("QUARTERLY_RESULTS_MAX_AGE_DAYS", 200)
+
     # A snapshot score is not a backtest. Measure the realized return after a
     # fixed holding period before making any claim about rating performance.
     BACKTEST_HORIZON_DAYS = _env_int("BACKTEST_HORIZON_DAYS", 30)

@@ -75,6 +75,18 @@ class StageOrderTests(unittest.TestCase):
             self.index_of("scorer.score_all_stocks"),
         )
 
+    def test_filed_quarter_growth_replaces_the_vendors_before_anything_scores_it(self):
+        # Revenue_Growth and Earnings_Growth are read by the legacy scorer, the
+        # factor model and the policy alike; all three must see one figure.
+        self.assertLess(
+            self.index_of("QuarterlyResultsCollector(config)"),
+            self.index_of("scorer.score_all_stocks"),
+        )
+        self.assertLess(
+            self.index_of("quarterly_results.enrich(merged_df)"),
+            self.index_of("FinancialStatementCollector"),
+        )
+
     def test_factor_model_runs_after_dcf_and_before_finalize(self):
         # The Value block consumes DCF_Valuation_Score, and the finalizer
         # consumes the factor percentiles.

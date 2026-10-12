@@ -67,6 +67,23 @@ the scheduled workflows set the same flag.
   uses Yahoo throughout. Measure the two sources against each other with
   `python -m tools.compare_statement_sources`. Prices and quote metadata
   (`Ticker.info`) are still Yahoo's.
+- **NSE latest-quarter growth comes from the exchange's results filings; Yahoo
+  is the fallback.** Yahoo republishes a result days or weeks after it is
+  filed, so through a results season `Revenue_Growth` and `Earnings_Growth`
+  described the quarter before. `QUARTERLY_RESULTS_FILINGS_ENABLED` (set in the
+  NSE workflow) makes `screener/quarterly_results.py` read NSE's
+  integrated-filing index and measure both from the filed documents, by the
+  backtest's own rule (`backtest.fundamentals.QuarterPanel`: both quarters on
+  one basis, profit not EPS, no rate on a non-positive base). Yahoo's figures
+  stand for banks and insurers (a different statement), a company with no
+  year-ago filing, and one where Yahoo is already on a later quarter; see
+  `quarter_results_*` in the run diagnostics. `workers/financial_statements.py`
+  adds a filed quarter Yahoo lacks to the Financials tab on the same index,
+  only where the filing reproduces Yahoo's revenue on a quarter both have.
+  Measure the two sources with `python -m tools.compare_quarter_growth_sources`.
+  The index begins in April 2025; the older endpoint `backtest/filings.py`
+  reads ends that January. Statements, valuation ratios and prices are still
+  Yahoo's.
 - **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
   `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
   `screener/session_bars.py` fill a symbol's missing expected-session bar from

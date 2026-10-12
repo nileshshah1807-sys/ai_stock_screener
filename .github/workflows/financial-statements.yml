@@ -22,6 +22,12 @@ run-name: Financial statements (${{ github.event_name }})
 # older than --max-age-days or its latest quarter implies new results are due,
 # so a run finds a few dozen names, finishes in a minute or two, and most of
 # the three daily runs are near-empty.
+#
+# On NSE a company is also refreshed, at most once a day, as soon as the
+# exchange's filing index shows a quarter later than the stored one, and that
+# quarter is taken from the filing itself: Yahoo republishes a result days or
+# weeks after it is filed. In a results season that is a few hundred names a
+# day rather than a few dozen.
 
 on:
   schedule:

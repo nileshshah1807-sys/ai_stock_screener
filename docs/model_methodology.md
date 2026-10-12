@@ -100,6 +100,22 @@ Growth block = 0.65 * (the six annual inputs, at their 5.1 proportions)
 An earnings figure the vendor cannot compute (a loss in the base quarter) is
 missing for that row and costs it coverage, like any other unreported input.
 
+**Where the two figures come from.** On NSE they are measured from the results
+filings themselves (`screener/quarterly_results.py`), by the same rule the
+quarterly panel below was built with: the latest filed quarter against the
+filing a year before it on the same basis, consolidated preferred, earnings as
+profit rather than EPS. A company files within minutes of its board meeting
+and the vendor republishes days or weeks later, so reading the filing is what
+keeps the block on the current quarter through a results season. The vendor's
+quote metadata still supplies them for banks and insurers, whose statement the
+filing parser does not read, for a company with no year-ago filing, and for
+the US. Against the vendor on 220 NSE companies (12 Oct 2026), where both
+described the same quarter revenue growth differed by a median 0.03 percentage
+points and earnings growth by 0.23 against the vendor's net-income figure
+(rank correlation 0.95 and 0.97). The largest differences were checked against
+the filed documents, which carry the figures used here.
+`python -m tools.compare_quarter_growth_sources` repeats the measurement.
+
 **What supports it, and what does not yet.**
 
 - On the 2026-10-06 NSE run the 5.1 growth block had a rank correlation of 0.10

@@ -161,6 +161,9 @@ DEFAULT_REPRODUCIBILITY_CONFIG_KEYS = (
     # Which provider's statements were scored. SEC_USER_AGENT is a contact
     # detail, not a model input, and stays out.
     "STATEMENT_SOURCE",
+    # Likewise for the two latest-quarter growth inputs: filings or vendor.
+    "QUARTERLY_RESULTS_FILINGS_ENABLED",
+    "QUARTERLY_RESULTS_MAX_AGE_DAYS",
     "STATEMENT_MIN_YEARS_FOR_CAGR",
     "BACKTEST_HORIZON_DAYS",
     "BACKTEST_WRITES_ENABLED",
