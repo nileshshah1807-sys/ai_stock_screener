@@ -22,10 +22,16 @@ import { cn } from "@/lib/utils";
 export function NavLink({
   href,
   exact = false,
+  also,
   onNavigate,
   children,
 }: {
   href: string;
+  /**
+   * Other paths this item is current on. The Tools tab links to the first
+   * tool and must stay lit on every other one.
+   */
+  also?: readonly string[];
   /**
    * Match the path exactly rather than by prefix.
    *
@@ -39,9 +45,8 @@ export function NavLink({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const active = exact
-    ? pathname === href
-    : pathname === href || pathname.startsWith(`${href}/`);
+  const under = (path: string) => pathname === path || pathname.startsWith(`${path}/`);
+  const active = exact ? pathname === href : under(href) || (also ?? []).some(under);
 
   return (
     <Link

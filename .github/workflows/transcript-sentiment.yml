@@ -80,3 +80,8 @@ jobs:
             exit 0
           fi
           python -m tools.extract_transcript_outlook --max-cost 0.50
+
+      # The Concalls page reads this, not the transcript tables. A filed
+      # transcript stored above replaces the same call's recording there.
+      - name: Publish the concall feed
+        run: python -m workers.concall_feed

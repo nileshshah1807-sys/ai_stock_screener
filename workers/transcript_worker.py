@@ -181,6 +181,7 @@ class TranscriptWorker:
                 })
             self.repository.link_filing_document(stored_filing["id"], document["id"])
             self.repository.update_filing(stored_filing["id"], status="document_ready", last_error=None)
+            self._supersede_recording(filing["symbol"], _results_period(filing.get("announcement_date")))
             return True
         except Exception as exc:
             self.repository.update_filing(
@@ -190,6 +191,27 @@ class TranscriptWorker:
                 last_error=str(exc)[:1000],
             )
             raise
+
+    def _supersede_recording(self, symbol: str, quarter: str | None) -> None:
+        """Remove the same call's transcript made from its recording, if any.
+
+        `workers/call_recordings.py` stores one the evening of the call. Left
+        beside the filed transcript it would be that call's "previous quarter"
+        in `latest_transcript_sentiment`, and every quarter-on-quarter change
+        would read as none. Never raises: the filed transcript is stored either
+        way, and the next filing for the company tries again.
+        """
+        if not quarter:
+            return
+        try:
+            if self.repository.read_only:
+                return
+            removed = self.repository.delete_speech_transcripts(symbol, quarter)
+        except Exception as exc:  # noqa: BLE001 - must not fail a transcript already stored
+            logger.warning("Could not remove the recording transcript of %s: %s", symbol, exc)
+            return
+        if removed:
+            logger.info("Filed transcript replaces the recording transcript of %s", symbol)
 
     def _linked_transcript(self, pdf_path: Path, download_directory: Path, filed_at: str | None):
         """The call a cover letter points at, or None. Never raises."""
@@ -298,6 +320,10 @@ class TranscriptWorker:
             self.repository.archive_transcript_text(transcript)
         except Exception as exc:  # noqa: BLE001 - archiving must never lose a saved sentiment
             logger.warning("Could not archive text for transcript %s: %s", transcript.get("id"), exc)
+
+    def analyze_pending(self) -> dict[str, int]:
+        """Score every stored transcript that has no tone score yet."""
+        return self._analyze_pending_transcripts()
 
     def _analyze_pending_transcripts(self) -> dict[str, int]:
         summary = {"analyzed": 0, "deferred": 0}

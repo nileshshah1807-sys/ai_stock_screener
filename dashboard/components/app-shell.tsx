@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, Bookmark, LayoutGrid, LogOut, Shapes, TrendingUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
@@ -14,6 +14,7 @@ import { MarketSwitch } from "@/components/market-switch";
 import { GlassTrack } from "@/components/glass-track";
 import { formatDate } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
+import { TOOLS } from "@/lib/tools";
 import type { BellState } from "@/lib/notifications";
 import type { ScreenerRun } from "@/lib/types";
 import type { Viewer } from "@/lib/auth";
@@ -31,19 +32,27 @@ import { signOut } from "@/app/login/actions";
  * are, and notifications -- the other thing about "what changed" -- sit beside
  * it there.
  *
+ * Tools is one tab for several views -- market breadth, earnings calls -- for
+ * the same reason: each is a view across the market rather than a ranking of
+ * its stocks, and a tab apiece would be the sixth and seventh. The tab opens
+ * the first tool and stays lit on all of them; the row that picks between
+ * them is ToolsNav, in the tools layout.
+ *
  * Markets are deliberately NOT in this list. Which market you are looking at
  * and which view you are looking at are independent axes -- every destination
  * exists in every market -- so folding them into one row would misrepresent
  * the structure and would multiply this group's length by the market count,
  * blowing straight through that ceiling.
  */
-const NAV = [
+const TOOL_PATHS = TOOLS.map((tool) => tool.path);
+
+const NAV: readonly { path: string; label: string; icon: typeof LayoutGrid; also?: readonly string[] }[] = [
   { path: "", label: "Screener", icon: LayoutGrid },
-  { path: "/market", label: "Market", icon: ChartArea },
+  { path: TOOL_PATHS[0], label: "Tools", icon: Shapes, also: TOOL_PATHS },
   { path: "/watchlists", label: "Watchlists", icon: Bookmark },
   { path: "/movers", label: "Movers", icon: ArrowLeftRight },
   { path: "/returns", label: "Returns", icon: TrendingUp },
-] as const;
+];
 
 function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
   return (
@@ -263,10 +272,11 @@ export function AppShell({
               "xl:order-none xl:w-auto xl:shrink-0",
             )}
           >
-            {NAV.map(({ path, label, icon: Icon }) => (
+            {NAV.map(({ path, label, icon: Icon, also }) => (
               <NavLink
                 key={path}
                 href={marketPath(market.slug, path)}
+                also={also?.map((other) => marketPath(market.slug, other))}
                 // The screener is the market root, so it must match exactly or
                 // it reads as active on every page in the market.
                 exact={path === ""}
