@@ -25,9 +25,10 @@ Guessing there would put a fabricated return into the result, which is exactly
 what P0 exists to prevent.
 
 A chart and a live screen cannot exclude a security, though: they have to draw
-and score it. For those readers alone a demerger gets a *display-grade* factor,
-``demerger_price_factor``, taken from the exchange's ex-date price discovery.
-The backtest never applies it -- its table still blocks the position.
+and score it. For those readers alone an unadjustable action gets a
+*display-grade* factor, ``ex_date_price_factor``, read off the security's own
+ex-date bar. The backtest never applies it -- its table still blocks the
+position.
 """
 
 from __future__ import annotations
@@ -136,19 +137,20 @@ def _dividend_amount(text):
     return None
 
 
-def demerger_price_factor(prev_close, ex_open):
-    """Divisor restating pre-demerger prices onto the post-demerger basis.
+def ex_date_price_factor(prev_close, ex_open):
+    """Divisor restating earlier prices across an action with no stated ratio.
 
-    On the ex-date the parent opens through a special price-discovery session,
-    so ``prev_close / ex_open`` is the market's own split of the old price
-    between what stays and what was carved out. A holder's value is unchanged
-    across that open, which is what dividing every earlier price by the factor
-    draws.
+    A demerger or a rights issue takes value out of the share on its ex-date,
+    and the ex-date open is where the market prices what is left -- for a
+    demerger through a special price-discovery session. ``prev_close /
+    ex_open`` is therefore the market's own ratio, and a holder's value is
+    unchanged across that open, which is what dividing every earlier price by
+    the factor draws.
 
     Display-grade, not exact: the open also carries one overnight's ordinary
-    move, and the carved-out company's later return is not followed. ``None``
-    when either price is missing or the open is not below the previous close --
-    a demerger cannot add value to the parent, so that is noise, not a ratio.
+    move, and whatever the holder was handed is not followed afterwards.
+    ``None`` when either price is missing or the open is not below the previous
+    close -- such an action cannot add value to the share, so that is noise.
     """
     prev_close = pd.to_numeric(prev_close, errors="coerce")
     ex_open = pd.to_numeric(ex_open, errors="coerce")
@@ -156,6 +158,39 @@ def demerger_price_factor(prev_close, ex_open):
         return None
     factor = float(prev_close) / float(ex_open)
     return factor if factor > 1.0 else None
+
+
+# Below this the tick size alone moves a price by more than any opening band,
+# so a large relative gap says nothing about the share's basis.
+MIN_PRICE_FOR_OPEN_GAP = 1.0
+
+
+def open_gap_factor(prev_close, bar_open, bar_close, max_open_gap):
+    """Divisor implied by an open no session could have traded to, or ``None``.
+
+    An exchange that caps the opening auction caps how far an open can sit from
+    the previous close. An open beyond that cap was not traded to: the unit
+    itself changed -- a split, a consolidation, a distribution, a re-listing on
+    new terms -- or a price source restated one side of the bar and not the
+    other. Either way earlier prices are on another basis, and ``prev_close /
+    bar_open`` is the factor between the two. It can be below one.
+
+    ``max_open_gap`` is that cap as a ratio with some margin (1.30 for a 20%
+    band). The bar's own close has to sit within the cap of its open, so one
+    bad opening print is not read as a change of basis.
+    """
+    prices = pd.to_numeric(
+        pd.Series([prev_close, bar_open, bar_close]), errors="coerce"
+    )
+    if prices.isna().any() or (prices < MIN_PRICE_FOR_OPEN_GAP).any():
+        return None
+    prev_close, bar_open, bar_close = (float(value) for value in prices)
+    factor = prev_close / bar_open
+    if max(factor, 1.0 / factor) <= max_open_gap:
+        return None
+    if max(bar_close / bar_open, bar_open / bar_close) > max_open_gap:
+        return None
+    return factor
 
 
 def classify_action(subject):
@@ -166,6 +201,11 @@ def classify_action(subject):
     # Order matters: a subject can mention several things, and the structural
     # action dominates the cash one.
     if "split" in text or "sub-division" in text or "sub division" in text:
+        return ACTION_SPLIT
+    # A consolidation is a split run backwards, stated in the same words; the
+    # face-value pattern reads its ratio as below one. A capital reduction
+    # changes value as well as count, so it is not a ratio and stays unknown.
+    if "consolidation" in text and "reduction" not in text:
         return ACTION_SPLIT
     if "bonus" in text:
         return ACTION_BONUS
@@ -364,11 +404,11 @@ class AdjustmentTable:
         if actions is None or len(actions) == 0:
             return
         for record in actions.to_dict("records"):
-            key = self._key(record.get("ISIN"))
-            if key is None:
-                continue
             ex_date = _parse_ex_date(record.get("Ex_Date"))
             if ex_date is None:
+                continue
+            key = self.key_for(record.get("ISIN"), record.get("Symbol"), ex_date)
+            if key is None:
                 continue
             action = str(record.get("Action_Type") or "")
             factor = pd.to_numeric(record.get("Price_Factor"), errors="coerce")
@@ -391,7 +431,7 @@ class AdjustmentTable:
         """Record a price factor that did not come from an action's subject.
 
         For readers that must draw a security through an unadjustable action
-        (see ``demerger_price_factor``). The action still blocks: a backtest
+        (see ``ex_date_price_factor``). The action still blocks: a backtest
         given this table would exclude the position exactly as before.
         """
         entry = (_as_date(ex_date), float(factor))
@@ -414,15 +454,58 @@ class AdjustmentTable:
             if any(ex_date >= since for ex_date, _ in entries)
         }
 
-    def _key(self, isin):
+    def key_for(self, isin, symbol=None, as_of=None):
+        """The security an action record refers to, as the price panel keys it.
+
+        The feed's ISIN is often not one the security ever traded under in the
+        archive -- superseded by a face-value change, a placeholder, or simply
+        another company's. Keyed on it alone the action matches no price row
+        and is silently dropped: a split left unapplied. So the exact ISIN is
+        tried first, then its core, then the ticker as of the ex-date.
+        """
         isin = str(isin or "").strip().upper()
         if not isin:
             return None
         if self.master is not None:
-            resolved = self.master.security_id_for_isin(isin)
+            resolved = self.master.security_id_for_isin(
+                isin
+            ) or self.master.security_id_for_isin_core(isin)
+            if not resolved and symbol and as_of is not None:
+                resolved = self.master.resolve_symbol(symbol, as_of)
             if resolved:
                 return resolved
         return isin
+
+    def ratio_factor(self, key, ex_date):
+        """Product of the ratio factors recorded for one ex-date, or ``None``."""
+        ex_date = _as_date(ex_date)
+        factors = [
+            value for day, value in self._factors.get(str(key), ()) if day == ex_date
+        ]
+        if not factors:
+            return None
+        product = 1.0
+        for value in factors:
+            product *= value
+        return product
+
+    def replace_factor(self, key, ex_date, factor, *, effective=None):
+        """Swap one ex-date's ratio factors for ``factor``, or drop them.
+
+        For a reader that has checked the ledger against the price panel and
+        found the stated ratio is not what the price did (see
+        ``workers.price_series_publisher.reconcile_with_prices``).
+        """
+        ex_date = _as_date(ex_date)
+        entries = [
+            entry for entry in self._factors.get(str(key), ()) if entry[0] != ex_date
+        ]
+        if factor is not None and float(factor) > 0:
+            entries.append((_as_date(effective or ex_date), float(factor)))
+        if entries:
+            self._factors[str(key)] = entries
+        else:
+            self._factors.pop(str(key), None)
 
     def price_factor(self, key, as_of):
         """Divisor converting a raw price on ``as_of`` to the adjusted basis.

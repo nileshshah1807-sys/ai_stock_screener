@@ -165,10 +165,13 @@ class Config:
     # unless a workflow opts in, so an unset environment behaves exactly as
     # before and no test reaches the exchange.
     PRICE_BAR_FALLBACK_ENABLED = _env_bool("PRICE_BAR_FALLBACK_ENABLED", False)
-    # Restate a demerged parent's vendor history across its ex-date where the
-    # market has an action feed (see screener/demergers.py). Off unless a
-    # workflow opts in, for the same reasons as the fallback above.
-    DEMERGER_ADJUSTMENT_ENABLED = _env_bool("DEMERGER_ADJUSTMENT_ENABLED", False)
+    # Restate vendor history across changes in the price basis the vendor
+    # missed, where the market profile says how to recognise one (see
+    # screener/price_basis.py). Off unless a workflow opts in, for the same
+    # reasons as the fallback above.
+    PRICE_BASIS_RESTATEMENT_ENABLED = _env_bool(
+        "PRICE_BASIS_RESTATEMENT_ENABLED", False
+    )
     # Fail closed after the completion cutoff if a normal weekday has no
     # same-session bar. Populate official weekday exchange holidays as ISO dates.
     NSE_MARKET_HOLIDAYS = _env_list("NSE_MARKET_HOLIDAYS", [])

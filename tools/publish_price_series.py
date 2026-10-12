@@ -151,9 +151,12 @@ def load_archive(root, *, start=None, end=None):
     from backtest.calendar import CalendarLedger
     from backtest.corporate_actions import ActionStore, AdjustmentTable
     from backtest.security_master import SecurityMaster
+    from screener.markets import NSE
+    from screener.markets import resolve as resolve_market
     from workers.price_series_publisher import (
-        apply_demerger_factors,
-        collect_observations,
+        adjust_observations,
+        collect_raw_observations,
+        reconcile_with_prices,
     )
 
     store = BhavcopyStore(root / "bhavcopy")
@@ -178,15 +181,7 @@ def load_archive(root, *, start=None, end=None):
     master = SecurityMaster.load(master_path)
 
     actions_path = root / "corporate_actions.csv"
-    table = None
-    if actions_path.exists():
-        actions = ActionStore(actions_path).load()
-        table = AdjustmentTable(actions, master=master)
-        # After the table is built from the ledger: a demerger has no ratio
-        # there, and unadjusted it draws as a crash the holders never took.
-        apply_demerger_factors(store, sessions, actions, master, table)
-        logger.info("Corporate actions: %s", table.summary())
-    else:
+    if not actions_path.exists():
         # Without it a split reads as a ~50% crash, which is worse than no chart.
         raise SystemExit(
             f"No corporate actions at {actions_path}. Publishing unadjusted "
@@ -194,12 +189,23 @@ def load_archive(root, *, start=None, end=None):
             "tools.backfill_backtest_archive first."
         )
 
+    actions = ActionStore(actions_path).load()
+    table = AdjustmentTable(actions, master=master)
+
     started = time.monotonic()
-    observations, symbols = collect_observations(store, sessions, master, table)
+    bars, symbols = collect_raw_observations(store, sessions, master)
     logger.info(
         "Read %d sessions in %.0fs; %d securities observed",
-        len(sessions), time.monotonic() - started, len(observations),
+        len(sessions), time.monotonic() - started, len(bars),
     )
+    # Before anything is adjusted: an action with no ratio in the ledger draws
+    # as a crash the holders never took, and a ratio the price did not follow
+    # draws a jump that never happened.
+    reconcile_with_prices(
+        bars, sessions, actions, table, resolve_market(NSE).max_open_gap
+    )
+    logger.info("Corporate actions: %s", table.summary())
+    observations = adjust_observations(bars, table)
     return sessions, observations, symbols, table
 
 

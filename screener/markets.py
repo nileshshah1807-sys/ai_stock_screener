@@ -67,10 +67,16 @@ class MarketProfile:
     # bhavcopy every evening; no free US equivalent exists, so it is None there
     # and a vendor gap fails the alignment guard as before.
     session_bar_fallback: str | None = None
-    # Key into ``screener.demergers``: the feed naming which symbols demerged,
-    # so their vendor history can be restated across the ex-date. Yahoo applies
-    # no adjustment to an NSE demerger; no US feed is wired, so it is None there.
-    demerger_ledger: str | None = None
+    # Key into ``screener.price_basis``: the feed naming which symbols had a
+    # demerger or a rights issue, so their vendor history can be restated
+    # across the ex-date. Yahoo adjusts for neither on NSE; no US feed is
+    # wired, so it is None there.
+    action_ledger: str | None = None
+    # The furthest an open can sit from the previous close, as a ratio, before
+    # it can only be a change in the unit rather than a trade. NSE's opening
+    # auction is capped at 20% either way, so 1.30 leaves a margin. None where
+    # the open is uncapped and a gap of any size can be real, as in the US.
+    max_open_gap: float | None = None
 
 
 _NSE_PROFILE = MarketProfile(
@@ -108,7 +114,8 @@ _NSE_PROFILE = MarketProfile(
         ("NIFTYSMLCAP250.NS", "Nifty Smallcap 250"),
     ),
     session_bar_fallback="nse_bhavcopy",
-    demerger_ledger="nse_actions",
+    action_ledger="nse_actions",
+    max_open_gap=1.30,
 )
 
 _US_PROFILE = MarketProfile(
