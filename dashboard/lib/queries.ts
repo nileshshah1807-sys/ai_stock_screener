@@ -519,6 +519,62 @@ export const getSearchIndex = cache(
   },
 );
 
+/** The facts about one company a feed filter can test; see lib/event-filters.mjs. */
+export type CompanyFacts = {
+  symbol: string;
+  industry: string | null;
+  market_cap: number | null;
+  turnover: number | null;
+  pe_ratio: number | null;
+  decision_score: number | null;
+};
+
+/**
+ * Every company in the latest run with the facts a feed is filtered by.
+ *
+ * Notifications and Concalls rows carry a symbol and no size or industry, so
+ * their filters are answered from the run instead. Null when there is no run
+ * or any part of the read failed -- a partial list would silently hide the
+ * companies in the missing part, so the caller is told there is nothing to
+ * filter by and shows the feed unfiltered.
+ */
+export const getCompanyFacts = cache(
+  async (market: MarketCode): Promise<CompanyFacts[] | null> => {
+    const run = await getLatestRun(market);
+    if (!run) return null;
+    const supabase = await createClient();
+    const results = await Promise.all(
+      chunkOffsets(run.row_count).map((offset) =>
+        supabase
+          .from("screener_snapshot")
+          .select("symbol, industry, market_cap, median_turnover_20d_inr, pe_ratio, decision_score")
+          .eq("market", market)
+          .eq("run_date", run.run_date)
+          .order("symbol", { ascending: true })
+          .range(offset, offset + FETCH_CHUNK - 1),
+      ),
+    );
+    const facts: CompanyFacts[] = [];
+    for (const { data, error } of results) {
+      if (error) {
+        console.error("getCompanyFacts failed", error.message);
+        return null;
+      }
+      for (const row of data ?? []) {
+        facts.push({
+          symbol: row.symbol as string,
+          industry: row.industry as string | null,
+          market_cap: row.market_cap as number | null,
+          turnover: row.median_turnover_20d_inr as number | null,
+          pe_ratio: row.pe_ratio as number | null,
+          decision_score: row.decision_score as number | null,
+        });
+      }
+    }
+    return facts;
+  },
+);
+
 /**
  * Did this run score with the Model 5.0 factor architecture?
  *

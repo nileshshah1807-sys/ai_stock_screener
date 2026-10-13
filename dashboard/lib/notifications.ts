@@ -4,6 +4,7 @@ import { cache } from "react";
 
 import type { MarketCode } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/server";
+import { readForSymbols } from "@/lib/symbol-scope.mjs";
 import { getWatchlists } from "@/lib/watchlists";
 
 /**
@@ -38,33 +39,32 @@ const EVENT_COLUMNS = "id, symbol, company, kind, event_key, occurred_at, detect
 export type EventQuery = {
   /** Restrict to these symbols. An empty list matches nothing. */
   symbols?: string[] | null;
-  kind?: string | null;
+  /** Restrict to these kinds. Empty means every kind. */
+  kinds?: string[];
   limit?: number;
 };
 
 /** Events for one market, newest first. Baselines are never returned. */
 export async function getEvents(
   market: MarketCode,
-  { symbols = null, kind = null, limit = 200 }: EventQuery = {},
+  { symbols = null, kinds = [], limit = 200 }: EventQuery = {},
 ): Promise<MarketEvent[]> {
-  if (symbols && symbols.length === 0) return [];
   const supabase = await createClient();
-  let query = supabase
-    .from("market_events")
-    .select(EVENT_COLUMNS)
-    .eq("market", market)
-    .eq("baseline", false);
-  if (symbols) query = query.in("symbol", symbols);
-  if (kind) query = query.eq("kind", kind);
-  const { data, error } = await query
-    .order("occurred_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(limit);
-  if (error) {
-    console.error("getEvents failed", error.message);
-    return [];
-  }
-  return (data as unknown as MarketEvent[]) ?? [];
+  const { rows, error } = await readForSymbols<MarketEvent>(symbols, limit, (pushed, from, to) => {
+    let query = supabase
+      .from("market_events")
+      .select(EVENT_COLUMNS)
+      .eq("market", market)
+      .eq("baseline", false);
+    if (pushed) query = query.in("symbol", pushed);
+    if (kinds.length) query = query.in("kind", kinds);
+    return query
+      .order("occurred_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to);
+  });
+  if (error) console.error("getEvents failed", error);
+  return rows;
 }
 
 /** When the viewer last opened this market's feed, or null if never. */

@@ -3,52 +3,21 @@ import type { Metadata } from "next";
 import { Search } from "lucide-react";
 
 import { ConcallRow } from "@/components/concalls/concall-row";
+import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { Reveal } from "@/components/motion";
 import { Input } from "@/components/ui/input";
 import { getConcalls } from "@/lib/concalls";
 import { STANCE_FILTERS, groupByCallDate, searchTerm } from "@/lib/concalls.mjs";
+import { loadFeedFilters } from "@/lib/feed-filters";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
-import { getWatchedSymbols } from "@/lib/notifications";
-import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Concalls" };
 export const dynamic = "force-dynamic";
 
 const FEED_LIMIT = 150;
 
-/**
- * A filter is a link, not a control with state, as on Notifications: each
- * combination has its own URL, so the page renders on the server with no
- * client code and a filtered view can be bookmarked.
- */
-function FilterLink({
-  href,
-  active,
-  children,
-}: {
-  href: string;
-  active: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-current={active ? "true" : undefined}
-      className={cn(
-        "inline-flex h-8 items-center rounded-full px-3 text-xs font-medium",
-        "transition-[background-color,color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
-        "active:scale-[0.96] active:duration-(--duration-press) active:ease-out",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-        active
-          ? "bg-primary text-primary-foreground"
-          : "bg-(--control) text-muted-foreground hover:bg-(--control-hover) hover:text-foreground",
-      )}
-    >
-      {children}
-    </Link>
-  );
-}
+const FACETS = [{ param: "stance", label: "Mgmt Sentiment", options: STANCE_FILTERS }];
 
 /**
  * Earnings calls, newest first, grouped by the day each was held.
@@ -59,6 +28,10 @@ function FilterLink({
  * What each row shows is what the screener already scores from: the tone of
  * the call and the outlook it stated.
  *
+ * Filtered by the bar Notifications uses (`lib/event-filters.mjs`), and like
+ * it opens above a market-cap floor: every filter is in the URL, the search
+ * included, so a result can be bookmarked.
+ *
  * NSE only for now: there is no recording or transcript source for the US.
  */
 export default async function ConcallsPage({
@@ -68,32 +41,19 @@ export default async function ConcallsPage({
   const market = marketFromSlug((await params).market)!;
   const query = await searchParams;
 
-  const watched = await getWatchedSymbols(market.code);
-  const scope = watched.length && query.scope === "watchlists" ? "watchlists" : "all";
+  const feed = await loadFeedFilters(market.code, query, { defaultScope: "all", facets: FACETS });
   const search = searchTerm(query.q);
-  const stance = STANCE_FILTERS.find((item) => item.value === query.stance)?.value ?? null;
-  const filtered = Boolean(search || stance || scope === "watchlists");
+  const filtered = Boolean(search) || !feed.isDefault;
 
   const calls = await getConcalls(market.code, {
-    symbols: scope === "watchlists" ? watched : null,
+    symbols: feed.symbols,
     search,
-    stance,
+    stances: feed.filters.facets.stance,
     limit: FEED_LIMIT,
   });
   const groups = groupByCallDate(calls);
 
   const base = marketPath(market.slug, "/concalls");
-  // Every filter keeps the others: narrowing by stance does not drop the search.
-  const href = (next: { scope?: string; stance?: string | null }) => {
-    const url = new URLSearchParams();
-    // Only the non-default is spelled out, so the plain URL is the default view.
-    if ((next.scope ?? scope) === "watchlists") url.set("scope", "watchlists");
-    const nextStance = next.stance === undefined ? stance : next.stance;
-    if (nextStance) url.set("stance", nextStance);
-    if (search) url.set("q", search);
-    const text = url.toString();
-    return text ? `${base}?${text}` : base;
-  };
 
   return (
     <div className="space-y-4 px-4 py-5 sm:px-6">
@@ -108,8 +68,8 @@ export default async function ConcallsPage({
 
       {/*
         A plain GET form: the search is part of the URL like every other
-        filter here, so it needs no client code and a result can be bookmarked.
-        The hidden fields carry the filters already chosen through the submit.
+        filter here, so a result can be bookmarked. The hidden fields carry
+        the filters already chosen through the submit.
       */}
       <form action={base} method="get" role="search" className="relative max-w-sm">
         <Search
@@ -125,32 +85,12 @@ export default async function ConcallsPage({
           autoComplete="off"
           className="pl-10"
         />
-        {scope === "watchlists" ? <input type="hidden" name="scope" value="watchlists" /> : null}
-        {stance ? <input type="hidden" name="stance" value={stance} /> : null}
+        {feed.entries.map(([name, value]) => (
+          <input key={`${name}:${value}`} type="hidden" name={name} value={value} />
+        ))}
       </form>
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        {watched.length ? (
-          <nav aria-label="Whose calls" className="flex items-center gap-1.5">
-            <FilterLink href={href({ scope: "all" })} active={scope === "all"}>
-              All of {market.label}
-            </FilterLink>
-            <FilterLink href={href({ scope: "watchlists" })} active={scope === "watchlists"}>
-              Your watchlists
-            </FilterLink>
-          </nav>
-        ) : null}
-        <nav aria-label="Management stance" className="flex flex-wrap items-center gap-1.5">
-          <FilterLink href={href({ stance: null })} active={stance === null}>
-            Any stance
-          </FilterLink>
-          {STANCE_FILTERS.map((item) => (
-            <FilterLink key={item.value} href={href({ stance: item.value })} active={stance === item.value}>
-              {item.label}
-            </FilterLink>
-          ))}
-        </nav>
-      </div>
+      <EventFilterBar {...feed.bar} />
 
       {groups.length ? (
         <Reveal className="space-y-4">
@@ -190,11 +130,11 @@ export default async function ConcallsPage({
           <p className="text-sm font-medium">
             {search
               ? `No calls match \u201c${search}\u201d.`
-              : stance
-                ? "No calls with that stance."
-                : scope === "watchlists"
-                  ? "No recent calls for the companies on your watchlists."
-                  : "No calls yet."}
+              : feed.scoped
+                ? "No recent calls for the companies on your watchlists."
+                : feed.isDefault
+                  ? "No calls yet."
+                  : "No calls match these filters."}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {market.code !== "NSE"

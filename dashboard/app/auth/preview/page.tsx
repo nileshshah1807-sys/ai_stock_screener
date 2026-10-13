@@ -16,6 +16,7 @@ import { NotRatedBadge } from "@/components/new-listing";
 import { NewListingsBrowser } from "@/components/new-listings-browser";
 import { Suspense } from "react";
 import { ActiveFilters } from "@/components/screener/active-filters";
+import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { ExportLink } from "@/components/screener/export-link";
 import { FilterBar } from "@/components/screener/filter-bar";
 import { SavedViews } from "@/components/screener/saved-views";
@@ -160,6 +161,47 @@ export default function PreviewPage() {
         <section className="flex flex-col gap-3">
           <h2 className="text-heading">Call outlook</h2>
           <CallOutlook payload={previewDetailRow.payload} />
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Feed filters</h2>
+          {/* The bar above Notifications and Concalls, opened on the default
+              view. A static page cannot re-render for a new URL, so a choice
+              made here shows in the address bar and then settles back. */}
+          <Suspense>
+            <EventFilterBar
+              market="NSE"
+              defaultScope="all"
+              filters={{
+                rules: [{ metric: "mcap", op: "gte", value: 1000 }],
+                industries: [],
+                lists: [],
+                facets: {},
+              }}
+              industries={[
+                { value: "Auto Parts", label: "Auto Parts", count: 84 },
+                { value: "Banks - Regional", label: "Banks - Regional", count: 37 },
+                { value: "Specialty Chemicals", label: "Specialty Chemicals", count: 112 },
+              ]}
+              watchlists={[
+                { value: "core", label: "Core holdings", count: 14 },
+                { value: "watch", label: "Results to watch", count: 31 },
+              ]}
+              facets={[
+                {
+                  param: "stance",
+                  label: "Mgmt Sentiment",
+                  options: [
+                    { value: "bullish", label: "Bullish" },
+                    { value: "optimistic", label: "Optimistic" },
+                    { value: "neutral", label: "Neutral" },
+                    { value: "cautious", label: "Cautious" },
+                    { value: "bearish", label: "Bearish" },
+                  ],
+                },
+              ]}
+            />
+          </Suspense>
         </section>
 
         <section className="flex flex-col gap-3">
