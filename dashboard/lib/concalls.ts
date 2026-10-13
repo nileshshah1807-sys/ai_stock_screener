@@ -2,6 +2,7 @@ import "server-only";
 
 import type { MarketCode } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/server";
+import { readForSymbols } from "@/lib/symbol-scope.mjs";
 
 /**
  * Reads for the Concalls page.
@@ -57,39 +58,36 @@ export type ConcallQuery = {
   symbols?: string[] | null;
   /** Symbol or company containing this text, already through `searchTerm`. */
   search?: string;
-  /** One management stance: `bullish` ... `bearish`. */
-  stance?: string | null;
+  /** Management stances, `bullish` ... `bearish`. Empty means any. */
+  stances?: string[];
   limit?: number;
 };
 
 /** Calls for one market, newest first. */
 export async function getConcalls(
   market: MarketCode,
-  { symbols = null, search = "", stance = null, limit = 150 }: ConcallQuery = {},
+  { symbols = null, search = "", stances = [], limit = 150 }: ConcallQuery = {},
 ): Promise<Concall[]> {
-  if (symbols && symbols.length === 0) return [];
   const supabase = await createClient();
-  const read = (columns: string) => {
-    let query = supabase.from("concall_feed").select(columns).eq("market", market);
-    if (symbols) query = query.in("symbol", symbols);
-    if (search) query = query.or(`symbol.ilike.*${search}*,company.ilike.*${search}*`);
-    if (stance) query = query.eq("management_stance", stance);
-    return query
-      .order("call_date", { ascending: false })
-      .order("symbol", { ascending: true })
-      .limit(limit);
-  };
-  let { data, error } = await read(COLUMNS);
+  const read = (columns: string) =>
+    readForSymbols<Concall>(symbols, limit, (pushed, from, to) => {
+      let query = supabase.from("concall_feed").select(columns).eq("market", market);
+      if (pushed) query = query.in("symbol", pushed);
+      if (search) query = query.or(`symbol.ilike.*${search}*,company.ilike.*${search}*`);
+      if (stances.length) query = query.in("management_stance", stances);
+      return query
+        .order("call_date", { ascending: false })
+        .order("symbol", { ascending: true })
+        .range(from, to);
+    });
+  let { rows, error } = await read(COLUMNS);
   if (error) {
     // A table without the stance columns still has every call; the page
     // shows them without a stance instead of showing nothing.
-    ({ data, error } = await read(BASE_COLUMNS));
+    ({ rows, error } = await read(BASE_COLUMNS));
   }
-  if (error) {
-    console.error("getConcalls failed", error.message);
-    return [];
-  }
-  return (data as unknown as Concall[]) ?? [];
+  if (error) console.error("getConcalls failed", error);
+  return rows;
 }
 
 /**
