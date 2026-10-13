@@ -99,6 +99,11 @@ class RecordingSettings:
     # A channel that posts every call as a video, asked when the notice's own
     # link yields no recording. Unset, such a call waits for its transcript.
     fallback_channel: str = ""
+    # Whether this machine can fetch a video's audio. A hosted runner cannot:
+    # the video site answers its address with a sign-in wall (measured 13 Oct
+    # 2026, every player client and the captions alike). Off, a call whose
+    # only recording is a video waits for its transcript, as it did before.
+    fetch_videos: bool = False
 
     @classmethod
     def from_environment(cls) -> RecordingSettings:
@@ -111,6 +116,7 @@ class RecordingSettings:
             max_attempts=max(1, int(os.getenv("CALL_RECORDING_MAX_ATTEMPTS", "6"))),
             min_text_characters=max(1, int(os.getenv("CALL_RECORDING_MIN_TEXT_CHARACTERS", "3000"))),
             fallback_channel=os.getenv("CALL_RECORDING_FALLBACK_CHANNEL", "").strip(),
+            fetch_videos=os.getenv("CALL_RECORDING_FETCH_VIDEOS", "").strip().lower() in {"1", "true", "yes"},
         )
 
 
@@ -223,9 +229,9 @@ class CallRecordingWorker:
                 raise
             # Past a direct file, every rule needs to know which quarter it is looking for.
             source = source_from_notice(kind, url, quarter_end) if quarter_end or kind in DOWNLOADABLE else None
-            if source:
+            if source and (source.fetch != VIDEO_AUDIO or self.settings.fetch_videos):
                 sources.append(source)
-        channel = bool(self.settings.fallback_channel) and quarter_end is not None
+        channel = self.settings.fetch_videos and bool(self.settings.fallback_channel) and quarter_end is not None
         if channel:
             source = fallback_video(self._channel(), filing.get("company_name"), quarter_end)
             if source:

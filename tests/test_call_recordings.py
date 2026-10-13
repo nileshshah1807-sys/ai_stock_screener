@@ -178,6 +178,7 @@ class PlanTests(unittest.TestCase):
         downloaded=True,
         channel=None,
         video_downloaded=True,
+        fetch_videos=True,
     ):
         self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
         audio_path = self.directory / "audio" / "900.mp3"
@@ -197,7 +198,9 @@ class PlanTests(unittest.TestCase):
             audio_path.write_bytes(b"audio" * 100)
             return audio_path
 
-        settings = RecordingSettings(fallback_channel="https://video.test/@calls" if channel is not None else "")
+        settings = RecordingSettings(
+            fallback_channel="https://video.test/@calls" if channel is not None else "", fetch_videos=fetch_videos
+        )
 
         samples = np.zeros(int(SAMPLE_RATE * 60 * audio_minutes), dtype=np.float32)
         with (
@@ -267,6 +270,14 @@ class PlanTests(unittest.TestCase):
         (call,) = self.plan(repository, downloaded=False, channel=[CHANNEL_VIDEO])["calls"]
         self.assertEqual([kind for kind, _ in self.fetched], ["file", "video"])
         self.assertEqual(call["source"], "a call channel's video")
+
+    def test_a_machine_that_cannot_fetch_videos_leaves_them_for_the_filed_transcript(self):
+        for links in (["https://youtu.be/abcdefghijk"], ["https://alpha.test/investors"]):
+            repository = FakeRepository()
+            plan = self.plan(repository, links=links, channel=[CHANNEL_VIDEO], fetch_videos=False)
+            self.assertEqual((plan["calls"], self.fetched), ([], []))
+            self.assertEqual(repository.updates[0][1]["status"], "rejected")
+            self.listed.assert_not_called()
 
     def test_the_channel_is_not_listed_when_none_is_configured(self):
         self.plan(FakeRepository(), links=["https://alpha.test/investors"])

@@ -140,13 +140,15 @@ the scheduled workflows set the same flag.
   call's "previous quarter" in `latest_transcript_sentiment`. Half the
   notices name an audio file; `transcripts/recording_sources.py` resolves
   the rest -- a shared-drive file, the one recording of this quarter an
-  investor page names, the company's own video -- and then asks
-  `CALL_RECORDING_FALLBACK_CHANNEL` (set in the workflow), a third party's
-  channel that posts each call as a video, matched on company name and
-  quarter. Every rule there takes nothing rather than choose between
-  recordings. A call with no recording anywhere, or one not in English,
-  waits for the filed transcript. `yt-dlp` fetches a video's audio and is in
-  the speech lock only. The speech
+  investor page names. Every rule there takes nothing rather than choose
+  between recordings. It can also take a video's audio (`yt-dlp`, in the
+  speech lock only) -- the company's own, or one from
+  `CALL_RECORDING_FALLBACK_CHANNEL`, a third party's channel matched on
+  company name and quarter -- but only where `CALL_RECORDING_FETCH_VIDEOS`
+  is set: the video site refuses a hosted runner's address (13 Oct 2026,
+  every player client and the captions alike), so both are off in the
+  workflow. A call with no recording it can fetch, or one not in English,
+  waits for the filed transcript. The speech
   text has no speaker labels, so the tone score reads it as one voice -- its
   agreement with the filed transcript's score has not been measured yet.
   `workers/concall_feed.py` derives `concall_feed` (one row per call, no
