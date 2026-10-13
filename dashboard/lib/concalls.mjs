@@ -44,8 +44,7 @@ export function stanceLabel(stance, quote) {
  * Where the call's text came from, and what that means for the reader.
  *
  * A recording has no speaker labels and its figures are as the model heard
- * them, and a third party's transcript is not the company's own, so the row
- * says so until the company's transcript replaces it.
+ * them, so the row says so until the company's own transcript replaces it.
  */
 export function sourceLabel(source) {
   if (source === "recording") {
@@ -53,14 +52,6 @@ export function sourceLabel(source) {
       label: "From the recording",
       title:
         "Transcribed by a speech model from the recording the company filed. Replaced by the company's transcript when it is filed.",
-      provisional: true,
-    };
-  }
-  if (source === "vendor") {
-    return {
-      label: "Third-party transcript",
-      title:
-        "A transcript of the call published by a third party, used where the company's recording could not be fetched. Replaced by the company's transcript when it is filed.",
       provisional: true,
     };
   }

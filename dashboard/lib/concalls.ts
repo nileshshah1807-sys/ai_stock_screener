@@ -27,8 +27,8 @@ export type Concall = {
   quarter: string;
   /** The day the call was held. */
   call_date: string;
-  /** `recording` or `vendor` until the company files its transcript, then `transcript`. */
-  source: "recording" | "vendor" | "transcript";
+  /** `recording` until the company files its transcript, then `transcript`. */
+  source: "recording" | "transcript";
   tone_score: number | null;
   /** Where the tone stands among the season's calls, 0-100; null when unscored. */
   tone_percentile: number | null;

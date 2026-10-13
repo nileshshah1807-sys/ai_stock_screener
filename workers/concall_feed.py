@@ -33,7 +33,7 @@ from screener.numeric import round_half_up, safe_float
 from sentiment.outlook import OUTLOOK_VERSION, STANCES, compare_outlooks, outlook_items
 from storage.supabase_repository import PREVIOUS_CALL_MIN_GAP_DAYS
 from transcripts.periods import reporting_period_end_for_call
-from transcripts.recordings import VENDOR_METHOD_PREFIX, is_provisional
+from transcripts.recordings import SPEECH_METHOD_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +42,6 @@ FEED_DAYS = 200
 HIGHLIGHTS = 3
 SOURCE_RECORDING = "recording"
 SOURCE_TRANSCRIPT = "transcript"
-#: A vendor's transcript of the call, standing in as a recording's text does.
-SOURCE_VENDOR = "vendor"
 
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -77,19 +75,9 @@ def _newest(rows: Any) -> dict[str, Any]:
     return max(rows, key=lambda row: str(row.get("created_at") or ""), default={})
 
 
-def _method(transcript: dict[str, Any]) -> str:
-    return str(_one(transcript.get("transcript_documents")).get("extraction_method") or "")
-
-
 def _from_recording(transcript: dict[str, Any]) -> bool:
-    """Whether the text stands in for the filed transcript: a recording's, or a vendor's."""
-    return is_provisional(_method(transcript))
-
-
-def _source(transcript: dict[str, Any]) -> str:
-    if not _from_recording(transcript):
-        return SOURCE_TRANSCRIPT
-    return SOURCE_VENDOR if _method(transcript).startswith(VENDOR_METHOD_PREFIX) else SOURCE_RECORDING
+    method = str(_one(transcript.get("transcript_documents")).get("extraction_method") or "")
+    return method.startswith(SPEECH_METHOD_PREFIX)
 
 
 def highlights(extraction: dict[str, Any] | None, limit: int = HIGHLIGHTS) -> list[dict[str, str]]:
@@ -230,7 +218,7 @@ def build_feed(
                 [str(transcript.get("call_date"))[:10] for transcript in stored]
                 + [known for known in [held.get((symbol, quarter))] if known]
             ),
-            "source": _source(chosen),
+            "source": SOURCE_TRANSCRIPT if filed else SOURCE_RECORDING,
             "tone_score": None if tone is None else round_half_up(tone, 2),
             "tone_percentile": None,
             "guidance_direction": sentiment.get("guidance_direction"),
@@ -315,21 +303,13 @@ def _write(repo, rows: list[dict[str, Any]], since: str) -> int:
     """
     try:
         return repo.replace_concall_feed(rows, since)
-    except Exception as exc:  # noqa: BLE001 - try again as an older table would accept it
+    except Exception as exc:  # noqa: BLE001 - try once more without the newer columns
         logger.warning(
-            "%s concall feed rejected (%s); writing what an older table accepts. "
+            "%s concall feed rejected (%s); writing without the newer columns. "
             "Re-apply storage/concalls_schema.sql.",
             repo.market,
             exc,
         )
-    # A table that predates the vendor source refuses the word. Such a call is
-    # provisional either way, which is what the older word says.
-    if any(row["source"] == SOURCE_VENDOR for row in rows):
-        rows = [{**row, "source": SOURCE_RECORDING} if row["source"] == SOURCE_VENDOR else row for row in rows]
-        try:
-            return repo.replace_concall_feed(rows, since)
-        except Exception:  # noqa: BLE001 - the columns, then
-            pass
     try:
         older = [{key: value for key, value in row.items() if key not in STANCE_COLUMNS} for row in rows]
         return repo.replace_concall_feed(older, since)

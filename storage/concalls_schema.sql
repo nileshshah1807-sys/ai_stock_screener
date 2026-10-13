@@ -10,13 +10,10 @@
 --   source = 'recording'    the text was transcribed from the recording the
 --                           company filed the evening of the call
 --                           (workers/call_recordings.py)
---   source = 'vendor'       the text is a vendor's transcript of the call,
---                           taken where the recording could not be fetched
---                           (transcripts/vendor_transcripts.py)
 --   source = 'transcript'   the text is the transcript the company filed
 --
--- A row starts as one of the first two and becomes the third when the
--- transcript is filed; call_date stays the day the call was held.
+-- A row starts as the first and becomes the second when the transcript is
+-- filed; call_date stays the day the call was held.
 --
 -- Display evidence only. No score, rating or rank is read from this table:
 -- the screener reads transcript_sentiments and transcript_outlooks, and
@@ -33,7 +30,7 @@ create table if not exists concall_feed (
     quarter date not null,
     company text,
     call_date date not null,
-    source text not null check (source in ('recording', 'transcript', 'vendor')),
+    source text not null check (source in ('recording', 'transcript')),
     -- Null until the call is scored. A call with no score has no standing;
     -- it is not the lowest.
     tone_score numeric(5,2),
@@ -64,11 +61,6 @@ create table if not exists concall_feed (
 alter table concall_feed add column if not exists management_stance text;
 alter table concall_feed add column if not exists management_stance_quote text;
 alter table concall_feed add column if not exists outlook_detail jsonb;
-
--- 'vendor' joined the sources after the table first shipped.
-alter table concall_feed drop constraint if exists concall_feed_source_check;
-alter table concall_feed add constraint concall_feed_source_check
-    check (source in ('recording', 'transcript', 'vendor'));
 
 create index if not exists concall_feed_recent_idx
     on concall_feed (market, call_date desc);

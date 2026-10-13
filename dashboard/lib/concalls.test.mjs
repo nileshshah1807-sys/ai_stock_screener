@@ -33,8 +33,6 @@ test("a call with no stance gets no word rather than a neutral one", () => {
 test("a call read from its recording says so", () => {
   assert.equal(sourceLabel("recording").provisional, true);
   assert.equal(sourceLabel("recording").label, "From the recording");
-  assert.equal(sourceLabel("vendor").provisional, true);
-  assert.equal(sourceLabel("vendor").label, "Third-party transcript");
   assert.equal(sourceLabel("transcript").provisional, false);
   // An unknown source is not presented as provisional.
   assert.equal(sourceLabel(undefined).label, "Filed transcript");
