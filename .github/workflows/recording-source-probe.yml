@@ -26,23 +26,38 @@ jobs:
           python - <<'PY'
           import os, tempfile, time
           from pathlib import Path
-          from transcripts.recording_sources import _TITLE, download_video_audio, list_channel
-          from transcripts.recordings import SAMPLE_RATE, decode_audio
 
-          started = time.time()
-          videos = list_channel(os.environ["CHANNEL"])
-          calls = [video for video in videos if _TITLE.match(str(video.get("title") or ""))]
-          print(f"::notice title=Channel listing::{len(videos)} videos, {len(calls)} call titles, {time.time() - started:.0f}s")
+          import yt_dlp
+
+          from transcripts.recording_sources import _TITLE, list_channel
+
+          videos = [v for v in list_channel(os.environ["CHANNEL"], 40) if _TITLE.match(str(v.get("title") or ""))]
+          url = f"https://www.youtube.com/watch?v={videos[0]['id']}"
           folder = Path(tempfile.mkdtemp())
-          for index, video in enumerate(calls[:3]):
+
+          class Log:
+              def __init__(self): self.lines = []
+              def debug(self, message): pass
+              def warning(self, message): self.lines.append("W " + message)
+              def error(self, message): self.lines.append("E " + message)
+
+          def attempt(label, **extra):
+              log = Log()
+              options = {"quiet": True, "noprogress": True, "noplaylist": True, "logger": log,
+                         "outtmpl": str(folder / f"{label}.%(ext)s"), "js_runtimes": {"deno": {}, "node": {}}, **extra}
               started = time.time()
-              path = download_video_audio(f"https://www.youtube.com/watch?v={video['id']}", folder, f"probe{index}")
-              if path is None:
-                  print(f"::error title=Video {index + 1}::audio was not served")
-                  continue
-              minutes = len(decode_audio(path)) / SAMPLE_RATE / 60
-              print(
-                  f"::notice title=Video {index + 1}::{path.suffix} {path.stat().st_size / 1e6:.0f} MB, "
-                  f"{minutes:.0f} minutes of audio, fetched in {time.time() - started:.0f}s"
-              )
+              try:
+                  with yt_dlp.YoutubeDL(options) as downloader:
+                      downloader.extract_info(url, download=True)
+                  files = sorted(f"{p.suffix} {p.stat().st_size / 1e6:.1f} MB" for p in folder.glob(f"{label}.*"))
+                  print(f"::notice title={label}::ok in {time.time() - started:.0f}s: {files}")
+              except Exception as exc:
+                  text = " | ".join(log.lines)[-500:] or str(exc)[-500:]
+                  print(f"::error title={label}::{text}".replace("\n", " "))
+
+          attempt("default", format="bestaudio/best")
+          for client in ("tv", "tv_simply", "web_safari", "web_embedded", "android_vr", "ios", "mweb"):
+              attempt(f"client-{client}", format="bestaudio/best",
+                      extractor_args={"youtube": {"player_client": [client]}})
+          attempt("captions", skip_download=True, writeautomaticsub=True, subtitleslangs=["en"], subtitlesformat="json3")
           PY
