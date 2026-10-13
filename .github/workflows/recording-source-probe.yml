@@ -1,0 +1,48 @@
+name: Recording source probe
+# Temporary: one run on this branch to see whether a hosted runner can list a
+# channel and fetch a video's audio. Deleted before the branch is merged.
+on:
+  push:
+    branches: [feat/recording-fallbacks]
+    paths: [.github/workflows/recording-source-probe.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-speech.txt
+      - name: List the channel and fetch three calls
+        env:
+          CHANNEL: https://www.youtube.com/@ConCall.Inc5
+        run: |
+          python - <<'PY'
+          import os, tempfile, time
+          from pathlib import Path
+          from transcripts.recording_sources import _TITLE, download_video_audio, list_channel
+          from transcripts.recordings import SAMPLE_RATE, decode_audio
+
+          started = time.time()
+          videos = list_channel(os.environ["CHANNEL"])
+          calls = [video for video in videos if _TITLE.match(str(video.get("title") or ""))]
+          print(f"::notice title=Channel listing::{len(videos)} videos, {len(calls)} call titles, {time.time() - started:.0f}s")
+          folder = Path(tempfile.mkdtemp())
+          for index, video in enumerate(calls[:3]):
+              started = time.time()
+              path = download_video_audio(f"https://www.youtube.com/watch?v={video['id']}", folder, f"probe{index}")
+              if path is None:
+                  print(f"::error title=Video {index + 1}::audio was not served")
+                  continue
+              minutes = len(decode_audio(path)) / SAMPLE_RATE / 60
+              print(
+                  f"::notice title=Video {index + 1}::{path.suffix} {path.stat().st_size / 1e6:.0f} MB, "
+                  f"{minutes:.0f} minutes of audio, fetched in {time.time() - started:.0f}s"
+              )
+          PY
