@@ -137,9 +137,16 @@ the scheduled workflows set the same flag.
   it unchanged -- no scoring code knows the difference. When the transcript
   worker stores the filed transcript it deletes the recording's
   (`delete_speech_transcripts`): left beside it, the recording would be that
-  call's "previous quarter" in `latest_transcript_sentiment`. Only a notice
-  that names an audio file is served; one that points at an investor page,
-  or a recording not in English, waits for the filed transcript. The speech
+  call's "previous quarter" in `latest_transcript_sentiment`. Half the
+  notices name an audio file; `transcripts/recording_sources.py` resolves
+  the rest -- a shared-drive file, the one recording of this quarter an
+  investor page names, the company's own video -- and then asks
+  `CALL_RECORDING_FALLBACK_CHANNEL` (set in the workflow), a third party's
+  channel that posts each call as a video, matched on company name and
+  quarter. Every rule there takes nothing rather than choose between
+  recordings. A call with no recording anywhere, or one not in English,
+  waits for the filed transcript. `yt-dlp` fetches a video's audio and is in
+  the speech lock only. The speech
   text has no speaker labels, so the tone score reads it as one voice -- its
   agreement with the filed transcript's score has not been measured yet.
   `workers/concall_feed.py` derives `concall_feed` (one row per call, no

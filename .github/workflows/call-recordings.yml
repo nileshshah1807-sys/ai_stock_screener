@@ -51,6 +51,12 @@ jobs:
       CALL_RECORDING_LOOKBACK_DAYS: ${{ inputs.lookback_days || '3' }}
       # Four pieces a call against twenty concurrent jobs.
       CALL_RECORDING_MAX_CALLS_PER_RUN: ${{ inputs.max_calls || '5' }}
+      # Asked only when a notice's own link yields no recording: a channel
+      # that posts each call as a video a few hours after it is held, matched
+      # on the company's name and the quarter in the title. A third party's
+      # upload, so it is the last resort and can be switched off by removing
+      # this line; such a call then waits for its filed transcript.
+      CALL_RECORDING_FALLBACK_CHANNEL: https://www.youtube.com/@ConCall.Inc5
     steps:
       - uses: actions/checkout@v6
 

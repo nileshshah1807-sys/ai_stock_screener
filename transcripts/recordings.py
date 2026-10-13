@@ -6,10 +6,10 @@ read that evening: it recognises the notice, finds the audio file the notice
 points at, and cuts the recording at pauses so that each piece can be
 transcribed on a machine of its own (`workers/call_recordings.py`).
 
-Only a notice that names an audio file is served. One that points at the
-company's investor page is left for the filed transcript: such a page lists
-every quarter's recording, and picking the wrong one would score the wrong
-call.
+A notice that names an audio file is served from here. One that points at an
+investor page, a shared drive or a video, or at nothing, is resolved by
+`transcripts/recording_sources.py`, which would rather find nothing than the
+wrong quarter's call.
 """
 
 from __future__ import annotations

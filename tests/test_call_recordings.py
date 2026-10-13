@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import requests
 
 from transcripts.recordings import (
     DIRECT,
@@ -30,6 +31,7 @@ from transcripts.recordings import (
 from workers.call_recordings import (
     ALREADY_FILED_ERROR,
     NOT_ENGLISH_ERROR,
+    WAITING_ERROR,
     CallRecordingWorker,
     RecordingSettings,
     matrix,
@@ -164,26 +166,52 @@ RECORD = {
 }
 
 
+CHANNEL_VIDEO = {"id": "video000001", "title": "Alpha Ltd Q2 FY2026-27 Concall"}
+
+
 class PlanTests(unittest.TestCase):
-    def plan(self, repository, links=("https://alpha.test/q2.mp3",), audio_minutes=40, downloaded=True):
+    def plan(
+        self,
+        repository,
+        links=("https://alpha.test/q2.mp3",),
+        audio_minutes=40,
+        downloaded=True,
+        channel=None,
+        video_downloaded=True,
+    ):
         self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
         audio_path = self.directory / "audio" / "900.mp3"
+        self.fetched = []
 
         def download(url, folder, name):
+            self.fetched.append(("file", url))
             if not downloaded:
                 return None
             audio_path.write_bytes(b"audio" * 100)
             return audio_path
 
+        def download_video(url, folder, name):
+            self.fetched.append(("video", url))
+            if not video_downloaded:
+                return None
+            audio_path.write_bytes(b"audio" * 100)
+            return audio_path
+
+        settings = RecordingSettings(fallback_channel="https://video.test/@calls" if channel is not None else "")
+
         samples = np.zeros(int(SAMPLE_RATE * 60 * audio_minutes), dtype=np.float32)
         with (
             patch("workers.call_recordings.discover_nse_announcements", return_value=[RECORD]),
-            patch("workers.call_recordings.download_notice", return_value=Path("notice.pdf")),
+            patch("workers.call_recordings.download_notice", return_value=Path("notice.pdf")) as self.notice,
             patch("workers.call_recordings.pdf_links", return_value=list(links)),
             patch("workers.call_recordings.download_audio", side_effect=download),
             patch("workers.call_recordings.decode_audio", return_value=samples),
+            patch("workers.call_recordings.download_video_audio", side_effect=download_video),
+            patch("workers.call_recordings.list_channel", return_value=list(channel or [])) as self.listed,
+            # An investor page is never asked for in a test: it does not answer.
+            patch("transcripts.recording_sources.requests.get", side_effect=requests.ConnectionError("offline")),
         ):
-            return CallRecordingWorker(repository, RecordingSettings()).plan(self.directory)
+            return CallRecordingWorker(repository, settings).plan(self.directory)
 
     def test_a_recording_is_cut_into_pieces_and_written_to_the_plan(self):
         repository = FakeRepository()
@@ -208,6 +236,41 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(self.plan(repository, links=["https://alpha.test/investors"])["calls"], [])
         self.assertEqual(repository.updates[0][1]["status"], "rejected")
         self.assertIn("web page", repository.updates[0][1]["last_error"])
+
+    def test_the_company_s_own_video_is_fetched_as_a_video(self):
+        repository = FakeRepository()
+        (call,) = self.plan(repository, links=["https://youtu.be/abcdefghijk"])["calls"]
+        self.assertEqual(self.fetched, [("video", "https://youtu.be/abcdefghijk")])
+        self.assertEqual(call["source"], "the company's own video")
+
+    def test_a_call_with_no_recording_of_its_own_is_read_from_the_channel(self):
+        repository = FakeRepository()
+        (call,) = self.plan(repository, links=["https://alpha.test/investors"], channel=[CHANNEL_VIDEO])["calls"]
+        self.assertEqual(self.fetched, [("video", "https://www.youtube.com/watch?v=video000001")])
+        self.assertEqual(call["source"], "a call channel's video")
+        self.assertEqual(repository.updates, [])
+
+    def test_a_call_the_channel_has_not_posted_yet_waits_without_using_an_attempt(self):
+        repository = FakeRepository()
+        self.assertEqual(self.plan(repository, links=[], channel=[])["calls"], [])
+        self.assertEqual(repository.updates, [("filing-1", {"last_error": f"{WAITING_ERROR} (no link)"})])
+
+    def test_a_waiting_call_is_looked_for_on_the_channel_without_reading_its_notice_again(self):
+        repository = FakeRepository(filing={"last_error": f"{WAITING_ERROR} (web page)"})
+        (call,) = self.plan(repository, links=["https://alpha.test/q2.mp3"], channel=[CHANNEL_VIDEO])["calls"]
+        self.notice.assert_not_called()
+        self.assertEqual(self.fetched, [("video", "https://www.youtube.com/watch?v=video000001")])
+        self.assertEqual(repository.updates, [])
+
+    def test_a_refused_file_falls_back_to_the_channel(self):
+        repository = FakeRepository()
+        (call,) = self.plan(repository, downloaded=False, channel=[CHANNEL_VIDEO])["calls"]
+        self.assertEqual([kind for kind, _ in self.fetched], ["file", "video"])
+        self.assertEqual(call["source"], "a call channel's video")
+
+    def test_the_channel_is_not_listed_when_none_is_configured(self):
+        self.plan(FakeRepository(), links=["https://alpha.test/investors"])
+        self.listed.assert_not_called()
 
     def test_a_refused_download_is_tried_again_on_a_later_run(self):
         repository = FakeRepository(filing={"attempt_count": 2})
