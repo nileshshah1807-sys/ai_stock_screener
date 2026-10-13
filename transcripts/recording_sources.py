@@ -4,9 +4,11 @@ Half of all "link of recording" notices carry a link straight to the file and
 are served by `transcripts/recordings.py` alone. Many of the rest point at
 something that still leads to one file: a link that redirects to it, a
 shared-drive file, or an investor page that holds one recording for this
-quarter -- told by the file's name, or by the day it was uploaded. A page
-that builds its player with a script, or refuses anything but a browser, is
-opened in one (`transcripts/page_browser.py`) where that is switched on.
+quarter -- told by the file's name, or by the day it was uploaded. Every page
+a notice names is tried, the most specific first. A page that builds its
+player with a script, loads it only when a row is opened, or refuses anything
+but a browser is opened in one (`transcripts/page_browser.py`) where that is
+switched on, and from there the site's own investor pages a link away.
 This module resolves those.
 
 Every rule here would rather find nothing than the wrong call: an investor
@@ -179,20 +181,47 @@ def pick_by_upload_date(candidates: list[str], announced: date, referer: str, se
     return recent[0] if len(recent) == 1 else None
 
 
+def _stale(link: str, announced: date | None, referer: str, session: Any) -> bool | None:
+    """Whether a file was uploaded too long before the notice to be its call; None when the site does not say."""
+    if announced is None:
+        return None
+    modified, _, _ = uploaded(link, referer, session)
+    if modified is None:
+        return None
+    return modified < announced - timedelta(days=UPLOAD_DAYS_BEFORE)
+
+
 def _from_markup(
-    html: str, base_url: str, requested: list[str], quarter_end: date, announced: date | None, session: Any, where: str
+    html: str,
+    base_url: str,
+    requested: list[str],
+    quarter_end: date,
+    announced: date | None,
+    session: Any,
+    where: str,
+    shared_files: bool = True,
 ) -> RecordingSource | None:
-    """The recording a page's markup, and the media it asked for, lead to."""
+    """The recording a page's markup, and the media it asked for, lead to.
+
+    Whatever a file is called, one uploaded long before the notice is an
+    earlier call's: a page that names its file for the month, or reuses one
+    name every quarter, reads the same either way.
+    """
     candidates = sorted({*page_media(html, base_url), *requested})
     picked = pick_call_file(candidates, quarter_end)
     if picked:
-        return RecordingSource(picked, f"the one recording of this quarter on {where}")
+        stale = _stale(picked, announced, base_url, session)
+        names_quarter = _names_quarter(unquote(urlsplit(picked).path.rsplit("/", 1)[-1]), quarter_end)
+        # A file that names this quarter is believed unless the site says it is
+        # old; one that only has a call's name needs the site to say it is new.
+        if stale is False or (stale is None and names_quarter):
+            return RecordingSource(picked, f"the one recording of this quarter on {where}")
     if announced:
         picked = pick_by_upload_date(candidates, announced, base_url, session)
         if picked:
             return RecordingSource(picked, f"the one audio file uploaded for this call on {where}")
     # A page built around a single player of one shared file.
-    drives = set(_DRIVE_EMBED.findall(html))
+    drives = set(_DRIVE_EMBED.findall(html)) if shared_files else set()
     if len(drives) == 1:
         download = shared_drive_download(drives.pop())
         if download:
@@ -200,9 +229,47 @@ def _from_markup(
     return None
 
 
+# What a site calls the pages that hold its calls.
+_INVESTOR_LINK = re.compile(
+    r"investor|earnings|con\W?call|recording|analyst|financial[\W_]?(?:result|highlight|information)|quarterly"
+    r"|regulation[\W_]?46",
+    re.IGNORECASE,
+)
+_FILE_LINK = re.compile(r"\.(?:pdf|docx?|xlsx?|pptx?|zip|jpe?g|png|mp3|m4a|wav|aac|ogg|wma|mp4)$", re.IGNORECASE)
+_CALL_LINK = re.compile(r"earnings|con\W?call|recording|audio", re.IGNORECASE)
+#: How many pages are opened one link further in than the notice's own.
+MAX_FURTHER_PAGES = 4
+
+
+def _site(link: str) -> str:
+    return ".".join(urlsplit(link).netloc.lower().split(":")[0].split(".")[-2:])
+
+
+def _depth(link: str) -> int:
+    return len([part for part in urlsplit(link).path.split("/") if part])
+
+
+def further_pages(links: list[tuple[str, str]], page_url: str) -> list[str]:
+    """The same site's pages a link away that may hold its calls, the likeliest first."""
+    here = page_url.split("#")[0].rstrip("/")
+    found: dict[str, None] = {}
+    for href, text in links:
+        address = href.split("#")[0]
+        if not address.startswith("http") or _site(address) != _site(page_url) or address.rstrip("/") == here:
+            continue
+        # A link to a file is not a page to open, whatever the file is.
+        if _FILE_LINK.search(urlsplit(address).path) or not _INVESTOR_LINK.search(f"{address} {text}"):
+            continue
+        found.setdefault(address)
+    ranked = sorted(found, key=lambda address: (bool(_CALL_LINK.search(address)), _depth(address)), reverse=True)
+    return ranked[:MAX_FURTHER_PAGES]
+
+
 def _from_page(
     link: str, quarter_end: date, session: Any, announced: date | None = None, browse: bool = False
 ) -> RecordingSource | None:
+    # A shared file on a home page is whatever the company last pinned there.
+    shared_files = _depth(link) > 0
     source = None
     try:
         response = session.get(link, headers={"User-Agent": USER_AGENT}, timeout=30, stream=True)
@@ -217,17 +284,35 @@ def _from_page(
                     return RecordingSource(response.url, "the link, followed to the file it serves")
                 if "html" in content_type:
                     html = response.raw.read(MAX_PAGE_BYTES, decode_content=True).decode("utf-8", "replace")
-                    source = _from_markup(html, response.url, [], quarter_end, announced, session, "the linked page")
+                    source = _from_markup(
+                        html, response.url, [], quarter_end, announced, session, "the linked page", shared_files
+                    )
     if source or not browse:
         return source
-    # Some pages build their player with a script, and some refuse anything
-    # but a browser: the rendered page and the media it asks for say more.
-    rendered = render_page(link)
+    # Some pages build their player with a script, some load it only when a
+    # row is opened, and some refuse anything but a browser: the rendered
+    # page and the media it asks for say more.
+    rendered = render_page(link, quarter_end)
     if rendered is None:
         return None
-    return _from_markup(
-        rendered.html, rendered.url, rendered.media, quarter_end, announced, session, "the linked page, rendered"
+    source = _from_markup(
+        rendered.html, rendered.url, rendered.media, quarter_end, announced, session,
+        "the linked page, rendered", shared_files,
     )
+    if source:
+        return source
+    # A notice that names only the site, or its investor section: one link further in.
+    for address in further_pages(rendered.links, rendered.url):
+        further = render_page(address, quarter_end)
+        if further is None:
+            continue
+        source = _from_markup(
+            further.html, further.url, further.media, quarter_end, announced, session,
+            "a page linked from the notice's", shared_files=False,
+        )
+        if source:
+            return source
+    return None
 
 
 def source_from_notice(
@@ -238,20 +323,25 @@ def source_from_notice(
     *,
     announced: date | None = None,
     browse: bool = False,
+    pages: list[str] | None = None,
 ) -> RecordingSource | None:
-    """What the notice's best link (`classify_links`) leads to, or None.
+    """What a notice's links lead to, or None.
 
-    `announced` is the day of the notice, which lets a file be recognised by
-    when it was uploaded; `browse` allows a page to be opened in a browser
-    when reading it plainly finds nothing.
+    `kind` and `link` are its best link (`classify_links`) and `pages` every
+    web page it names, the most specific first (`page_links`); without
+    `pages`, the best link alone is tried. `announced` is the day of the
+    notice, which a file's upload is measured against; `browse` allows a page
+    to be opened in a browser when reading it plainly finds nothing.
     """
-    if not link:
-        return None
     if kind in DOWNLOADABLE:
-        return RecordingSource(link, kind)
-    if kind == PAGE:
-        download = shared_drive_download(link)
+        return RecordingSource(link, kind) if link else None
+    if pages is None:
+        pages = [link] if link and kind == PAGE else []
+    for page in pages:
+        download = shared_drive_download(page)
         if download:
             return RecordingSource(download, "a shared-drive file")
-        return _from_page(link, quarter_end, session, announced, browse)
+        source = _from_page(page, quarter_end, session, announced, browse)
+        if source:
+            return source
     return None

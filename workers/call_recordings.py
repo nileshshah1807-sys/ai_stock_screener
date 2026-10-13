@@ -40,6 +40,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -60,6 +61,7 @@ from transcripts.recordings import (
     download_audio,
     download_notice,
     is_recording_notice,
+    page_links,
     pdf_links,
     piece_count,
     stitch,
@@ -88,6 +90,7 @@ class RecordingSettings:
     # Whether an investor page that reads as holding no recording is opened
     # in a headless browser (transcripts/page_browser.py). Set in the workflow.
     browse_pages: bool = False
+    browse_seconds_per_run: float = 600.0
 
     @classmethod
     def from_environment(cls) -> RecordingSettings:
@@ -107,6 +110,7 @@ class CallRecordingWorker:
     def __init__(self, repository, settings: RecordingSettings):
         self.repository = repository
         self.settings = settings
+        self._browsing_seconds = 0.0
 
     # -- plan -----------------------------------------------------------------
 
@@ -195,10 +199,15 @@ class CallRecordingWorker:
         """Where this call's recording is; or None, with the filing marked for why not."""
         quarter_end = date.fromisoformat(quarter) if quarter else None
         try:
-            kind, url = classify_links(pdf_links(download_notice(filing.get("attachment_url") or "", notices)))
+            links = pdf_links(download_notice(filing.get("attachment_url") or "", notices))
         except Exception as exc:
             self._failed(stored, f"notice could not be read: {exc}")
             raise
+        kind, url = classify_links(links)
+        # A run has a budget for opening pages in a browser: on a busy evening
+        # dozens of notices need it, and each takes a minute or more.
+        browse = self.settings.browse_pages and self._browsing_seconds < self.settings.browse_seconds_per_run
+        started = time.monotonic()
         # Past a direct file, every rule needs to know which quarter it is looking for.
         source = (
             source_from_notice(
@@ -206,13 +215,20 @@ class CallRecordingWorker:
                 url,
                 quarter_end,
                 announced=_notice_day(filing.get("announcement_date")),
-                browse=self.settings.browse_pages,
+                browse=browse,
+                pages=page_links(links),
             )
             if quarter_end or kind in DOWNLOADABLE
             else None
         )
+        if browse:
+            self._browsing_seconds += time.monotonic() - started
         if source:
             return source
+        if self.settings.browse_pages and not browse and kind not in DOWNLOADABLE:
+            # Not looked at properly yet: left as it is for the next run.
+            logger.info("Browser budget spent; %s is left for the next run", filing["symbol"])
+            return None
         # The notice will not change, so neither will this.
         self.repository.update_filing(
             stored["id"], status="rejected", last_error=f"no downloadable recording ({kind})"
