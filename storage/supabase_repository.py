@@ -166,7 +166,13 @@ class SupabaseRepository:
         return bool(rows)
 
     def delete_speech_transcripts(self, symbol: str, quarter: str) -> int:
-        """Remove the quarter's transcripts made from a recording; returns how many."""
+        """Remove the quarter's provisional transcripts; returns how many.
+
+        Provisional is a recording's text or a vendor's (`is_provisional`):
+        whatever stood in until the company filed its own.
+        """
+        from transcripts.recordings import is_provisional
+
         rows = self._request(
             "GET",
             "transcripts",
@@ -175,12 +181,17 @@ class SupabaseRepository:
                 "market": f"eq.{self.market}",
                 "symbol": f"eq.{symbol}",
                 "quarter": f"eq.{quarter}",
-                "transcript_documents.extraction_method": "like.speech:*",
             },
         )
+        removed = 0
         for row in rows or []:
-            self.delete_transcript(row["id"])
-        return len(rows or [])
+            document = row.get("transcript_documents") or {}
+            if isinstance(document, list):
+                document = document[0] if document else {}
+            if is_provisional(document.get("extraction_method")):
+                self.delete_transcript(row["id"])
+                removed += 1
+        return removed
 
     # -- cover letters stored as transcripts -----------------------------------
     #

@@ -9,10 +9,6 @@ from datetime import date
 import requests
 
 from transcripts.recording_sources import (
-    HTTP,
-    VIDEO_AUDIO,
-    company_key,
-    fallback_video,
     fiscal_quarter,
     page_media,
     pick_call_file,
@@ -128,24 +124,22 @@ class NoticeLinkTests(unittest.TestCase):
         return source_from_notice(kind, link, Q2, session=FakeSession(response))
 
     def test_a_direct_file_needs_no_looking(self):
-        source = source_from_notice(DIRECT, "https://alpha.test/q2.mp3", Q2)
-        self.assertEqual((source.url, source.fetch), ("https://alpha.test/q2.mp3", HTTP))
+        self.assertEqual(source_from_notice(DIRECT, "https://alpha.test/q2.mp3", Q2).url, "https://alpha.test/q2.mp3")
 
     def test_a_link_that_serves_a_file_is_that_file(self):
         source = self.resolve(FakeResponse(content_type="audio/mpeg", url="https://cdn.alpha.test/9f3"))
-        self.assertEqual((source.url, source.fetch), ("https://cdn.alpha.test/9f3", HTTP))
+        self.assertEqual(source.url, "https://cdn.alpha.test/9f3")
 
     def test_a_page_yields_the_one_recording_of_this_quarter(self):
         html = '<a href="/ir/call_Q1_FY27.mp3">Q1</a><a href="/ir/call_Q2_FY27.mp3">Q2</a>'
         self.assertEqual(self.resolve(FakeResponse(html)).url, "https://alpha.test/ir/call_Q2_FY27.mp3")
 
-    def test_a_page_built_around_one_video_yields_it(self):
-        html = '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>'
-        source = self.resolve(FakeResponse(html))
-        self.assertEqual((source.url, source.fetch), ("https://www.youtube.com/watch?v=abcdefghijk", VIDEO_AUDIO))
+    def test_a_page_built_around_one_shared_file_yields_it(self):
+        html = '<iframe src="https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWx/preview"></iframe>'
+        self.assertIn("id=1AbCdEfGhIjKlMnOpQrStUvWx", self.resolve(FakeResponse(html)).url)
 
-    def test_a_page_of_several_videos_is_a_choice_that_is_not_made(self):
-        html = '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe> https://youtu.be/lmnopqrstuv'
+    def test_a_video_on_a_page_is_not_a_recording_this_job_can_fetch(self):
+        html = '<iframe src="https://www.youtube.com/embed/abcdefghijk"></iframe>'
         self.assertIsNone(self.resolve(FakeResponse(html)))
 
     def test_a_page_that_refuses_or_fails_yields_nothing(self):
@@ -155,46 +149,13 @@ class NoticeLinkTests(unittest.TestCase):
 
     def test_a_shared_drive_link_is_downloaded_without_opening_its_page(self):
         source = source_from_notice(PAGE, "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWx/view", Q2)
-        self.assertEqual(source.fetch, HTTP)
         self.assertIn("drive.usercontent.google.com", source.url)
 
-    def test_the_company_s_own_video_is_taken_but_not_its_playlist(self):
-        self.assertEqual(source_from_notice(VIDEO, "https://youtu.be/abcdefghijk", Q2).fetch, VIDEO_AUDIO)
-        self.assertIsNone(source_from_notice(VIDEO, "https://www.youtube.com/playlist?list=PL123", Q2))
-        self.assertIsNone(source_from_notice(VIDEO, "https://www.youtube.com/@alpha", Q2))
+    def test_a_video_link_is_left_alone(self):
+        self.assertIsNone(source_from_notice(VIDEO, "https://youtu.be/abcdefghijk", Q2))
 
     def test_no_link_is_nothing(self):
         self.assertIsNone(source_from_notice(NONE, None, Q2))
-
-
-class ChannelTests(unittest.TestCase):
-    VIDEOS = [
-        {"id": "video000001", "title": "Alpha Engineering Ltd Q2 FY2026-27 Concall"},
-        {"id": "video000002", "title": "Alpha Engineering Ltd Q2 FY2026-27 Result"},
-        {"id": "video000003", "title": "Alpha Engineering Ltd Q1 FY2026-27 Concall"},
-        {"id": "video000004", "title": "Alpha Engineering Services Ltd Q2 FY2026-27 Concall"},
-        {"id": "video000005", "title": "Beta & Gamma Co Ltd (BGC) Q2 FY2026-27 Concall"},
-        {"id": "video000006", "title": "Something else entirely"},
-    ]
-
-    def test_a_name_is_compared_without_its_legal_form(self):
-        self.assertEqual(company_key("Alpha Engineering Limited"), company_key("Alpha Engineering Ltd."))
-        self.assertEqual(company_key("Beta & Gamma Company Limited"), company_key("Beta and Gamma Co Ltd (BGC)"))
-        self.assertNotEqual(company_key("Alpha Engineering Limited"), company_key("Alpha Engineering Services Limited"))
-
-    def test_the_call_of_this_company_and_quarter_is_found(self):
-        source = fallback_video(self.VIDEOS, "Alpha Engineering Limited", Q2)
-        self.assertEqual((source.url, source.fetch), ("https://www.youtube.com/watch?v=video000001", VIDEO_AUDIO))
-        self.assertIn("video000005", fallback_video(self.VIDEOS, "Beta & Gamma Company Limited", Q2).url)
-
-    def test_another_quarter_or_another_company_is_not_a_match(self):
-        self.assertIsNone(fallback_video(self.VIDEOS, "Alpha Engineering Limited", date(2026, 12, 31)))
-        self.assertIsNone(fallback_video(self.VIDEOS, "Alpha Limited", Q2))
-        self.assertIsNone(fallback_video(self.VIDEOS, None, Q2))
-
-    def test_two_uploads_of_one_call_are_a_choice_that_is_not_made(self):
-        videos = [*self.VIDEOS, {"id": "video000009", "title": "Alpha Engineering Limited Q2 FY2026-27 Concall"}]
-        self.assertIsNone(fallback_video(videos, "Alpha Engineering Limited", Q2))
 
 
 if __name__ == "__main__":

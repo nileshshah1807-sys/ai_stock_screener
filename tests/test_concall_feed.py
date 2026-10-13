@@ -26,13 +26,15 @@ EXTRACTION = {
 }
 
 
-def call(symbol, call_date, *, speech=False, tone=None, outlook=None, quarter="2026-09-30", verified=4):
+def call(symbol, call_date, *, speech=False, vendor=False, tone=None, outlook=None, quarter="2026-09-30", verified=4):
     return {
-        "id": f"{symbol}-{call_date}-{speech}",
+        "id": f"{symbol}-{call_date}-{speech}-{vendor}",
         "symbol": symbol,
         "quarter": quarter,
         "call_date": call_date,
-        "transcript_documents": {"extraction_method": "speech:large-v3-turbo" if speech else "text"},
+        "transcript_documents": {
+            "extraction_method": "speech:large-v3-turbo" if speech else "vendor:vendor.test" if vendor else "text"
+        },
         "transcript_sentiments": []
         if tone is None
         else [{"overall_score": tone, "guidance_direction": "raised", "created_at": "2026-10-12T15:00:00"}],
@@ -135,6 +137,14 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(len(row["highlights"]), 3)
         self.assertEqual(row["management_stance"], "optimistic")
 
+    def test_a_call_read_from_a_vendor_s_transcript_says_so_and_gives_way_to_the_filed_one(self):
+        (row,) = build_feed([call("ALPHA", "2026-10-12", vendor=True, tone=61.5)], COMPANIES)
+        self.assertEqual(row["source"], "vendor")
+        (row,) = build_feed(
+            [call("ALPHA", "2026-10-12", vendor=True, tone=61.5), call("ALPHA", "2026-10-16", tone=58.0)], COMPANIES
+        )
+        self.assertEqual((row["source"], row["call_date"], row["tone_score"]), ("transcript", "2026-10-12", 58.0))
+
     def test_the_filed_transcript_wins_and_the_call_keeps_the_day_it_was_held(self):
         rows = build_feed(
             [
@@ -208,10 +218,11 @@ class FeedTests(unittest.TestCase):
 class FakeRepository:
     market = "NSE"
 
-    def __init__(self, calls, readable=True, reject_stance=False):
+    def __init__(self, calls, readable=True, reject_stance=False, reject_vendor=False):
         self.calls = calls
         self.readable = readable
         self.reject_stance = reject_stance
+        self.reject_vendor = reject_vendor
         self.written = None
 
     def concall_call_dates(self):
@@ -227,6 +238,8 @@ class FakeRepository:
         return COMPANIES
 
     def replace_concall_feed(self, rows, since):
+        if self.reject_vendor and any(row["source"] == "vendor" for row in rows):
+            raise RuntimeError("violates check constraint concall_feed_source_check")
         if self.reject_stance and any("management_stance" in row or "outlook_detail" in row for row in rows):
             raise RuntimeError("Could not find the 'management_stance' column")
         self.written = (rows, since)
@@ -248,6 +261,12 @@ class RunTests(unittest.TestCase):
         self.assertNotIn("management_stance", row)
         self.assertNotIn("outlook_detail", row)
         self.assertEqual(row["outlook_score"], 64.0)
+
+    def test_a_table_that_predates_the_vendor_source_keeps_the_call_and_its_columns(self):
+        repository = FakeRepository([call("ALPHA", "2026-10-12", vendor=True, tone=60, outlook=64)], reject_vendor=True)
+        self.assertEqual(run(repository, today=date(2026, 10, 12))["written"], 1)
+        (row,) = repository.written[0]
+        self.assertEqual((row["source"], row["management_stance"]), ("recording", "optimistic"))
 
     def test_a_dry_run_writes_nothing(self):
         repository = FakeRepository([call("ALPHA", "2026-10-12", tone=60)])
