@@ -41,7 +41,8 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Opening investor pages in a browser is budgeted at ten minutes of a run.
+    timeout-minutes: 30
     outputs:
       calls: ${{ steps.plan.outputs.calls }}
       matrix: ${{ steps.plan.outputs.matrix }}

@@ -50,6 +50,10 @@ _AUDIO_PATH = re.compile(r"(?i:\.(?:mp3|m4a|wav|aac|ogg|wma|mp4))(?![a-z0-9])")
 _VIDEO_HOSTS = ("youtube.com", "youtu.be", "vimeo.com")
 _EXCHANGE_HOSTS = ("nseindia.com", "bseindia.com")
 _URL = re.compile(r"https?://[^\s<>\"')\]]+", re.IGNORECASE)
+# A notice often prints its site as "www.example.com/investors", with no scheme.
+_BARE_URL = re.compile(r"(?<![\w@./-])www\.[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/[^\s<>\"')\]]*)?", re.IGNORECASE)
+#: How many of a notice's pages are opened: the deepest ones, which name the place.
+MAX_PAGES = 3
 
 # What a notice's link lets an unattended job do, best first.
 DIRECT = "direct audio file"
@@ -109,6 +113,26 @@ def _classify(link: str) -> tuple[str, str | None]:
     return PAGE, link
 
 
+def page_links(links: list[str]) -> list[str]:
+    """The web pages among a notice's links, the most specific first.
+
+    A notice names the page that holds the recording and, in its letterhead
+    or its last line, the company's home page too. The deeper address is the
+    one that was meant, so it is tried first and the home page last.
+    """
+    pages: dict[str, str] = {}
+    for link in links:
+        kind, url = _classify(link)
+        if kind == PAGE and url:
+            parts = urlsplit(url)
+            pages.setdefault(f"{parts.netloc.lower()}{parts.path.rstrip('/')}?{parts.query}", url)
+
+    def depth(url: str) -> tuple[int, int]:
+        return len([part for part in urlsplit(url).path.split("/") if part]), len(url)
+
+    return sorted(pages.values(), key=depth, reverse=True)[:MAX_PAGES]
+
+
 def pdf_links(path: Path) -> list[str]:
     """Every link in a notice: its annotations, and addresses printed in its text."""
     import pymupdf
@@ -121,6 +145,7 @@ def pdf_links(path: Path) -> list[str]:
             text = page.get_text("text")
             links.extend(_URL.findall(text))
             links.extend(_URL.findall(text.replace("\n", "")))
+            links.extend(f"https://{address}" for address in _BARE_URL.findall(text))
         return links
     finally:
         document.close()

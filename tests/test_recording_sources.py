@@ -9,16 +9,17 @@ from unittest.mock import patch
 
 import requests
 
-from transcripts.page_browser import RenderedPage
+from transcripts.page_browser import RenderedPage, _press_audio_labels
 from transcripts.recording_sources import (
     fiscal_quarter,
+    further_pages,
     page_media,
     pick_by_upload_date,
     pick_call_file,
     shared_drive_download,
     source_from_notice,
 )
-from transcripts.recordings import DIRECT, NONE, PAGE, VIDEO
+from transcripts.recordings import _BARE_URL, DIRECT, NONE, PAGE, VIDEO, page_links
 
 Q2 = date(2026, 9, 30)
 
@@ -283,6 +284,160 @@ class BrowserTests(unittest.TestCase):
 
     def test_a_page_the_browser_cannot_open_yields_nothing(self):
         self.assertIsNone(self.resolve(FakeResponse("<div></div>"), rendered=None))
+
+
+class NoticeLinksTests(unittest.TestCase):
+    def test_the_deepest_page_is_tried_first_and_the_home_page_last(self):
+        links = [
+            "http://www.alpha.test/",
+            "https://www.alpha.test/investor-relations/disclosures/financial-highlights.",
+            "https://www.alpha.test/",
+            "https://www.alpha.test/investor-relations",
+            "https://alpha.test/q2.mp3",
+            "https://www.nseindia.com/",
+        ]
+        self.assertEqual(
+            page_links(links),
+            [
+                "https://www.alpha.test/investor-relations/disclosures/financial-highlights",
+                "https://www.alpha.test/investor-relations",
+                "http://www.alpha.test/",
+            ],
+        )
+
+    def test_an_address_printed_without_its_scheme_is_still_an_address(self):
+        text = "available at www.alpha.test/investors/calls. Write to ir@www.alpha.test or see https://www.beta.test/x"
+        self.assertEqual(_BARE_URL.findall(text), ["www.alpha.test/investors/calls."])
+
+    def test_each_page_is_tried_until_one_holds_the_recording(self):
+        pages = {
+            "https://alpha.test/investors/calls": FakeResponse("<p>Nothing this quarter</p>"),
+            "https://alpha.test/investors": FakeResponse('<a href="/ir/call_Q2_FY27.mp3">Q2</a>'),
+            "https://alpha.test/": FakeResponse("<p>Welcome</p>"),
+        }
+        asked = []
+
+        class Site:
+            def get(self, url, **kwargs):
+                asked.append(url)
+                return pages[url]
+
+        source = source_from_notice(PAGE, "https://alpha.test/", Q2, Site(), pages=list(pages))
+        self.assertEqual(source.url, "https://alpha.test/ir/call_Q2_FY27.mp3")
+        self.assertEqual(asked, ["https://alpha.test/investors/calls", "https://alpha.test/investors"])
+
+
+class StaleFileTests(unittest.TestCase):
+    def resolve(self, name, modified):
+        link = f"https://alpha.test/ir/{name}"
+        session = SiteSession(FakeResponse(f'<a href="{link}">call</a>'), {link: FileHeaders(modified)})
+        return source_from_notice(PAGE, "https://alpha.test/investors", Q2, session, announced=ANNOUNCED)
+
+    def test_a_file_named_for_this_quarter_is_believed_unless_the_site_says_it_is_old(self):
+        self.assertIsNotNone(self.resolve("call_Q2_FY27.mp3", CALL_DAY))
+        self.assertIsNotNone(self.resolve("call_Q2_FY27.mp3", None))
+        self.assertIsNone(self.resolve("call_Q2_FY27.mp3", LAST_QUARTER))
+
+    def test_a_file_with_only_a_call_s_name_needs_the_site_to_say_it_is_new(self):
+        self.assertIsNotNone(self.resolve("earnings_call.mp3", CALL_DAY))
+        self.assertIsNone(self.resolve("earnings_call.mp3", LAST_QUARTER))
+        # No date at all: a name reused every quarter cannot be told from last quarter's.
+        link = "https://alpha.test/ir/earnings_call.mp3"
+        session = SiteSession(FakeResponse(f'<a href="{link}">call</a>'), {link: FileHeaders(None, content_type="text/html")})
+        self.assertIsNone(source_from_notice(PAGE, "https://alpha.test/investors", Q2, session, announced=ANNOUNCED))
+
+    def test_a_shared_file_on_a_home_page_is_not_taken(self):
+        html = '<iframe src="https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWx/preview"></iframe>'
+        self.assertIsNone(source_from_notice(PAGE, "https://alpha.test/", Q2, SiteSession(FakeResponse(html))))
+        self.assertIsNotNone(source_from_notice(PAGE, "https://alpha.test/investors", Q2, SiteSession(FakeResponse(html))))
+
+
+class FurtherPageTests(unittest.TestCase):
+    LINKS = [
+        ("https://alpha.test/about", "About us"),
+        ("https://alpha.test/investors", "Investors"),
+        ("https://alpha.test/investors/earnings-call#q2", "Earnings call"),
+        ("https://alpha.test/investors/financial-results", "Results"),
+        ("https://other.test/investors", "Investors"),
+        ("https://alpha.test/ir/call_Q1_FY27.mp3", "Earnings call audio"),
+        ("https://alpha.test/", "Home"),
+        ("mailto:investors@alpha.test", "Investor contact"),
+    ]
+
+    def test_the_site_s_own_investor_pages_are_offered_those_about_calls_first(self):
+        self.assertEqual(
+            further_pages(self.LINKS, "https://alpha.test/"),
+            [
+                "https://alpha.test/investors/earnings-call",
+                "https://alpha.test/investors/financial-results",
+                "https://alpha.test/investors",
+            ],
+        )
+
+    def test_a_home_page_s_recording_is_found_one_link_further_in(self):
+        home = RenderedPage("https://alpha.test/", "<p>Welcome</p>", [], [("https://alpha.test/investors/calls", "Con call")])
+        calls = RenderedPage("https://alpha.test/investors/calls", "", ["https://alpha.test/ir/call_Q2_FY27.mp3"])
+        opened = []
+
+        def render(link, quarter_end=None):
+            opened.append(link)
+            return {"https://alpha.test/": home, "https://alpha.test/investors/calls": calls}.get(link)
+
+        session = SiteSession(FakeResponse("<p>Welcome</p>"))
+        with patch("transcripts.recording_sources.render_page", side_effect=render):
+            source = source_from_notice(PAGE, "https://alpha.test/", Q2, session, browse=True)
+        self.assertEqual(source.url, "https://alpha.test/ir/call_Q2_FY27.mp3")
+        self.assertEqual(opened, ["https://alpha.test/", "https://alpha.test/investors/calls"])
+        self.assertIn("linked from", source.found)
+
+
+class FakeLabel:
+    def __init__(self, text, log):
+        self.text, self.log = text, log
+
+    def inner_text(self, timeout=None):
+        return self.text
+
+    def click(self, timeout=None, force=False):
+        self.log.append(self.text)
+
+
+class FakePage:
+    def __init__(self, texts):
+        self.clicked = []
+        self.labels = [FakeLabel(text, self.clicked) for text in texts]
+
+    def get_by_text(self, pattern):
+        page = self
+
+        class Found:
+            def count(self):
+                return len(page.labels)
+
+            def nth(self, index):
+                return page.labels[index]
+
+        return Found()
+
+    def wait_for_timeout(self, milliseconds):
+        pass
+
+
+class ClickTests(unittest.TestCase):
+    def test_what_is_labelled_as_this_call_s_audio_is_pressed_and_other_quarters_are_left(self):
+        page = FakePage([
+            "Earnings Audio Call Q2 FY 27",
+            "Earnings Call Q1 Audio",
+            "Audio recording",
+            "The audio recording of the call held with analysts and investors is available below " * 2,
+        ])
+        _press_audio_labels(page, 2)
+        self.assertEqual(page.clicked, ["Earnings Audio Call Q2 FY 27", "Audio recording"])
+
+    def test_a_page_of_many_recordings_is_not_clicked_through(self):
+        page = FakePage([f"Concall recording {index}" for index in range(30)])
+        _press_audio_labels(page, 2)
+        self.assertEqual(len(page.clicked), 6)
 
 
 if __name__ == "__main__":

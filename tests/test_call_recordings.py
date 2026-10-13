@@ -173,6 +173,7 @@ class PlanTests(unittest.TestCase):
         links=("https://alpha.test/q2.mp3",),
         audio_minutes=40,
         downloaded=True,
+        settings=None,
     ):
         self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
         audio_path = self.directory / "audio" / "900.mp3"
@@ -195,7 +196,7 @@ class PlanTests(unittest.TestCase):
             # An investor page is never asked for in a test: it does not answer.
             patch("transcripts.recording_sources.requests.get", side_effect=requests.ConnectionError("offline")),
         ):
-            return CallRecordingWorker(repository, RecordingSettings()).plan(self.directory)
+            return CallRecordingWorker(repository, settings or RecordingSettings()).plan(self.directory)
 
     def test_a_recording_is_cut_into_pieces_and_written_to_the_plan(self):
         repository = FakeRepository()
@@ -230,7 +231,34 @@ class PlanTests(unittest.TestCase):
     def test_a_page_is_resolved_with_the_notice_s_day_and_the_browser_switch(self):
         with patch("workers.call_recordings.source_from_notice", return_value=None) as resolve:
             self.plan(FakeRepository(), links=["https://alpha.test/investors"])
-        self.assertEqual(resolve.call_args.kwargs, {"announced": date(2026, 10, 12), "browse": False})
+        self.assertEqual(
+            resolve.call_args.kwargs,
+            {"announced": date(2026, 10, 12), "browse": False, "pages": ["https://alpha.test/investors"]},
+        )
+
+    def test_every_page_a_notice_names_is_handed_over_the_most_specific_first(self):
+        links = ["https://www.alpha.test/", "https://www.alpha.test/investors/calls", "https://www.alpha.test"]
+        with patch("workers.call_recordings.source_from_notice", return_value=None) as resolve:
+            self.plan(FakeRepository(), links=links)
+        self.assertEqual(
+            resolve.call_args.kwargs["pages"], ["https://www.alpha.test/investors/calls", "https://www.alpha.test/"]
+        )
+
+    def test_a_page_not_opened_because_the_run_s_browser_time_is_spent_is_left_for_the_next_run(self):
+        repository = FakeRepository()
+        settings = RecordingSettings(browse_pages=True, browse_seconds_per_run=0)
+        with patch("workers.call_recordings.source_from_notice", return_value=None) as resolve:
+            self.plan(repository, links=["https://alpha.test/investors"], settings=settings)
+        self.assertFalse(resolve.call_args.kwargs["browse"])
+        self.assertEqual(repository.updates, [])
+
+    def test_a_page_opened_in_the_browser_and_found_empty_is_rejected(self):
+        repository = FakeRepository()
+        settings = RecordingSettings(browse_pages=True)
+        with patch("workers.call_recordings.source_from_notice", return_value=None) as resolve:
+            self.plan(repository, links=["https://alpha.test/investors"], settings=settings)
+        self.assertTrue(resolve.call_args.kwargs["browse"])
+        self.assertEqual(repository.updates[0][1]["status"], "rejected")
 
     def test_a_refused_download_is_tried_again_on_a_later_run(self):
         repository = FakeRepository(filing={"attempt_count": 2})

@@ -142,11 +142,20 @@ the scheduled workflows set the same flag.
   some of the rest -- a shared-drive file, or the one recording of this
   quarter on an investor page, told by its name or, since most are named by
   the conference provider's number, by being the only audio file uploaded in
-  the week of the notice. A page that builds its player with a script, or
-  refuses a plain request, is opened in the runner's Chrome
-  (`transcripts/page_browser.py`, `CALL_RECORDING_BROWSER` in the workflow)
-  to see the file it asks for; nothing is played. Every rule takes nothing
-  rather than choose between recordings. A video is never fetched: the video
+  the week of the notice. Every page a notice names is tried, the deepest
+  first (the home page in its letterhead is a link too), including an
+  address printed without `http`. A page that builds its player with a
+  script, loads it only when a row is opened, or refuses a plain request is
+  opened in the runner's Chrome (`transcripts/page_browser.py`,
+  `CALL_RECORDING_BROWSER` in the workflow): what the page labels as a
+  call's audio is clicked and the file it then asks for is taken, nothing is
+  played, and the site's own investor pages one link in are opened the same
+  way. Every rule takes nothing rather than choose between recordings, and a
+  file the site says was uploaded more than six days before the notice is
+  never taken, whatever it is called. These are rules about pages, not about
+  companies: none names a site. A run spends at most
+  `browse_seconds_per_run` in the browser and leaves the rest of the
+  notices, unmarked, for the next run. A video is never fetched: the video
   site refuses a hosted runner's address (13 Oct 2026).
   No third party's transcript is read: the one vendor that publishes them
   openly was asked and requires a licence (13 Oct 2026). A recording not in
