@@ -12,7 +12,10 @@ on four:
 
 ``plan``
     Reads the recording notices, downloads each new recording, cuts it at
-    pauses and writes the plan: one entry per call, one job per piece.
+    pauses and writes the plan: one entry per call, one job per piece. A
+    notice without an audio file is resolved by
+    `transcripts/recording_sources.py`; a call nothing is found for yet is
+    left waiting and looked for again while its notice is still being read.
 ``piece``
     Transcribes one piece. Runs once per piece, in parallel, with no secrets.
 ``assemble``
@@ -46,8 +49,17 @@ from typing import Any
 from transcripts.cleaner import clean_transcript_text
 from transcripts.collector import discover_nse_announcements, filing_payload
 from transcripts.periods import reporting_period_end_for_call
+from transcripts.recording_sources import (
+    VIDEO_AUDIO,
+    RecordingSource,
+    download_video_audio,
+    fallback_video,
+    list_channel,
+    source_from_notice,
+)
 from transcripts.recordings import (
     DOWNLOADABLE,
+    NONE,
     SAMPLE_RATE,
     SPEECH_METHOD_PREFIX,
     classify_links,
@@ -65,6 +77,9 @@ from transcripts.speech import DEFAULT_MODEL
 logger = logging.getLogger(__name__)
 
 ALREADY_FILED_ERROR = "a transcript of this call is already stored"
+#: A filing left as it is, to be looked for again on every run that still
+#: reads its notice: the channel posts a call some hours after it is held.
+WAITING_ERROR = "no recording found yet"
 NOT_ENGLISH_ERROR = "recording is not in English; left for the filed transcript"
 
 
@@ -81,6 +96,14 @@ class RecordingSettings:
     min_audio_minutes: float = 5.0
     max_audio_minutes: float = 240.0
     min_text_characters: int = 3000
+    # A channel that posts every call as a video, asked when the notice's own
+    # link yields no recording. Unset, such a call waits for its transcript.
+    fallback_channel: str = ""
+    # Whether this machine can fetch a video's audio. A hosted runner cannot:
+    # the video site answers its address with a sign-in wall (measured 13 Oct
+    # 2026, every player client and the captions alike). Off, a call whose
+    # only recording is a video waits for its transcript, as it did before.
+    fetch_videos: bool = False
 
     @classmethod
     def from_environment(cls) -> RecordingSettings:
@@ -92,6 +115,8 @@ class RecordingSettings:
             model_name=os.getenv("CALL_RECORDING_MODEL", "").strip() or DEFAULT_MODEL,
             max_attempts=max(1, int(os.getenv("CALL_RECORDING_MAX_ATTEMPTS", "6"))),
             min_text_characters=max(1, int(os.getenv("CALL_RECORDING_MIN_TEXT_CHARACTERS", "3000"))),
+            fallback_channel=os.getenv("CALL_RECORDING_FALLBACK_CHANNEL", "").strip(),
+            fetch_videos=os.getenv("CALL_RECORDING_FETCH_VIDEOS", "").strip().lower() in {"1", "true", "yes"},
         )
 
 
@@ -99,6 +124,7 @@ class CallRecordingWorker:
     def __init__(self, repository, settings: RecordingSettings):
         self.repository = repository
         self.settings = settings
+        self._channel_videos: list[dict[str, Any]] | None = None
 
     # -- plan -----------------------------------------------------------------
 
@@ -137,23 +163,24 @@ class CallRecordingWorker:
         if quarter and self.repository.has_transcript(filing["symbol"], quarter):
             self.repository.update_filing(stored["id"], status="rejected", last_error=ALREADY_FILED_ERROR)
             return None
+        sources = self._find_sources(filing, stored, quarter, notices)
+        if not sources:
+            return None
+        # The notice's own recording first; the channel's when that one is refused.
+        for source in sources:
+            fetch = download_video_audio if source.fetch == VIDEO_AUDIO else download_audio
+            audio = fetch(source.url, audio_directory, filing["seq_id"])
+            if audio is not None:
+                break
+        else:
+            self._failed(stored, f"recording could not be downloaded ({sources[0].found})")
+            return None
         try:
-            kind, url = classify_links(pdf_links(download_notice(filing.get("attachment_url") or "", notices)))
-        except Exception as exc:
-            self._failed(stored, f"notice could not be read: {exc}")
-            raise
-        if kind not in DOWNLOADABLE or not url:
-            # The notice will not change, so neither will this.
-            self.repository.update_filing(
-                stored["id"], status="rejected", last_error=f"no downloadable recording ({kind})"
-            )
-            logger.info("No downloadable recording for %s: %s", filing["symbol"], kind)
+            samples = decode_audio(audio)
+        except Exception as exc:  # noqa: BLE001 - a shared file can be anything; ffmpeg says so
+            audio.unlink(missing_ok=True)
+            self._failed(stored, f"recording could not be decoded ({source.found}): {exc}")
             return None
-        audio = download_audio(url, audio_directory, filing["seq_id"])
-        if audio is None:
-            self._failed(stored, "recording could not be downloaded")
-            return None
-        samples = decode_audio(audio)
         minutes = len(samples) / SAMPLE_RATE / 60
         if not self.settings.min_audio_minutes <= minutes <= self.settings.max_audio_minutes:
             audio.unlink()
@@ -165,7 +192,8 @@ class CallRecordingWorker:
             samples, piece_count(minutes * 60, self.settings.piece_seconds, self.settings.max_parts)
         )
         logger.info(
-            "Planned %s: %.0f minutes in %s piece(s) from %s", filing["symbol"], minutes, len(points) - 1, url
+            "Planned %s: %.0f minutes in %s piece(s) from %s (%s)",
+            filing["symbol"], minutes, len(points) - 1, source.url, source.found,
         )
         return {
             "key": filing["seq_id"],
@@ -173,7 +201,8 @@ class CallRecordingWorker:
             "attempt_count": attempts,
             "symbol": filing["symbol"],
             "announcement_date": filing.get("announcement_date"),
-            "url": url,
+            "url": source.url,
+            "source": source.found,
             "audio": audio.name,
             "sha256": _sha256(audio),
             "size_bytes": audio.stat().st_size,
@@ -182,6 +211,49 @@ class CallRecordingWorker:
                 for part in range(1, len(points))
             ],
         }
+
+    def _find_sources(
+        self, filing: dict, stored: dict, quarter: str | None, notices: Path
+    ) -> list[RecordingSource]:
+        """Where this call's recording may be, best first; empty with the filing marked for why."""
+        quarter_end = date.fromisoformat(quarter) if quarter else None
+        # A filing already waiting has had its notice read: only the channel can have changed.
+        waiting = str(stored.get("last_error") or "").startswith(WAITING_ERROR)
+        sources: list[RecordingSource] = []
+        kind = NONE
+        if not waiting:
+            try:
+                kind, url = classify_links(pdf_links(download_notice(filing.get("attachment_url") or "", notices)))
+            except Exception as exc:
+                self._failed(stored, f"notice could not be read: {exc}")
+                raise
+            # Past a direct file, every rule needs to know which quarter it is looking for.
+            source = source_from_notice(kind, url, quarter_end) if quarter_end or kind in DOWNLOADABLE else None
+            if source and (source.fetch != VIDEO_AUDIO or self.settings.fetch_videos):
+                sources.append(source)
+        channel = self.settings.fetch_videos and bool(self.settings.fallback_channel) and quarter_end is not None
+        if channel:
+            source = fallback_video(self._channel(), filing.get("company_name"), quarter_end)
+            if source:
+                sources.append(source)
+        if sources:
+            return sources
+        if channel:
+            if not waiting:
+                self.repository.update_filing(stored["id"], last_error=f"{WAITING_ERROR} ({kind})")
+            return []
+        # The notice will not change, so neither will this.
+        self.repository.update_filing(
+            stored["id"], status="rejected", last_error=f"no downloadable recording ({kind})"
+        )
+        logger.info("No downloadable recording for %s: %s", filing["symbol"], kind)
+        return []
+
+    def _channel(self) -> list[dict[str, Any]]:
+        if self._channel_videos is None:
+            self._channel_videos = list_channel(self.settings.fallback_channel)
+            logger.info("Call channel listed: %s video(s)", len(self._channel_videos))
+        return self._channel_videos
 
     def _failed(self, stored: dict, error: str) -> None:
         self.repository.update_filing(

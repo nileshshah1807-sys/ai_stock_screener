@@ -10,3 +10,6 @@ faster-whisper>=1.1.0
 imageio-ffmpeg>=0.5.1
 numpy>=1.24.0
 requests>=2.31.0
+# The audio of a call posted as a video (transcripts/recording_sources.py).
+# `default` brings the component that solves the player's script.
+yt-dlp[default]>=2026.3.0

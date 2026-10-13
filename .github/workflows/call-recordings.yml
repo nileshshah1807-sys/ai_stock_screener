@@ -51,6 +51,10 @@ jobs:
       CALL_RECORDING_LOOKBACK_DAYS: ${{ inputs.lookback_days || '3' }}
       # Four pieces a call against twenty concurrent jobs.
       CALL_RECORDING_MAX_CALLS_PER_RUN: ${{ inputs.max_calls || '5' }}
+      # A call whose only recording is a video -- the company's own, or a call
+      # channel's (CALL_RECORDING_FALLBACK_CHANNEL) -- is not fetched here:
+      # the video site refuses a hosted runner's address. Both are switched on
+      # with CALL_RECORDING_FETCH_VIDEOS on a machine that can fetch them.
     steps:
       - uses: actions/checkout@v6
 

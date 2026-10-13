@@ -6,10 +6,19 @@ anyio==4.15.1 ; sys_platform != 'emscripten'
     #   httpx2
 av==19.0.1
     # via faster-whisper
+brotli==1.2.0 ; implementation_name == 'cpython' and sys_platform != 'ios'
+    # via yt-dlp
+brotlicffi==1.2.0.2 ; implementation_name != 'cpython'
+    # via yt-dlp
 certifi==2026.7.22
     # via
     #   -c requirements-ci.txt
     #   requests
+    #   yt-dlp
+cffi==2.1.1 ; implementation_name != 'cpython'
+    # via
+    #   -c requirements-ci.txt
+    #   brotlicffi
 charset-normalizer==3.5.1
     # via
     #   -c requirements-ci.txt
@@ -56,6 +65,8 @@ idna==3.20
     #   requests
 imageio-ffmpeg==0.6.0
     # via -r requirements-speech.in
+mutagen==1.48.1
+    # via yt-dlp
 numpy==2.5.3
     # via
     #   -c requirements-ci.txt
@@ -73,6 +84,12 @@ protobuf==7.36.2
     # via
     #   -c requirements-ci.txt
     #   onnxruntime
+pycparser==3.0 ; implementation_name != 'PyPy' and implementation_name != 'cpython'
+    # via
+    #   -c requirements-ci.txt
+    #   cffi
+pycryptodomex==3.24.1
+    # via yt-dlp
 pyyaml==6.0.3
     # via
     #   ctranslate2
@@ -81,6 +98,7 @@ requests==2.34.2
     # via
     #   -c requirements-ci.txt
     #   -r requirements-speech.in
+    #   yt-dlp
 tokenizers==0.23.3
     # via faster-whisper
 tqdm==4.70.1
@@ -102,3 +120,12 @@ urllib3==2.8.0
     # via
     #   -c requirements-ci.txt
     #   requests
+    #   yt-dlp
+websockets==17.1
+    # via
+    #   -c requirements-ci.txt
+    #   yt-dlp
+yt-dlp==2026.8.19
+    # via -r requirements-speech.in
+yt-dlp-ejs==0.8.0
+    # via yt-dlp
