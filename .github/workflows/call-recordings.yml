@@ -52,6 +52,12 @@ jobs:
       CALL_RECORDING_LOOKBACK_DAYS: ${{ inputs.lookback_days || '3' }}
       # Four pieces a call against twenty concurrent jobs.
       CALL_RECORDING_MAX_CALLS_PER_RUN: ${{ inputs.max_calls || '5' }}
+      # An investor page that reads as holding no recording is opened in the
+      # runner's own Chrome, headless, to see the audio file it asks for:
+      # some pages build their player with a script and some refuse anything
+      # but a browser. Nothing is played; the file is then downloaded as any
+      # other. Remove this line to switch it off.
+      CALL_RECORDING_BROWSER: "true"
       # CALL_TRANSCRIPT_VENDOR_URL is deliberately not set. The vendor whose
       # transcripts transcripts/vendor_transcripts.py could read was asked
       # and refused: its text needs a licensing agreement. Do not set it to a

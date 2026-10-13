@@ -97,6 +97,9 @@ class RecordingSettings:
     # notice leads to no recording this job can fetch. Unset, such a call
     # waits for its filed transcript.
     vendor_url: str = ""
+    # Whether an investor page that reads as holding no recording is opened
+    # in a headless browser (transcripts/page_browser.py). Set in the workflow.
+    browse_pages: bool = False
 
     @classmethod
     def from_environment(cls) -> RecordingSettings:
@@ -109,6 +112,7 @@ class RecordingSettings:
             max_attempts=max(1, int(os.getenv("CALL_RECORDING_MAX_ATTEMPTS", "6"))),
             min_text_characters=max(1, int(os.getenv("CALL_RECORDING_MIN_TEXT_CHARACTERS", "3000"))),
             vendor_url=os.getenv("CALL_TRANSCRIPT_VENDOR_URL", "").strip(),
+            browse_pages=os.getenv("CALL_RECORDING_BROWSER", "").strip().lower() in {"1", "true", "yes"},
         )
 
 
@@ -218,7 +222,17 @@ class CallRecordingWorker:
                 self._failed(stored, f"notice could not be read: {exc}")
                 raise
             # Past a direct file, every rule needs to know which quarter it is looking for.
-            source = source_from_notice(kind, url, quarter_end) if quarter_end or kind in DOWNLOADABLE else None
+            source = (
+                source_from_notice(
+                    kind,
+                    url,
+                    quarter_end,
+                    announced=_notice_day(filing.get("announcement_date")),
+                    browse=self.settings.browse_pages,
+                )
+                if quarter_end or kind in DOWNLOADABLE
+                else None
+            )
             if source:
                 return source
         if self._store_vendor_transcript(filing, stored, quarter):
@@ -360,6 +374,12 @@ def _sha256(path: Path) -> str:
 
 def _announcement_date(value: str | None) -> str | None:
     return value[:10] if value else None
+
+
+def _notice_day(value: str | None) -> date | None:
+    """The day a notice was filed, which a recording's upload is measured against."""
+    day = _announcement_date(value)
+    return date.fromisoformat(day) if day else None
 
 
 def _results_period(value: str | None) -> str | None:
