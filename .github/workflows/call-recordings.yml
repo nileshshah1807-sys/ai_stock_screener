@@ -52,12 +52,10 @@ jobs:
       CALL_RECORDING_LOOKBACK_DAYS: ${{ inputs.lookback_days || '3' }}
       # Four pieces a call against twenty concurrent jobs.
       CALL_RECORDING_MAX_CALLS_PER_RUN: ${{ inputs.max_calls || '5' }}
-      # Asked only when a notice leads to no recording this job can fetch: a
-      # site that publishes its own transcript of each call about an hour
-      # after it starts, through its public listing. A third party's text, so
-      # it is the last resort, the dashboard says so, and the company's filed
-      # transcript replaces it. Remove this line to switch it off.
-      CALL_TRANSCRIPT_VENDOR_URL: https://alphastreet.com/india
+      # CALL_TRANSCRIPT_VENDOR_URL is deliberately not set. The vendor whose
+      # transcripts transcripts/vendor_transcripts.py could read was asked
+      # and refused: its text needs a licensing agreement. Do not set it to a
+      # site without that site's written permission.
     steps:
       - uses: actions/checkout@v6
 
