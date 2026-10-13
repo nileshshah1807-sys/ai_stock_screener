@@ -10,3 +10,6 @@ faster-whisper>=1.1.0
 imageio-ffmpeg>=0.5.1
 numpy>=1.24.0
 requests>=2.31.0
+# Opens an investor page in the runner's own Chrome to see the recording it
+# asks for (transcripts/page_browser.py). No browser is downloaded.
+playwright>=1.49.0

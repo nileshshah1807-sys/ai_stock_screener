@@ -9,6 +9,7 @@ when it comes, replaces the recording's.
 import json
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -299,6 +300,11 @@ class PlanTests(unittest.TestCase):
     def test_the_vendor_is_not_asked_when_none_is_configured(self):
         self.plan(FakeRepository(), links=["https://alpha.test/investors"])
         self.listed.assert_not_called()
+
+    def test_a_page_is_resolved_with_the_notice_s_day_and_the_browser_switch(self):
+        with patch("workers.call_recordings.source_from_notice", return_value=None) as resolve:
+            self.plan(FakeRepository(), links=["https://alpha.test/investors"])
+        self.assertEqual(resolve.call_args.kwargs, {"announced": date(2026, 10, 12), "browse": False})
 
     def test_a_refused_download_is_tried_again_on_a_later_run(self):
         repository = FakeRepository(filing={"attempt_count": 2})

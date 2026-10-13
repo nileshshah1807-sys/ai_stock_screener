@@ -3,8 +3,11 @@
 Half of all "link of recording" notices carry a link straight to the file and
 are served by `transcripts/recordings.py` alone. Many of the rest point at
 something that still leads to one file: a link that redirects to it, a
-shared-drive file, or an investor page that names one recording for this
-quarter. This module resolves those.
+shared-drive file, or an investor page that holds one recording for this
+quarter -- told by the file's name, or by the day it was uploaded. A page
+that builds its player with a script, or refuses anything but a browser, is
+opened in one (`transcripts/page_browser.py`) where that is switched on.
+This module resolves those.
 
 Every rule here would rather find nothing than the wrong call: an investor
 page lists each quarter's recording beside promotional clips, and transcribing
@@ -20,12 +23,14 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import parse_qs, unquote, urljoin, urlsplit
 
 import requests
 
+from transcripts.page_browser import render_page
 from transcripts.recordings import _AUDIO_PATH, DOWNLOADABLE, PAGE, USER_AGENT
 
 logger = logging.getLogger(__name__)
@@ -125,37 +130,122 @@ def pick_call_file(candidates: list[str], quarter_end: date) -> str | None:
     return None
 
 
-def _from_page(link: str, quarter_end: date, session: Any) -> RecordingSource | None:
+#: A recording is uploaded on the day of its call or just before the notice
+#: that announces it; a file older than this is an earlier quarter's.
+UPLOAD_DAYS_BEFORE = 6
+UPLOAD_DAYS_AFTER = 1
+#: Smaller than this is a jingle or a clip, not a call.
+MIN_CALL_BYTES = 2_000_000
+MAX_FILES_ASKED = 25
+_AUDIO_NAME = re.compile(r"\.(?:mp3|m4a|wav|aac|ogg|wma)$", re.IGNORECASE)
+
+
+def uploaded(link: str, referer: str, session: Any) -> tuple[date | None, int | None, str]:
+    """When a file was put on its site, its size and its type, as the site's headers say."""
+    headers = {"User-Agent": USER_AGENT, "Referer": referer}
     try:
-        response = session.get(link, headers={"User-Agent": USER_AGENT}, timeout=30, stream=True)
-    except requests.RequestException as exc:
-        logger.info("The page a notice links to could not be read: %s", exc)
-        return None
-    with response:
-        if response.status_code >= 400:
-            return None
-        content_type = response.headers.get("Content-Type", "").lower()
-        if content_type.startswith(("audio/", "video/")) or _AUDIO_PATH.search(urlsplit(response.url).path):
-            return RecordingSource(response.url, "the link, followed to the file it serves")
-        if "html" not in content_type:
-            return None
-        html = response.raw.read(MAX_PAGE_BYTES, decode_content=True).decode("utf-8", "replace")
-    picked = pick_call_file(page_media(html, response.url), quarter_end)
+        response = session.head(link, headers=headers, timeout=20, allow_redirects=True)
+        if response.status_code >= 400 or "Last-Modified" not in response.headers:
+            # Some sites answer HEAD with nothing useful; one byte of the file says the same.
+            response = session.get(link, headers={**headers, "Range": "bytes=0-0"}, timeout=20, stream=True)
+            response.close()
+    except requests.RequestException:
+        return None, None, ""
+    try:
+        modified = parsedate_to_datetime(response.headers.get("Last-Modified", "")).date()
+    except (TypeError, ValueError):
+        modified = None
+    size = response.headers.get("Content-Range", "").rpartition("/")[2] or response.headers.get("Content-Length", "")
+    return modified, int(size) if size.isdigit() else None, response.headers.get("Content-Type", "").lower()
+
+
+def pick_by_upload_date(candidates: list[str], announced: date, referer: str, session: Any) -> str | None:
+    """The one audio file among a page's media that was uploaded for this call, or None.
+
+    Many investor pages name their recordings by the conference provider's
+    number, which says nothing about the quarter. What does is when the file
+    appeared: a page holds one recording per quarter, so a single audio file
+    uploaded in the days before the notice is this call's. Audio only -- a
+    promotional video is uploaded on any day -- and two such files are a
+    choice that is not made.
+    """
+    earliest = announced - timedelta(days=UPLOAD_DAYS_BEFORE)
+    latest = announced + timedelta(days=UPLOAD_DAYS_AFTER)
+    recent = []
+    for link in candidates[:MAX_FILES_ASKED]:
+        modified, size, content_type = uploaded(link, referer, session)
+        audio = bool(_AUDIO_NAME.search(urlsplit(link).path)) or content_type.startswith("audio/")
+        if audio and modified and earliest <= modified <= latest and (size or 0) >= MIN_CALL_BYTES:
+            recent.append(link)
+    return recent[0] if len(recent) == 1 else None
+
+
+def _from_markup(
+    html: str, base_url: str, requested: list[str], quarter_end: date, announced: date | None, session: Any, where: str
+) -> RecordingSource | None:
+    """The recording a page's markup, and the media it asked for, lead to."""
+    candidates = sorted({*page_media(html, base_url), *requested})
+    picked = pick_call_file(candidates, quarter_end)
     if picked:
-        return RecordingSource(picked, "the one recording of this quarter on the linked page")
+        return RecordingSource(picked, f"the one recording of this quarter on {where}")
+    if announced:
+        picked = pick_by_upload_date(candidates, announced, base_url, session)
+        if picked:
+            return RecordingSource(picked, f"the one audio file uploaded for this call on {where}")
     # A page built around a single player of one shared file.
     drives = set(_DRIVE_EMBED.findall(html))
     if len(drives) == 1:
         download = shared_drive_download(drives.pop())
         if download:
-            return RecordingSource(download, "the one shared file on the linked page")
+            return RecordingSource(download, f"the one shared file on {where}")
     return None
 
 
-def source_from_notice(
-    kind: str, link: str | None, quarter_end: date, session: Any = requests
+def _from_page(
+    link: str, quarter_end: date, session: Any, announced: date | None = None, browse: bool = False
 ) -> RecordingSource | None:
-    """What the notice's best link (`classify_links`) leads to, or None."""
+    source = None
+    try:
+        response = session.get(link, headers={"User-Agent": USER_AGENT}, timeout=30, stream=True)
+    except requests.RequestException as exc:
+        logger.info("The page a notice links to could not be read: %s", exc)
+        response = None
+    if response is not None:
+        with response:
+            content_type = response.headers.get("Content-Type", "").lower()
+            if response.status_code < 400:
+                if content_type.startswith(("audio/", "video/")) or _AUDIO_PATH.search(urlsplit(response.url).path):
+                    return RecordingSource(response.url, "the link, followed to the file it serves")
+                if "html" in content_type:
+                    html = response.raw.read(MAX_PAGE_BYTES, decode_content=True).decode("utf-8", "replace")
+                    source = _from_markup(html, response.url, [], quarter_end, announced, session, "the linked page")
+    if source or not browse:
+        return source
+    # Some pages build their player with a script, and some refuse anything
+    # but a browser: the rendered page and the media it asks for say more.
+    rendered = render_page(link)
+    if rendered is None:
+        return None
+    return _from_markup(
+        rendered.html, rendered.url, rendered.media, quarter_end, announced, session, "the linked page, rendered"
+    )
+
+
+def source_from_notice(
+    kind: str,
+    link: str | None,
+    quarter_end: date,
+    session: Any = requests,
+    *,
+    announced: date | None = None,
+    browse: bool = False,
+) -> RecordingSource | None:
+    """What the notice's best link (`classify_links`) leads to, or None.
+
+    `announced` is the day of the notice, which lets a file be recognised by
+    when it was uploaded; `browse` allows a page to be opened in a browser
+    when reading it plainly finds nothing.
+    """
     if not link:
         return None
     if kind in DOWNLOADABLE:
@@ -164,5 +254,5 @@ def source_from_notice(
         download = shared_drive_download(link)
         if download:
             return RecordingSource(download, "a shared-drive file")
-        return _from_page(link, quarter_end, session)
+        return _from_page(link, quarter_end, session, announced, browse)
     return None

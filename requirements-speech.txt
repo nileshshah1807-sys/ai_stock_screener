@@ -32,6 +32,8 @@ flatbuffers==25.12.19
     # via onnxruntime
 fsspec==2026.9.0
     # via huggingface-hub
+greenlet==3.5.6
+    # via playwright
 h11==0.16.0 ; sys_platform != 'emscripten'
     # via
     #   -c requirements-ci.txt
@@ -69,10 +71,14 @@ packaging==26.3
     #   -c requirements-ci.txt
     #   huggingface-hub
     #   onnxruntime
+playwright==1.63.0
+    # via -r requirements-speech.in
 protobuf==7.36.2
     # via
     #   -c requirements-ci.txt
     #   onnxruntime
+pyee==13.0.1
+    # via playwright
 pyyaml==6.0.3
     # via
     #   ctranslate2
@@ -98,6 +104,7 @@ typing-extensions==4.16.0
     #   anyio
     #   httpx2
     #   huggingface-hub
+    #   pyee
 urllib3==2.8.0
     # via
     #   -c requirements-ci.txt

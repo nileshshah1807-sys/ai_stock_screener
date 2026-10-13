@@ -139,17 +139,20 @@ the scheduled workflows set the same flag.
   (`delete_speech_transcripts`): left beside it, the recording would be that
   call's "previous quarter" in `latest_transcript_sentiment`. Half the
   notices name an audio file; `transcripts/recording_sources.py` resolves
-  some of the rest -- a shared-drive file, the one recording of this quarter
-  an investor page names -- and takes nothing rather than choose between
-  recordings. A video is never fetched: the video site refuses a hosted
-  runner's address (13 Oct 2026). Where no recording can be fetched,
-  `transcripts/vendor_transcripts.py` asks `CALL_TRANSCRIPT_VENDOR_URL` (set
-  in the workflow) for that site's own transcript of the call, matched on
-  symbol and quarter. It is a third party's text: its document's
-  `extraction_method` starts `vendor:`, the Concalls page says so, and the
-  filed transcript replaces it exactly as it replaces a recording's
-  (`is_provisional`). A recording not in English, or a call neither source
-  has, waits for the filed transcript. The speech
+  some of the rest -- a shared-drive file, or the one recording of this
+  quarter on an investor page, told by its name or, since most are named by
+  the conference provider's number, by being the only audio file uploaded in
+  the week of the notice. A page that builds its player with a script, or
+  refuses a plain request, is opened in the runner's Chrome
+  (`transcripts/page_browser.py`, `CALL_RECORDING_BROWSER` in the workflow)
+  to see the file it asks for; nothing is played. Every rule takes nothing
+  rather than choose between recordings. A video is never fetched: the video
+  site refuses a hosted runner's address (13 Oct 2026).
+  `transcripts/vendor_transcripts.py` can read a third party's transcript of
+  a call, but `CALL_TRANSCRIPT_VENDOR_URL` is deliberately unset: the vendor
+  it was written for was asked and requires a licence. Do not point it at a
+  site without written permission. A recording not in English, or a call
+  with no recording to fetch, waits for the filed transcript. The speech
   text has no speaker labels, so the tone score reads it as one voice -- its
   agreement with the filed transcript's score has not been measured yet.
   `workers/concall_feed.py` derives `concall_feed` (one row per call, no
