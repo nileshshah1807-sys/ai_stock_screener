@@ -148,10 +148,9 @@ the scheduled workflows set the same flag.
   to see the file it asks for; nothing is played. Every rule takes nothing
   rather than choose between recordings. A video is never fetched: the video
   site refuses a hosted runner's address (13 Oct 2026).
-  `transcripts/vendor_transcripts.py` can read a third party's transcript of
-  a call, but `CALL_TRANSCRIPT_VENDOR_URL` is deliberately unset: the vendor
-  it was written for was asked and requires a licence. Do not point it at a
-  site without written permission. A recording not in English, or a call
+  No third party's transcript is read: the one vendor that publishes them
+  openly was asked and requires a licence (13 Oct 2026). A recording not in
+  English, or a call
   with no recording to fetch, waits for the filed transcript. The speech
   text has no speaker labels, so the tone score reads it as one voice -- its
   agreement with the filed transcript's score has not been measured yet.

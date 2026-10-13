@@ -44,7 +44,6 @@ jobs:
     timeout-minutes: 20
     outputs:
       calls: ${{ steps.plan.outputs.calls }}
-      vendor_transcripts: ${{ steps.plan.outputs.vendor_transcripts }}
       matrix: ${{ steps.plan.outputs.matrix }}
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -58,10 +57,6 @@ jobs:
       # but a browser. Nothing is played; the file is then downloaded as any
       # other. Remove this line to switch it off.
       CALL_RECORDING_BROWSER: "true"
-      # CALL_TRANSCRIPT_VENDOR_URL is deliberately not set. The vendor whose
-      # transcripts transcripts/vendor_transcripts.py could read was asked
-      # and refused: its text needs a licensing agreement. Do not set it to a
-      # site without that site's written permission.
     steps:
       - uses: actions/checkout@v6
 
@@ -85,10 +80,8 @@ jobs:
       # The recordings travel to the piece jobs as an artifact so that each
       # company's site is asked for its file once, not once per piece. They
       # are public filings; the artifact expires after a day.
-      # Uploaded for a vendor's transcript too: the assemble job reads the
-      # plan to know there is something to score.
       - name: Hand the recordings to the piece jobs
-        if: steps.plan.outputs.calls != '0' || steps.plan.outputs.vendor_transcripts != '0'
+        if: steps.plan.outputs.calls != '0'
         uses: actions/upload-artifact@v6
         with:
           name: call-recordings-plan
@@ -156,11 +149,7 @@ jobs:
     needs: [plan, piece]
     # Whatever the pieces did: a call with a piece missing is recorded as
     # failed and tried again, and the complete ones are stored.
-    # It also runs when the plan stored a vendor's transcript and cut nothing:
-    # that call is as unscored as one from a recording.
-    if: >-
-      always() && needs.plan.result == 'success' &&
-      (needs.plan.outputs.calls != '0' || needs.plan.outputs.vendor_transcripts != '0')
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.calls != '0'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -201,7 +190,6 @@ jobs:
           path: call-recordings
 
       - uses: actions/download-artifact@v7
-        if: needs.plan.outputs.calls != '0'
         with:
           pattern: call-piece-*
           path: pieces

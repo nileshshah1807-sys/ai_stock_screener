@@ -13,9 +13,8 @@ Every rule here would rather find nothing than the wrong call: an investor
 page lists each quarter's recording beside promotional clips, and transcribing
 the wrong one would score the wrong call. A notice whose recording is a video
 is not resolved at all -- the video site refuses a hosted runner's address
-(measured 13 Oct 2026). A call nothing is found for is looked for as a vendor's
-transcript (`transcripts/vendor_transcripts.py`) and otherwise waits for the
-filed one.
+(measured 13 Oct 2026). A call nothing is found for waits for the filed
+transcript.
 """
 
 from __future__ import annotations

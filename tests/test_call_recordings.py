@@ -32,7 +32,6 @@ from transcripts.recordings import (
 from workers.call_recordings import (
     ALREADY_FILED_ERROR,
     NOT_ENGLISH_ERROR,
-    WAITING_ERROR,
     CallRecordingWorker,
     RecordingSettings,
     matrix,
@@ -167,13 +166,6 @@ RECORD = {
 }
 
 
-VENDOR_TRANSCRIPT = {
-    "id": 1,
-    "title": "Alpha Ltd (ALPHA) Q2 2027 Earnings Call Transcript",
-    "link": "https://vendor.test/india/alpha-q2-2027/",
-}
-
-
 class PlanTests(unittest.TestCase):
     def plan(
         self,
@@ -181,8 +173,6 @@ class PlanTests(unittest.TestCase):
         links=("https://alpha.test/q2.mp3",),
         audio_minutes=40,
         downloaded=True,
-        vendor=None,
-        vendor_text="word " * 2000,
     ):
         self.directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
         audio_path = self.directory / "audio" / "900.mp3"
@@ -195,13 +185,6 @@ class PlanTests(unittest.TestCase):
             audio_path.write_bytes(b"audio" * 100)
             return audio_path
 
-        settings = RecordingSettings(vendor_url="https://vendor.test/india" if vendor is not None else "")
-        self.vendor_read = []
-
-        def vendor_page(base_url, entry):
-            self.vendor_read.append(entry["id"])
-            return vendor_text
-
         samples = np.zeros(int(SAMPLE_RATE * 60 * audio_minutes), dtype=np.float32)
         with (
             patch("workers.call_recordings.discover_nse_announcements", return_value=[RECORD]),
@@ -209,12 +192,10 @@ class PlanTests(unittest.TestCase):
             patch("workers.call_recordings.pdf_links", return_value=list(links)),
             patch("workers.call_recordings.download_audio", side_effect=download),
             patch("workers.call_recordings.decode_audio", return_value=samples),
-            patch("workers.call_recordings.list_transcripts", return_value=list(vendor or [])) as self.listed,
-            patch("workers.call_recordings.fetch_transcript", side_effect=vendor_page),
             # An investor page is never asked for in a test: it does not answer.
             patch("transcripts.recording_sources.requests.get", side_effect=requests.ConnectionError("offline")),
         ):
-            return CallRecordingWorker(repository, settings).plan(self.directory)
+            return CallRecordingWorker(repository, RecordingSettings()).plan(self.directory)
 
     def test_a_recording_is_cut_into_pieces_and_written_to_the_plan(self):
         repository = FakeRepository()
@@ -245,61 +226,6 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(self.plan(repository, links=["https://youtu.be/abcdefghijk"])["calls"], [])
         self.assertEqual(self.fetched, [])
         self.assertIn("video platform", repository.updates[0][1]["last_error"])
-
-    def test_a_call_with_no_recording_to_fetch_is_stored_from_the_vendor_s_transcript(self):
-        repository = FakeRepository()
-        plan = self.plan(repository, links=["https://alpha.test/investors"], vendor=[VENDOR_TRANSCRIPT])
-        self.assertEqual((plan["calls"], plan["vendor_transcripts"], self.fetched), ([], 1, []))
-        self.assertEqual(repository.documents[0]["extraction_method"], "vendor:vendor.test")
-        (transcript,) = repository.transcripts
-        self.assertEqual(
-            (transcript["symbol"], transcript["quarter"], transcript["call_date"]),
-            ("ALPHA", "2026-09-30", "2026-10-12"),
-        )
-        self.assertEqual(repository.links, [("filing-1", "document-1")])
-        self.assertEqual(repository.updates[-1], ("filing-1", {"status": "document_ready", "last_error": None}))
-
-    def test_another_company_s_or_another_quarter_s_transcript_is_not_taken(self):
-        others = [
-            {"id": 2, "title": "Alpha Ltd (ALPHA) Q1 2027 Earnings Call Transcript"},
-            {"id": 3, "title": "Alphabet Ltd (ALPHAB) Q2 2027 Earnings Call Transcript"},
-        ]
-        repository = FakeRepository()
-        self.assertEqual(self.plan(repository, links=[], vendor=others)["vendor_transcripts"], 0)
-        self.assertEqual(self.vendor_read, [])
-
-    def test_a_call_the_vendor_has_not_posted_yet_waits_without_using_an_attempt(self):
-        repository = FakeRepository()
-        self.assertEqual(self.plan(repository, links=[], vendor=[])["calls"], [])
-        self.assertEqual(repository.updates, [("filing-1", {"last_error": f"{WAITING_ERROR} (no link)"})])
-
-    def test_a_waiting_call_is_looked_for_at_the_vendor_without_reading_its_notice_again(self):
-        repository = FakeRepository(filing={"last_error": f"{WAITING_ERROR} (web page)"})
-        plan = self.plan(repository, links=["https://alpha.test/q2.mp3"], vendor=[VENDOR_TRANSCRIPT])
-        self.notice.assert_not_called()
-        self.assertEqual((plan["vendor_transcripts"], self.fetched), (1, []))
-
-    def test_a_refused_recording_is_read_from_the_vendor_instead(self):
-        repository = FakeRepository()
-        plan = self.plan(repository, downloaded=False, vendor=[VENDOR_TRANSCRIPT])
-        self.assertEqual((plan["calls"], plan["vendor_transcripts"]), ([], 1))
-        self.assertEqual(repository.updates[-1][1]["status"], "document_ready")
-
-    def test_a_recording_that_can_be_fetched_is_used_and_the_vendor_is_not_asked(self):
-        repository = FakeRepository()
-        plan = self.plan(repository, vendor=[VENDOR_TRANSCRIPT])
-        self.assertEqual((len(plan["calls"]), plan["vendor_transcripts"]), (1, 0))
-        self.listed.assert_not_called()
-
-    def test_a_vendor_page_too_short_to_be_a_call_is_not_stored(self):
-        repository = FakeRepository()
-        plan = self.plan(repository, links=[], vendor=[VENDOR_TRANSCRIPT], vendor_text="Coming soon.")
-        self.assertEqual((plan["vendor_transcripts"], repository.transcripts), (0, []))
-        self.assertEqual(repository.updates, [("filing-1", {"last_error": f"{WAITING_ERROR} (no link)"})])
-
-    def test_the_vendor_is_not_asked_when_none_is_configured(self):
-        self.plan(FakeRepository(), links=["https://alpha.test/investors"])
-        self.listed.assert_not_called()
 
     def test_a_page_is_resolved_with_the_notice_s_day_and_the_browser_switch(self):
         with patch("workers.call_recordings.source_from_notice", return_value=None) as resolve:

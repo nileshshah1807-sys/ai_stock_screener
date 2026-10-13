@@ -61,7 +61,7 @@ export default async function ConcallsPage({
         <h1 className="text-title font-semibold">Concalls</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
           {market.code === "NSE"
-            ? "Earnings calls the day they are held. A call is first read from the recording the company files that evening, or from a third party's transcript where that recording cannot be fetched, then from the company's own transcript once that is filed. Open a highlight for the sentence it came from."
+            ? "Earnings calls the day they are held. A call is first read from the recording the company files that evening, then from its transcript once that is filed. Open a highlight for the sentence it came from."
             : `Earnings calls are read for NSE only; there is no recording or transcript source for ${market.label} yet.`}
         </p>
       </div>
