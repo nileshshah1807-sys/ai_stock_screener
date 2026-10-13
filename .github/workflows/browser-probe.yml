@@ -1,0 +1,41 @@
+name: Page browser probe
+# Temporary: one run on this branch to see whether a hosted runner can open a
+# page in its own Chrome through Playwright. Deleted before the merge.
+on:
+  push:
+    branches: [feat/recording-page-browser]
+    paths: [.github/workflows/browser-probe.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-ci.txt -r requirements-speech.txt
+      - run: |
+          python - <<'PY'
+          import logging, time
+          from datetime import date
+          logging.basicConfig(level=logging.INFO)
+          from transcripts.page_browser import render_page
+          from transcripts.recording_sources import source_from_notice
+          from transcripts.recordings import PAGE
+
+          started = time.time()
+          page = render_page("https://example.com/")
+          print(f"::{'notice' if page else 'error'} title=Chrome launch::{'opened' if page else 'not opened'} in {time.time() - started:.0f}s")
+          for link, quarter, announced in (
+              ("https://www.alkemlabs.com/investors/earnings-call", date(2026, 6, 30), date(2026, 8, 14)),
+              ("https://www.sammaancapital.com/call-and-recordings", date(2026, 6, 30), date(2026, 8, 13)),
+          ):
+              started = time.time()
+              source = source_from_notice(PAGE, link, quarter, announced=announced, browse=True)
+              print(f"::{'notice' if source else 'warning'} title=Page::{source.found if source else 'nothing'} in {time.time() - started:.0f}s")
+          PY
