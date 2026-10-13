@@ -7,7 +7,7 @@ points at, and cuts the recording at pauses so that each piece can be
 transcribed on a machine of its own (`workers/call_recordings.py`).
 
 A notice that names an audio file is served from here. One that points at an
-investor page, a shared drive or a video, or at nothing, is resolved by
+investor page or a shared drive is resolved by
 `transcripts/recording_sources.py`, which would rather find nothing than the
 wrong quarter's call.
 """
@@ -38,6 +38,14 @@ MIN_AUDIO_BYTES = 100_000
 #: How a transcript made from a recording is told from a filed one: the prefix
 #: of its document's ``extraction_method``, followed by the model's name.
 SPEECH_METHOD_PREFIX = "speech:"
+#: A transcript taken from a vendor's site (`transcripts/vendor_transcripts.py`),
+#: followed by the site's host. Provisional for the same reason.
+VENDOR_METHOD_PREFIX = "vendor:"
+
+
+def is_provisional(extraction_method: str | None) -> bool:
+    """Whether a document's text stands in for the transcript the company will file."""
+    return str(extraction_method or "").startswith((SPEECH_METHOD_PREFIX, VENDOR_METHOD_PREFIX))
 
 _CALL_CATEGORY = "con. call"
 _RECORDING_WORDS = re.compile(r"\b(?:audio|recording|webcast)\b", re.IGNORECASE)

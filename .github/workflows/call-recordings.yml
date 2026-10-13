@@ -44,6 +44,7 @@ jobs:
     timeout-minutes: 20
     outputs:
       calls: ${{ steps.plan.outputs.calls }}
+      vendor_transcripts: ${{ steps.plan.outputs.vendor_transcripts }}
       matrix: ${{ steps.plan.outputs.matrix }}
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -51,10 +52,12 @@ jobs:
       CALL_RECORDING_LOOKBACK_DAYS: ${{ inputs.lookback_days || '3' }}
       # Four pieces a call against twenty concurrent jobs.
       CALL_RECORDING_MAX_CALLS_PER_RUN: ${{ inputs.max_calls || '5' }}
-      # A call whose only recording is a video -- the company's own, or a call
-      # channel's (CALL_RECORDING_FALLBACK_CHANNEL) -- is not fetched here:
-      # the video site refuses a hosted runner's address. Both are switched on
-      # with CALL_RECORDING_FETCH_VIDEOS on a machine that can fetch them.
+      # Asked only when a notice leads to no recording this job can fetch: a
+      # site that publishes its own transcript of each call about an hour
+      # after it starts, through its public listing. A third party's text, so
+      # it is the last resort, the dashboard says so, and the company's filed
+      # transcript replaces it. Remove this line to switch it off.
+      CALL_TRANSCRIPT_VENDOR_URL: https://alphastreet.com/india
     steps:
       - uses: actions/checkout@v6
 
@@ -78,8 +81,10 @@ jobs:
       # The recordings travel to the piece jobs as an artifact so that each
       # company's site is asked for its file once, not once per piece. They
       # are public filings; the artifact expires after a day.
+      # Uploaded for a vendor's transcript too: the assemble job reads the
+      # plan to know there is something to score.
       - name: Hand the recordings to the piece jobs
-        if: steps.plan.outputs.calls != '0'
+        if: steps.plan.outputs.calls != '0' || steps.plan.outputs.vendor_transcripts != '0'
         uses: actions/upload-artifact@v6
         with:
           name: call-recordings-plan
@@ -147,7 +152,11 @@ jobs:
     needs: [plan, piece]
     # Whatever the pieces did: a call with a piece missing is recorded as
     # failed and tried again, and the complete ones are stored.
-    if: always() && needs.plan.result == 'success' && needs.plan.outputs.calls != '0'
+    # It also runs when the plan stored a vendor's transcript and cut nothing:
+    # that call is as unscored as one from a recording.
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      (needs.plan.outputs.calls != '0' || needs.plan.outputs.vendor_transcripts != '0')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -188,6 +197,7 @@ jobs:
           path: call-recordings
 
       - uses: actions/download-artifact@v7
+        if: needs.plan.outputs.calls != '0'
         with:
           pattern: call-piece-*
           path: pieces

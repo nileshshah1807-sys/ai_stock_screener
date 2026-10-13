@@ -14,8 +14,10 @@ on four:
     Reads the recording notices, downloads each new recording, cuts it at
     pauses and writes the plan: one entry per call, one job per piece. A
     notice without an audio file is resolved by
-    `transcripts/recording_sources.py`; a call nothing is found for yet is
-    left waiting and looked for again while its notice is still being read.
+    `transcripts/recording_sources.py`. A call with no recording to fetch is
+    stored here from a vendor's transcript (`transcripts/vendor_transcripts.py`)
+    when there is one, and otherwise left waiting and looked for again while
+    its notice is still being read.
 ``piece``
     Transcribes one piece. Runs once per piece, in parallel, with no secrets.
 ``assemble``
@@ -49,19 +51,13 @@ from typing import Any
 from transcripts.cleaner import clean_transcript_text
 from transcripts.collector import discover_nse_announcements, filing_payload
 from transcripts.periods import reporting_period_end_for_call
-from transcripts.recording_sources import (
-    VIDEO_AUDIO,
-    RecordingSource,
-    download_video_audio,
-    fallback_video,
-    list_channel,
-    source_from_notice,
-)
+from transcripts.recording_sources import RecordingSource, source_from_notice
 from transcripts.recordings import (
     DOWNLOADABLE,
     NONE,
     SAMPLE_RATE,
     SPEECH_METHOD_PREFIX,
+    VENDOR_METHOD_PREFIX,
     classify_links,
     cut_points,
     decode_audio,
@@ -73,14 +69,15 @@ from transcripts.recordings import (
     stitch,
 )
 from transcripts.speech import DEFAULT_MODEL
+from transcripts.vendor_transcripts import fetch_transcript, find_transcript, list_transcripts, vendor_name
 
 logger = logging.getLogger(__name__)
 
 ALREADY_FILED_ERROR = "a transcript of this call is already stored"
-#: A filing left as it is, to be looked for again on every run that still
-#: reads its notice: the channel posts a call some hours after it is held.
-WAITING_ERROR = "no recording found yet"
 NOT_ENGLISH_ERROR = "recording is not in English; left for the filed transcript"
+#: A filing left as it is, to be looked for again on every run that still
+#: reads its notice: the vendor posts a call an hour or so after it starts.
+WAITING_ERROR = "no recording found yet"
 
 
 @dataclass(frozen=True)
@@ -96,14 +93,10 @@ class RecordingSettings:
     min_audio_minutes: float = 5.0
     max_audio_minutes: float = 240.0
     min_text_characters: int = 3000
-    # A channel that posts every call as a video, asked when the notice's own
-    # link yields no recording. Unset, such a call waits for its transcript.
-    fallback_channel: str = ""
-    # Whether this machine can fetch a video's audio. A hosted runner cannot:
-    # the video site answers its address with a sign-in wall (measured 13 Oct
-    # 2026, every player client and the captions alike). Off, a call whose
-    # only recording is a video waits for its transcript, as it did before.
-    fetch_videos: bool = False
+    # A site that publishes its own transcript of each call, asked when the
+    # notice leads to no recording this job can fetch. Unset, such a call
+    # waits for its filed transcript.
+    vendor_url: str = ""
 
     @classmethod
     def from_environment(cls) -> RecordingSettings:
@@ -115,8 +108,7 @@ class RecordingSettings:
             model_name=os.getenv("CALL_RECORDING_MODEL", "").strip() or DEFAULT_MODEL,
             max_attempts=max(1, int(os.getenv("CALL_RECORDING_MAX_ATTEMPTS", "6"))),
             min_text_characters=max(1, int(os.getenv("CALL_RECORDING_MIN_TEXT_CHARACTERS", "3000"))),
-            fallback_channel=os.getenv("CALL_RECORDING_FALLBACK_CHANNEL", "").strip(),
-            fetch_videos=os.getenv("CALL_RECORDING_FETCH_VIDEOS", "").strip().lower() in {"1", "true", "yes"},
+            vendor_url=os.getenv("CALL_TRANSCRIPT_VENDOR_URL", "").strip(),
         )
 
 
@@ -124,7 +116,9 @@ class CallRecordingWorker:
     def __init__(self, repository, settings: RecordingSettings):
         self.repository = repository
         self.settings = settings
-        self._channel_videos: list[dict[str, Any]] | None = None
+        self._vendor_listing: list[dict[str, Any]] | None = None
+        #: Calls stored this run from a vendor's transcript, with no audio to cut.
+        self.vendor_stored = 0
 
     # -- plan -----------------------------------------------------------------
 
@@ -147,7 +141,7 @@ class CallRecordingWorker:
                     continue
                 if call:
                     calls.append(call)
-        plan = {"model": self.settings.model_name, "calls": calls}
+        plan = {"model": self.settings.model_name, "calls": calls, "vendor_transcripts": self.vendor_stored}
         (out_directory / "plan.json").write_text(json.dumps(plan, indent=2), encoding="utf-8")
         return plan
 
@@ -163,17 +157,14 @@ class CallRecordingWorker:
         if quarter and self.repository.has_transcript(filing["symbol"], quarter):
             self.repository.update_filing(stored["id"], status="rejected", last_error=ALREADY_FILED_ERROR)
             return None
-        sources = self._find_sources(filing, stored, quarter, notices)
-        if not sources:
+        source = self._find_source(filing, stored, quarter, notices)
+        if source is None:
             return None
-        # The notice's own recording first; the channel's when that one is refused.
-        for source in sources:
-            fetch = download_video_audio if source.fetch == VIDEO_AUDIO else download_audio
-            audio = fetch(source.url, audio_directory, filing["seq_id"])
-            if audio is not None:
-                break
-        else:
-            self._failed(stored, f"recording could not be downloaded ({sources[0].found})")
+        audio = download_audio(source.url, audio_directory, filing["seq_id"])
+        if audio is None:
+            # A refused recording is tried again; a vendor's text ends the wait.
+            if not self._store_vendor_transcript(filing, stored, quarter):
+                self._failed(stored, f"recording could not be downloaded ({source.found})")
             return None
         try:
             samples = decode_audio(audio)
@@ -212,14 +203,13 @@ class CallRecordingWorker:
             ],
         }
 
-    def _find_sources(
+    def _find_source(
         self, filing: dict, stored: dict, quarter: str | None, notices: Path
-    ) -> list[RecordingSource]:
-        """Where this call's recording may be, best first; empty with the filing marked for why."""
+    ) -> RecordingSource | None:
+        """Where this call's recording is; or None, with the call stored from a vendor or marked for why not."""
         quarter_end = date.fromisoformat(quarter) if quarter else None
-        # A filing already waiting has had its notice read: only the channel can have changed.
+        # A filing already waiting has had its notice read: only the vendor can have changed.
         waiting = str(stored.get("last_error") or "").startswith(WAITING_ERROR)
-        sources: list[RecordingSource] = []
         kind = NONE
         if not waiting:
             try:
@@ -229,31 +219,80 @@ class CallRecordingWorker:
                 raise
             # Past a direct file, every rule needs to know which quarter it is looking for.
             source = source_from_notice(kind, url, quarter_end) if quarter_end or kind in DOWNLOADABLE else None
-            if source and (source.fetch != VIDEO_AUDIO or self.settings.fetch_videos):
-                sources.append(source)
-        channel = self.settings.fetch_videos and bool(self.settings.fallback_channel) and quarter_end is not None
-        if channel:
-            source = fallback_video(self._channel(), filing.get("company_name"), quarter_end)
             if source:
-                sources.append(source)
-        if sources:
-            return sources
-        if channel:
+                return source
+        if self._store_vendor_transcript(filing, stored, quarter):
+            return None
+        if self.settings.vendor_url and quarter_end:
             if not waiting:
                 self.repository.update_filing(stored["id"], last_error=f"{WAITING_ERROR} ({kind})")
-            return []
+            return None
         # The notice will not change, so neither will this.
         self.repository.update_filing(
             stored["id"], status="rejected", last_error=f"no downloadable recording ({kind})"
         )
         logger.info("No downloadable recording for %s: %s", filing["symbol"], kind)
-        return []
+        return None
 
-    def _channel(self) -> list[dict[str, Any]]:
-        if self._channel_videos is None:
-            self._channel_videos = list_channel(self.settings.fallback_channel)
-            logger.info("Call channel listed: %s video(s)", len(self._channel_videos))
-        return self._channel_videos
+    def _store_vendor_transcript(self, filing: dict, stored: dict, quarter: str | None) -> bool:
+        """Store the vendor's transcript of this call, if it has one; whether it did."""
+        base_url = self.settings.vendor_url
+        if not base_url or not quarter:
+            return False
+        if self._vendor_listing is None:
+            self._vendor_listing = list_transcripts(base_url)
+            logger.info("Transcript vendor listed: %s transcript(s)", len(self._vendor_listing))
+        entry = find_transcript(self._vendor_listing, filing["symbol"], date.fromisoformat(quarter))
+        if entry is None:
+            return False
+        text = clean_transcript_text(fetch_transcript(base_url, entry) or "")
+        if len(text) < self.settings.min_text_characters:
+            return False
+        encoded = text.encode("utf-8")
+        self._store_text(
+            filing_id=stored["id"],
+            symbol=filing["symbol"],
+            announcement_date=filing.get("announcement_date"),
+            text=text,
+            sha256=hashlib.sha256(encoded).hexdigest(),
+            size_bytes=len(encoded),
+            extraction_method=f"{VENDOR_METHOD_PREFIX}{vendor_name(base_url)}",
+        )
+        self.vendor_stored += 1
+        logger.info(
+            "Stored the call of %s from a vendor's transcript: %s characters (%s)",
+            filing["symbol"], len(text), entry.get("link"),
+        )
+        return True
+
+    def _store_text(
+        self,
+        *,
+        filing_id: str,
+        symbol: str,
+        announcement_date: str | None,
+        text: str,
+        sha256: str,
+        size_bytes: int,
+        extraction_method: str,
+    ) -> None:
+        """Store a call's text as its transcript, marked by how the text was obtained."""
+        document = self.repository.find_document_by_sha256(sha256) or self.repository.create_document({
+            "sha256": sha256,
+            "size_bytes": size_bytes,
+            "extraction_method": extraction_method,
+        })
+        self.repository.upsert_transcript({
+            "document_id": document["id"],
+            "symbol": symbol,
+            "quarter": _results_period(announcement_date),
+            "call_date": _announcement_date(announcement_date),
+            "cleaned_text": text,
+            "token_count": (len(text) + 3) // 4,
+            "text_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        })
+        self.repository.link_filing_document(filing_id, document["id"])
+        self.repository.update_filing(filing_id, status="document_ready", last_error=None)
 
     def _failed(self, stored: dict, error: str) -> None:
         self.repository.update_filing(
@@ -294,22 +333,15 @@ class CallRecordingWorker:
                 call["filing_id"], status="rejected", last_error=f"recording gave {len(text)} characters of text"
             )
             return "rejected"
-        document = self.repository.find_document_by_sha256(call["sha256"]) or self.repository.create_document({
-            "sha256": call["sha256"],
-            "size_bytes": call["size_bytes"],
-            "extraction_method": f"{SPEECH_METHOD_PREFIX}{model_name}",
-        })
-        self.repository.upsert_transcript({
-            "document_id": document["id"],
-            "symbol": call["symbol"],
-            "quarter": _results_period(call.get("announcement_date")),
-            "call_date": _announcement_date(call.get("announcement_date")),
-            "cleaned_text": text,
-            "token_count": (len(text) + 3) // 4,
-            "text_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        })
-        self.repository.link_filing_document(call["filing_id"], document["id"])
-        self.repository.update_filing(call["filing_id"], status="document_ready", last_error=None)
+        self._store_text(
+            filing_id=call["filing_id"],
+            symbol=call["symbol"],
+            announcement_date=call.get("announcement_date"),
+            text=text,
+            sha256=call["sha256"],
+            size_bytes=call["size_bytes"],
+            extraction_method=f"{SPEECH_METHOD_PREFIX}{model_name}",
+        )
         logger.info("Stored the call of %s from its recording: %s characters", call["symbol"], len(text))
         return "stored"
 
@@ -415,13 +447,22 @@ def main(argv: list[str] | None = None) -> int:
     worker = CallRecordingWorker(SupabaseRepository.from_environment(), RecordingSettings.from_environment())
     if args.step == "plan":
         plan = worker.plan(args.out)
-        _write_outputs(calls=str(len(plan["calls"])), matrix=json.dumps(matrix(plan)))
-        logger.info("Call recordings planned: %s call(s)", len(plan["calls"]))
+        _write_outputs(
+            calls=str(len(plan["calls"])),
+            vendor_transcripts=str(plan["vendor_transcripts"]),
+            matrix=json.dumps(matrix(plan)),
+        )
+        logger.info(
+            "Call recordings planned: %s call(s); %s stored from a vendor's transcript",
+            len(plan["calls"]), plan["vendor_transcripts"],
+        )
         return 0
 
-    summary = worker.assemble(json.loads(args.plan.read_text(encoding="utf-8")), args.pieces)
+    plan = json.loads(args.plan.read_text(encoding="utf-8"))
+    summary = worker.assemble(plan, args.pieces)
     logger.info("Call recordings summary: %s", summary)
-    if summary["stored"] and not args.no_analysis:
+    # A vendor's transcript was stored by the plan step and is as unscored as these.
+    if (summary["stored"] or plan.get("vendor_transcripts")) and not args.no_analysis:
         from workers.transcript_worker import TranscriptSettings, TranscriptWorker
 
         analysis = TranscriptWorker(worker.repository, TranscriptSettings.from_environment()).analyze_pending()
