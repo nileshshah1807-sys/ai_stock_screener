@@ -171,8 +171,12 @@ the scheduled workflows set the same flag.
   call (`stance`: bullish to bearish, with the sentence behind it). The
   question is a weighing of what management stated against the difficulty it
   conceded, which the model must quote first (`stance.concern`): asked for
-  management's own view, it called 29 of 33 calls "optimistic", a bank
-  lowering its guidance among them (14 Oct 2026). It is display
+  management's own view, it called 83 of 97 calls "optimistic", a bank
+  lowering its guidance among them. The wording was chosen against an
+  outside reader's labels for those 97 calls (14 Oct 2026; see the comment
+  on `STANCES`); measure a change to it the same way, by rank agreement and
+  by agreement with the call's own outlook score, not by a few examples. It
+  is display
   evidence for the Concalls page and deliberately outside `verified_fields`,
   which is how the screener knows a call stated something scorable. Do not
   label a call from the word-list tone score: its risk component counts

@@ -60,11 +60,14 @@ CAPACITY_STATES = ("operational", "ramping", "under_construction", "planned", "n
 # front of it; never scored -- see `verify_quotes`.
 #
 # The question is put as a weighing of what management stated, with the
-# difficulty it conceded quoted first. Asked instead for "management's own
-# view", the model answered with the confident sentence every call closes on:
-# 29 of 33 calls read "optimistic", a bank lowering its guidance among them
-# (14 Oct 2026). Asked this way the same 33 read 13 cautious, 12 neutral and
-# 8 optimistic.
+# difficulty it conceded quoted first. Measured on 97 calls against an outside
+# reader's labels for the same calls (14 Oct 2026): asked for "management's own
+# view", the model called 83 of them optimistic, and its order agreed with the
+# reader's at 0.38 (Spearman) and with the call's own outlook score at 0.38.
+# Asked this way: 0.63 and 0.70, with no lean either way. Told that neutral is
+# the usual answer it ranks as well but pushes strong calls down a step; told
+# nothing, it calls most calls optimistic again. It still almost never answers
+# "bullish" or "bearish", however the scale is put.
 STANCES = ("bullish", "optimistic", "neutral", "cautious", "bearish", "unknown")
 
 _QUOTE = {"type": ["string", "null"]}
@@ -185,20 +188,24 @@ serious difficulty ahead for the business (weak demand in a market that \
 matters, delayed deals or projects, pricing or margin pressure, a regulatory \
 or customer problem, guidance withheld or cut), copied exactly. Null only if \
 management names none.
-- stance.view, decided after the concern: "bullish" only if management raises \
-its guidance or commits to clearly faster growth or higher margins than \
-before, and names no material difficulty; "optimistic" if it states a \
-specific improvement ahead (a number, a named driver) that outweighs the \
-difficulties it names; "neutral" if it holds course -- guidance restated, \
-steady business, or improvements and difficulties about balanced; this is the \
-answer for most calls; "cautious" if a material difficulty in a main business \
-is unresolved or management will not commit to an outcome, however positive \
-the rest; "bearish" if management lowers guidance or expects revenue, \
-profit or margins to fall.
+- stance.view, decided after the concern, on a five-step scale of which \
+every step is used: "bullish" if what is ahead is clearly stronger than the \
+recent past and management says so with numbers -- guidance raised, or \
+growth of about 20% or more guided, or strong demand with a rising order \
+book -- and the concern is minor, outside the main business or already \
+behind; "optimistic" if it states a specific improvement ahead (a number, a \
+named driver) that outweighs a real difficulty it names; "neutral" if it \
+holds course -- guidance restated, steady business, or improvements and \
+difficulties about balanced; this is the most common answer; "cautious" if a \
+material difficulty in a main business is unresolved, or management will not \
+commit to an outcome, however positive the rest; "bearish" if the period \
+ahead is worse than the recent past -- guidance lowered, revenue, profit or \
+margins expected to fall, or demand in the main business weak with no \
+recovery in sight.
 - stance.quote: the one management sentence that best justifies the view -- \
-for "cautious" or "bearish" the difficulty, for "optimistic" or "bullish" the \
-specific improvement. "unknown" with null quotes if the call gives no basis. \
-Decide the stance last; it must not change any other answer.
+for "cautious" or "bearish" the difficulty, for "optimistic" or "bullish" \
+the specific improvement. "unknown" with null quotes if the call gives no \
+basis. Decide the stance last; it must not change any other answer.
 
 Answer with one JSON object and nothing else -- no explanation, no code fence. \
 It has exactly these keys; where a set of values is listed, use one of them:
