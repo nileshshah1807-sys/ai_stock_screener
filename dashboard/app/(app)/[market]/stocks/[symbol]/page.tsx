@@ -16,7 +16,7 @@ import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
 import { FactorBlocks } from "@/components/stock/factor-blocks";
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
-import { HistoryChart } from "@/components/stock/history-chart";
+import { RankHistoryChart } from "@/components/stock/rank-history-chart";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { PriceChart } from "@/components/stock/price-chart";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
@@ -896,10 +896,10 @@ export default async function StockPage({
                   </div>
 
                   <Panel
-                    title="Decision score history"
-                    description="Slim daily history, retained beyond the full-snapshot window."
+                    title="Rank history"
+                    description={`Position in the ${market.label} universe on each run, #1 at the top. Today ${row.investment_rank ?? MISSING} of ${run.row_count}.`}
                   >
-                    <HistoryChart history={history} />
+                    <RankHistoryChart history={history} />
                   </Panel>
 
                   <div className="grid gap-4 lg:grid-cols-2">
