@@ -117,8 +117,9 @@ export default async function ConcallsPage({
             </p>
           ) : null}
           <p className="max-w-3xl border-t pt-4 text-xs leading-relaxed text-muted-foreground">
-            Management stance is how management itself sees what is ahead, as a language model
-            read it from the whole call; hover the word for the sentence it rests on. Calls read
+            Management stance is where the company&rsquo;s prospects stand after the call, as a
+            language model weighed what management stated against the difficulties it conceded
+            &mdash; not how confident it sounded; hover the word for the sentence it rests on. Calls read
             before that question was added show a dash. Outlook starts at 50 and moves only on
             what the call stated &mdash; guidance, order book, capacity, demand, margins &mdash; so
             50 means nothing was scored, not average. A call read from its recording has no speaker

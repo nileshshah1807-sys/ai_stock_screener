@@ -347,17 +347,37 @@ class OutlookQuoteTests(unittest.TestCase):
 class OutlookStanceTests(unittest.TestCase):
     """Management's stance is shown beside a call and never scored."""
 
-    STRONG = {"view": "optimistic", "quote": "Demand from export customers remains very strong."}
+    STRONG = {
+        "view": "optimistic",
+        "quote": "Demand from export customers remains very strong.",
+        "concern": "We expect raw material costs to keep margins under pressure for two more quarters.",
+    }
 
     def test_a_stance_is_kept_with_the_sentence_behind_it(self):
         verified, _, _ = verify_quotes(extraction(stance=self.STRONG), CALL)
         self.assertEqual(verified["stance"], self.STRONG)
 
+    def test_a_concern_that_is_not_in_the_call_is_dropped_and_the_stance_kept(self):
+        for concern in ("Our largest customer has told us it is leaving.", None):
+            verified, _, _ = verify_quotes(extraction(stance=self.STRONG | {"concern": concern}), CALL)
+            self.assertEqual(verified["stance"], self.STRONG | {"concern": None})
+        # A reading from before the concern was asked for.
+        earlier = {key: value for key, value in self.STRONG.items() if key != "concern"}
+        verified, _, _ = verify_quotes(extraction(stance=earlier), CALL)
+        self.assertEqual(verified["stance"], self.STRONG | {"concern": None})
+
+    def test_the_concern_is_answered_before_the_view(self):
+        # The model writes the keys in schema order; the view has to come
+        # after the difficulty it is weighed against.
+        stance = SCHEMA["properties"]["stance"]
+        self.assertEqual(list(stance["properties"]), ["concern", "view", "quote"])
+        self.assertEqual(set(stance["required"]), {"concern", "view", "quote"})
+
     def test_a_stance_whose_sentence_is_not_in_the_call_is_unknown(self):
         invented = {"view": "bullish", "quote": "We have never been more confident about the year ahead."}
         for stance in (invented, {"view": "bullish", "quote": None}, {"view": "elated", "quote": self.STRONG["quote"]}, None, "bullish"):
             verified, _, _ = verify_quotes(extraction(stance=stance), CALL)
-            self.assertEqual(verified["stance"], {"view": "unknown", "quote": None})
+            self.assertEqual(verified["stance"], {"view": "unknown", "quote": None, "concern": None})
 
     def test_a_stance_moves_neither_the_counts_nor_the_score(self):
         without = verify_quotes(extraction(), CALL)
@@ -660,6 +680,36 @@ class OutlookRunTests(unittest.TestCase):
         self.assertEqual(summary["extracted"], 1)
         self.assertEqual((summary["verified"], summary["unverified"]), (3, 1))
         self.assertEqual(saved[0]["transcript_id"], "t1")
+
+    def test_a_stance_only_run_replaces_the_stance_and_keeps_the_stored_outlook(self):
+        repository, saved = self.repository({})
+        stances = []
+
+        def save_outlook_stance(transcript_id, model, version, stance):
+            stances.append((transcript_id, model, version, stance))
+            return transcript_id == "stored"  # "new" has no outlook yet
+
+        repository.save_outlook_stance = save_outlook_stance
+
+        def analyse(session, api_key, transcript, text, *, model):
+            return {
+                "transcript_id": transcript["id"], "cost_usd": 0.001, "verified_fields": 3,
+                "unverified_fields": 0, "extraction": {"stance": {"view": "cautious"}},
+            }
+
+        with patch.object(self.tool, "analyse_transcript", analyse):
+            summary = self.tool.run(
+                repository,
+                [{"id": "stored", "cleaned_text": "text"}, {"id": "new", "cleaned_text": "text"}],
+                "key", model="m", workers=1, budget=self.tool.Budget(1.0), stance_only=True,
+            )
+
+        self.assertEqual(summary["extracted"], 2)
+        self.assertEqual(
+            stances[0], ("stored", "m", self.tool.OUTLOOK_VERSION, {"view": "cautious"})
+        )
+        # Only the call with nothing stored is written whole.
+        self.assertEqual([row["transcript_id"] for row in saved], ["new"])
 
     def test_a_transcript_without_text_fails_without_stopping_the_run(self):
         repository, saved = self.repository({"t2": "text"})
