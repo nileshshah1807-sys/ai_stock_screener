@@ -19,6 +19,7 @@ Usage::
     python -m tools.extract_transcript_outlook --latest-only     # each company's newest call
     python -m tools.extract_transcript_outlook --max-cost 4.5   # everything pending, capped
     python -m tools.extract_transcript_outlook --refresh-since 2026-10-01   # read this season's calls again
+    python -m tools.extract_transcript_outlook --refresh-since 2026-10-01 --stance-only   # ... for the stance alone
 
 Needs ``OPENROUTER_API_KEY``, ``SUPABASE_URL`` and ``SUPABASE_SERVICE_ROLE_KEY``,
 from the environment or ``.env``, and the ``transcript_outlooks`` table from
@@ -81,7 +82,8 @@ def pending_transcripts(repository, model, latest_only=False, refresh_since=None
     ``refresh_since`` (an ISO date) also returns calls held on or after it that
     already have an outlook, to be read again and overwritten -- how a question
     added to the extraction reaches calls read before it was asked. A second
-    reading can differ from the first, so their outlook scores can move.
+    reading can differ from the first, so their outlook scores can move --
+    unless the run keeps only the second reading's stance (`run`).
     """
     done = repository.outlook_transcript_ids(model, OUTLOOK_VERSION)
     transcripts = repository.transcripts_for_outlook()
@@ -115,7 +117,13 @@ class Budget:
             self.spent += float(cost or 0.0)
 
 
-def run(repository, transcripts, api_key, *, model, workers, budget):
+def run(repository, transcripts, api_key, *, model, workers, budget, stance_only=False):
+    """Extract and store each transcript's outlook.
+
+    ``stance_only`` is for reading again calls that already have an outlook:
+    the new reading's stance replaces the stored one and the scored items stay
+    as they were. A call with no stored outlook is stored whole either way.
+    """
     import requests
 
     local = threading.local()
@@ -137,7 +145,13 @@ def run(repository, transcripts, api_key, *, model, workers, budget):
             if not text:
                 raise ValueError("transcript has no text in the column or in storage")
             row = analyse_transcript(session(), api_key, transcript, text, model=model)
-            repository.save_outlook(row)
+            if not (
+                stance_only
+                and repository.save_outlook_stance(
+                    row["transcript_id"], model, OUTLOOK_VERSION, row["extraction"]["stance"]
+                )
+            ):
+                repository.save_outlook(row)
         except Exception as exc:  # noqa: BLE001 - one bad call must not stop the run
             # An unusable reply was still billed, and must count toward the cap.
             budget.add(getattr(exc, "cost_usd", 0.0))
@@ -173,6 +187,10 @@ def main(argv=None):
     parser.add_argument(
         "--refresh-since", default=None, metavar="YYYY-MM-DD",
         help="also read again calls held on or after this date that already have an outlook",
+    )
+    parser.add_argument(
+        "--stance-only", action="store_true",
+        help="for a call that already has an outlook, replace its stance and keep its scored items",
     )
     parser.add_argument("--dry-run", action="store_true", help="count and estimate; no API calls, no writes")
     args = parser.parse_args(argv)
@@ -220,7 +238,10 @@ def main(argv=None):
         row["company_name"] = names.get(row.get("document_id"), "")
 
     budget = Budget(args.max_cost)
-    summary = run(repository, pending, api_key, model=args.model, workers=args.workers, budget=budget)
+    summary = run(
+        repository, pending, api_key,
+        model=args.model, workers=args.workers, budget=budget, stance_only=args.stance_only,
+    )
     claimed = summary["verified"] + summary["unverified"]
     logger.info(
         "Extracted %d, failed %d, not started for budget %d; $%.3f spent; "

@@ -55,9 +55,16 @@ GUIDANCE_SCOPES = ("company", "segment", "none")
 TRENDS = ("up", "flat", "down", "unknown")
 DEMAND_TONES = ("strong", "stable", "weak", "unknown")
 CAPACITY_STATES = ("operational", "ramping", "under_construction", "planned", "none")
-# Management's overall stance on what is ahead, for display beside a call.
+# Where the company's prospects stand after the call, for display beside it.
 # Read by the same request because the model already has the whole call in
 # front of it; never scored -- see `verify_quotes`.
+#
+# The question is put as a weighing of what management stated, with the
+# difficulty it conceded quoted first. Asked instead for "management's own
+# view", the model answered with the confident sentence every call closes on:
+# 29 of 33 calls read "optimistic", a bank lowering its guidance among them
+# (14 Oct 2026). Asked this way the same 33 read 13 cautious, 12 neutral and
+# 8 optimistic.
 STANCES = ("bullish", "optimistic", "neutral", "cautious", "bearish", "unknown")
 
 _QUOTE = {"type": ["string", "null"]}
@@ -120,8 +127,9 @@ SCHEMA: dict[str, Any] = {
         "stance": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["view", "quote"],
-            "properties": {"view": {"enum": list(STANCES)}, "quote": _QUOTE},
+            "required": ["concern", "view", "quote"],
+            # In the order they are to be answered: see `SYSTEM_PROMPT`.
+            "properties": {"concern": _QUOTE, "view": {"enum": list(STANCES)}, "quote": _QUOTE},
         },
     },
     "$defs": {
@@ -168,14 +176,29 @@ fell in the reported quarter, a margin to be sustained or held, and a bare \
 - tailwinds and headwinds: at most three each, specific to this company \
 (a new approval, a customer win, a tariff, a raw-material cost), not general \
 optimism.
-- stance.view: management's own overall view of the company's prospects from \
-here, judged from what management says and not from analysts' questions: \
-"bullish" if it expects clearly better performance and says so plainly; \
-"optimistic" if positive with caveats; "neutral" if balanced or steady; \
-"cautious" if it stresses difficulties ahead; "bearish" if it expects \
-performance to worsen. The quote is the one management sentence that best \
-shows it. "unknown" with a null quote if the call gives no basis. Decide this \
-last; it must not change any other answer.
+- stance: where the company's prospects stand after this call, weighed from \
+the specifics management gave -- not from how confident it sounds. Every \
+management team says it is confident, excited, well placed or on track; such \
+a sentence is no evidence and is never the quote.
+- stance.concern: first, the one management sentence that states the most \
+serious difficulty ahead for the business (weak demand in a market that \
+matters, delayed deals or projects, pricing or margin pressure, a regulatory \
+or customer problem, guidance withheld or cut), copied exactly. Null only if \
+management names none.
+- stance.view, decided after the concern: "bullish" only if management raises \
+its guidance or commits to clearly faster growth or higher margins than \
+before, and names no material difficulty; "optimistic" if it states a \
+specific improvement ahead (a number, a named driver) that outweighs the \
+difficulties it names; "neutral" if it holds course -- guidance restated, \
+steady business, or improvements and difficulties about balanced; this is the \
+answer for most calls; "cautious" if a material difficulty in a main business \
+is unresolved or management will not commit to an outcome, however positive \
+the rest; "bearish" if management lowers guidance or expects revenue, \
+profit or margins to fall.
+- stance.quote: the one management sentence that best justifies the view -- \
+for "cautious" or "bearish" the difficulty, for "optimistic" or "bullish" the \
+specific improvement. "unknown" with null quotes if the call gives no basis. \
+Decide the stance last; it must not change any other answer.
 
 Answer with one JSON object and nothing else -- no explanation, no code fence. \
 It has exactly these keys; where a set of values is listed, use one of them:
@@ -191,7 +214,8 @@ It has exactly these keys; where a set of values is listed, use one of them:
   "margin": {"trend": "up|flat|down|unknown", "quote": string or null},
   "tailwinds": [{"what": string, "quote": string}],
   "headwinds": [{"what": string, "quote": string}],
-  "stance": {"view": "bullish|optimistic|neutral|cautious|bearish|unknown", "quote": string or null}
+  "stance": {"concern": string or null, \
+"view": "bullish|optimistic|neutral|cautious|bearish|unknown", "quote": string or null}
 }"""
 
 
@@ -285,7 +309,10 @@ def verify_quotes(extraction: dict[str, Any], transcript: str) -> tuple[dict[str
 
 
 def _verified_stance(value: Any, haystack: str) -> dict[str, Any]:
-    """Management's stance, kept only with a sentence of the call behind it.
+    """The stance, kept only with a sentence of the call behind it.
+
+    The concern is kept beside it where its sentence is found too; a stance
+    whose concern was invented keeps its view and loses the concern.
 
     Outside the counts on purpose. `verified_fields` is how the screener knows
     a call stated something it can score, and a stance is a reading of the
@@ -294,8 +321,13 @@ def _verified_stance(value: Any, haystack: str) -> dict[str, Any]:
     """
     view = value.get("view") if isinstance(value, dict) else None
     if view in STANCES and view != "unknown" and quote_found(value.get("quote"), haystack):
-        return {"view": view, "quote": str(value["quote"])}
-    return {"view": "unknown", "quote": None}
+        concern = value.get("concern")
+        return {
+            "view": view,
+            "quote": str(value["quote"]),
+            "concern": str(concern) if quote_found(concern, haystack) else None,
+        }
+    return {"view": "unknown", "quote": None, "concern": None}
 
 
 def _number(value: Any) -> float | None:
