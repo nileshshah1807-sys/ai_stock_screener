@@ -541,6 +541,22 @@ class FiledQuarterRunTests(unittest.TestCase):
         self.assertEqual(row["source"], SOURCE_WITH_FILINGS)
         self.assertEqual(counts["with_filed_quarters"], 1)
 
+    def test_a_result_filed_while_the_run_is_fetching_is_not_overwritten(self):
+        # The Quarterly filings job stores September after this run began and
+        # draws it onto the page; this run's write must carry it too, or the
+        # quarter vanishes until the vendor is next asked.
+        repo = FilingRepository()
+
+        def ticker_then_filing(ticker):
+            repo.filings["AAA"] = [JUNE, SEPTEMBER]
+            return FiledTicker(ticker)
+
+        repo.latest_snapshot_symbols = lambda: ["AAA"]
+        repo.financial_statement_state = lambda: {}
+        run(repo, ticker_factory=ticker_then_filing, pause_seconds=0,
+            today=date(2026, 10, 12))
+        self.assertEqual(repo.written[0]["latest_quarter"], "2026-09-30")
+
     def test_a_row_with_nothing_filed_is_the_vendors_alone(self):
         counts, row = self.run_worker(FilingRepository())
         self.assertEqual(row["latest_quarter"], "2026-06-30")

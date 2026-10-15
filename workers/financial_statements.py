@@ -573,7 +573,6 @@ def run(
         profile.code, len(wanted), len(state), len(todo),
     )
 
-    filings = load_filings(repo, profile, todo)
     pending: list[dict[str, Any]] = []
     counts = {
         "fetched": 0, "with_data": 0, "empty": 0, "written": 0, "deferred": 0,
@@ -581,6 +580,16 @@ def run(
     }
 
     def flush():
+        # The filings are read just before the write, not once per run. The
+        # Quarterly filings job stores and draws a result while this run is
+        # still fetching; a copy of the filings taken when the run began
+        # would overwrite that quarter, and nothing would draw it again.
+        filings = load_filings(repo, profile, [row["symbol"] for row in pending])
+        for row in pending:
+            if filings is not None and apply_filings(row, filings.get(row["symbol"], [])):
+                row["source"] = SOURCE_WITH_FILINGS
+                counts["with_filed_quarters"] += 1
+            counts["with_data" if row["has_data"] else "empty"] += 1
         if pending and not dry_run:
             counts["written"] += repo.upsert_financial_statements(pending)
         pending.clear()
@@ -596,17 +605,12 @@ def run(
             break
         frames = fetch_frames(ticker_factory(ticker_for(symbol, profile)))
         payload = build_payload(frames)
-        source = SOURCE
-        if filings is not None and apply_filings(payload, filings.get(symbol, [])):
-            source = SOURCE_WITH_FILINGS
-            counts["with_filed_quarters"] += 1
         counts["fetched"] += 1
-        counts["with_data" if payload["has_data"] else "empty"] += 1
         pending.append({
             "symbol": symbol,
             **payload,
             "currency": profile.currency,
-            "source": source,
+            "source": SOURCE,
             "fetched_at": datetime.now(UTC).isoformat(timespec="seconds"),
         })
         if len(pending) >= flush_every:
