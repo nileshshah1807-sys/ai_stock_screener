@@ -28,7 +28,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Any
+
+from sentiment.llm_provider import OPENROUTER_MODEL, Provider
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +41,7 @@ logger = logging.getLogger(__name__)
 # again. Both bind at extraction and neither changes what a stored outlook
 # scores.
 OUTLOOK_VERSION = "outlook-v1"
-DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash"
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_MODEL = OPENROUTER_MODEL
 # Calls longer than this are cut from the end. The median call is ~45,000
 # characters; the cap only bounds the cost of a pathological document.
 MAX_TRANSCRIPT_CHARACTERS = 160_000
@@ -55,19 +57,27 @@ GUIDANCE_SCOPES = ("company", "segment", "none")
 TRENDS = ("up", "flat", "down", "unknown")
 DEMAND_TONES = ("strong", "stable", "weak", "unknown")
 CAPACITY_STATES = ("operational", "ramping", "under_construction", "planned", "none")
-# Where the company's prospects stand after the call, for display beside it.
-# Read by the same request because the model already has the whole call in
-# front of it; never scored -- see `verify_quotes`.
+# Management's sentiment on the call, for display beside it; never scored --
+# see `_verified_stance`. Asked in a request of its own (`STANCE_PROMPT`),
+# with the model's thinking on, because the label wanted is the one an analyst
+# on the call would give: which way management's own expectations moved.
 #
-# The question is put as a weighing of what management stated, with the
-# difficulty it conceded quoted first. Measured on 97 calls against an outside
-# reader's labels for the same calls (14 Oct 2026): asked for "management's own
-# view", the model called 83 of them optimistic, and its order agreed with the
-# reader's at 0.38 (Spearman) and with the call's own outlook score at 0.38.
-# Asked this way: 0.63 and 0.70, with no lean either way. Told that neutral is
-# the usual answer it ranks as well but pushes strong calls down a step; told
-# nothing, it calls most calls optimistic again. It still almost never answers
-# "bullish" or "bearish", however the scale is put.
+# Measured against StockScans' labels for the 9 calls both had (14 Oct 2026):
+# the earlier question -- the stance weighed from what management stated, as
+# the last field of the extraction -- matched 1, and read 26 of 60 calls
+# neutral; asking for how upbeat management sounded matched 3 and read 55 of
+# 60 bullish or optimistic. This wording, with thinking, matched 7, 5 and 6 in
+# three runs (thinking varies between runs even at temperature 0; a majority
+# of three matched 6, so one reading is kept), and read 45 other calls 13
+# bullish, 14 optimistic, 6 neutral, 11 cautious. Without thinking, 3. Its
+# order agrees with the call's outlook score at 0.35, not 0.70: StockScans
+# calls a strong quarter with guidance merely reaffirmed neutral.
+#
+# Two earlier findings stand. Asked for "management's own view" with nothing
+# to set it against, the model called 83 of 97 calls optimistic. And asked in
+# parts -- what is ahead, better or worse than before, how serious the
+# concern -- with the label placed in code, it answered "growth" and
+# "improving" for almost every call.
 STANCES = ("bullish", "optimistic", "neutral", "cautious", "bearish", "unknown")
 
 _QUOTE = {"type": ["string", "null"]}
@@ -77,7 +87,7 @@ SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
     "required": [
-        "guidance", "order_book", "capacity", "demand", "margin", "tailwinds", "headwinds", "stance",
+        "guidance", "order_book", "capacity", "demand", "margin", "tailwinds", "headwinds",
     ],
     "properties": {
         "guidance": {
@@ -127,13 +137,6 @@ SCHEMA: dict[str, Any] = {
         },
         "tailwinds": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/item"}},
         "headwinds": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/item"}},
-        "stance": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["concern", "view", "quote"],
-            # In the order they are to be answered: see `SYSTEM_PROMPT`.
-            "properties": {"concern": _QUOTE, "view": {"enum": list(STANCES)}, "quote": _QUOTE},
-        },
     },
     "$defs": {
         "item": {
@@ -179,33 +182,6 @@ fell in the reported quarter, a margin to be sustained or held, and a bare \
 - tailwinds and headwinds: at most three each, specific to this company \
 (a new approval, a customer win, a tariff, a raw-material cost), not general \
 optimism.
-- stance: where the company's prospects stand after this call, weighed from \
-the specifics management gave -- not from how confident it sounds. Every \
-management team says it is confident, excited, well placed or on track; such \
-a sentence is no evidence and is never the quote.
-- stance.concern: first, the one management sentence that states the most \
-serious difficulty ahead for the business (weak demand in a market that \
-matters, delayed deals or projects, pricing or margin pressure, a regulatory \
-or customer problem, guidance withheld or cut), copied exactly. Null only if \
-management names none.
-- stance.view, decided after the concern, on a five-step scale of which \
-every step is used: "bullish" if what is ahead is clearly stronger than the \
-recent past and management says so with numbers -- guidance raised, or \
-growth of about 20% or more guided, or strong demand with a rising order \
-book -- and the concern is minor, outside the main business or already \
-behind; "optimistic" if it states a specific improvement ahead (a number, a \
-named driver) that outweighs a real difficulty it names; "neutral" if it \
-holds course -- guidance restated, steady business, or improvements and \
-difficulties about balanced; this is the most common answer; "cautious" if a \
-material difficulty in a main business is unresolved, or management will not \
-commit to an outcome, however positive the rest; "bearish" if the period \
-ahead is worse than the recent past -- guidance lowered, revenue, profit or \
-margins expected to fall, or demand in the main business weak with no \
-recovery in sight.
-- stance.quote: the one management sentence that best justifies the view -- \
-for "cautious" or "bearish" the difficulty, for "optimistic" or "bullish" \
-the specific improvement. "unknown" with null quotes if the call gives no \
-basis. Decide the stance last; it must not change any other answer.
 
 Answer with one JSON object and nothing else -- no explanation, no code fence. \
 It has exactly these keys; where a set of values is listed, use one of them:
@@ -220,24 +196,78 @@ It has exactly these keys; where a set of values is listed, use one of them:
   "demand": {"tone": "strong|stable|weak|unknown", "quote": string or null},
   "margin": {"trend": "up|flat|down|unknown", "quote": string or null},
   "tailwinds": [{"what": string, "quote": string}],
-  "headwinds": [{"what": string, "quote": string}],
-  "stance": {"concern": string or null, \
-"view": "bullish|optimistic|neutral|cautious|bearish|unknown", "quote": string or null}
+  "headwinds": [{"what": string, "quote": string}]
 }"""
 
 
-def build_messages(company: str, symbol: str, call_date: str, text: str) -> list[dict[str, str]]:
+STANCE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["quote", "concern", "view"],
+    # In the order they are to be answered: see `STANCE_PROMPT`.
+    "properties": {"quote": _QUOTE, "concern": _QUOTE, "view": {"enum": list(STANCES)}},
+}
+# The model thinks before it answers the stance, and a hard call takes it
+# 3,000-6,000 tokens; at 8,000 one in nine ran out before the object.
+STANCE_MAX_OUTPUT_TOKENS = 16_000
+
+STANCE_PROMPT = """You read an Indian company's earnings-call transcript and \
+label management's sentiment on the call, as an analyst listening to it \
+would: which way management's own expectations for the business moved. Judge \
+it by what management says has changed and what it now expects -- not by how \
+confident it sounds, since every management says it is confident, excited or \
+well placed. Analysts' questions are not management's view.
+
+Answer in this order:
+- quote: the one management sentence that best shows that sentiment, copied \
+exactly from the transcript.
+- concern: the most serious difficulty management itself acknowledged in a \
+main business, copied exactly; null if it named none.
+- view, one of:
+  "bullish" -- management raises its expectations: guidance or targets \
+raised, record results with momentum it expects to carry on, growth stepping \
+up; the concern is minor.
+  "optimistic" -- management expects a specific improvement ahead (a margin \
+uplift, a new target, a shortfall to be made up, new business ramping) while \
+acknowledging a real difficulty.
+  "neutral" -- management holds course: existing guidance or targets \
+reaffirmed, steady business, or positives and difficulties in balance. A \
+strong quarter followed by guidance merely reaffirmed is neutral.
+  "cautious" -- management concedes a difficulty in a main business that is \
+delaying or slowing it: deals or projects delayed, demand soft in a key \
+market, risk policy tightened, growth tapering, numbers it will not disclose \
+-- even if other parts are doing well. When the improvement management \
+offers is a hope ("we hope", "should get better", "we will see") set against \
+a difficulty it names in a main business, the call is cautious, not \
+optimistic.
+  "bearish" -- management reports or expects falling revenue, profit or \
+margins, or cuts guidance.
+  "unknown" with null quotes only if the call gives no basis.
+
+Answer with one JSON object and nothing else: {"quote": string or null, \
+"concern": string or null, "view": "bullish|optimistic|neutral|cautious|bearish|unknown"}"""
+
+
+def build_messages(
+    company: str, symbol: str, call_date: str, text: str, system: str = SYSTEM_PROMPT
+) -> list[dict[str, str]]:
     body = text[:MAX_TRANSCRIPT_CHARACTERS]
     header = f"Company: {company or symbol} ({symbol})\nCall date: {call_date or 'unknown'}\n\nTranscript:\n"
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": header + body},
     ]
 
 
 def _normalise(text: str) -> str:
-    """Lower-case, with punctuation and spacing differences removed."""
-    return re.sub(r"[^a-z0-9%.]+", " ", str(text).lower()).strip()
+    """Lower-case, with punctuation and spacing differences removed.
+
+    A full stop is kept only inside a number. A speech transcript breaks a
+    sentence where the speaker paused -- "increase by 150.\nto 250 basis
+    points" -- and a model quoting it leaves the stray stop out.
+    """
+    text = re.sub(r"(?<!\d)\.|\.(?!\d)", " ", str(text).lower())
+    return re.sub(r"[^a-z0-9%.]+", " ", text).strip()
 
 
 QUOTE_MIN_WORDS = 4
@@ -311,7 +341,9 @@ def verify_quotes(extraction: dict[str, Any], transcript: str) -> tuple[dict[str
             else:
                 dropped += 1
         verified[section] = items
-    verified["stance"] = _verified_stance(extraction.get("stance"), haystack)
+    if "stance" in extraction:
+        # A reading from when the stance was a field of the extraction.
+        verified["stance"] = _verified_stance(extraction.get("stance"), haystack)
     return verified, kept, dropped
 
 
@@ -567,7 +599,7 @@ class ExtractionError(ValueError):
 
 
 def parse_response(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """``(extraction, usage)`` from an OpenRouter chat-completion response."""
+    """``(extraction, usage)`` from a chat-completion response."""
     usage = payload.get("usage") or {}
     cost = float(usage.get("cost") or 0.0)
     choices = payload.get("choices") or []
@@ -590,54 +622,156 @@ def parse_response(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, A
     return extraction, usage
 
 
-def request_extraction(session, api_key: str, messages, *, model: str = DEFAULT_MODEL, timeout: int = 180):
-    """One extraction call. Returns ``(extraction, usage)``; raises on failure."""
-    response = session.post(
-        OPENROUTER_URL,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": model,
-            "messages": messages,
-            "temperature": 0,
-            "max_tokens": MAX_OUTPUT_TOKENS,
-            "usage": {"include": True},
-            # Extraction, not problem solving: left on, the model spends the
-            # whole reply thinking and never reaches the object.
-            "reasoning": {"enabled": False},
-            "provider": {
-                "sort": "price",
-                "max_price": {
-                    "prompt": MAX_PRICE_PER_MILLION[0],
-                    "completion": MAX_PRICE_PER_MILLION[1],
-                },
-            },
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {"name": "call_outlook", "strict": True, "schema": SCHEMA},
+def request_body(
+    provider: Provider,
+    messages,
+    *,
+    schema: dict[str, Any] = SCHEMA,
+    name: str = "call_outlook",
+    thinking: bool = False,
+    max_tokens: int = MAX_OUTPUT_TOKENS,
+) -> dict[str, Any]:
+    """The chat-completion request for ``provider``.
+
+    The extraction is sent with thinking off: left on, the model spends the
+    whole reply thinking and never reaches the object. The stance is sent
+    with it on and room for it. Each provider has its own switch and ignores
+    the other's; Token Harbor thinks unless told not to.
+    """
+    body: dict[str, Any] = {
+        "model": provider.model,
+        "messages": messages,
+        "temperature": 0,
+        "max_tokens": max_tokens,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": name, "strict": True, "schema": schema},
+        },
+    }
+    if not provider.is_production:
+        return body if thinking else body | {"thinking": {"type": "disabled"}}
+    return body | {
+        "usage": {"include": True},
+        "reasoning": {"enabled": thinking},
+        "provider": {
+            "sort": "price",
+            "max_price": {
+                "prompt": MAX_PRICE_PER_MILLION[0],
+                "completion": MAX_PRICE_PER_MILLION[1],
             },
         },
-        timeout=timeout,
-    )
+    }
+
+
+# A rate-limited request is tried again after the wait the provider asks for,
+# within limits: Token Harbor's free tier refuses a burst of thinking requests.
+RATE_LIMIT_RETRIES = 4
+RATE_LIMIT_MAX_WAIT_SECONDS = 60.0
+
+
+def _retry_after(response) -> float:
+    try:
+        wait = float(response.headers.get("Retry-After") or 0)
+    except (TypeError, ValueError):
+        wait = 0.0
+    return min(RATE_LIMIT_MAX_WAIT_SECONDS, max(wait, 5.0))
+
+
+def _quota_spent(response) -> bool:
+    """A 429 that waiting will not cure: Token Harbor's free allowance is weekly."""
+    try:
+        error = (response.json() or {}).get("error") or {}
+    except ValueError:
+        return False
+    if error.get("code") == "free_tier_limit_reached":
+        logger.error("Free allowance spent: %s", error.get("message"))
+        return True
+    return False
+
+
+def _post(session, provider: Provider, body: dict[str, Any], timeout: int, *, sleep=time.sleep):
+    for attempt in range(RATE_LIMIT_RETRIES + 1):
+        response = session.post(
+            provider.url,
+            headers={"Authorization": f"Bearer {provider.api_key}", "Content-Type": "application/json"},
+            json=body,
+            timeout=timeout,
+        )
+        if response.status_code != 429 or attempt == RATE_LIMIT_RETRIES or _quota_spent(response):
+            break
+        sleep(_retry_after(response) * (attempt + 1))
     response.raise_for_status()
     return parse_response(response.json())
 
 
-def analyse_transcript(session, api_key: str, transcript: dict[str, Any], text: str, *, model: str = DEFAULT_MODEL):
-    """Extract, verify and score one call. Returns the row to store."""
-    messages = build_messages(
+def request_extraction(session, provider: Provider, messages, *, timeout: int = 180):
+    """One extraction call. Returns ``(extraction, usage)``; raises on failure."""
+    return _post(session, provider, request_body(provider, messages), timeout)
+
+
+def _messages(transcript: dict[str, Any], text: str, system: str = SYSTEM_PROMPT):
+    return build_messages(
         transcript.get("company_name") or "",
         transcript.get("symbol") or "",
         str(transcript.get("call_date") or "")[:10],
         text,
+        system,
     )
-    extraction, usage = request_extraction(session, api_key, messages, model=model)
+
+
+def read_stance(session, provider: Provider, transcript: dict[str, Any], text: str, *, timeout: int = 600):
+    """Management's sentiment on one call, verified. Returns ``(stance, usage)``; raises on failure."""
+    body = request_body(
+        provider, _messages(transcript, text, STANCE_PROMPT),
+        schema=STANCE_SCHEMA, name="call_stance", thinking=True, max_tokens=STANCE_MAX_OUTPUT_TOKENS,
+    )
+    reading, usage = _post(session, provider, body, timeout)
+    return _verified_stance(reading, _normalise(text)), usage
+
+
+def _usage_row(*usages: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "prompt_tokens": sum(int(usage.get("prompt_tokens") or 0) for usage in usages),
+        "completion_tokens": sum(int(usage.get("completion_tokens") or 0) for usage in usages),
+        "cost_usd": sum(float(usage.get("cost") or 0.0) for usage in usages),
+    }
+
+
+def analyse_stance(session, provider: Provider, transcript: dict[str, Any], text: str):
+    """Read only the stance of one call. Returns a row whose ``extraction`` is the stance alone."""
+    stance, usage = read_stance(session, provider, transcript, text)
+    return {
+        "transcript_id": transcript["id"],
+        "symbol": transcript.get("symbol"),
+        "call_date": str(transcript.get("call_date") or "")[:10] or None,
+        "model_name": provider.stored_model_name,
+        "verified_fields": 0,
+        "unverified_fields": 0,
+        "extraction": {"stance": stance},
+        **_usage_row(usage),
+    }
+
+
+def analyse_transcript(session, provider: Provider, transcript: dict[str, Any], text: str):
+    """Extract, verify and score one call, and read its stance. Returns the row to store.
+
+    A stance that cannot be read is stored as unknown: it is display evidence,
+    and the scored extraction stands without it.
+    """
+    extraction, usage = request_extraction(session, provider, _messages(transcript, text))
     verified, kept, dropped = verify_quotes(extraction, text)
+    try:
+        verified["stance"], stance_usage = read_stance(session, provider, transcript, text)
+    except Exception as exc:  # noqa: BLE001 - the stance is never worth losing the outlook for
+        logger.warning("%s stance not read: %s", transcript.get("symbol"), exc)
+        verified["stance"] = {"view": "unknown", "quote": None, "concern": None}
+        stance_usage = {"cost": getattr(exc, "cost_usd", 0.0)}
     return {
         "transcript_id": transcript["id"],
         "market": transcript.get("market") or "NSE",
         "symbol": transcript.get("symbol"),
         "call_date": str(transcript.get("call_date") or "")[:10] or None,
-        "model_name": model,
+        "model_name": provider.stored_model_name,
         "analysis_version": OUTLOOK_VERSION,
         "outlook_score": outlook_score(verified),
         "verified_fields": kept,
@@ -646,7 +780,5 @@ def analyse_transcript(session, api_key: str, transcript: dict[str, Any], text: 
             **verified,
             "points": [{"reason": reason, "points": value} for reason, value in outlook_points(verified)],
         },
-        "prompt_tokens": int(usage.get("prompt_tokens") or 0),
-        "completion_tokens": int(usage.get("completion_tokens") or 0),
-        "cost_usd": float(usage.get("cost") or 0.0),
+        **_usage_row(usage, stance_usage),
     }

@@ -2,9 +2,11 @@ import unittest
 from unittest.mock import patch
 
 from sentiment.analyzer import aggregate_sentiments, analyze_transcript
+from sentiment.llm_provider import Provider
 from sentiment.local_analyzer import LocalSentimentAnalyzer
 from sentiment.outlook import (
     SCHEMA,
+    _normalise,
     build_messages,
     outlook_points,
     outlook_score,
@@ -312,6 +314,15 @@ class OutlookQuoteTests(unittest.TestCase):
         _, kept, dropped = verify_quotes(silent, CALL)
         self.assertEqual((kept, dropped), (4, 0))
 
+    def test_a_stop_where_the_speaker_paused_does_not_hide_a_quote(self):
+        call = "So this margin is going to increase by 150.\nto 250 basis points by the end of FY27."
+        haystack = _normalise(call)
+        self.assertTrue(quote_found(
+            "So this margin is going to increase by 150 to 250 basis points by the end of FY27.", haystack
+        ))
+        # A decimal is still a decimal: 1.5 is not 15.
+        self.assertFalse(quote_found("margin will rise by 15 percent", _normalise("margin will rise by 1.5 percent")))
+
     def test_a_two_word_quote_proves_nothing(self):
         self.assertFalse(quote_found("very strong", "demand remains very strong"))
 
@@ -366,12 +377,44 @@ class OutlookStanceTests(unittest.TestCase):
         verified, _, _ = verify_quotes(extraction(stance=earlier), CALL)
         self.assertEqual(verified["stance"], self.STRONG | {"concern": None})
 
-    def test_the_concern_is_answered_before_the_view(self):
+    def test_the_view_is_answered_after_its_evidence(self):
         # The model writes the keys in schema order; the view has to come
-        # after the difficulty it is weighed against.
-        stance = SCHEMA["properties"]["stance"]
-        self.assertEqual(list(stance["properties"]), ["concern", "view", "quote"])
-        self.assertEqual(set(stance["required"]), {"concern", "view", "quote"})
+        # after the sentence behind it and the difficulty set against it.
+        from sentiment.outlook import STANCE_SCHEMA
+
+        self.assertEqual(list(STANCE_SCHEMA["properties"]), ["quote", "concern", "view"])
+        self.assertEqual(set(STANCE_SCHEMA["required"]), {"quote", "concern", "view"})
+        # A request of its own: the extraction no longer asks for it.
+        self.assertNotIn("stance", SCHEMA["properties"])
+
+    def test_the_stance_is_read_with_thinking_and_the_extraction_without(self):
+        from sentiment.llm_provider import Provider
+        from sentiment.outlook import STANCE_SCHEMA, request_body
+
+        for provider in (Provider("openrouter", "u", "k", "m"), Provider("tokenharbor", "u", "k", "m")):
+            extraction = request_body(provider, [])
+            stance = request_body(provider, [], schema=STANCE_SCHEMA, thinking=True, max_tokens=16_000)
+            if provider.is_production:
+                self.assertEqual((extraction["reasoning"], stance["reasoning"]), ({"enabled": False}, {"enabled": True}))
+            else:
+                self.assertEqual(extraction["thinking"], {"type": "disabled"})
+                self.assertNotIn("thinking", stance)
+            self.assertIs(stance["response_format"]["json_schema"]["schema"], STANCE_SCHEMA)
+
+    def test_an_unreadable_stance_leaves_the_outlook_standing(self):
+        from sentiment import outlook
+
+        def extraction_only(session, provider, messages, *, timeout=180):
+            return extraction(), {"cost": 0.001}
+
+        def broken(*args, **kwargs):
+            raise outlook.ExtractionError("reply hit the output limit", cost_usd=0.004)
+
+        with patch.object(outlook, "request_extraction", extraction_only), patch.object(outlook, "read_stance", broken):
+            row = outlook.analyse_transcript(None, PRODUCTION_PROVIDER, {"id": "t1"}, CALL)
+        self.assertEqual(row["extraction"]["stance"], {"view": "unknown", "quote": None, "concern": None})
+        self.assertEqual(row["verified_fields"], 5)
+        self.assertAlmostEqual(row["cost_usd"], 0.005)
 
     def test_a_stance_whose_sentence_is_not_in_the_call_is_unknown(self):
         invented = {"view": "bullish", "quote": "We have never been more confident about the year ahead."}
@@ -451,7 +494,7 @@ class OutlookRequestTests(unittest.TestCase):
     def test_every_schema_section_is_required(self):
         self.assertEqual(
             set(SCHEMA["required"]),
-            {"guidance", "order_book", "capacity", "demand", "margin", "tailwinds", "headwinds", "stance"},
+            {"guidance", "order_book", "capacity", "demand", "margin", "tailwinds", "headwinds"},
         )
 
     def test_a_fenced_response_is_still_parsed(self):
@@ -594,6 +637,10 @@ class OutlookChangeTests(unittest.TestCase):
         self.assertEqual(summarise_changes([]), "")
 
 
+PRODUCTION_PROVIDER = Provider("openrouter", "url", "key", "m")
+DEVELOPMENT_PROVIDER = Provider("tokenharbor", "url", "key", "free")
+
+
 class OutlookRunTests(unittest.TestCase):
     """The extraction run, with the API and the database replaced by fakes."""
 
@@ -615,7 +662,7 @@ class OutlookRunTests(unittest.TestCase):
         return Repository(), saved
 
     def fake_analyse(self, cost):
-        def analyse(session, api_key, transcript, text, *, model):
+        def analyse(session, provider, transcript, text):
             return {
                 "transcript_id": transcript["id"], "cost_usd": cost,
                 "verified_fields": 3, "unverified_fields": 1,
@@ -627,22 +674,25 @@ class OutlookRunTests(unittest.TestCase):
         rows = [{"token_count": 10_000}, {"token_count": 12_000}]
         estimate = self.tool.estimate_cost(rows, self.tool.DEFAULT_MODEL)
         prompt = (10_000 + 12_000) * 1.25 + 2 * 1000
-        # Priced at the most a request may pay, so the estimate is a ceiling.
-        self.assertAlmostEqual(estimate, (prompt * 0.10 + 2 * 800 * 1.20) / 1_000_000)
+        # Priced at the most a request may pay, so the estimate is a ceiling;
+        # each call is sent twice, once for the extraction and once for the stance.
+        self.assertAlmostEqual(estimate, (2 * prompt * 0.10 + 2 * (800 + 5000) * 1.20) / 1_000_000)
+        stance_only = self.tool.estimate_cost(rows, self.tool.DEFAULT_MODEL, stance_only=True)
+        self.assertAlmostEqual(stance_only, (prompt * 0.10 + 2 * 5000 * 1.20) / 1_000_000)
         self.assertIsNone(self.tool.estimate_cost(rows, "someone/unpriced-model"))
 
     def test_an_unusable_reply_still_counts_toward_the_budget(self):
         from sentiment.outlook import ExtractionError
 
-        def analyse(session, api_key, transcript, text, *, model):
+        def analyse(session, provider, transcript, text):
             raise ExtractionError("response carried no JSON object", cost_usd=0.004)
 
         repository, saved = self.repository({})
         budget = self.tool.Budget(1.0)
         with patch.object(self.tool, "analyse_transcript", analyse):
             summary = self.tool.run(
-                repository, [{"id": "t1", "cleaned_text": "call text"}], "key",
-                model="m", workers=1, budget=budget,
+                repository, [{"id": "t1", "cleaned_text": "call text"}], "provider",
+                workers=1, budget=budget,
             )
 
         self.assertEqual(summary["failed"], 1)
@@ -674,8 +724,8 @@ class OutlookRunTests(unittest.TestCase):
         repository, saved = self.repository({"t1": "archived call text"})
         with patch.object(self.tool, "analyse_transcript", self.fake_analyse(0.002)):
             summary = self.tool.run(
-                repository, [{"id": "t1", "cleaned_text": ""}], "key",
-                model="m", workers=1, budget=self.tool.Budget(1.0),
+                repository, [{"id": "t1", "cleaned_text": ""}], "provider",
+                workers=1, budget=self.tool.Budget(1.0),
             )
         self.assertEqual(summary["extracted"], 1)
         self.assertEqual((summary["verified"], summary["unverified"]), (3, 1))
@@ -691,22 +741,23 @@ class OutlookRunTests(unittest.TestCase):
 
         repository.save_outlook_stance = save_outlook_stance
 
-        def analyse(session, api_key, transcript, text, *, model):
+        def analyse(session, provider, transcript, text):
             return {
-                "transcript_id": transcript["id"], "cost_usd": 0.001, "verified_fields": 3,
-                "unverified_fields": 0, "extraction": {"stance": {"view": "cautious"}},
+                "transcript_id": transcript["id"], "model_name": "m", "cost_usd": 0.001,
+                "verified_fields": 3, "unverified_fields": 0, "extraction": {"stance": {"view": "cautious"}},
             }
 
-        with patch.object(self.tool, "analyse_transcript", analyse):
+        with patch.object(self.tool, "analyse_stance", analyse):
             summary = self.tool.run(
                 repository,
                 [{"id": "stored", "cleaned_text": "text"}, {"id": "new", "cleaned_text": "text"}],
-                "key", model="m", workers=1, budget=self.tool.Budget(1.0), stance_only=True,
+                PRODUCTION_PROVIDER, workers=1, budget=self.tool.Budget(1.0), stance_only=True,
             )
 
         self.assertEqual(summary["extracted"], 2)
         self.assertEqual(
-            stances[0], ("stored", "m", self.tool.OUTLOOK_VERSION, {"view": "cautious"})
+            stances[0],
+            ("stored", self.tool.DEFAULT_MODEL, self.tool.OUTLOOK_VERSION, {"view": "cautious", "read_by": "m"}),
         )
         # Only the call with nothing stored is written whole.
         self.assertEqual([row["transcript_id"] for row in saved], ["new"])
@@ -717,17 +768,72 @@ class OutlookRunTests(unittest.TestCase):
             summary = self.tool.run(
                 repository,
                 [{"id": "t1", "cleaned_text": ""}, {"id": "t2", "cleaned_text": ""}],
-                "key", model="m", workers=1, budget=self.tool.Budget(1.0),
+                "provider", workers=1, budget=self.tool.Budget(1.0),
             )
         self.assertEqual((summary["extracted"], summary["failed"]), (1, 1))
         self.assertEqual([row["transcript_id"] for row in saved], ["t2"])
+
+    def test_a_development_stance_goes_to_the_production_outlook_and_nothing_else_is_stored(self):
+        repository, saved = self.repository({})
+        stances = []
+
+        def save_outlook_stance(transcript_id, model, version, stance):
+            stances.append((transcript_id, model, stance["read_by"]))
+            return transcript_id == "stored"
+
+        repository.save_outlook_stance = save_outlook_stance
+
+        def analyse(session, provider, transcript, text):
+            return {
+                "transcript_id": transcript["id"], "model_name": "tokenharbor/free", "cost_usd": 0.0,
+                "verified_fields": 3, "unverified_fields": 0, "extraction": {"stance": {"view": "bullish"}},
+            }
+
+        with patch.object(self.tool, "analyse_stance", analyse):
+            summary = self.tool.run(
+                repository,
+                [{"id": "stored", "cleaned_text": "text"}, {"id": "new", "cleaned_text": "text"}],
+                DEVELOPMENT_PROVIDER, workers=1, budget=self.tool.Budget(1.0), stance_only=True,
+            )
+
+        self.assertEqual(stances[0], ("stored", self.tool.DEFAULT_MODEL, "tokenharbor/free"))
+        # The call with no production outlook is not given one from here.
+        self.assertEqual(saved, [])
+        self.assertEqual(summary["skipped_no_outlook"], 1)
+
+    def test_a_run_that_does_not_write_returns_its_readings(self):
+        repository, saved = self.repository({})
+        repository.save_outlook_stance = lambda *args: self.fail("a trial reading was stored")
+        with patch.object(self.tool, "analyse_stance", self.fake_analyse(0.0)):
+            summary = self.tool.run(
+                repository, [{"id": "t1", "cleaned_text": "text"}], "provider", workers=1,
+                budget=self.tool.Budget(1.0), stance_only=True, write=False,
+            )
+        self.assertEqual(saved, [])
+        self.assertEqual([row["transcript_id"] for row in summary["rows"]], ["t1"])
+
+    def test_the_report_counts_each_stance_and_ranks_it_against_the_score(self):
+        def row(symbol, score, view):
+            return {"symbol": symbol, "call_date": "2026-10-14", "outlook_score": score,
+                    "extraction": {"stance": {"view": view}}}
+
+        lines = self.tool.stance_report([
+            row("AAA", 85, "bullish"), row("BBB", 60, "optimistic"),
+            row("CCC", 50, "neutral"), row("DDD", 35, "bearish"),
+        ])
+        self.assertIn("bullish 1, optimistic 1, neutral 1, cautious 0, bearish 1, unknown 0", lines[-2])
+        self.assertIn("Spearman 1.00 over 4 calls", lines[-1])
+
+    def test_a_free_provider_costs_nothing(self):
+        rows = [{"token_count": 10_000}]
+        self.assertEqual(self.tool.estimate_cost(rows, "deepseek-v4-flash", "tokenharbor"), 0.0)
 
     def test_the_run_stops_submitting_once_the_budget_is_spent(self):
         repository, saved = self.repository({})
         transcripts = [{"id": f"t{index}", "cleaned_text": "text"} for index in range(5)]
         with patch.object(self.tool, "analyse_transcript", self.fake_analyse(0.5)):
             summary = self.tool.run(
-                repository, transcripts, "key", model="m", workers=1,
+                repository, transcripts, "provider", workers=1,
                 budget=self.tool.Budget(1.0),
             )
         self.assertEqual(summary["extracted"], 2)
