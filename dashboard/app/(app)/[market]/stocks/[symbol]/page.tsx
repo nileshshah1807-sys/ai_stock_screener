@@ -9,7 +9,7 @@ import { CallOutlook } from "@/components/stock/call-outlook";
 import { getLatestConcall } from "@/lib/concalls";
 import { callPanelSource } from "@/lib/concalls.mjs";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
-import { decodeSeries, withTail } from "@/lib/price-series.mjs";
+import { decodeSeries, tailFromHistory, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
@@ -60,6 +60,7 @@ import {
   getPriceTail,
   getStock,
   getStockHistory,
+  STOCK_HISTORY_LIMIT,
 } from "@/lib/queries";
 import { getWatchlistMembership, getWatchlists } from "@/lib/watchlists";
 
@@ -192,11 +193,17 @@ export default async function StockPage({
     run ? getStock(market.code, run.run_date, symbol) : null,
   );
   const seriesRead = getPriceSeries(market.code, symbol);
+  const historyRead = getStockHistory(market.code, symbol);
   // Sessions since the base series was last rebuilt. The cutoff is the base's
   // own last_session; with no base there is nothing to append to, and the
-  // daily rows alone would draw an unadjusted stub.
-  const tailRead = seriesRead.then((series) =>
-    series ? getPriceTail(market.code, symbol, series.last_session) : [],
+  // daily rows alone would draw an unadjusted stub. The rank history already
+  // read covers it unless the base is older than that window; only then is it
+  // a read of its own.
+  const tailRead = Promise.all([seriesRead, historyRead]).then(([series, rows]) =>
+    series
+      ? (tailFromHistory(rows, series.last_session, STOCK_HISTORY_LIMIT) ??
+        getPriceTail(market.code, symbol, series.last_session))
+      : [],
   );
 
   const [
@@ -213,7 +220,7 @@ export default async function StockPage({
   ] = await Promise.all([
     runRead,
     rowRead,
-    getStockHistory(market.code, symbol),
+    historyRead,
     seriesRead,
     tailRead,
     getPriceCalendar(market.code),

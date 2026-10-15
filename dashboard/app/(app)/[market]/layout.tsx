@@ -33,12 +33,13 @@ export default async function MarketLayout({
   // The parent layout already verified access, and getViewer is wrapped in
   // React's cache(), so this resolves from that render's cache rather than
   // spending a second session round trip.
-  // The bell's state rides along with the manifest for the same reason: read
-  // once per market visit, not once per page.
-  const [viewer, run, notifications] = await Promise.all([
+  // The bell's state is read once per market visit, like the manifest, but
+  // not awaited: it is handed to the shell as a promise and streams into the
+  // header, so its two rounds of reads no longer hold the page back.
+  const notifications = trace("  getBellState", () => getBellState(market.code));
+  const [viewer, run] = await Promise.all([
     trace("  requireAccess", () => requireAccess()),
     trace("  getLatestRun", () => getLatestRun(market.code)),
-    trace("  getBellState", () => getBellState(market.code)),
   ]);
 
   return (

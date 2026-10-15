@@ -194,6 +194,14 @@ local `dashboard/.env.local`; commit only the placeholder in `.env.example`.
 After changing a `NEXT_PUBLIC_` value in Vercel, redeploy because Next.js
 inlines public environment variables at build time.
 
+**Function region.** `vercel.json` pins the server functions to `hnd1`
+(Tokyo) because the Supabase project is in `ap-northeast-1` (Tokyo). Every
+page waits on one or two Supabase reads before it can answer, so the function
+belongs next to the database: from another region each read crosses an ocean,
+and a page pays that once per read rather than once per page. If the Supabase
+project ever moves, move this with it -- the region is in the database host's
+address (`db.<project>.supabase.co`).
+
 Company logo domains come from Yahoo's issuer `website` metadata and are
 published as `screener_snapshot.logo_domain`. Re-run
 `storage/dashboard_schema.sql` before the first logo-enabled publish. Existing

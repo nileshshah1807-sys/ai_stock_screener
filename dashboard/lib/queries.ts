@@ -239,12 +239,42 @@ const RUN_COLUMNS = [
 ].join(",");
 
 /**
+ * The newest run each viewer has read, kept for RUN_MEMO_MS.
+ *
+ * Nearly every page waits on the run before its own query can start, because
+ * that query is keyed on the run date: a sort or page change on the screener
+ * was two round trips end to end, the manifest and then the rows, and the
+ * manifest changes once a day. Remembering it turns that into one.
+ *
+ * Keyed by the viewer, not shared between them. An entry is only ever a row
+ * that viewer's own RLS-checked read returned, so nobody is served a row their
+ * session could not have read; what it trades is freshness -- a run published
+ * in the last RUN_MEMO_MS, or an invitation withdrawn in it, reaches this read
+ * that much later. The rows behind the manifest are still read live under RLS.
+ * Module scope, so it lives as long as the server instance and is simply empty
+ * on a cold one.
+ */
+const RUN_MEMO_MS = 120_000;
+const RUN_MEMO_MAX = 500;
+const runMemo = new Map<string, { at: number; run: ScreenerRun }>();
+
+/**
  * Wrapped in React's cache() so the shell layout, the screener layout and the
  * page itself share one round trip rather than asking three times per render.
  */
 export const getLatestRun = cache(
   async (market: MarketCode): Promise<ScreenerRun | null> => {
   const supabase = await createClient();
+  // Verified locally against the cached signing key, as in lib/auth.ts: no
+  // round trip, and a forged cookie yields no viewer and so no memo.
+  const { data: auth } = await supabase.auth.getClaims();
+  const viewer = auth?.claims?.sub;
+  const key = viewer ? `${viewer}:${market}` : null;
+  const remembered = key ? runMemo.get(key) : undefined;
+  if (remembered && Date.now() - remembered.at < RUN_MEMO_MS) {
+    return remembered.run;
+  }
+
   const { data, error } = await supabase
     .from("screener_runs")
     .select(RUN_COLUMNS)
@@ -261,7 +291,12 @@ export const getLatestRun = cache(
     console.error("getLatestRun failed", error.message);
     return null;
   }
-  return data as unknown as ScreenerRun | null;
+  const run = data as unknown as ScreenerRun | null;
+  if (key && run) {
+    if (runMemo.size >= RUN_MEMO_MAX) runMemo.clear();
+    runMemo.set(key, { at: Date.now(), run });
+  }
+  return run;
   },
 );
 
@@ -852,16 +887,19 @@ export async function getPriceTail(
     }));
 }
 
+/** Rows of rank history the stock page reads; also bounds `tailFromHistory`. */
+export const STOCK_HISTORY_LIMIT = 180;
+
 export async function getStockHistory(
   market: MarketCode,
   symbol: string,
-  limit = 180,
+  limit = STOCK_HISTORY_LIMIT,
 ): Promise<HistoryRow[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_history")
     .select(
-      "observed_on, symbol, investment_rank, decision_score, final_score, fundamental_score, technical_score, rating, current_price",
+      "observed_on, symbol, investment_rank, decision_score, final_score, fundamental_score, technical_score, rating, current_price, volume",
     )
     .eq("market", market)
     .eq("symbol", symbol.toUpperCase())

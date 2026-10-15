@@ -340,6 +340,8 @@ export type HistoryRow = {
   technical_score: number | null;
   rating: string | null;
   current_price: number | null;
+  /** Read so the stock chart's daily tail can come from this window too. */
+  volume?: number | null;
 };
 
 /**

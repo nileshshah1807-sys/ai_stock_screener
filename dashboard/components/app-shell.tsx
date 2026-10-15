@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut, Shapes } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -6,7 +7,7 @@ import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { FreshnessBanner } from "@/components/freshness-banner";
 import { HealthLink } from "@/components/health-link";
-import { NotificationBell } from "@/components/notifications/bell";
+import { NotificationBell, NotificationBellFallback } from "@/components/notifications/bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavLink } from "@/components/nav-link";
 import { MarketProvider } from "@/components/market-provider";
@@ -186,7 +187,7 @@ export function AppShell({
   run: ScreenerRun | null;
   viewer: Viewer;
   market: Market;
-  notifications: BellState;
+  notifications: Promise<BellState>;
   children: React.ReactNode;
 }) {
   return (
@@ -306,7 +307,9 @@ export function AppShell({
               count to that market's rather than carrying the other's over.
             */}
             <div className="glass flex items-center gap-0.5 rounded-full p-0.5">
-              <NotificationBell key={market.slug} market={market} state={notifications} />
+              <Suspense key={market.slug} fallback={<NotificationBellFallback />}>
+                <NotificationBell market={market} state={notifications} />
+              </Suspense>
               <HealthLink href={marketPath(market.slug, "/health")} />
               {/*
                 Not on a phone. With the avatar already gone there, this is
