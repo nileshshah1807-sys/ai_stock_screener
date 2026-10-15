@@ -125,7 +125,9 @@ class RateLimitTests(unittest.TestCase):
         spent = self.Response(429, {"Retry-After": "3600"}, {"code": "free_tier_limit_reached", "message": "weekly"})
         session = self.session([spent])
         waits = []
-        with self.assertRaises(RuntimeError):
+        from sentiment.outlook import QuotaSpentError
+
+        with self.assertRaises(QuotaSpentError):
             _post(session, Provider("tokenharbor", "u", "k", "m"), {}, 10, sleep=waits.append)
         self.assertEqual((session.calls, waits), (1, []))
 

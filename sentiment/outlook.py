@@ -677,6 +677,10 @@ def _retry_after(response) -> float:
     return min(RATE_LIMIT_MAX_WAIT_SECONDS, max(wait, 5.0))
 
 
+class QuotaSpentError(RuntimeError):
+    """The provider's allowance is spent; no further request will be served this period."""
+
+
 def _quota_spent(response) -> bool:
     """A 429 that waiting will not cure: Token Harbor's free allowance is weekly."""
     try:
@@ -700,6 +704,8 @@ def _post(session, provider: Provider, body: dict[str, Any], timeout: int, *, sl
         if response.status_code != 429 or attempt == RATE_LIMIT_RETRIES or _quota_spent(response):
             break
         sleep(_retry_after(response) * (attempt + 1))
+    if response.status_code == 429 and _quota_spent(response):
+        raise QuotaSpentError(str(((response.json() or {}).get("error") or {}).get("message") or "allowance spent"))
     response.raise_for_status()
     return parse_response(response.json())
 
