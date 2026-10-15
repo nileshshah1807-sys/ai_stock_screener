@@ -2,9 +2,9 @@ import { ToolsNav } from "@/components/tools-nav";
 import { marketFromSlug } from "@/lib/markets";
 
 /**
- * Tools: views that look across the market rather than rank its stocks.
+ * Tools: views beside the ranking -- calls, results, returns.
  *
- * A route group, so the URLs stay `/nse/market` and `/nse/concalls`. The
+ * A route group, so the URLs stay `/nse/concalls` and `/nse/returns`. The
  * header gives the group one tab, because the primary nav holds five and a
  * tab per tool would not fit; this layout adds the row that says which tool
  * is open. Being a layout, that row does not re-render when moving between

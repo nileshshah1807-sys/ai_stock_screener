@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Fragment, useState } from "react";
 import { ChevronRight, FileText } from "lucide-react";
 
+import { CompanyLogo } from "@/components/company-logo";
 import { useMarket } from "@/components/market-provider";
 import { SegmentedControl } from "@/components/segmented-control";
 import { MISSING, formatDateTimeIST, formatMoneyCompact } from "@/lib/format";
@@ -41,6 +42,8 @@ export type ResultCardData = {
   bases: BasisTable[];
   marketCap: number | null;
   pe: number | null;
+  /** The company's web domain from the latest run, for its logo. */
+  logoDomain: string | null;
 };
 
 const BASIS_LABELS: Record<Basis, string> = {
@@ -135,14 +138,17 @@ export function ResultCard({ card }: { card: ResultCardData }) {
           href={marketPath(market.slug, `/stocks/${encodeURIComponent(card.symbol)}`)}
           // A season's worth of cards would otherwise prefetch that many stock pages.
           prefetch={false}
-          className="group min-w-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group flex min-w-0 items-center gap-2.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="block truncate text-base font-semibold tracking-[-0.011em] underline-offset-2 group-hover:underline">
-            {card.company ?? card.symbol}
+          <CompanyLogo symbol={card.symbol} domain={card.logoDomain} />
+          <span className="min-w-0">
+            <span className="block truncate text-base font-semibold tracking-[-0.011em] underline-offset-2 group-hover:underline">
+              {card.company ?? card.symbol}
+            </span>
+            {card.company ? (
+              <span className="block font-mono text-xs text-muted-foreground">{card.symbol}</span>
+            ) : null}
           </span>
-          {card.company ? (
-            <span className="block font-mono text-xs text-muted-foreground">{card.symbol}</span>
-          ) : null}
         </Link>
         <span className="tabular shrink-0 pt-0.5 text-right text-xs text-muted-foreground">
           {formatDateTimeIST(table.filedAt)}

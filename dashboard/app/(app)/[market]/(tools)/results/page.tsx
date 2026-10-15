@@ -1,13 +1,12 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Search } from "lucide-react";
 
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
+import { LiveSearch } from "@/components/filters/live-search";
 import { Reveal } from "@/components/motion";
 import { AutoRefresh } from "@/components/results/auto-refresh";
 import { QuarterPicker } from "@/components/results/quarter-picker";
 import { ResultCard, type ResultCardData } from "@/components/results/result-card";
-import { Input } from "@/components/ui/input";
 import { searchTerm } from "@/lib/concalls.mjs";
 import { monthsBefore } from "@/lib/financials.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
@@ -35,6 +34,7 @@ export const dynamic = "force-dynamic";
 /** Cards per step of "Show more", and the most one page will hold. */
 const PAGE_SIZE = 30;
 const MAX_SHOWN = 300;
+const SEARCH_RESETS = ["shown"];
 /** The exchange files by India's calendar; a result filed at 00:30 IST is that day's. */
 const TIME_ZONE = "Asia/Kolkata";
 
@@ -131,6 +131,7 @@ export default async function ResultsPage({
         company: entry.company ?? names.get(entry.symbol) ?? null,
         marketCap: fact?.market_cap ?? null,
         pe: fact?.pe_ratio ?? null,
+        logoDomain: fact?.logo_domain ?? null,
       };
     })
     .filter((card) => card.bases.length > 0);
@@ -163,30 +164,13 @@ export default async function ResultsPage({
         <QuarterPicker value={quarter} options={quarters} />
       </div>
 
-      {/*
-        A plain GET form, as on Concalls: the search is part of the URL like
-        every other filter, so a result can be bookmarked. The hidden fields
-        carry the quarter and the filters already chosen through the submit.
-      */}
-      <form action={base} method="get" role="search" className="relative max-w-sm">
-        <Search
-          className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <Input
-          type="search"
-          name="q"
-          defaultValue={search}
-          placeholder="Search a company or symbol"
-          aria-label="Search results by company or symbol"
-          autoComplete="off"
-          className="pl-10"
-        />
-        {quarter !== newest ? <input type="hidden" name="quarter" value={quarter} /> : null}
-        {feed.entries.map(([name, value]) => (
-          <input key={`${name}:${value}`} type="hidden" name={name} value={value} />
-        ))}
-      </form>
+      <LiveSearch
+        label="Search results by company or symbol"
+        placeholder="Search a company or symbol"
+        // A longer page of the old list means nothing for a new search.
+        resets={SEARCH_RESETS}
+        className="max-w-sm"
+      />
 
       <EventFilterBar {...feed.bar} />
 

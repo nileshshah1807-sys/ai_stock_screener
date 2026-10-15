@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
+import { SlidersHorizontal, X } from "lucide-react";
 
+import { SearchInput } from "@/components/filters/live-search";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -170,26 +171,14 @@ export function FilterBar({
       {/* min-w-0 on a phone: the search shares its row with the icon-only
           Filters trigger and the grid's tool buttons, so it takes whatever
           width is left rather than forcing the row to wrap. */}
-      <div className="relative min-w-0 flex-1 sm:min-w-56">
-        <Search
-          className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <Input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Filter by symbol or company…"
-          aria-label="Filter by symbol or company"
-          className="h-9 pl-8"
-        />
-        {pending ? (
-          <Loader2
-            className="absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground"
-            aria-hidden
-          />
-        ) : null}
-      </div>
+      <SearchInput
+        value={query}
+        onChange={setQuery}
+        placeholder="Filter by symbol or company…"
+        label="Filter by symbol or company"
+        pending={pending}
+        className="min-w-0 flex-1 sm:min-w-56"
+      />
 
       {/* Rating is the highest-traffic filter, so it stays visible rather than
           hiding behind the popover -- from `sm` up. On a phone five chips cost

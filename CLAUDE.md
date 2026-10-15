@@ -233,8 +233,9 @@ workers/      scheduled jobs (dashboard publish, transcripts, call recordings,
 storage/      Supabase repositories
 validation/   reproducibility manifests and replay
 dashboard/    Next.js front end, with its own README; routes are nested
-              under /[market] (/nse, /us). Market, Concalls and Results
-              share the header's Tools tab (`lib/tools.ts`, the `(tools)` route group)
+              under /[market] (/nse, /us). Concalls, Results and Returns
+              share the header's Tools tab (`lib/tools.ts`, the `(tools)` route group);
+              Market is a tab of its own
 ```
 
 ## Gotchas

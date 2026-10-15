@@ -1,8 +1,8 @@
-import { ChartArea, FileSpreadsheet, MessagesSquare, type LucideIcon } from "lucide-react";
+import { FileSpreadsheet, MessagesSquare, TrendingUp, type LucideIcon } from "lucide-react";
 
 /**
- * The tools, in one place: views that look across the market rather than rank
- * its stocks. This list is what the Tools tab in the header stays lit for
+ * The tools, in one place: views beside the ranking -- the season's calls and
+ * results, and how past rankings would have done. This list is what the Tools tab in the header stays lit for
  * (app-shell) and what the row beneath it offers (ToolsNav). A new tool is one
  * entry here and one folder under `app/(app)/[market]/(tools)`.
  *
@@ -11,7 +11,7 @@ import { ChartArea, FileSpreadsheet, MessagesSquare, type LucideIcon } from "luc
  * the array.
  */
 export const TOOLS: readonly { path: string; label: string; icon: LucideIcon }[] = [
-  { path: "/market", label: "Market", icon: ChartArea },
   { path: "/concalls", label: "Concalls", icon: MessagesSquare },
   { path: "/results", label: "Results", icon: FileSpreadsheet },
+  { path: "/returns", label: "Returns", icon: TrendingUp },
 ];

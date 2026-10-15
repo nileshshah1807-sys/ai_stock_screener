@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronRight, Mic } from "lucide-react";
 
+import { CompanyLogo } from "@/components/company-logo";
 import { MISSING } from "@/lib/format";
 import { highlightList, outlookTone, sourceLabel, stanceLabel } from "@/lib/concalls.mjs";
 import type { Concall } from "@/lib/concalls";
@@ -97,7 +98,16 @@ function Measure({
  * A call with no stance or outlook shows a dash, not a neutral word: not
  * read is not the same as read-and-average.
  */
-export function ConcallRow({ call, market }: { call: Concall; market: Market }) {
+export function ConcallRow({
+  call,
+  market,
+  logoDomain = null,
+}: {
+  call: Concall;
+  market: Market;
+  /** The company's web domain from the latest run, for its logo. */
+  logoDomain?: string | null;
+}) {
   const source = sourceLabel(call.source);
   const stance = stanceLabel(call.management_stance, call.management_stance_quote);
   const highlights = highlightList(call.highlights);
@@ -110,13 +120,16 @@ export function ConcallRow({ call, market }: { call: Concall; market: Market }) 
           href={marketPath(market.slug, `/stocks/${encodeURIComponent(call.symbol)}`)}
           // A season's worth of rows would otherwise prefetch that many stock pages.
           prefetch={false}
-          className="group block rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group flex items-center gap-2.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
-            {call.symbol}
-          </span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {call.company ?? MISSING}
+          <CompanyLogo symbol={call.symbol} domain={logoDomain} />
+          <span className="min-w-0">
+            <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
+              {call.symbol}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {call.company ?? MISSING}
+            </span>
           </span>
         </Link>
         <span

@@ -1,16 +1,16 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Search } from "lucide-react";
 
 import { ConcallRow } from "@/components/concalls/concall-row";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
+import { LiveSearch } from "@/components/filters/live-search";
 import { Reveal } from "@/components/motion";
-import { Input } from "@/components/ui/input";
 import { getConcalls } from "@/lib/concalls";
 import { STANCE_FILTERS, groupByCallDate, searchTerm } from "@/lib/concalls.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
+import { getCompanyFacts } from "@/lib/queries";
 
 export const metadata: Metadata = { title: "Concalls" };
 export const dynamic = "force-dynamic";
@@ -45,12 +45,17 @@ export default async function ConcallsPage({
   const search = searchTerm(query.q);
   const filtered = Boolean(search) || !feed.isDefault;
 
-  const calls = await getConcalls(market.code, {
-    symbols: feed.symbols,
-    search,
-    stances: feed.filters.facets.stance,
-    limit: FEED_LIMIT,
-  });
+  const [calls, facts] = await Promise.all([
+    getConcalls(market.code, {
+      symbols: feed.symbols,
+      search,
+      stances: feed.filters.facets.stance,
+      limit: FEED_LIMIT,
+    }),
+    // Already read for the filter bar; React's cache() makes this free.
+    getCompanyFacts(market.code),
+  ]);
+  const logos = new Map((facts ?? []).map((fact) => [fact.symbol, fact.logo_domain]));
   const groups = groupByCallDate(calls);
 
   const base = marketPath(market.slug, "/concalls");
@@ -66,29 +71,11 @@ export default async function ConcallsPage({
         </p>
       </div>
 
-      {/*
-        A plain GET form: the search is part of the URL like every other
-        filter here, so a result can be bookmarked. The hidden fields carry
-        the filters already chosen through the submit.
-      */}
-      <form action={base} method="get" role="search" className="relative max-w-sm">
-        <Search
-          className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <Input
-          type="search"
-          name="q"
-          defaultValue={search}
-          placeholder="Search a company or symbol"
-          aria-label="Search calls by company or symbol"
-          autoComplete="off"
-          className="pl-10"
-        />
-        {feed.entries.map(([name, value]) => (
-          <input key={`${name}:${value}`} type="hidden" name={name} value={value} />
-        ))}
-      </form>
+      <LiveSearch
+        label="Search calls by company or symbol"
+        placeholder="Search a company or symbol"
+        className="max-w-sm"
+      />
 
       <EventFilterBar {...feed.bar} />
 
@@ -105,7 +92,7 @@ export default async function ConcallsPage({
               <ul className="divide-y">
                 {group.calls.map((call) => (
                   <li key={`${call.symbol}:${call.quarter}`}>
-                    <ConcallRow call={call} market={market} />
+                    <ConcallRow call={call} market={market} logoDomain={logos.get(call.symbol)} />
                   </li>
                 ))}
               </ul>
