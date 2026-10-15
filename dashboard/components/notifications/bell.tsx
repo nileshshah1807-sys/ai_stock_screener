@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { use, useEffect, useState, useTransition } from "react";
 import { Bell } from "lucide-react";
 
 import { markNotificationsSeen } from "@/app/(app)/[market]/notifications/actions";
@@ -29,8 +29,20 @@ export const NOTIFICATIONS_SEEN_EVENT = "winnow:notifications-seen";
  * does not re-render on navigation. That is deliberate there (the chrome must
  * not reload when the grid is sorted); here it means the bell has to clear
  * itself rather than wait for the server to say so.
+ *
+ * The state arrives as a promise and the shell renders it inside Suspense:
+ * its reads take two rounds (what the viewer watches and when they last
+ * looked, then the events and the count), and awaiting them in the layout held
+ * the whole page back behind the one control that is not the page.
  */
-export function NotificationBell({ market, state }: { market: Market; state: BellState }) {
+export function NotificationBell({
+  market,
+  state: stateRead,
+}: {
+  market: Market;
+  state: Promise<BellState>;
+}) {
+  const state = use(stateRead);
   const [unread, setUnread] = useState(state.unread);
   const [open, setOpen] = useState(false);
   const [, startTransition] = useTransition();
@@ -125,5 +137,24 @@ export function NotificationBell({ market, state }: { market: Market; state: Bel
         </Link>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * The bell while its state is on the way: the same button at the same size,
+ * so nothing in the capsule moves when the count arrives.
+ */
+export function NotificationBellFallback() {
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="relative rounded-full"
+      aria-label="Notifications"
+      title="Notifications"
+      disabled
+    >
+      <Bell className="size-4" aria-hidden />
+    </Button>
   );
 }

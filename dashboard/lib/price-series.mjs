@@ -165,6 +165,39 @@ export function withTail(base, tail) {
 }
 
 /**
+ * The daily tail, read from the rank history the stock page already holds.
+ *
+ * Both come from `screener_history`: the page reads its newest `limit` rows
+ * for the rank chart, and the tail is the rows after the base series' last
+ * session. Reading the tail separately cost a round trip that could only start
+ * once the base series had arrived, because the cutoff is the base's own last
+ * session -- the longest chain on the page.
+ *
+ * The history covers the tail when it is not a full window (it is then every
+ * row there is) or when its oldest row is on or before the cutoff. Otherwise
+ * the base is older than the window and this returns null, and the caller
+ * reads the tail itself. Rows without a positive price are dropped, as the
+ * dedicated read does.
+ *
+ * @param {{observed_on: string, current_price: number | null, volume?: number | null}[]} history ascending
+ * @param {string} after the base series' last session
+ * @param {number} limit the window the history was read with
+ * @returns {{time: string, close: number, volume: number}[] | null}
+ */
+export function tailFromHistory(history, after, limit) {
+  const rows = history ?? [];
+  const complete = rows.length < limit || (rows.length > 0 && rows[0].observed_on <= after);
+  if (!complete) return null;
+  return rows
+    .filter((row) => row.observed_on > after && row.current_price !== null && Number(row.current_price) > 0)
+    .map((row) => ({
+      time: row.observed_on,
+      close: Number(row.current_price),
+      volume: row.volume === null || row.volume === undefined ? 0 : Number(row.volume),
+    }));
+}
+
+/**
  * Trim a series to the visible window, keeping only what overlaps it.
  *
  * @template {{time: string}} T

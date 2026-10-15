@@ -54,3 +54,13 @@ test("universe-wide reads page past the PostgREST row cap", () => {
     );
   }
 });
+
+test("the remembered run is keyed by viewer, never shared between them", () => {
+  // getLatestRun keeps a manifest across requests. Each entry must belong to
+  // the session whose RLS-checked read produced it; a market-only key would
+  // serve one viewer's read to another.
+  const latest = functionSource("getLatestRun", "getRecentRuns");
+  assert.match(latest, /auth\.getClaims\(\)/);
+  assert.match(latest, /const key = viewer \? `\$\{viewer\}:\$\{market\}` : null/);
+  assert.match(latest, /if \(key && run\)/);
+});

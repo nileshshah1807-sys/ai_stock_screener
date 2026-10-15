@@ -60,7 +60,7 @@ export default function PreviewPage() {
       run={previewRun}
       viewer={{ id: "preview", email: "preview@localhost", role: "viewer" }}
       market={DEFAULT_MARKET}
-      notifications={previewNotifications}
+      notifications={Promise.resolve(previewNotifications)}
     >
       <div className="flex flex-col gap-8 px-4 py-8 sm:px-8">
         <header className="flex items-center justify-between gap-4">

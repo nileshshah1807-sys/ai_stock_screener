@@ -7,6 +7,7 @@ import {
   decodeSeries,
   movingAverage,
   sliceRange,
+  tailFromHistory,
   withTail,
 } from "./price-series.mjs";
 
@@ -196,4 +197,33 @@ test("either side missing degrades to the other", () => {
   assert.deepEqual(withTail(base, null), base);
   assert.equal(withTail([], [{ time: "2026-08-02", close: 1, volume: 0 }]).length, 1);
   assert.deepEqual(withTail(null, null), []);
+});
+
+test("tail from history: rows after the cutoff, priced ones only", () => {
+  const history = [
+    { observed_on: "2026-08-01", current_price: 10, volume: 1 },
+    { observed_on: "2026-08-02", current_price: 11, volume: null },
+    { observed_on: "2026-08-03", current_price: null, volume: 5 },
+    { observed_on: "2026-08-04", current_price: 0, volume: 5 },
+    { observed_on: "2026-08-05", current_price: 13, volume: 7 },
+  ];
+  assert.deepEqual(tailFromHistory(history, "2026-08-01", 180), [
+    { time: "2026-08-02", close: 11, volume: 0 },
+    { time: "2026-08-05", close: 13, volume: 7 },
+  ]);
+});
+
+test("tail from history: a full window that starts after the cutoff is not trusted", () => {
+  const history = [
+    { observed_on: "2026-08-02", current_price: 11, volume: 1 },
+    { observed_on: "2026-08-03", current_price: 12, volume: 1 },
+  ];
+  // Two rows read with a limit of two: older rows may exist between the cutoff
+  // and the window, so the caller has to read the tail itself.
+  assert.equal(tailFromHistory(history, "2026-08-01", 2), null);
+  // The same window reaching back to the cutoff covers it.
+  assert.equal(tailFromHistory(history, "2026-08-02", 2).length, 1);
+  // A short window is every row there is.
+  assert.equal(tailFromHistory(history, "2026-08-01", 3).length, 2);
+  assert.deepEqual(tailFromHistory([], "2026-08-01", 180), []);
 });
