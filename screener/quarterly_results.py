@@ -269,6 +269,10 @@ def normalise_index(records):
     frame = frame.drop_duplicates(
         subset=["Symbol", "Period_End", "Is_Consolidated"], keep="last"
     )
+    # pandas turns a missing name or link into NaN once any row has one, and
+    # NaN is not JSON: the row it reaches cannot be written.
+    text = ["Company", "Viewer_URL"]
+    frame[text] = frame[text].astype(object).where(frame[text].notna(), None)
     return frame.drop(columns="_seq").reset_index(drop=True)
 
 

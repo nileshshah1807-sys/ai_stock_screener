@@ -95,6 +95,11 @@ def _stamp(moment: datetime | None, timezone: str) -> str | None:
     return moment.replace(tzinfo=ZoneInfo(timezone)).isoformat(timespec="seconds")
 
 
+def _text(value: Any) -> str | None:
+    """A stored text field: None for anything missing, NaN included."""
+    return value if isinstance(value, str) and value else None
+
+
 def filing_row(
     row: dict[str, Any],
     lines: dict[str, Any],
@@ -115,8 +120,8 @@ def filing_row(
         "broadcast_at": _stamp(broadcast, timezone) or stored_broadcast,
         "taxonomy": row["Taxonomy"],
         "document_url": row["XBRL_URL"],
-        "viewer_url": row.get("Viewer_URL"),
-        "company": row.get("Company"),
+        "viewer_url": _text(row.get("Viewer_URL")),
+        "company": _text(row.get("Company")),
         "lines": lines,
         "parser_version": quarterly_results.PARSER_VERSION,
         "parsed_at": parsed_at,
