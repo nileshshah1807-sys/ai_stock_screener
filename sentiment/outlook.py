@@ -15,12 +15,25 @@ Two rules keep a cheap model honest:
   is null and contributes nothing; `outlook_score` starts at 50 and moves only
   on verified items.
 
-The point weights in `outlook_score` are a judgment, not a fitted model: there
-is no history of extractions to fit against yet. They are deliberately lopsided
-toward things that are hard to say without meaning them -- a guidance change, a
-quantified order book -- and light on expansion plans, which management
-announces freely and which predict lower returns on their own (Jha, Qian, Weber
-and Yang, NBER w32161).
+The point weights in `outlook_score` are a judgment, not a fitted model. They
+are deliberately lopsided toward things that are hard to say without meaning
+them -- a guidance change, a quantified order book -- and light on expansion
+plans, which management announces freely and which predict lower returns on
+their own (Jha, Qian, Weber and Yang, NBER w32161).
+
+Measured against the month that followed (`tools.evaluate_outlook_returns`,
+15 Oct 2026, 2,213 calls): the score ranks the excess return over the
+equal-weight universe at Spearman 0.141 in both Apr-Jun and Jul-Sep 2026,
+0.13-0.15 within the week the calls were entered, and 0.11-0.12 after the
+stock's prior three-month run is taken out (week-clustered 5-95%: about 0.05
+to 0.17). A refit did not beat these weights: a ridge regression of the
+week-demeaned excess return on the items, with momentum as a control, fitted
+on one season and scored on the other, ranked the unseen season at 0.10-0.12
+when let free and 0.14 -- today's -- when held near today's weights. Single
+items look stronger or weaker than their weight (guided growth of 5-15% was
+followed by below-average returns in both seasons), but not by more than two
+seasons can tell from noise. Refit again only with more seasons, and only
+on a season the fit has not seen.
 """
 
 from __future__ import annotations
