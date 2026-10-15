@@ -623,16 +623,12 @@ class Config:
     # Measure latest-quarter growth (Revenue_Growth, Earnings_Growth) from the
     # exchange's results filings where the market has an index of them (see
     # screener/quarterly_results.py), with the vendor's figures for whatever
-    # the filings cannot serve. Off unless a workflow opts in, so an unset
-    # environment behaves exactly as before and no test reaches the exchange.
+    # the filings cannot serve. The filings are read from the quarterly_filings
+    # table (workers/quarterly_filings.py), so this needs SUPABASE_URL too.
+    # Off unless a workflow opts in, so an unset environment behaves exactly
+    # as before and no test reaches the store.
     QUARTERLY_RESULTS_FILINGS_ENABLED = _env_bool(
         "QUARTERLY_RESULTS_FILINGS_ENABLED", False
-    )
-    # A cold cache needs two documents per company; afterwards only what was
-    # filed since the last run. The cap bounds the cold build, most-traded
-    # names first, and the following run fetches the remainder.
-    QUARTERLY_RESULTS_MAX_DOCUMENTS_PER_RUN = _env_int(
-        "QUARTERLY_RESULTS_MAX_DOCUMENTS_PER_RUN", 6000
     )
     # The latest filed quarter must have ended within this many days to count
     # as current: the value the quarter inputs were backtested under.

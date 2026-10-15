@@ -648,3 +648,32 @@ class SupabaseRepository:
                 },
             ))
         return rows
+
+    def quarterly_filing_facts(self, since: date, page: int = 1000) -> list[dict[str, Any]]:
+        """This market's stored results filings for quarters ending on or after ``since``.
+
+        Only what the growth arithmetic reads: written by
+        ``workers.quarterly_filings``, see storage/quarterly_filings_schema.sql.
+        """
+        rows: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            batch = self._request(
+                "GET",
+                "quarterly_filings",
+                params={
+                    "market": f"eq.{self.market}",
+                    "period_end": f"gte.{since.isoformat()}",
+                    "select": (
+                        "symbol,period_end,is_consolidated,seq_id,filed_at,taxonomy,"
+                        "revenue:lines->revenue,pat:lines->pat"
+                    ),
+                    "order": "symbol.asc,period_end.asc,is_consolidated.asc",
+                    "limit": str(page),
+                    "offset": str(offset),
+                },
+            ) or []
+            rows.extend(batch)
+            if len(batch) < page:
+                return rows
+            offset += page

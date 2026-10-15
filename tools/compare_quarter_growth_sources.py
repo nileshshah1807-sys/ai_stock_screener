@@ -16,11 +16,16 @@ Usage::
 
 ``--sample`` draws from the market's safety-net names plus a seeded random
 draw of the companies in the filing index, so a run is repeatable.
+
+The filings side is read from the ``quarterly_filings`` table, as the
+screener reads it, so ``SUPABASE_URL`` and ``SUPABASE_SERVICE_ROLE_KEY`` must
+be set.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import sys
 import time
@@ -45,10 +50,12 @@ FIELDS = (
 )
 
 
-def filing_growth(symbols, cache_dir, *, today):
+def filing_growth(symbols, *, today):
     config = SimpleNamespace(
-        OUTPUT_DIR=Path(cache_dir),
         QUARTERLY_RESULTS_FILINGS_ENABLED=True,
+        SUPABASE_URL=os.getenv("SUPABASE_URL", ""),
+        SUPABASE_SERVICE_ROLE_KEY=os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
+        SUPABASE_READ_ONLY=True,
     )
     collector = quarterly_results.QuarterlyResultsCollector(
         config,
@@ -137,11 +144,6 @@ def main(argv=None):
     parser.add_argument("--file", help="one symbol per line")
     parser.add_argument("--sample", type=int, help="draw this many symbols")
     parser.add_argument("--csv", help="write the per-symbol table here")
-    parser.add_argument(
-        "--cache-dir",
-        default="reports_advanced",
-        help="where quarterly_results_cache.csv is read and written",
-    )
     args = parser.parse_args(argv)
 
     profile = resolve(NSE)
@@ -159,7 +161,7 @@ def main(argv=None):
     if not symbols:
         parser.error("name some symbols, or pass --file or --sample")
 
-    filed, diagnostics = filing_growth(symbols, args.cache_dir, today=today)
+    filed, diagnostics = filing_growth(symbols, today=today)
     print(f"filings: {diagnostics}")
     vendor = vendor_growth(symbols, profile)
     table = pd.DataFrame(index=pd.Index(symbols, name="Symbol")).join(filed).join(vendor)

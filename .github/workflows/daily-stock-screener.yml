@@ -81,9 +81,11 @@ jobs:
       # insurers, a company with no year-ago filing). Yahoo republishes a
       # result days or weeks after it is filed, and through a results season
       # that ranked companies which had reported on the quarter before
-      # (screener/quarterly_results.py). The first run fetches two documents
-      # per company, two to three minutes for the whole universe; later runs
-      # only what was filed since.
+      # (screener/quarterly_results.py). The filings are read from the
+      # quarterly_filings table, which quarterly-filings.yml fills every 15
+      # minutes as companies file; this run fetches nothing from the exchange.
+      # Read only where the run has Supabase credentials (scheduled and
+      # production runs); a validation dispatch keeps Yahoo's figures.
       QUARTERLY_RESULTS_FILINGS_ENABLED: "True"
       # Only the scheduled run emails; a manual rerun must not send it twice.
       EMAIL_ENABLED: ${{ github.event_name == 'schedule' }}
@@ -191,18 +193,6 @@ jobs:
           restore-keys: |
             stock-screener-statements-v1-${{ runner.os }}-
 
-      # Parsed results filings, keyed by the exchange's filing id. Its own
-      # cache for the same reason as the statements above.
-      - name: Restore quarterly results cache
-        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
-        id: quarterly-results-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: reports_advanced/quarterly_results_cache.csv
-          key: stock-screener-quarterly-results-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            stock-screener-quarterly-results-v1-${{ runner.os }}-
-
       - name: Install dependencies
         if: steps.schedule-dedupe.outputs.skip != 'true'
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
@@ -256,15 +246,6 @@ jobs:
         with:
           path: reports_advanced/statement_cache.csv
           key: ${{ steps.production-statement-cache.outputs.cache-primary-key }}
-
-      - name: Save refreshed quarterly results cache
-        # Saved even when a later step fails, like the statement cache: the
-        # documents fetched are valid whatever happened to the run after them.
-        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production') && hashFiles('reports_advanced/quarterly_results_cache.csv') != ''
-        uses: actions/cache/save@v6
-        with:
-          path: reports_advanced/quarterly_results_cache.csv
-          key: ${{ steps.quarterly-results-cache.outputs.cache-primary-key }}
 
       - name: Publish dashboard read model
         # Deliberately the last step. The report artifact and the refreshed

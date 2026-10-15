@@ -67,23 +67,33 @@ the scheduled workflows set the same flag.
   uses Yahoo throughout. Measure the two sources against each other with
   `python -m tools.compare_statement_sources`. Prices and quote metadata
   (`Ticker.info`) are still Yahoo's.
-- **NSE latest-quarter growth comes from the exchange's results filings; Yahoo
-  is the fallback.** Yahoo republishes a result days or weeks after it is
-  filed, so through a results season `Revenue_Growth` and `Earnings_Growth`
-  described the quarter before. `QUARTERLY_RESULTS_FILINGS_ENABLED` (set in the
-  NSE workflow) makes `screener/quarterly_results.py` read NSE's
-  integrated-filing index and measure both from the filed documents, by the
-  backtest's own rule (`backtest.fundamentals.QuarterPanel`: both quarters on
-  one basis, profit not EPS, no rate on a non-positive base). Yahoo's figures
-  stand for banks and insurers (a different statement), a company with no
-  year-ago filing, and one where Yahoo is already on a later quarter; see
-  `quarter_results_*` in the run diagnostics. `workers/financial_statements.py`
-  adds a filed quarter Yahoo lacks to the Financials tab on the same index,
-  only where the filing reproduces Yahoo's revenue on a quarter both have.
-  Measure the two sources with `python -m tools.compare_quarter_growth_sources`.
-  The index begins in April 2025; the older endpoint `backtest/filings.py`
-  reads ends that January. Statements, valuation ratios and prices are still
-  Yahoo's.
+- **NSE quarterly results come from the exchange's filings, stored once; Yahoo
+  is the fallback.** `workers/quarterly_filings.py` (the Quarterly filings
+  workflow, dispatch-only: cron-job.org calls it every 15 minutes and once a
+  day with `full=true`; do not add a `schedule:`, it would double every run)
+  is the only job that reads NSE's integrated-filing index and its
+  documents. It parses each filing once into `quarterly_filings` (one row
+  per symbol, quarter and basis; a revision replaces the row; a
+  `PARSER_VERSION` bump re-reads them all) and redraws the Financials tab
+  for every company it stored a filing for.
+  Three readers, none of which fetches anything itself: the stock page's
+  quarterly results (`workers/financial_statements.compose_quarters`: every
+  filed quarter from its filing, consolidated where the latest quarter was
+  filed so; Yahoo only for quarters with no filing, minus any line that
+  disagrees with the filing on a shared quarter -- a broker's net revenue,
+  pretax profit counting associates); the screener's `Revenue_Growth` and
+  `Earnings_Growth` (`screener/quarterly_results.py`, by the backtest's own
+  rule, `backtest.fundamentals.QuarterPanel`: both quarters on one basis,
+  profit not EPS, no rate on a non-positive base; read only where the run
+  has Supabase credentials, so a validation dispatch keeps Yahoo's); and the
+  bell's results events. Yahoo's figures stand for banks and insurers (a
+  different statement, not stored), a company with no year-ago filing, and
+  one where Yahoo is already on a later quarter; see `quarter_results_*` in
+  the run diagnostics. The table is in `storage/quarterly_filings_schema.sql`
+  and must be applied by hand. Measure the two sources with
+  `python -m tools.compare_quarter_growth_sources`. The index begins in
+  April 2025; the older endpoint `backtest/filings.py` reads ends that
+  January. Annual statements, valuation ratios and prices are still Yahoo's.
 - **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
   `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
   `screener/session_bars.py` fill a symbol's missing expected-session bar from
@@ -115,9 +125,11 @@ the scheduled workflows set the same flag.
   split whose ISIN the archive never saw matches no price row and is silently
   dropped.
 - **Notifications are events derived from data other jobs already collect.**
-  `workers/market_events.py` (a step in the Financial statements workflow)
+  `workers/market_events.py` (a step in the Quarterly filings and Financial
+  statements workflows)
   writes `market_events`, one row per `(market, kind, symbol, event_key)`,
-  written once: a `results` event from NSE's filing index, or in the US from
+  written once: a `results` event from the stored NSE filings (so the bell
+  never announces a quarter the page cannot show), or in the US from
   the stored statements gaining a quarter (no filing index there, so the first
   sighting of a company is a hidden baseline, not an announcement), and a
   `transcript` event from the transcript tables. The dashboard's bell counts
