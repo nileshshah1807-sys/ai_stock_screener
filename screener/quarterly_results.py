@@ -131,6 +131,14 @@ STATEMENT_TAGS = {
 # income. Many filers leave the line at zero, consolidated or not; a zero
 # beside a non-zero profit for the period is an empty field, not a result.
 OWNERS_PROFIT_TAG = ("ProfitOrLossAttributableToOwnersOfParent",)
+MINORITY_PROFIT_TAG = ("ProfitOrLossAttributableToNonControllingInterests",)
+# The owners' and the minority's shares add up to the period's profit. Where
+# a filing states all three and they do not, the owners' line is mis-tagged
+# (one consolidated filing gave 26 crore beside a profit of 112, a minority
+# share of nil and earnings per share that imply 112) and the period's profit
+# stands. The slack covers figures rounded to the crore before they are filed.
+OWNERS_SHARE_TOLERANCE = 0.02
+OWNERS_SHARE_SLACK = 2e7
 
 INDEX_COLUMNS = (
     "Symbol",
@@ -140,6 +148,8 @@ INDEX_COLUMNS = (
     "Filed_At",
     "Taxonomy",
     "XBRL_URL",
+    "Company",
+    "Viewer_URL",
 )
 # A stored filing as the growth arithmetic reads it (`facts_frame`).
 FACT_COLUMNS = (
@@ -160,10 +170,11 @@ GROWTH_COLUMNS = (
     "Quarter_Basis",
 )
 
-# Bumped whenever `parse_filing` would read a document differently. The
-# filings worker then reads every stored filing again, so a fix reaches the
-# whole history rather than only what is filed after it.
-PARSER_VERSION = 1
+# Bumped whenever `parse_filing` would read a document differently, or a
+# stored row gains a field. The filings worker then reads every stored filing
+# again, so a fix reaches the whole history rather than only what is filed
+# after it. 2: the company's name and the readable rendering of the filing.
+PARSER_VERSION = 2
 
 # Growth needs the latest quarter and the one a year before it; the store is
 # read that far back beyond the age a quarter may have to count as current.
@@ -200,6 +211,15 @@ def taxonomy_of(url):
     return match.group(1).upper() if match else ""
 
 
+def _link(value):
+    """A document link from the index, or None: an absent attachment is served
+    as the archive's folder with ``null`` after it."""
+    url = str(value or "").strip()
+    if not url.lower().startswith("http") or url.rstrip("/").lower().endswith("/null"):
+        return None
+    return url
+
+
 def normalise_index(records):
     """One row per (symbol, quarter, basis): the latest filing of each.
 
@@ -233,6 +253,10 @@ def normalise_index(records):
                 "Filed_At": filed,
                 "Taxonomy": taxonomy_of(url),
                 "XBRL_URL": url,
+                "Company": str(record.get("cmName") or "").strip() or None,
+                # The exchange's rendering of the filing for a reader; the
+                # XBRL document is for machines.
+                "Viewer_URL": _link(record.get("ixbrl")),
             }
         )
     if not rows:
@@ -321,6 +345,16 @@ def parse_quarter_facts(text):
     }
 
 
+def _owners_share_adds_up(owners, minority, profit):
+    """Whether the owners' share agrees with the period's profit; a filing
+    that leaves either of the other two out cannot be checked and is taken
+    as filed."""
+    if minority is None or profit is None:
+        return True
+    gap = abs(owners + minority - profit)
+    return gap <= max(abs(profit) * OWNERS_SHARE_TOLERANCE, OWNERS_SHARE_SLACK)
+
+
 def parse_quarter_statement(text):
     """The quarter's income statement lines from one results document.
 
@@ -332,7 +366,9 @@ def parse_quarter_statement(text):
         for key, tags in STATEMENT_TAGS.items()
     }
     owners = extract_fact(text, OWNERS_PROFIT_TAG, QUARTER_CONTEXT)
-    if owners:
+    if owners and _owners_share_adds_up(
+        owners, extract_fact(text, MINORITY_PROFIT_TAG, QUARTER_CONTEXT), lines["net_profit"]
+    ):
         lines["net_profit"] = owners
     parts = (lines["pbt"], lines["interest"], lines["depreciation"])
     lines["operating_profit"] = None if None in parts else sum(parts)

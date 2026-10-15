@@ -34,6 +34,8 @@ def filing(symbol, quarter, seq, *, consolidated=True, taxonomy="INDAS",
         "broadcast_Date": broadcast,
         "revised_Date": revised,
         "xbrl": f"{ARCHIVE}/INTEGRATED_FILING_{taxonomy}_{seq}_WEB.xml",
+        "ixbrl": f"{ARCHIVE}/INTEGRATED_FILING_{taxonomy}_{seq}_iXBRL_WEB.html",
+        "cmName": f"{symbol} Limited",
     }
 
 
@@ -131,6 +133,14 @@ class StoreTests(FilingsRun):
         # earlier; both bases carry that time.
         self.assertEqual(row["broadcast_at"], "2026-10-13T17:23:17+05:30")
         self.assertEqual(row["parser_version"], PARSER_VERSION)
+        # What the Results page shows and links to.
+        self.assertEqual(row["company"], "AAA Limited")
+        self.assertEqual(row["viewer_url"], f"{ARCHIVE}/INTEGRATED_FILING_INDAS_2_iXBRL_WEB.html")
+
+    def test_an_absent_rendering_is_stored_as_none_not_as_the_archive_folder(self):
+        records = [{**self.RECORDS[0], "ixbrl": "https://archive.example/corporate/null"}]
+        _, repo, _, _ = self.run_worker(records, self.DOCUMENTS)
+        self.assertIsNone(repo.upserted[0]["viewer_url"])
 
     def test_the_companies_stored_for_are_redrawn_on_the_stock_page(self):
         _, repo, _, _ = self.run_worker(self.RECORDS, self.DOCUMENTS)

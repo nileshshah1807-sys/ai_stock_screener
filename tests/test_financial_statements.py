@@ -285,6 +285,7 @@ def document(**lines):
         "revenue": "RevenueFromOperations",
         "profit": "ProfitLossForPeriod",
         "owners_profit": "ProfitOrLossAttributableToOwnersOfParent",
+        "minority_profit": "ProfitOrLossAttributableToNonControllingInterests",
     }
     facts = "".join(
         f'<in-capmkt:{tags[key]} contextRef="OneD" unitRef="INR">{value}'
@@ -431,6 +432,20 @@ class ComposeQuarterTests(unittest.TestCase):
         self.assertEqual(lines["net_profit"], 3)
         # Without interest and depreciation there is no operating profit.
         self.assertIsNone(lines["operating_profit"])
+
+    def test_the_owners_share_is_net_profit_when_the_shares_add_up(self):
+        lines = parse_quarter_statement(document(
+            revenue=4e10, profit=1.12e9, owners_profit=1.05e9, minority_profit=0.07e9
+        ))
+        self.assertEqual(lines["net_profit"], 1.05e9)
+
+    def test_an_owners_share_that_does_not_add_up_is_not_taken(self):
+        # Owners 26 crore and a nil minority beside a profit of 112: the
+        # owners' line is mis-tagged, and the period's profit stands.
+        lines = parse_quarter_statement(document(
+            revenue=4e10, profit=1.12e9, owners_profit=2.6e8, minority_profit=0
+        ))
+        self.assertEqual(lines["net_profit"], 1.12e9)
 
 
 class StoredPayloadTests(unittest.TestCase):
