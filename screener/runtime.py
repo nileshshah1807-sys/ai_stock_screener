@@ -332,7 +332,20 @@ class Config:
     # (middle 80% of a bootstrap: 1.6 to 9.9; 2.9 after controlling for the
     # past three months' return). That would support a far larger weight; one
     # results season at one horizon does not, so it is doubled and no more.
-    TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 0.30)
+    #
+    # 0.30 -> 1.0 on 2026-10-15, with the outlook share 0.5 -> 0.85: the outlook
+    # 0.15 -> 0.85 of a point per point, tone held at 0.15. Re-ranking every
+    # published day from 11 Aug to 9 Sep 2026 (rankings without an outlook,
+    # ~2,330 names, ~1,150 with a call on record 7 days before) with the outlook
+    # added: next-21-session excess return of the top tenth +1.15% with none,
+    # +1.32% at 0.15, +1.68% at 0.9, +1.88% at 1.5; rank correlation 0.083,
+    # 0.087, 0.104, 0.110. One month -- two independent periods -- so not the
+    # peak of that curve: 1.0 is the most the clamp in `recommendation.py`
+    # allows without making the weight more than a share of the score. The
+    # outlook's own signal survives the stock's prior three-month run (0.11-0.12
+    # in both seasons; `tools.evaluate_outlook_returns`). Re-measure on
+    # October's calls once they have a month of returns.
+    TRANSCRIPT_SENTIMENT_WEIGHT = _env_float("TRANSCRIPT_SENTIMENT_WEIGHT", 1.0)
     # Model 5.2: transcript evidence moves the score both ways, measured against
     # the median scored call of the run instead of 50. False restores the
     # downside-only policy. Over the April-June 2026 calls the top fifth by
@@ -349,9 +362,11 @@ class Config:
     # results seasons (2,105 calls): over the following month a share of 50-75%
     # ranked returns best in both (rank correlation 0.12-0.13 against 0.06 for
     # tone alone); over three months, measurable only for April-June calls,
-    # 0-25% did (0.117 against 0.108 at 50%). Half is inside both.
+    # 0-25% did (0.117 against 0.108 at 50%). Half was inside both. 0.85 since
+    # 2026-10-15, with the weight at 1.0, so tone keeps the 0.15 it had and the
+    # outlook takes the rest (see TRANSCRIPT_SENTIMENT_WEIGHT).
     TRANSCRIPT_OUTLOOK_ENABLED = _env_bool("TRANSCRIPT_OUTLOOK_ENABLED", True)
-    TRANSCRIPT_OUTLOOK_SHARE = _env_float("TRANSCRIPT_OUTLOOK_SHARE", 0.5)
+    TRANSCRIPT_OUTLOOK_SHARE = _env_float("TRANSCRIPT_OUTLOOK_SHARE", 0.85)
     # Empty reads any model's extraction of the current outlook version.
     TRANSCRIPT_OUTLOOK_MODEL = os.getenv("TRANSCRIPT_OUTLOOK_MODEL", "")
     REQUIRE_TRANSCRIPT_FOR_STRONG_BUY = _env_bool("REQUIRE_TRANSCRIPT_FOR_STRONG_BUY", False)
