@@ -4,6 +4,7 @@ import { useCallback, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { X } from "lucide-react";
 
+import { PendingMarker } from "@/components/nav-pending";
 import { ELIGIBILITY_CLASSES } from "@/lib/types";
 
 /**
@@ -50,7 +51,7 @@ export function ActiveFilters() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
 
   const remove = useCallback(
     (key: string, value?: string) => {
@@ -111,6 +112,7 @@ export function ActiveFilters() {
       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         Filtering
       </span>
+      <PendingMarker pending={pending} />
       {chips.map((chip) => (
         <span
           key={`${chip.key}:${chip.value ?? ""}`}

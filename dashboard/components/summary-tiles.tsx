@@ -117,6 +117,7 @@ export function SummaryTiles({
             <CountUp
               locale={market.locale}
               value={total}
+              once={`${market.code}:${run.run_date}:row_count`}
               className="numeral text-2xl font-semibold sm:text-4xl"
             />
           </p>
@@ -157,6 +158,7 @@ export function SummaryTiles({
                 <CountUp
                   locale={market.locale}
                   value={count}
+                  once={`${market.code}:${run.run_date}:${tile.field}`}
                   className="numeral text-2xl font-semibold sm:text-4xl"
                 />
               </p>

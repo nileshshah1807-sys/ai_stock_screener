@@ -80,6 +80,8 @@ function MoverList({
                   market.slug,
                   `/stocks/${encodeURIComponent(row.symbol)}`,
                 )}
+                // Thirty rows would prefetch thirty stock pages; see stock-link.tsx.
+                prefetch={false}
                 className="group flex items-center gap-3 px-4 py-2 transition-colors duration-(--duration-fast) ease-(--ease-standard) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">
@@ -180,6 +182,8 @@ function PriceMoverList({
                   market.slug,
                   `/stocks/${encodeURIComponent(row.symbol)}`,
                 )}
+                // Thirty rows would prefetch thirty stock pages; see stock-link.tsx.
+                prefetch={false}
                 className="group flex items-center gap-3 px-4 py-2 transition-colors duration-(--duration-fast) ease-(--ease-standard) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
                 <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">

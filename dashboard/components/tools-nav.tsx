@@ -28,6 +28,8 @@ export function ToolsNav({ market }: { market: Market }) {
           <Link
             key={path}
             href={href}
+            // Prefetched in full, like the primary nav (nav-link.tsx).
+            prefetch
             aria-current={active ? "page" : undefined}
             className={cn(
               "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-full",

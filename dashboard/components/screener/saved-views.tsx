@@ -38,6 +38,7 @@ import {
   writeSavedViews,
   type SavedView,
 } from "@/lib/presets";
+import { PendingMarker } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
 import { useMarket } from "@/components/market-provider";
 
@@ -68,7 +69,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const market = useMarket();
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
 
   // localStorage does not exist on the server, so the server snapshot is empty
   // and React reconciles to the real list after hydration. Going through the
@@ -174,6 +175,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
 
   return (
     <>
+      <PendingMarker pending={pending} />
       {/*
         Phone: one menu instead of a wrapping row of chips. Five presets plus
         Save and Copy link took three rows above the grid; the trigger names the

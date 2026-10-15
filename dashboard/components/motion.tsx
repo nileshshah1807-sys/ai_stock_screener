@@ -150,15 +150,28 @@ export function Reveal({
  * over a second, constructing Intl.NumberFormat inside onUpdate would be ~70
  * throwaway allocations per figure.
  */
+/**
+ * Figures already counted in this tab, by the caller's `once` key.
+ *
+ * Module scope, so it outlives the component: the screener's tiles unmount on
+ * every visit to another page and remount on the way back, and re-counting
+ * from zero each time made a page that was on screen in ~70ms read as one
+ * still loading for another second. A reload starts the count afresh.
+ */
+const counted = new Set<string>();
+
 export function CountUp({
   value,
   locale = "en-IN",
   duration = 1.1,
+  once,
   className,
 }: {
   value: number;
   locale?: string;
   duration?: number;
+  /** Count only the first time this key is shown in the tab. */
+  once?: string;
   className?: string;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
@@ -171,6 +184,10 @@ export function CountUp({
   useEffect(() => {
     const el = ref.current;
     if (!el || reduced) return;
+    if (once !== undefined) {
+      if (counted.has(once)) return;
+      counted.add(once);
+    }
 
     const counter = { n: 0 };
     const tween = gsap.to(counter, {
@@ -191,7 +208,7 @@ export function CountUp({
       tween.kill();
       el.textContent = nf.format(value);
     };
-  }, [value, duration, nf, reduced]);
+  }, [value, duration, nf, reduced, once]);
 
   return (
     <span ref={ref} className={className}>

@@ -15,6 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ELIGIBILITY_CLASSES, RATINGS, STAGES } from "@/lib/types";
+import { PendingMarker } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
 
 const TOGGLES = [
@@ -179,6 +180,7 @@ export function FilterBar({
         pending={pending}
         className="min-w-0 flex-1 sm:min-w-56"
       />
+      <PendingMarker pending={pending} />
 
       {/* Rating is the highest-traffic filter, so it stays visible rather than
           hiding behind the popover -- from `sm` up. On a phone five chips cost

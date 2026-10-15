@@ -61,7 +61,8 @@ export default async function ScreenerLayout({
   ]);
 
   return (
-    <div className="space-y-4 px-4 py-5 sm:px-6">
+    // data-screener scopes the pending dim in globals.css to this view.
+    <div data-screener className="space-y-4 px-4 py-5 sm:px-6">
       <SummaryTiles run={run} market={market} />
 
       {/*

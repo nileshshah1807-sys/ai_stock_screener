@@ -95,6 +95,8 @@ export function NewListingsList({ rows, market }: { rows: NewListingRow[]; marke
           <li key={row.symbol}>
             <Link
               href={href(row.symbol)}
+              // A list of names would prefetch as many stock pages; see stock-link.tsx.
+              prefetch={false}
               className="press flex gap-3 px-4 py-3.5 active:bg-(--control) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
             >
               <CompanyLogo symbol={row.symbol} domain={row.logo_domain} />
@@ -148,6 +150,7 @@ export function NewListingsList({ rows, market }: { rows: NewListingRow[]; marke
                 <td className="px-4 py-3">
                   <Link
                     href={href(row.symbol)}
+                    prefetch={false}
                     className="flex items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <CompanyLogo symbol={row.symbol} domain={row.logo_domain} />
