@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import patch
 
 from sentiment.analyzer import aggregate_sentiments, analyze_transcript
-from sentiment.llm_provider import Provider
 from sentiment.local_analyzer import LocalSentimentAnalyzer
 from sentiment.outlook import (
     SCHEMA,
@@ -356,81 +355,38 @@ class OutlookQuoteTests(unittest.TestCase):
 
 
 class OutlookStanceTests(unittest.TestCase):
-    """Management's stance is shown beside a call and never scored."""
+    """Management's sentiment is a band of the outlook score: no request, no score of its own."""
 
-    STRONG = {
-        "view": "optimistic",
-        "quote": "Demand from export customers remains very strong.",
-        "concern": "We expect raw material costs to keep margins under pressure for two more quarters.",
-    }
+    def test_each_band_starts_where_it_says(self):
+        from sentiment.outlook import stance_from_score
 
-    def test_a_stance_is_kept_with_the_sentence_behind_it(self):
-        verified, _, _ = verify_quotes(extraction(stance=self.STRONG), CALL)
-        self.assertEqual(verified["stance"], self.STRONG)
+        cases = {
+            100: "bullish", 78: "bullish", 77.99: "optimistic", 68: "optimistic", 67.5: "neutral",
+            58: "neutral", 57: "cautious", 48: "cautious", 47.9: "bearish", 0: "bearish",
+        }
+        for score, view in cases.items():
+            self.assertEqual(stance_from_score(score), view, score)
+        for missing in (None, float("nan"), "n/a"):
+            self.assertEqual(stance_from_score(missing), "unknown")
 
-    def test_a_concern_that_is_not_in_the_call_is_dropped_and_the_stance_kept(self):
-        for concern in ("Our largest customer has told us it is leaving.", None):
-            verified, _, _ = verify_quotes(extraction(stance=self.STRONG | {"concern": concern}), CALL)
-            self.assertEqual(verified["stance"], self.STRONG | {"concern": None})
-        # A reading from before the concern was asked for.
-        earlier = {key: value for key, value in self.STRONG.items() if key != "concern"}
-        verified, _, _ = verify_quotes(extraction(stance=earlier), CALL)
-        self.assertEqual(verified["stance"], self.STRONG | {"concern": None})
-
-    def test_the_view_is_answered_after_its_evidence(self):
-        # The model writes the keys in schema order; the view has to come
-        # after the sentence behind it and the difficulty set against it.
-        from sentiment.outlook import STANCE_SCHEMA
-
-        self.assertEqual(list(STANCE_SCHEMA["properties"]), ["quote", "concern", "view"])
-        self.assertEqual(set(STANCE_SCHEMA["required"]), {"quote", "concern", "view"})
-        # A request of its own: the extraction no longer asks for it.
+    def test_the_extraction_does_not_ask_for_it(self):
         self.assertNotIn("stance", SCHEMA["properties"])
+        self.assertNotIn("stance", build_messages("Acme Ltd", "ACME", "2026-08-10", CALL)[0]["content"])
 
-    def test_the_stance_is_read_with_thinking_and_the_extraction_without(self):
+    def test_the_extraction_is_sent_with_thinking_off(self):
         from sentiment.llm_provider import Provider
-        from sentiment.outlook import STANCE_SCHEMA, request_body
+        from sentiment.outlook import request_body
 
-        for provider in (Provider("openrouter", "u", "k", "m"), Provider("tokenharbor", "u", "k", "m")):
-            extraction = request_body(provider, [])
-            stance = request_body(provider, [], schema=STANCE_SCHEMA, thinking=True, max_tokens=16_000)
-            if provider.is_production:
-                self.assertEqual((extraction["reasoning"], stance["reasoning"]), ({"enabled": False}, {"enabled": True}))
-            else:
-                self.assertEqual(extraction["thinking"], {"type": "disabled"})
-                self.assertNotIn("thinking", stance)
-            self.assertIs(stance["response_format"]["json_schema"]["schema"], STANCE_SCHEMA)
+        self.assertEqual(request_body(Provider("openrouter", "u", "k", "m"), [])["reasoning"], {"enabled": False})
+        self.assertEqual(request_body(Provider("tokenharbor", "u", "k", "m"), [])["thinking"], {"type": "disabled"})
 
-    def test_an_unreadable_stance_leaves_the_outlook_standing(self):
-        from sentiment import outlook
-
-        def extraction_only(session, provider, messages, *, timeout=180):
-            return extraction(), {"cost": 0.001}
-
-        def broken(*args, **kwargs):
-            raise outlook.ExtractionError("reply hit the output limit", cost_usd=0.004)
-
-        with patch.object(outlook, "request_extraction", extraction_only), patch.object(outlook, "read_stance", broken):
-            row = outlook.analyse_transcript(None, PRODUCTION_PROVIDER, {"id": "t1"}, CALL)
-        self.assertEqual(row["extraction"]["stance"], {"view": "unknown", "quote": None, "concern": None})
-        self.assertEqual(row["verified_fields"], 5)
-        self.assertAlmostEqual(row["cost_usd"], 0.005)
-
-    def test_a_stance_whose_sentence_is_not_in_the_call_is_unknown(self):
-        invented = {"view": "bullish", "quote": "We have never been more confident about the year ahead."}
-        for stance in (invented, {"view": "bullish", "quote": None}, {"view": "elated", "quote": self.STRONG["quote"]}, None, "bullish"):
-            verified, _, _ = verify_quotes(extraction(stance=stance), CALL)
-            self.assertEqual(verified["stance"], {"view": "unknown", "quote": None, "concern": None})
-
-    def test_a_stance_moves_neither_the_counts_nor_the_score(self):
-        without = verify_quotes(extraction(), CALL)
-        with_stance = verify_quotes(extraction(stance=self.STRONG), CALL)
-        self.assertEqual(with_stance[1:], without[1:])
-        self.assertEqual(outlook_score(with_stance[0]), outlook_score(without[0]))
-        self.assertEqual(outlook_points(with_stance[0]), outlook_points(without[0]))
-        # A call that said nothing else is still a call with nothing to score.
-        silent = verify_quotes({"stance": self.STRONG}, CALL)
-        self.assertEqual((silent[1], silent[2], outlook_score(silent[0])), (0, 0, 50.0))
+    def test_a_stance_left_in_an_old_reading_is_not_carried_into_a_new_one(self):
+        verified, kept, dropped = verify_quotes(
+            extraction(stance={"view": "bullish", "quote": "Demand from export customers remains very strong."}),
+            CALL,
+        )
+        self.assertNotIn("stance", verified)
+        self.assertEqual((kept, dropped), (5, 0))
 
 
 class OutlookScoreTests(unittest.TestCase):
@@ -637,10 +593,6 @@ class OutlookChangeTests(unittest.TestCase):
         self.assertEqual(summarise_changes([]), "")
 
 
-PRODUCTION_PROVIDER = Provider("openrouter", "url", "key", "m")
-DEVELOPMENT_PROVIDER = Provider("tokenharbor", "url", "key", "free")
-
-
 class OutlookRunTests(unittest.TestCase):
     """The extraction run, with the API and the database replaced by fakes."""
 
@@ -674,11 +626,8 @@ class OutlookRunTests(unittest.TestCase):
         rows = [{"token_count": 10_000}, {"token_count": 12_000}]
         estimate = self.tool.estimate_cost(rows, self.tool.DEFAULT_MODEL)
         prompt = (10_000 + 12_000) * 1.25 + 2 * 1000
-        # Priced at the most a request may pay, so the estimate is a ceiling;
-        # each call is sent twice, once for the extraction and once for the stance.
-        self.assertAlmostEqual(estimate, (2 * prompt * 0.10 + 2 * (800 + 5000) * 1.20) / 1_000_000)
-        stance_only = self.tool.estimate_cost(rows, self.tool.DEFAULT_MODEL, stance_only=True)
-        self.assertAlmostEqual(stance_only, (prompt * 0.10 + 2 * 5000 * 1.20) / 1_000_000)
+        # Priced at the most a request may pay, so the estimate is a ceiling.
+        self.assertAlmostEqual(estimate, (prompt * 0.10 + 2 * 800 * 1.20) / 1_000_000)
         self.assertIsNone(self.tool.estimate_cost(rows, "someone/unpriced-model"))
 
     def test_an_unusable_reply_still_counts_toward_the_budget(self):
@@ -750,37 +699,6 @@ class OutlookRunTests(unittest.TestCase):
         self.assertEqual((summary["verified"], summary["unverified"]), (3, 1))
         self.assertEqual(saved[0]["transcript_id"], "t1")
 
-    def test_a_stance_only_run_replaces_the_stance_and_keeps_the_stored_outlook(self):
-        repository, saved = self.repository({})
-        stances = []
-
-        def save_outlook_stance(transcript_id, model, version, stance):
-            stances.append((transcript_id, model, version, stance))
-            return transcript_id == "stored"  # "new" has no outlook yet
-
-        repository.save_outlook_stance = save_outlook_stance
-
-        def analyse(session, provider, transcript, text):
-            return {
-                "transcript_id": transcript["id"], "model_name": "m", "cost_usd": 0.001,
-                "verified_fields": 3, "unverified_fields": 0, "extraction": {"stance": {"view": "cautious"}},
-            }
-
-        with patch.object(self.tool, "analyse_stance", analyse):
-            summary = self.tool.run(
-                repository,
-                [{"id": "stored", "cleaned_text": "text"}, {"id": "new", "cleaned_text": "text"}],
-                PRODUCTION_PROVIDER, workers=1, budget=self.tool.Budget(1.0), stance_only=True,
-            )
-
-        self.assertEqual(summary["extracted"], 2)
-        self.assertEqual(
-            stances[0],
-            ("stored", self.tool.DEFAULT_MODEL, self.tool.OUTLOOK_VERSION, {"view": "cautious", "read_by": "m"}),
-        )
-        # Only the call with nothing stored is written whole.
-        self.assertEqual([row["transcript_id"] for row in saved], ["new"])
-
     def test_a_transcript_without_text_fails_without_stopping_the_run(self):
         repository, saved = self.repository({"t2": "text"})
         with patch.object(self.tool, "analyse_transcript", self.fake_analyse(0.002)):
@@ -792,56 +710,24 @@ class OutlookRunTests(unittest.TestCase):
         self.assertEqual((summary["extracted"], summary["failed"]), (1, 1))
         self.assertEqual([row["transcript_id"] for row in saved], ["t2"])
 
-    def test_a_development_stance_goes_to_the_production_outlook_and_nothing_else_is_stored(self):
-        repository, saved = self.repository({})
-        stances = []
-
-        def save_outlook_stance(transcript_id, model, version, stance):
-            stances.append((transcript_id, model, stance["read_by"]))
-            return transcript_id == "stored"
-
-        repository.save_outlook_stance = save_outlook_stance
-
-        def analyse(session, provider, transcript, text):
-            return {
-                "transcript_id": transcript["id"], "model_name": "tokenharbor/free", "cost_usd": 0.0,
-                "verified_fields": 3, "unverified_fields": 0, "extraction": {"stance": {"view": "bullish"}},
-            }
-
-        with patch.object(self.tool, "analyse_stance", analyse):
-            summary = self.tool.run(
-                repository,
-                [{"id": "stored", "cleaned_text": "text"}, {"id": "new", "cleaned_text": "text"}],
-                DEVELOPMENT_PROVIDER, workers=1, budget=self.tool.Budget(1.0), stance_only=True,
-            )
-
-        self.assertEqual(stances[0], ("stored", self.tool.DEFAULT_MODEL, "tokenharbor/free"))
-        # The call with no production outlook is not given one from here.
-        self.assertEqual(saved, [])
-        self.assertEqual(summary["skipped_no_outlook"], 1)
-
     def test_a_run_that_does_not_write_returns_its_readings(self):
         repository, saved = self.repository({})
-        repository.save_outlook_stance = lambda *args: self.fail("a trial reading was stored")
-        with patch.object(self.tool, "analyse_stance", self.fake_analyse(0.0)):
+        with patch.object(self.tool, "analyse_transcript", self.fake_analyse(0.0)):
             summary = self.tool.run(
                 repository, [{"id": "t1", "cleaned_text": "text"}], "provider", workers=1,
-                budget=self.tool.Budget(1.0), stance_only=True, write=False,
+                budget=self.tool.Budget(1.0), write=False,
             )
         self.assertEqual(saved, [])
         self.assertEqual([row["transcript_id"] for row in summary["rows"]], ["t1"])
 
-    def test_the_report_counts_each_stance_and_ranks_it_against_the_score(self):
-        def row(symbol, score, view):
-            return {"symbol": symbol, "call_date": "2026-10-14", "outlook_score": score,
-                    "extraction": {"stance": {"view": view}}}
+    def test_the_report_shows_each_call_with_the_label_the_page_would_show(self):
+        def row(symbol, score):
+            return {"symbol": symbol, "call_date": "2026-10-14", "outlook_score": score, "verified_fields": 3}
 
-        lines = self.tool.stance_report([
-            row("AAA", 85, "bullish"), row("BBB", 60, "optimistic"),
-            row("CCC", 50, "neutral"), row("DDD", 35, "bearish"),
-        ])
-        self.assertIn("bullish 1, optimistic 1, neutral 1, cautious 0, bearish 1, unknown 0", lines[-2])
-        self.assertIn("Spearman 1.00 over 4 calls", lines[-1])
+        lines = self.tool.outlook_report([row("AAA", 85), row("BBB", 70), row("CCC", 60), row("DDD", 40)])
+        aaa = next(line for line in lines if "AAA" in line)
+        self.assertIn("bullish", aaa)
+        self.assertEqual(lines[-1], "  bullish 1, optimistic 1, neutral 1, cautious 0, bearish 1, unknown 0")
 
     def test_a_free_provider_costs_nothing(self):
         rows = [{"token_count": 10_000}]
