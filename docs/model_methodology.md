@@ -203,9 +203,10 @@ signal         = tone - median tone                    call has none
 Evidence_Score = Score_After_DCF + w_tx * signal
 ```
 
-`s` is `TRANSCRIPT_OUTLOOK_SHARE` (0.5). `w_tx` is `TRANSCRIPT_SENTIMENT_WEIGHT`,
-raised from 0.15 to 0.30 with this change and decayed as before, so a call can
-now move a score by about five points at most. Each reading is
+`s` is `TRANSCRIPT_OUTLOOK_SHARE` (0.5 when this section was written, 0.85
+since 15 October 2026). `w_tx` is `TRANSCRIPT_SENTIMENT_WEIGHT`, raised from
+0.15 to 0.30 with this change (1.0 since 15 October) and decayed as before, so
+a call could then move a score by about five points at most. Each reading is
 centred on its own median over the calls of the run, falling back to 50 below
 `TRANSCRIPT_NEUTRAL_MIN_CALLS`. An outlook counts only for the call the tone
 score came from and only when at least one extracted item was verified; a
@@ -232,6 +233,42 @@ weight**; it supports more than 0.15 and the weight is doubled, no further.
 The point weights inside `outlook_score` remain judgments. The backtest has no
 calls and is unaffected. `TRANSCRIPT_OUTLOOK_SHARE=0` restores the tone-only
 score and `TRANSCRIPT_SENTIMENT_WEIGHT=0.15` the old reach.
+
+### Transcript weight: the outlook 0.15 to 0.85 (15 October 2026)
+
+`TRANSCRIPT_SENTIMENT_WEIGHT` 0.30 to 1.0 and `TRANSCRIPT_OUTLOOK_SHARE` 0.5
+to 0.85: a point of outlook above the run's median call now adds 0.85 of a
+point to the evidence score instead of 0.15, and tone keeps its 0.15. Both
+are still decayed by the call's age and applied only to eligible calls, and
+the evidence score is still clipped to 0-100 and capped by the gates; the
+rating follows it as before.
+
+Evidence. Published rankings from 11 August to 8 October carry no outlook,
+so each day from 11 August to 9 September with 21 sessions after it was
+re-ranked with the outlook added at a range of weights (about 2,330 names a
+day, 1,150 with a call on record seven days before), against the next 21
+sessions' excess return over the equal-weight universe:
+
+| Outlook weight | Rank correlation | Top tenth | Top fifth |
+|---|---|---|---|
+| 0 | 0.083 | +1.15% | +1.04% |
+| 0.15 (before) | 0.087 | +1.32% | +1.14% |
+| 0.45 | 0.095 | +1.51% | +1.17% |
+| 0.9 | 0.104 | +1.68% | +1.39% |
+| 1.5 | 0.110 | +1.88% | +1.36% |
+| 3.0 | 0.115 | +1.79% | +1.42% |
+
+The outlook's own signal is not momentum in disguise: over all 2,213 calls of
+April to September it ranks the next month at 0.141 in both seasons, 0.13-0.15
+within the week a call was entered, and 0.11-0.12 after the stock's prior
+three-month run is removed (`tools.evaluate_outlook_returns`). **The table is
+one month, two independent periods**; its best weight is not taken. 0.85 is
+the most the clamp on the transcript weight allows (the weight is a share of
+the score, at most 1.0), with tone held where it was. The top twenty swung
+between -0.4% and +3.1% across the weights and was not used. Re-measure on
+October's calls once they have a month of returns. A refit of the point
+weights inside `outlook_score` on one season did not beat them on the other,
+and they are unchanged.
 
 ### Model 5.2 block weights: value 0.25 to 0.15
 
