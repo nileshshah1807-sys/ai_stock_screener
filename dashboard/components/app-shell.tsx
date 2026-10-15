@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeftRight, Bookmark, LayoutGrid, LogOut, Shapes, TrendingUp } from "lucide-react";
+import { ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut, Shapes } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
@@ -32,11 +32,12 @@ import { signOut } from "@/app/login/actions";
  * are, and notifications -- the other thing about "what changed" -- sit beside
  * it there.
  *
- * Tools is one tab for several views -- market breadth, earnings calls -- for
- * the same reason: each is a view across the market rather than a ranking of
- * its stocks, and a tab apiece would be the sixth and seventh. The tab opens
- * the first tool and stays lit on all of them; the row that picks between
- * them is ToolsNav, in the tools layout.
+ * Market (breadth across the whole market) is a destination of its own,
+ * beside the screener. Tools is one tab for several views beside the ranking
+ * -- earnings calls, results, returns -- because a tab apiece would be the
+ * sixth, seventh and eighth. The tab opens the first tool and stays lit on
+ * all of them; the row that picks between them is ToolsNav, in the tools
+ * layout.
  *
  * Markets are deliberately NOT in this list. Which market you are looking at
  * and which view you are looking at are independent axes -- every destination
@@ -48,10 +49,10 @@ const TOOL_PATHS = TOOLS.map((tool) => tool.path);
 
 const NAV: readonly { path: string; label: string; icon: typeof LayoutGrid; also?: readonly string[] }[] = [
   { path: "", label: "Screener", icon: LayoutGrid },
+  { path: "/market", label: "Market", icon: ChartArea },
   { path: TOOL_PATHS[0], label: "Tools", icon: Shapes, also: TOOL_PATHS },
   { path: "/watchlists", label: "Watchlists", icon: Bookmark },
   { path: "/movers", label: "Movers", icon: ArrowLeftRight },
-  { path: "/returns", label: "Returns", icon: TrendingUp },
 ];
 
 function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
