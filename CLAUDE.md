@@ -76,7 +76,7 @@ the scheduled workflows set the same flag.
   per symbol, quarter and basis; a revision replaces the row; a
   `PARSER_VERSION` bump re-reads them all) and redraws the Financials tab
   for every company it stored a filing for.
-  Three readers, none of which fetches anything itself: the stock page's
+  Four readers, none of which fetches anything itself: the stock page's
   quarterly results (`workers/financial_statements.compose_quarters`: every
   filed quarter from its filing, consolidated where the latest quarter was
   filed so; Yahoo only for quarters with no filing, minus any line that
@@ -89,8 +89,11 @@ the scheduled workflows set the same flag.
   bell's results events. Yahoo's figures stand for banks and insurers (a
   different statement, not stored), a company with no year-ago filing, and
   one where Yahoo is already on a later quarter; see `quarter_results_*` in
-  the run diagnostics. The table is in `storage/quarterly_filings_schema.sql`
-  and must be applied by hand. Measure the two sources with
+  the run diagnostics. The fourth is the dashboard's Results page
+  (`dashboard/lib/results.ts`), which reads the table as the signed-in
+  viewer through the `quarterly_result_feed` view and re-renders every few
+  minutes, so a result appears once the worker stores it. The table is in
+  `storage/quarterly_filings_schema.sql` and must be applied by hand. Measure the two sources with
   `python -m tools.compare_quarter_growth_sources`. The index begins in
   April 2025; the older endpoint `backtest/filings.py` reads ends that
   January. Annual statements, valuation ratios and prices are still Yahoo's.
@@ -230,8 +233,8 @@ workers/      scheduled jobs (dashboard publish, transcripts, call recordings,
 storage/      Supabase repositories
 validation/   reproducibility manifests and replay
 dashboard/    Next.js front end, with its own README; routes are nested
-              under /[market] (/nse, /us). Market and Concalls share the
-              header's Tools tab (`lib/tools.ts`, the `(tools)` route group)
+              under /[market] (/nse, /us). Market, Concalls and Results
+              share the header's Tools tab (`lib/tools.ts`, the `(tools)` route group)
 ```
 
 ## Gotchas

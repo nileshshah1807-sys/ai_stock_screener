@@ -1,4 +1,4 @@
-import { ChartArea, MessagesSquare, type LucideIcon } from "lucide-react";
+import { ChartArea, FileSpreadsheet, MessagesSquare, type LucideIcon } from "lucide-react";
 
 /**
  * The tools, in one place: views that look across the market rather than rank
@@ -13,4 +13,5 @@ import { ChartArea, MessagesSquare, type LucideIcon } from "lucide-react";
 export const TOOLS: readonly { path: string; label: string; icon: LucideIcon }[] = [
   { path: "/market", label: "Market", icon: ChartArea },
   { path: "/concalls", label: "Concalls", icon: MessagesSquare },
+  { path: "/results", label: "Results", icon: FileSpreadsheet },
 ];
