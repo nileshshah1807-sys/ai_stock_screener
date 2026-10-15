@@ -509,6 +509,88 @@ class DashboardRepository:
             written += len(chunk)
         return written
 
+    def financial_statement_rows(
+        self, symbols: Iterable[str], chunk_size: int = 100
+    ) -> list[dict[str, Any]]:
+        """Whole stored rows for ``symbols``, the ones that have one."""
+        rows: list[dict[str, Any]] = []
+        for chunk in chunked(list(dict.fromkeys(symbols)), chunk_size):
+            symbols_csv = ",".join(f'"{symbol}"' for symbol in chunk)
+            rows += self._paged(
+                "financial_statements",
+                {
+                    "select": (
+                        "symbol,statements,has_data,currency,source,"
+                        "latest_annual,latest_quarter,fetched_at"
+                    ),
+                    "symbol": f"in.({symbols_csv})",
+                    "order": "symbol.asc",
+                },
+                page=200,
+            )
+        return rows
+
+    # -- quarterly filings ----------------------------------------------------
+
+    def quarterly_filing_state(self) -> dict[tuple[str, str, bool], dict[str, Any]]:
+        """What is stored for each (symbol, quarter, basis), to tell what is new."""
+        rows = self._paged(
+            "quarterly_filings",
+            {
+                "select": "symbol,period_end,is_consolidated,seq_id,parser_version,broadcast_at",
+                "order": "symbol.asc,period_end.asc,is_consolidated.asc",
+            },
+        )
+        return {
+            (str(row["symbol"]), str(row["period_end"])[:10], bool(row["is_consolidated"])): row
+            for row in rows
+        }
+
+    def upsert_quarterly_filings(self, rows: list[dict[str, Any]], chunk_size: int = 100) -> int:
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "quarterly_filings?on_conflict=market,symbol,period_end,is_consolidated",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                retries=2,
+            )
+            written += len(chunk)
+        return written
+
+    def quarterly_filings(
+        self, symbols: Iterable[str], chunk_size: int = 100
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Symbol -> its stored filings, each with its parsed ``lines``."""
+        found: dict[str, list[dict[str, Any]]] = {}
+        for chunk in chunked(list(dict.fromkeys(symbols)), chunk_size):
+            symbols_csv = ",".join(f'"{symbol}"' for symbol in chunk)
+            for row in self._paged(
+                "quarterly_filings",
+                {
+                    "select": "symbol,period_end,is_consolidated,filed_at,lines",
+                    "symbol": f"in.({symbols_csv})",
+                    "order": "symbol.asc,period_end.asc,is_consolidated.asc",
+                },
+            ):
+                found.setdefault(str(row["symbol"]), []).append(row)
+        return found
+
+    def recent_filed_results(self, since: str) -> list[dict[str, Any]]:
+        """Stored filings of quarters first announced at or after ``since``."""
+        return self._paged(
+            "quarterly_filings",
+            {
+                "select": (
+                    "symbol,period_end,broadcast_at,"
+                    "revenue:lines->revenue,net_profit:lines->net_profit"
+                ),
+                "broadcast_at": f"gte.{since}",
+                "order": "broadcast_at.asc,symbol.asc",
+            },
+        )
+
     # -- market breadth ---------------------------------------------------
 
     def latest_snapshot_classification(self) -> dict[str, tuple[str | None, str | None]]:

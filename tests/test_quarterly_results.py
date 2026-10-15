@@ -6,11 +6,11 @@ June, so the growth block ranked them on the quarter before.
 """
 
 import re
-import tempfile
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -20,11 +20,13 @@ from screener.quarterly_results import (
     STATUS_DISABLED,
     STATUS_OK,
     STATUS_UNAVAILABLE,
+    SUPPORTED_TAXONOMIES,
     VENDOR_QUARTER_COLUMN,
     QuarterlyResultsCollector,
+    facts_frame,
     normalise_index,
+    parse_filing,
     parse_quarter_facts,
-    plan_documents,
     quarter_growth,
     taxonomy_of,
     vendor_quarter_end,
@@ -80,56 +82,54 @@ def _document(revenue=None, profit=None, *, profit_tag="ProfitLossForPeriod"):
     return "<xbrli:xbrl>" + "".join(facts) + "</xbrli:xbrl>"
 
 
-def _seq(url):
-    return re.search(r"_(\d+)_WEB", url).group(1)
+def _stored(filings, documents):
+    """What `workers.quarterly_filings` would have stored from these filings.
 
-
-class FakeFetcher:
-    """Serves documents by filing id and records what was asked for."""
-
-    def __init__(self, documents):
-        self.documents = dict(documents)
-        self.calls = []
-
-    def fetch_many(self, urls):
-        self.calls.append(list(urls))
-        return [self.documents.get(_seq(url)) for url in urls]
-
-    @property
-    def asked(self):
-        return [_seq(url) for call in self.calls for url in call]
+    A document that could not be fetched (absent from ``documents``) is not
+    stored; a taxonomy that is not read is never fetched.
+    """
+    rows = []
+    for row in normalise_index(filings).to_dict("records"):
+        text = documents.get(row["Seq_Id"])
+        if text is None or row["Taxonomy"] not in SUPPORTED_TAXONOMIES:
+            continue
+        lines = parse_filing(text)
+        rows.append(
+            {
+                "symbol": row["Symbol"],
+                "period_end": row["Period_End"].isoformat(),
+                "is_consolidated": row["Is_Consolidated"],
+                "seq_id": row["Seq_Id"],
+                "filed_at": row["Filed_At"]
+                .replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+                .isoformat(),
+                "taxonomy": row["Taxonomy"],
+                "revenue": lines["revenue"],
+                "pat": lines["pat"],
+            }
+        )
+    return rows
 
 
 class CollectorCase(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.output_dir = Path(self._tmp.name)
+    def collector(self, filings, documents, *, enabled=True, store_error=None, **settings):
+        config = SimpleNamespace(QUARTERLY_RESULTS_FILINGS_ENABLED=enabled, **settings)
+        loads = []
 
-    def collector(self, filings, documents, *, enabled=True, index_error=None, **settings):
-        config = SimpleNamespace(
-            OUTPUT_DIR=self.output_dir,
-            QUARTERLY_RESULTS_FILINGS_ENABLED=enabled,
-            **settings,
-        )
-        index_calls = []
+        def filings_loader(since):
+            loads.append(since)
+            if store_error is not None:
+                raise store_error
+            return _stored(filings, documents)
 
-        def index_loader(start, end):
-            index_calls.append((start, end))
-            if index_error is not None:
-                raise index_error
-            return normalise_index(filings)
-
-        fetcher = FakeFetcher(documents)
         collector = QuarterlyResultsCollector(
             config,
             provider="nse_integrated_filings",
-            index_loader=index_loader,
-            document_fetcher=fetcher,
+            filings_loader=filings_loader,
             clock=lambda: datetime(2026, 10, 12, 18, 30),
         )
-        collector.index_calls = index_calls
-        return collector, fetcher
+        collector.loads = loads
+        return collector, loads
 
 
 def _frame(**growth):
@@ -200,71 +200,28 @@ class DocumentTests(unittest.TestCase):
         self.assertIsNone(facts["PAT"])
 
 
-class PlanTests(unittest.TestCase):
-    def plan(self, filings, **kwargs):
-        kwargs.setdefault("today", TODAY)
-        kwargs.setdefault("max_age_days", 200)
-        plan = plan_documents(normalise_index(filings), **kwargs)
-        return {symbol: (a["Seq_Id"], b["Seq_Id"]) for symbol, (a, b) in plan.items()}
+class StoredFilingTests(unittest.TestCase):
+    def test_everything_the_page_and_the_growth_block_read_is_parsed(self):
+        lines = parse_filing(_document(revenue=400.0, profit=50.0))
+        self.assertEqual(lines["revenue"], 400.0)
+        self.assertEqual(lines["net_profit"], 50.0)
+        self.assertEqual(lines["pat"], 50.0)
+        self.assertIsNone(lines["pbt"])
 
-    def test_the_latest_quarter_and_the_one_a_year_before_it(self):
-        plan = self.plan(
-            [
-                _filing("AAA", "30-SEP-2026", 4),
-                _filing("AAA", "30-JUN-2026", 3),
-                _filing("AAA", "30-SEP-2025", 2),
-                _filing("AAA", "30-JUN-2025", 1),
-            ]
+    def test_the_filing_date_is_the_exchanges_local_date(self):
+        # 00:30 in India on the 13th is still the 12th in UTC.
+        facts = facts_frame(
+            [{"symbol": "aaa", "period_end": "2026-09-30", "is_consolidated": True,
+              "seq_id": "1", "filed_at": "2026-10-12T19:00:00+00:00",
+              "taxonomy": "INDAS", "revenue": 1.0, "pat": None}],
+            "Asia/Kolkata",
         )
-        self.assertEqual(plan, {"AAA": ("4", "2")})
+        self.assertEqual(facts.loc[0, "Symbol"], "AAA")
+        self.assertEqual(facts.loc[0, "Filed_On"], date(2026, 10, 13))
+        self.assertEqual(facts.loc[0, "Period_End"], date(2026, 9, 30))
 
-    def test_consolidated_is_preferred_when_both_bases_reach_the_same_quarter(self):
-        plan = self.plan(
-            [
-                _filing("AAA", "30-SEP-2026", 4, consolidated=True),
-                _filing("AAA", "30-SEP-2025", 3, consolidated=True),
-                _filing("AAA", "30-SEP-2026", 2, consolidated=False),
-                _filing("AAA", "30-SEP-2025", 1, consolidated=False),
-            ]
-        )
-        self.assertEqual(plan, {"AAA": ("4", "3")})
-
-    def test_a_basis_with_no_year_ago_quarter_gives_way_to_one_that_has_it(self):
-        # First consolidated filing this year: nothing to compare it with.
-        plan = self.plan(
-            [
-                _filing("AAA", "30-SEP-2026", 4, consolidated=True),
-                _filing("AAA", "30-SEP-2026", 2, consolidated=False),
-                _filing("AAA", "30-SEP-2025", 1, consolidated=False),
-            ]
-        )
-        self.assertEqual(plan, {"AAA": ("2", "1")})
-
-    def test_a_quarter_too_old_to_be_current_is_not_planned(self):
-        plan = self.plan(
-            [_filing("AAA", "31-DEC-2025", 2), _filing("AAA", "31-DEC-2024", 1)]
-        )
-        self.assertEqual(plan, {})
-
-    def test_a_taxonomy_that_is_not_read_is_left_to_the_vendor(self):
-        plan = self.plan(
-            [
-                _filing("AAA", "30-SEP-2026", 2, taxonomy="BANKING"),
-                _filing("AAA", "30-SEP-2025", 1, taxonomy="BANKING"),
-            ]
-        )
-        self.assertEqual(plan, {})
-
-    def test_a_document_found_empty_sends_the_symbol_to_its_next_pair(self):
-        filings = [
-            _filing("AAA", "30-SEP-2026", 4, consolidated=True),
-            _filing("AAA", "30-SEP-2025", 3, consolidated=True),
-            _filing("AAA", "30-SEP-2026", 2, consolidated=False),
-            _filing("AAA", "30-SEP-2025", 1, consolidated=False),
-        ]
-        self.assertEqual(
-            self.plan(filings, unusable=frozenset({"4"})), {"AAA": ("2", "1")}
-        )
+    def test_no_rows_is_an_empty_frame_with_the_fact_columns(self):
+        self.assertIn("Revenue", facts_frame([], "Asia/Kolkata").columns)
 
 
 class GrowthTests(unittest.TestCase):
@@ -318,8 +275,8 @@ class OverlayTests(CollectorCase):
         self.assertEqual(
             diagnostics["quarter_results_latest_quarter_counts"], {"2026-09-30": 1}
         )
-        self.assertEqual(diagnostics["quarter_results_documents_fetched"], 2)
-        self.assertEqual(diagnostics["quarter_results_documents_failed"], 0)
+        self.assertEqual(diagnostics["quarter_results_filings_read"], 2)
+        self.assertEqual(diagnostics["quarter_results_latest_filed_on"], "2026-10-08")
 
     def test_a_loss_in_the_base_quarter_is_unreported_not_the_vendors_figure(self):
         documents = {"12": _document(1150.0, 240.0), "11": _document(1000.0, -50.0)}
@@ -344,7 +301,7 @@ class OverlayTests(CollectorCase):
         self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.15)
         self.assertTrue(np.isnan(enriched.loc[1, "Revenue_Growth"]))
 
-    def test_an_empty_document_falls_back_to_the_other_basis_in_the_same_run(self):
+    def test_an_empty_filing_falls_back_to_the_other_basis(self):
         filings = [
             *self.FILINGS,
             _filing("AAA", "30-SEP-2026", 22, consolidated=False),
@@ -356,11 +313,10 @@ class OverlayTests(CollectorCase):
             "22": _document(550.0, 90.0),
             "21": _document(500.0, 100.0),
         }
-        collector, fetcher = self.collector(filings, documents)
+        collector, _ = self.collector(filings, documents)
         enriched = collector.enrich(_frame(AAA=(0.02, 0.03)))
         self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.10)
         self.assertAlmostEqual(enriched.loc[0, "Earnings_Growth"], -0.10)
-        self.assertEqual(sorted(fetcher.asked), ["11", "12", "21", "22"])
 
 
 class VendorQuarterTests(CollectorCase):
@@ -424,43 +380,20 @@ class VendorQuarterTests(CollectorCase):
                 self.assertIsNone(vendor_quarter_end(unusable))
 
 
-class CacheTests(CollectorCase):
+class StoreTests(CollectorCase):
     FILINGS = (
         _filing("AAA", "30-JUN-2026", 12, broadcast="20-Jul-2026 18:00:00"),
         _filing("AAA", "30-JUN-2025", 11, broadcast="21-Jul-2025 18:00:00"),
     )
     DOCUMENTS = {"12": _document(1100.0, 220.0), "11": _document(1000.0, 200.0)}
 
-    def test_a_cached_filing_is_not_fetched_again(self):
-        first, _ = self.collector(self.FILINGS, self.DOCUMENTS)
-        first.enrich(_frame(AAA=(0.0, 0.0)))
-        second, fetcher = self.collector(self.FILINGS, self.DOCUMENTS)
-        enriched = second.enrich(_frame(AAA=(0.0, 0.0)))
-        self.assertEqual(fetcher.calls, [])
+    def test_the_store_is_read_far_enough_back_for_a_year_ago_quarter(self):
+        collector, loads = self.collector(self.FILINGS, self.DOCUMENTS)
+        enriched = collector.enrich(_frame(AAA=(0.0, 0.0)))
+        self.assertEqual(loads, [TODAY - timedelta(days=200 + 400)])
         self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.10)
 
-    def test_a_new_quarter_fetches_only_its_own_pair(self):
-        first, _ = self.collector(self.FILINGS, self.DOCUMENTS)
-        first.enrich(_frame(AAA=(0.0, 0.0)))
-        filings = [
-            *self.FILINGS,
-            _filing("AAA", "30-SEP-2026", 14),
-            _filing("AAA", "30-SEP-2025", 13, broadcast="09-Oct-2025 19:00:00"),
-        ]
-        documents = {
-            **self.DOCUMENTS,
-            "14": _document(1300.0, 150.0),
-            "13": _document(1000.0, 200.0),
-        }
-        second, fetcher = self.collector(filings, documents)
-        enriched = second.enrich(_frame(AAA=(0.0, 0.0)))
-        self.assertEqual(sorted(fetcher.asked), ["13", "14"])
-        self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.30)
-        self.assertAlmostEqual(enriched.loc[0, "Earnings_Growth"], -0.25)
-
-    def test_a_revision_is_fetched_and_replaces_the_cached_figures(self):
-        first, _ = self.collector(self.FILINGS, self.DOCUMENTS)
-        first.enrich(_frame(AAA=(0.0, 0.0)))
+    def test_a_revision_is_read_as_the_store_holds_it(self):
         filings = [
             *self.FILINGS,
             _filing(
@@ -469,107 +402,69 @@ class CacheTests(CollectorCase):
             ),
         ]
         documents = {**self.DOCUMENTS, "19": _document(1200.0, 220.0)}
-        second, fetcher = self.collector(filings, documents)
-        enriched = second.enrich(_frame(AAA=(0.0, 0.0)))
-        self.assertEqual(fetcher.asked, ["19"])
+        collector, _ = self.collector(filings, documents)
+        enriched = collector.enrich(_frame(AAA=(0.0, 0.0)))
         self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.20)
 
-    def test_an_unreadable_index_still_scores_the_cached_filings(self):
-        first, _ = self.collector(self.FILINGS, self.DOCUMENTS)
-        first.enrich(_frame(AAA=(0.0, 0.0)))
-        second, fetcher = self.collector(
-            self.FILINGS, self.DOCUMENTS, index_error=ConnectionError("blocked")
-        )
-        with self.assertLogs("screener.quarterly_results", level="WARNING"):
-            enriched = second.enrich(_frame(AAA=(0.0, 0.0), BBB=(0.07, 0.09)))
-        self.assertEqual(fetcher.calls, [])
-        self.assertEqual(
-            second.diagnostics["quarter_results_source_status"], STATUS_UNAVAILABLE
-        )
-        self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.10)
-        self.assertAlmostEqual(enriched.loc[1, "Revenue_Growth"], 0.07)
+    def test_a_filing_not_yet_stored_leaves_the_vendors_figures(self):
+        # The worker could not fetch June 2026's document yet: half a pair is
+        # not a growth rate.
+        collector, _ = self.collector(self.FILINGS, {"11": _document(1000.0, 200.0)})
+        enriched = collector.enrich(_frame(AAA=(0.02, 0.03)))
+        self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.02)
 
-    def test_an_unreadable_index_with_no_cache_leaves_the_frame_as_served(self):
+    def test_a_filing_made_after_the_run_is_not_read(self):
+        filings = [
+            _filing("AAA", "30-SEP-2026", 14, broadcast="13-Oct-2026 17:00:00"),
+            _filing("AAA", "30-SEP-2025", 13, broadcast="09-Oct-2025 19:00:00"),
+        ]
+        documents = {"14": _document(1300.0, 150.0), "13": _document(1000.0, 200.0)}
+        collector, _ = self.collector(filings, documents)
+        enriched = collector.enrich(_frame(AAA=(0.02, 0.03)))
+        self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.02)
+
+    def test_an_unreadable_store_leaves_the_frame_as_served(self):
         collector, _ = self.collector(
-            self.FILINGS, self.DOCUMENTS, index_error=ConnectionError("blocked")
+            self.FILINGS, self.DOCUMENTS, store_error=ConnectionError("blocked")
         )
         frame = _frame(AAA=(0.02, 0.03))
         with self.assertLogs("screener.quarterly_results", level="WARNING"):
             enriched = collector.enrich(frame)
         pd.testing.assert_frame_equal(enriched, frame)
-
-    def test_a_failed_document_is_asked_for_again_on_the_next_run(self):
-        first, _ = self.collector(self.FILINGS, {"11": _document(1000.0, 200.0)})
-        with self.assertLogs("screener.quarterly_results", level="WARNING"):
-            enriched = first.enrich(_frame(AAA=(0.02, 0.03)))
-        self.assertEqual(first.diagnostics["quarter_results_documents_failed"], 1)
-        # Half a pair is not a growth rate: the vendor's figure stands.
-        self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.02)
-        second, fetcher = self.collector(self.FILINGS, self.DOCUMENTS)
-        enriched = second.enrich(_frame(AAA=(0.02, 0.03)))
-        self.assertEqual(fetcher.asked, ["12"])
-        self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.10)
-
-    def test_a_capped_cold_build_fetches_the_most_traded_names_first(self):
-        filings = [
-            *self.FILINGS,
-            _filing("BBB", "30-JUN-2026", 32, broadcast="20-Jul-2026 18:00:00"),
-            _filing("BBB", "30-JUN-2025", 31, broadcast="21-Jul-2025 18:00:00"),
-        ]
-        documents = {
-            **self.DOCUMENTS,
-            "32": _document(900.0, 90.0),
-            "31": _document(600.0, 60.0),
-        }
-        # BBB is listed first and so carries the larger turnover.
-        frame = _frame(BBB=(0.01, 0.01), AAA=(0.02, 0.03))
-        first, fetcher = self.collector(
-            filings, documents, QUARTERLY_RESULTS_MAX_DOCUMENTS_PER_RUN=2
+        self.assertEqual(
+            collector.diagnostics["quarter_results_source_status"], STATUS_UNAVAILABLE
         )
-        with self.assertLogs("screener.quarterly_results", level="WARNING"):
-            enriched = first.enrich(frame)
-        self.assertEqual(sorted(fetcher.asked), ["31", "32"])
-        self.assertEqual(first.diagnostics["quarter_results_documents_deferred"], 2)
-        self.assertAlmostEqual(enriched.loc[0, "Revenue_Growth"], 0.50)
-        self.assertAlmostEqual(enriched.loc[1, "Revenue_Growth"], 0.02)
-        second, fetcher = self.collector(
-            filings, documents, QUARTERLY_RESULTS_MAX_DOCUMENTS_PER_RUN=2
-        )
-        enriched = second.enrich(frame)
-        self.assertEqual(sorted(fetcher.asked), ["11", "12"])
-        self.assertAlmostEqual(enriched.loc[1, "Revenue_Growth"], 0.10)
 
-    def test_a_cache_from_another_schema_is_rebuilt(self):
-        first, _ = self.collector(self.FILINGS, self.DOCUMENTS)
-        first.enrich(_frame(AAA=(0.0, 0.0)))
-        path = self.output_dir / "quarterly_results_cache.csv"
-        cached = pd.read_csv(path)
-        cached["Schema_Version"] = 0
-        cached.to_csv(path, index=False)
-        second, fetcher = self.collector(self.FILINGS, self.DOCUMENTS)
-        second.enrich(_frame(AAA=(0.0, 0.0)))
-        self.assertEqual(sorted(fetcher.asked), ["11", "12"])
+    def test_without_store_credentials_the_vendors_figures_stand(self):
+        # A validation dispatch runs with no Supabase credentials.
+        config = SimpleNamespace(
+            QUARTERLY_RESULTS_FILINGS_ENABLED=True, SUPABASE_URL="",
+            SUPABASE_SERVICE_ROLE_KEY="",
+        )
+        collector = QuarterlyResultsCollector(config, provider="nse_integrated_filings")
+        frame = _frame(AAA=(0.02, 0.03))
+        with self.assertLogs("screener.quarterly_results", level="WARNING"):
+            enriched = collector.enrich(frame)
+        pd.testing.assert_frame_equal(enriched, frame)
+        self.assertEqual(
+            collector.diagnostics["quarter_results_source_status"], STATUS_UNAVAILABLE
+        )
 
 
 class WiringTests(CollectorCase):
     def test_disabled_touches_neither_the_exchange_nor_the_frame(self):
-        collector, fetcher = self.collector(
+        collector, loads = self.collector(
             OverlayTests.FILINGS, OverlayTests.DOCUMENTS, enabled=False
         )
         frame = _frame(AAA=(0.02, 0.03))
         self.assertIs(collector.enrich(frame), frame)
-        self.assertEqual(collector.index_calls, [])
-        self.assertEqual(fetcher.calls, [])
+        self.assertEqual(loads, [])
         self.assertEqual(
             collector.diagnostics, {"quarter_results_source_status": STATUS_DISABLED}
         )
 
     def test_a_market_with_no_filing_index_is_disabled_even_when_switched_on(self):
-        config = SimpleNamespace(
-            OUTPUT_DIR=self.output_dir,
-            QUARTERLY_RESULTS_FILINGS_ENABLED=True,
-            MARKET="US",
-        )
+        config = SimpleNamespace(QUARTERLY_RESULTS_FILINGS_ENABLED=True, MARKET="US")
         self.assertFalse(QuarterlyResultsCollector(config).enabled)
 
     def test_off_unless_a_workflow_opts_in(self):
@@ -584,17 +479,13 @@ class WiringTests(CollectorCase):
         )
         self.assertIsNone(resolve("US").quarterly_results_provider)
 
-    def test_the_nse_workflow_opts_in_and_keeps_the_cache(self):
+    def test_the_nse_workflow_opts_in_and_can_read_the_store(self):
         workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
         text = (workflows / "daily-stock-screener.yml").read_text()
         self.assertRegex(
             text, re.compile(r'QUARTERLY_RESULTS_FILINGS_ENABLED:\s*"True"')
         )
-        # Restored before the run and saved after it; without both, every run
-        # would be a cold build of the whole universe.
-        self.assertGreaterEqual(
-            text.count("reports_advanced/quarterly_results_cache.csv"), 2
-        )
+        self.assertRegex(text, re.compile(r"\n      SUPABASE_URL:"))
 
     def test_the_us_workflow_does_not_opt_in(self):
         workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"

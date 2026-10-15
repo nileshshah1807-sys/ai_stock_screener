@@ -12,8 +12,10 @@ Two kinds so far:
 
 ``results``
     Where the market has an index of results filings (NSE), one event per
-    company and quarter, timed at the filing's broadcast. A revision is not an
-    event: it restates a quarter, it does not announce one.
+    company and quarter, timed at the filing's first broadcast, read from the
+    filings ``workers.quarterly_filings`` has stored and parsed -- so the bell
+    never announces a result the stock page cannot show yet. A revision is
+    not an event: it restates a quarter, it does not announce one.
 
     Where it has none (US), the event is the stored statements gaining a later
     quarter, which is when the vendor published it. That needs to know what
@@ -35,9 +37,7 @@ import logging
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from zoneinfo import ZoneInfo
 
-from screener import quarterly_results
 from screener.markets import resolve as resolve_market
 
 logger = logging.getLogger(__name__)
@@ -78,32 +78,43 @@ def _event(
 
 
 def filed_results_events(
-    records: Iterable[dict[str, Any]],
+    rows: Iterable[dict[str, Any]],
     universe: set[str],
     companies: dict[str, str | None],
     *,
     since: datetime,
-    timezone: str,
 ) -> list[dict[str, Any]]:
-    """One event per company and quarter first filed at or after ``since``."""
-    local = ZoneInfo(timezone)
+    """One event per company and quarter first announced at or after ``since``.
+
+    ``rows`` are stored filings (`DashboardRepository.recent_filed_results`),
+    one per basis. A quarter whose filings parsed to neither revenue nor
+    profit has nothing to show and is not announced.
+    """
+    first: dict[tuple[str, str], datetime] = {}
+    for row in rows:
+        symbol = str(row.get("symbol") or "").strip().upper()
+        period = str(row.get("period_end") or "")[:10]
+        if not symbol or not period or not row.get("broadcast_at"):
+            continue
+        if row.get("revenue") is None and row.get("net_profit") is None:
+            continue
+        broadcast = datetime.fromisoformat(str(row["broadcast_at"]))
+        key = (symbol, period)
+        if key not in first or broadcast < first[key]:
+            first[key] = broadcast
     events = []
-    for (symbol, period), filed in sorted(
-        quarterly_results.first_filings(records).items(), key=lambda item: item[1]
-    ):
-        # The exchange stamps filings in its own local time.
-        filed_at = filed.replace(tzinfo=local)
+    for (symbol, period), filed_at in sorted(first.items(), key=lambda item: item[1]):
         if symbol not in universe or filed_at < since:
             continue
-        if (filed_at.date() - period).days > MAX_QUARTER_AGE_DAYS:
+        if (filed_at.date() - date.fromisoformat(period)).days > MAX_QUARTER_AGE_DAYS:
             continue
         events.append(
             _event(
                 symbol,
                 KIND_RESULTS,
-                period.isoformat(),
+                period,
                 filed_at,
-                {"period": period.isoformat(), "source": "filing"},
+                {"period": period, "source": "filing"},
                 companies,
             )
         )
@@ -175,15 +186,10 @@ def _universe(repo, companies: dict[str, str | None]) -> set[str]:
     return symbols
 
 
-def _local_date(moment: datetime, timezone: str) -> date:
-    return moment.astimezone(ZoneInfo(timezone)).date()
-
-
 def run(
     repo,
     *,
     now: datetime | None = None,
-    index_records_loader=None,
     dry_run: bool = False,
 ) -> dict[str, int]:
     profile = resolve_market(repo.market)
@@ -206,20 +212,17 @@ def run(
     events: list[dict[str, Any]] = []
 
     if profile.quarterly_results_provider:
-        loader = index_records_loader or quarterly_results.fetch_index_records
         try:
-            records = loader(
-                _local_date(since, profile.timezone), _local_date(now, profile.timezone)
-            )
+            filed = repo.recent_filed_results(since.isoformat(timespec="seconds"))
         except Exception as exc:  # the other kinds are still worth recording
-            logger.warning("Results filing index unavailable (%s)", exc)
-            records = []
+            logger.warning(
+                "Stored results filings unavailable (%s). Apply "
+                "storage/quarterly_filings_schema.sql.",
+                exc,
+            )
+            filed = []
         events += filed_results_events(
-            records,
-            _universe(repo, companies),
-            companies,
-            since=since,
-            timezone=profile.timezone,
+            filed, _universe(repo, companies), companies, since=since
         )
     else:
         events += statement_results_events(

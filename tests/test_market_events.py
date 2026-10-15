@@ -21,26 +21,27 @@ SINCE = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
 COMPANIES = {"AAA": "Alpha Ltd", "BBB": "Beta Ltd"}
 
 
-def filing(symbol, quarter, broadcast, *, consolidated=True):
+def filing(symbol, quarter, broadcast, *, consolidated=True, revenue=100, net_profit=10):
+    """One stored filing, as `recent_filed_results` serves it (times in UTC)."""
     return {
         "symbol": symbol,
-        "qe_Date": quarter,
-        "broadcast_Date": broadcast,
-        "consolidated": "Consolidated" if consolidated else "Standalone",
+        "period_end": quarter,
+        "is_consolidated": consolidated,
+        "broadcast_at": broadcast,
+        "revenue": revenue,
+        "net_profit": net_profit,
     }
 
 
 class FiledResultsTests(unittest.TestCase):
-    def events(self, records, universe=frozenset(COMPANIES)):
-        return filed_results_events(
-            records, set(universe), COMPANIES, since=SINCE, timezone="Asia/Kolkata"
-        )
+    def events(self, rows, universe=frozenset(COMPANIES)):
+        return filed_results_events(rows, set(universe), COMPANIES, since=SINCE)
 
     def test_one_event_per_quarter_timed_at_the_first_broadcast(self):
         events = self.events(
             [
-                filing("AAA", "30-SEP-2026", "08-Oct-2026 22:07:33"),
-                filing("AAA", "30-SEP-2026", "08-Oct-2026 22:07:30", consolidated=False),
+                filing("AAA", "2026-09-30", "2026-10-08T16:37:33+00:00"),
+                filing("AAA", "2026-09-30", "2026-10-08T22:07:30+05:30", consolidated=False),
             ]
         )
         self.assertEqual(len(events), 1)
@@ -55,21 +56,32 @@ class FiledResultsTests(unittest.TestCase):
         self.assertFalse(event["baseline"])
 
     def test_a_revision_is_not_a_result(self):
-        self.assertEqual(self.events([filing("AAA", "30-JUN-2026", None)]), [])
+        # Stored from a revision alone: no broadcast to time it by.
+        self.assertEqual(self.events([filing("AAA", "2026-06-30", None)]), [])
+
+    def test_a_filing_that_parsed_to_nothing_is_not_announced(self):
+        # The stock page would have nothing to show for it.
+        self.assertEqual(
+            self.events(
+                [filing("AAA", "2026-09-30", "2026-10-08T10:00:00+00:00",
+                        revenue=None, net_profit=None)]
+            ),
+            [],
+        )
 
     def test_a_filing_from_before_the_window_is_not_announced_again(self):
         self.assertEqual(
-            self.events([filing("AAA", "30-JUN-2026", "20-Jul-2026 18:00:00")]), []
+            self.events([filing("AAA", "2026-06-30", "2026-07-20T12:30:00+00:00")]), []
         )
 
     def test_a_late_filing_for_an_old_quarter_is_not_this_seasons_result(self):
         self.assertEqual(
-            self.events([filing("AAA", "30-JUN-2025", "08-Oct-2026 10:00:00")]), []
+            self.events([filing("AAA", "2025-06-30", "2026-10-08T04:30:00+00:00")]), []
         )
 
     def test_a_company_with_no_stock_page_is_left_out(self):
         self.assertEqual(
-            self.events([filing("ZZZ", "30-SEP-2026", "08-Oct-2026 10:00:00")]), []
+            self.events([filing("ZZZ", "2026-09-30", "2026-10-08T04:30:00+00:00")]), []
         )
 
 
@@ -115,11 +127,20 @@ class TranscriptTests(unittest.TestCase):
 
 
 class FakeRepository:
-    def __init__(self, market="NSE", *, deployed=True):
+    def __init__(self, market="NSE", *, deployed=True, filings=(), filings_error=None):
         self.market = market
         self.deployed = deployed
+        self.filings = list(filings)
+        self.filings_error = filings_error
+        self.filings_asked = []
         self.inserted = []
         self.pruned_before = None
+
+    def recent_filed_results(self, since):
+        self.filings_asked.append(since)
+        if self.filings_error is not None:
+            raise self.filings_error
+        return self.filings
 
     def recorded_event_keys(self, kind):
         if not self.deployed:
@@ -148,21 +169,15 @@ class FakeRepository:
 
 
 class RunTests(unittest.TestCase):
-    records = [
-        filing("AAA", "30-SEP-2026", "08-Oct-2026 22:07:33"),
-        filing("NEW", "30-SEP-2026", "09-Oct-2026 11:00:00"),
+    filings = [
+        filing("AAA", "2026-09-30", "2026-10-08T16:37:33+00:00"),
+        filing("NEW", "2026-09-30", "2026-10-09T05:30:00+00:00"),
     ]
 
-    def test_a_market_with_a_filing_index_announces_from_it(self):
-        repo = FakeRepository("NSE")
-        asked = []
-
-        def loader(start, end):
-            asked.append((start.isoformat(), end.isoformat()))
-            return self.records
-
-        counts = run(repo, now=NOW, index_records_loader=loader)
-        self.assertEqual(asked, [("2026-10-05", "2026-10-12")])
+    def test_a_market_with_a_filing_index_announces_from_the_stored_filings(self):
+        repo = FakeRepository("NSE", filings=self.filings)
+        counts = run(repo, now=NOW)
+        self.assertEqual(repo.filings_asked, ["2026-10-05T12:00:00+00:00"])
         self.assertEqual(
             sorted((e["kind"], e["symbol"]) for e in repo.inserted),
             [("results", "AAA"), ("results", "NEW"), ("transcript", "BBB")],
@@ -173,12 +188,9 @@ class RunTests(unittest.TestCase):
         self.assertEqual(repo.pruned_before, "2026-04-15T12:00:00+00:00")
 
     def test_a_market_without_one_announces_from_the_stored_statements(self):
-        repo = FakeRepository("US")
-
-        def loader(start, end):
-            raise AssertionError("no filing index for this market")
-
-        counts = run(repo, now=NOW, index_records_loader=loader)
+        repo = FakeRepository("US", filings_error=AssertionError("no filings here"))
+        counts = run(repo, now=NOW)
+        self.assertEqual(repo.filings_asked, [])
         results = [e for e in repo.inserted if e["kind"] == "results"]
         self.assertEqual(
             sorted((e["symbol"], e["baseline"]) for e in results),
@@ -187,27 +199,24 @@ class RunTests(unittest.TestCase):
         self.assertEqual(counts["results"], 1)
         self.assertEqual(counts["baseline"], 1)
 
-    def test_an_unreadable_index_still_records_the_other_kinds(self):
-        repo = FakeRepository("NSE")
-
-        def loader(start, end):
-            raise ConnectionError("blocked")
-
-        with self.assertLogs("workers.market_events", level="WARNING"):
-            run(repo, now=NOW, index_records_loader=loader)
+    def test_unreadable_filings_still_record_the_other_kinds(self):
+        repo = FakeRepository("NSE", filings_error=RuntimeError("relation does not exist"))
+        with self.assertLogs("workers.market_events", level="WARNING") as logs:
+            run(repo, now=NOW)
+        self.assertIn("quarterly_filings_schema.sql", logs.output[0])
         self.assertEqual([e["kind"] for e in repo.inserted], ["transcript"])
 
     def test_an_undeployed_table_warns_and_writes_nothing(self):
-        repo = FakeRepository("NSE", deployed=False)
+        repo = FakeRepository("NSE", deployed=False, filings=self.filings)
         with self.assertLogs("workers.market_events", level="WARNING") as logs:
-            counts = run(repo, now=NOW, index_records_loader=lambda *_: self.records)
+            counts = run(repo, now=NOW)
         self.assertIn("notifications_schema.sql", logs.output[0])
         self.assertEqual(repo.inserted, [])
         self.assertEqual(counts["written"], 0)
 
     def test_dry_run_writes_nothing(self):
-        repo = FakeRepository("NSE")
-        counts = run(repo, now=NOW, index_records_loader=lambda *_: self.records, dry_run=True)
+        repo = FakeRepository("NSE", filings=self.filings)
+        counts = run(repo, now=NOW, dry_run=True)
         self.assertEqual(repo.inserted, [])
         self.assertEqual(counts["results"], 2)
 

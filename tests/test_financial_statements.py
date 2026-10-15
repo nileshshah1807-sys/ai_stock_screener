@@ -8,24 +8,25 @@ symbol only when its statements can actually have changed.
 
 import unittest
 from datetime import date
-from types import SimpleNamespace
-from unittest import mock
 
 import numpy as np
 import pandas as pd
 
-from screener.quarterly_results import normalise_index, parse_quarter_statement
+from screener.quarterly_results import parse_quarter_statement
 from workers.financial_statements import (
     BALANCE_LINES,
     INCOME_LINES,
+    MAX_QUARTERS,
     SOURCE,
     SOURCE_WITH_FILINGS,
-    FiledQuarters,
+    apply_filings,
     build_payload,
+    compose_quarters,
     extract_statement,
-    load_filed_quarters,
+    recompose_quarters,
     run,
     select_due,
+    vendor_quarters,
 )
 
 
@@ -234,6 +235,9 @@ class FakeRepository:
         self.written.extend(rows)
         return len(rows)
 
+    def quarterly_filings(self, symbols):
+        return {}
+
 
 class RunTests(unittest.TestCase):
     def test_fetches_only_due_symbols_and_survives_a_failing_statement(self):
@@ -275,33 +279,12 @@ class RunTests(unittest.TestCase):
         self.assertEqual(repo.written, [])
 
 
-ARCHIVE = "https://archive.example/xbrl"
-
-
-def filing(symbol, quarter, seq, *, consolidated=True, taxonomy="INDAS"):
-    """One row of the exchange's filing index, as it is served."""
-    return {
-        "symbol": symbol,
-        "qe_Date": quarter,
-        "consolidated": "Consolidated" if consolidated else "Standalone",
-        "seq_Id": str(seq),
-        "broadcast_Date": "08-Oct-2026 22:07:33",
-        "xbrl": f"{ARCHIVE}/INTEGRATED_FILING_{taxonomy}_{seq}_WEB.xml",
-    }
-
-
 def document(**lines):
     """A results document carrying the named lines in the quarter's context."""
     tags = {
         "revenue": "RevenueFromOperations",
-        "other_income": "OtherIncome",
-        "interest": "FinanceCosts",
-        "depreciation": "DepreciationDepletionAndAmortisationExpense",
-        "pbt": "ProfitBeforeTax",
-        "tax": "TaxExpense",
         "profit": "ProfitLossForPeriod",
         "owners_profit": "ProfitOrLossAttributableToOwnersOfParent",
-        "eps": "DilutedEarningsLossPerShareFromContinuingOperations",
     }
     facts = "".join(
         f'<in-capmkt:{tags[key]} contextRef="OneD" unitRef="INR">{value}'
@@ -322,163 +305,126 @@ def statement(periods, **rows):
     return {"periods": list(periods), "rows": rows}
 
 
-def filed_quarters(filings, documents):
-    asked = []
+def stored(symbol, period, *, consolidated=True, **lines):
+    """One row of quarterly_filings as the repository serves it."""
+    return {
+        "symbol": symbol,
+        "period_end": period,
+        "is_consolidated": consolidated,
+        "filed_at": "2026-10-08T22:07:33+05:30",
+        "lines": lines,
+    }
 
-    def fetch_document(url):
-        asked.append(url.rsplit("_", 2)[-2])
-        return documents.get(asked[-1])
 
-    quarters = FiledQuarters(normalise_index(filings), fetch_document=fetch_document)
-    quarters.asked = asked
-    return quarters
+def quarter(period, revenue, pbt, interest, depreciation, profit, eps, **extra):
+    return stored(
+        "AAA", period, revenue=revenue, pbt=pbt, interest=interest,
+        depreciation=depreciation, net_profit=profit, eps=eps,
+        operating_profit=pbt + interest + depreciation, **extra,
+    )
 
 
-# Vendor through June; the company has since filed September.
-VENDOR = {
-    "revenue": [900, 1000],
-    "operating_profit": [190, 215],
-    "pbt": [170, 200],
-    "interest": [5, 5],
-    "depreciation": [15, 10],
-    "net_profit": [120, 150],
-    "eps": [1.2, 1.5],
-}
-JUNE = document(
-    revenue=1000, pbt=200, interest=5, depreciation=10, profit=155,
-    owners_profit=150, eps=1.5,
+# Vendor through June; the company has filed June and September.
+VENDOR = statement(
+    ["2026-03-31", "2026-06-30"],
+    revenue=[900, 1000],
+    operating_profit=[190, 215],
+    pbt=[170, 200],
+    interest=[5, 5],
+    depreciation=[15, 10],
+    net_profit=[120, 150],
+    eps=[1.2, 1.5],
 )
-SEPTEMBER = document(
-    revenue=1100, pbt=230, interest=6, depreciation=11, profit=176,
-    owners_profit=170, eps=1.7,
-)
+JUNE = quarter("2026-06-30", 1000, 200, 5, 10, 150, 1.5)
+SEPTEMBER = quarter("2026-09-30", 1100, 230, 6, 11, 170, 1.7)
 
 
-class FiledQuarterTests(unittest.TestCase):
-    def test_a_filed_quarter_the_vendor_lacks_is_added(self):
-        quarters = filed_quarters(
-            [filing("AAA", "30-JUN-2026", 1), filing("AAA", "30-SEP-2026", 2)],
-            {"1": JUNE, "2": SEPTEMBER},
-        )
-        extended = quarters.extend(
-            "AAA", statement(["2026-03-31", "2026-06-30"], **VENDOR)
-        )
-        self.assertEqual(
-            extended["periods"], ["2026-03-31", "2026-06-30", "2026-09-30"]
-        )
-        self.assertEqual(extended["filed_periods"], ["2026-09-30"])
-        rows = extended["rows"]
+class ComposeQuarterTests(unittest.TestCase):
+    def test_filed_quarters_are_drawn_from_the_filings(self):
+        composed = compose_quarters(VENDOR, [JUNE, SEPTEMBER])
+        self.assertEqual(composed["periods"], ["2026-03-31", "2026-06-30", "2026-09-30"])
+        self.assertEqual(composed["filed_periods"], ["2026-06-30", "2026-09-30"])
+        rows = composed["rows"]
         self.assertEqual(rows["revenue"], [900, 1000, 1100])
         self.assertEqual(rows["pbt"], [170, 200, 230])
-        # Profit is the owners' share, as the vendor's net income is.
         self.assertEqual(rows["net_profit"], [120, 150, 170])
         self.assertEqual(rows["eps"], [1.2, 1.5, 1.7])
-        # Operating profit is profit before tax, interest and depreciation.
         self.assertEqual(rows["operating_profit"], [190, 215, 247])
         self.assertEqual(rows["expenses"], [710, 785, 853])
 
-    def test_a_hole_in_the_vendors_history_is_filled(self):
-        quarters = filed_quarters(
-            [filing("AAA", "30-JUN-2026", 1), filing("AAA", "31-MAR-2026", 3)],
-            {"1": JUNE, "3": document(revenue=950, pbt=180, interest=5, depreciation=12,
-                                      profit=130, eps=1.3)},
-        )
-        extended = quarters.extend(
-            "AAA", statement(["2025-12-31", "2026-06-30"], **VENDOR)
-        )
-        self.assertEqual(
-            extended["periods"], ["2025-12-31", "2026-03-31", "2026-06-30"]
-        )
-        self.assertEqual(extended["rows"]["revenue"], [900, 950, 1000])
-        # No owners' share was filed for that quarter: the period's profit.
-        self.assertEqual(extended["rows"]["net_profit"], [120, 130, 150])
+    def test_a_filed_quarter_replaces_the_vendors_figures_for_it(self):
+        # The vendor's June pretax profit counts the associates' share; the
+        # filing's does not. June is filed, so the filing's figure stands.
+        vendor = statement(VENDOR["periods"], **{**VENDOR["rows"], "pbt": [170, 212]})
+        composed = compose_quarters(vendor, [JUNE, SEPTEMBER])
+        self.assertEqual(composed["rows"]["pbt"][1:], [200, 230])
 
-    def test_a_line_that_means_something_else_at_the_vendor_stays_unreported(self):
-        # The vendor's operating profit leaves depreciation out, so the filed
-        # figure is not the same line and cannot sit beside it.
-        vendor = {**VENDOR, "operating_profit": [175, 205]}
-        quarters = filed_quarters(
-            [filing("AAA", "30-JUN-2026", 1), filing("AAA", "30-SEP-2026", 2)],
-            {"1": JUNE, "2": SEPTEMBER},
+    def test_a_vendor_line_that_means_something_else_is_left_out_of_its_quarters(self):
+        # A broker's revenue at the vendor is net of its fees: nothing like the
+        # filed figure, so it does not sit in the same row as the filings.
+        vendor = statement(
+            VENDOR["periods"],
+            **{**VENDOR["rows"], "revenue": [500, 560], "operating_profit": [190, 215]},
         )
-        extended = quarters.extend(
-            "AAA", statement(["2026-03-31", "2026-06-30"], **vendor)
-        )
-        self.assertEqual(extended["rows"]["revenue"], [900, 1000, 1100])
-        self.assertEqual(extended["rows"]["operating_profit"], [175, 205, None])
-        self.assertEqual(extended["rows"]["expenses"], [725, 795, None])
+        composed = compose_quarters(vendor, [JUNE, SEPTEMBER])
+        self.assertEqual(composed["rows"]["revenue"], [None, 1000, 1100])
+        # Lines that agree on June keep the vendor's March.
+        self.assertEqual(composed["rows"]["net_profit"], [120, 150, 170])
+        self.assertEqual(composed["rows"]["expenses"], [None, 785, 853])
 
-    def test_a_line_the_vendor_does_not_report_is_not_introduced(self):
-        vendor = {k: v for k, v in VENDOR.items() if k != "depreciation"}
-        quarters = filed_quarters(
-            [filing("AAA", "30-JUN-2026", 1), filing("AAA", "30-SEP-2026", 2)],
-            {"1": JUNE, "2": SEPTEMBER},
-        )
-        extended = quarters.extend(
-            "AAA", statement(["2026-03-31", "2026-06-30"], **vendor)
-        )
-        self.assertNotIn("depreciation", extended["rows"])
+    def test_a_quarter_with_no_filing_keeps_the_vendors_figures(self):
+        # The exchange's index has no March filing; the vendor has March.
+        composed = compose_quarters(VENDOR, [JUNE, SEPTEMBER])
+        self.assertNotIn("2026-03-31", composed["filed_periods"])
+        self.assertEqual(composed["rows"]["revenue"][0], 900)
+        self.assertEqual(composed["rows"]["operating_profit"][0], 190)
+        # And a vendor quarter between two filed ones fills the gap.
+        march = quarter("2026-03-31", 900, 170, 5, 15, 120, 1.2)
+        gap = compose_quarters(VENDOR, [march, SEPTEMBER])
+        self.assertEqual(gap["periods"], ["2026-03-31", "2026-06-30", "2026-09-30"])
+        self.assertEqual(gap["filed_periods"], ["2026-03-31", "2026-09-30"])
+        self.assertEqual(gap["rows"]["revenue"], [900, 1000, 1100])
 
-    def test_the_basis_is_the_one_that_reproduces_the_vendors_revenue(self):
-        standalone = document(revenue=1000, pbt=200, interest=5, depreciation=10,
-                              profit=150, eps=1.5)
-        quarters = filed_quarters(
-            [
-                filing("AAA", "30-JUN-2026", 1, consolidated=True),
-                filing("AAA", "30-JUN-2026", 2, consolidated=False),
-                filing("AAA", "30-SEP-2026", 3, consolidated=True),
-                filing("AAA", "30-SEP-2026", 4, consolidated=False),
-            ],
-            {
-                "1": document(revenue=4000, pbt=900, profit=700),
-                "2": standalone,
-                "3": document(revenue=4400, pbt=990, profit=770),
-                "4": document(revenue=1100, pbt=230, interest=6, depreciation=11,
-                              profit=170, eps=1.7),
-            },
-        )
-        extended = quarters.extend(
-            "AAA", statement(["2026-03-31", "2026-06-30"], **VENDOR)
-        )
-        self.assertEqual(extended["rows"]["revenue"], [900, 1000, 1100])
-        self.assertNotIn("3", quarters.asked)
+    def test_a_quarter_the_vendor_never_had_is_added(self):
+        composed = compose_quarters({"periods": [], "rows": {}}, [JUNE, SEPTEMBER])
+        self.assertEqual(composed["periods"], ["2026-06-30", "2026-09-30"])
+        self.assertEqual(composed["rows"]["revenue"], [1000, 1100])
 
-    def test_a_filing_that_cannot_be_reconciled_adds_nothing(self):
-        vendor = statement(["2026-03-31", "2026-06-30"], **VENDOR)
-        quarters = filed_quarters(
-            [filing("AAA", "30-JUN-2026", 1), filing("AAA", "30-SEP-2026", 2)],
-            {"1": document(revenue=1200, pbt=200, profit=150), "2": SEPTEMBER},
+    def test_one_basis_consolidated_where_the_latest_quarter_was_filed_so(self):
+        standalone_june = stored("AAA", "2026-06-30", consolidated=False, revenue=600,
+                                 net_profit=80)
+        standalone_sept = stored("AAA", "2026-09-30", consolidated=False, revenue=650,
+                                 net_profit=90)
+        composed = compose_quarters(
+            VENDOR, [standalone_june, standalone_sept, JUNE, SEPTEMBER]
         )
-        self.assertIs(quarters.extend("AAA", vendor), vendor)
+        self.assertEqual(composed["rows"]["revenue"], [900, 1000, 1100])
+        # A company that files standalone alone is drawn standalone.
+        only = compose_quarters({"periods": [], "rows": {}}, [standalone_june, standalone_sept])
+        self.assertEqual(only["rows"]["revenue"], [600, 650])
 
-    def test_nothing_is_added_without_a_quarter_both_sources_have(self):
-        vendor = statement(["2025-12-31", "2026-03-31"], **VENDOR)
-        quarters = filed_quarters(
-            [filing("AAA", "30-SEP-2026", 2)], {"2": SEPTEMBER}
+    def test_a_filing_that_parsed_to_nothing_is_not_a_quarter(self):
+        empty = stored("AAA", "2026-09-30", revenue=None, net_profit=None)
+        composed = compose_quarters(VENDOR, [JUNE, empty])
+        self.assertEqual(composed["periods"], ["2026-03-31", "2026-06-30"])
+
+    def test_no_filings_leaves_the_vendors_statement_as_it_was(self):
+        self.assertIs(compose_quarters(VENDOR, []), VENDOR)
+
+    def test_an_unreported_line_stays_null_not_zero(self):
+        composed = compose_quarters(
+            VENDOR, [JUNE, stored("AAA", "2026-09-30", revenue=1100, net_profit=170)]
         )
-        self.assertIs(quarters.extend("AAA", vendor), vendor)
-        self.assertEqual(quarters.asked, [])
+        self.assertIsNone(composed["rows"]["pbt"][-1])
+        self.assertIsNone(composed["rows"]["expenses"][-1])
 
-    def test_a_company_with_nothing_new_filed_costs_no_request(self):
-        vendor = statement(["2026-03-31", "2026-06-30"], **VENDOR)
-        quarters = filed_quarters([filing("AAA", "30-JUN-2026", 1)], {"1": JUNE})
-        self.assertIs(quarters.extend("AAA", vendor), vendor)
-        self.assertIs(quarters.extend("BBB", vendor), vendor)
-        self.assertEqual(quarters.asked, [])
-
-    def test_a_document_that_cannot_be_fetched_adds_nothing(self):
-        vendor = statement(["2026-03-31", "2026-06-30"], **VENDOR)
-        quarters = filed_quarters(
-            [filing("AAA", "30-JUN-2026", 1), filing("AAA", "30-SEP-2026", 2)],
-            {"1": JUNE},
-        )
-        self.assertIs(quarters.extend("AAA", vendor), vendor)
-
-    def test_a_taxonomy_that_is_not_read_is_never_due_or_added(self):
-        quarters = filed_quarters(
-            [filing("AAA", "30-SEP-2026", 2, taxonomy="BANKING")], {"2": SEPTEMBER}
-        )
-        self.assertEqual(quarters.latest(), {})
+    def test_the_table_keeps_the_latest_three_years(self):
+        periods = pd.date_range("2022-03-31", periods=16, freq="QE").date
+        filings = [stored("AAA", p.isoformat(), revenue=100 + i, net_profit=10)
+                   for i, p in enumerate(periods)]
+        composed = compose_quarters({"periods": [], "rows": {}}, filings)
+        self.assertEqual(len(composed["periods"]), MAX_QUARTERS)
+        self.assertEqual(composed["periods"][-1], periods[-1].isoformat())
 
     def test_an_empty_owners_share_falls_back_to_the_periods_profit(self):
         lines = parse_quarter_statement(document(revenue=10, profit=3, owners_profit=0))
@@ -487,25 +433,86 @@ class FiledQuarterTests(unittest.TestCase):
         self.assertIsNone(lines["operating_profit"])
 
 
-class FiledQuarterSelectionTests(unittest.TestCase):
-    today = date(2026, 10, 12)
-    state = {
-        "FILED": {"fetched_at": "2026-10-09T00:00:00+00:00", "latest_quarter": "2026-06-30"},
-        "TODAY": {"fetched_at": "2026-10-12T03:00:00+00:00", "latest_quarter": "2026-06-30"},
-        "CURRENT": {"fetched_at": "2026-10-09T00:00:00+00:00", "latest_quarter": "2026-09-30"},
-        "NOQUARTERS": {"fetched_at": "2026-10-09T00:00:00+00:00", "latest_quarter": None},
-        "OLD": {"fetched_at": "2026-08-01T00:00:00+00:00", "latest_quarter": "2026-06-30"},
-    }
-    filed = {symbol: date(2026, 9, 30) for symbol in ("FILED", "TODAY", "CURRENT", "NOQUARTERS")}
+class StoredPayloadTests(unittest.TestCase):
+    def payload(self):
+        return {
+            "statements": {"annual": {}, "quarterly": {"income": VENDOR}},
+            "has_data": True,
+            "latest_quarter": "2026-06-30",
+        }
 
-    def test_a_filing_ahead_of_the_stored_quarter_is_due_and_goes_first(self):
-        due = select_due(list(self.state), self.state, self.today, filed_latest=self.filed)
-        # TODAY was already tried today; CURRENT has the quarter; NOQUARTERS has
-        # no vendor history to reconcile a filing against.
-        self.assertEqual(due, ["FILED", "OLD"])
+    def test_the_vendors_quarters_are_kept_beside_the_drawn_ones(self):
+        payload = self.payload()
+        self.assertTrue(apply_filings(payload, [JUNE, SEPTEMBER]))
+        quarterly = payload["statements"]["quarterly"]
+        self.assertEqual(quarterly["vendor_income"], VENDOR)
+        self.assertEqual(quarterly["income"]["filed_periods"], ["2026-06-30", "2026-09-30"])
+        self.assertEqual(payload["latest_quarter"], "2026-09-30")
+        # Drawn again from the stored payload, the result is the same.
+        again = {**payload, "statements": {**payload["statements"]}}
+        self.assertTrue(apply_filings(again, [JUNE, SEPTEMBER]))
+        self.assertEqual(again["statements"]["quarterly"], quarterly)
 
-    def test_without_a_filing_index_selection_is_unchanged(self):
-        self.assertEqual(select_due(list(self.state), self.state, self.today), ["OLD"])
+    def test_a_row_written_before_the_vendors_copy_was_kept_gives_it_back(self):
+        legacy = {
+            "income": {
+                "periods": ["2026-03-31", "2026-06-30", "2026-09-30"],
+                "rows": {"revenue": [900, 1000, 1100], "net_profit": [120, 150, 170],
+                         "operating_profit": [190, 215, None]},
+                "filed_periods": ["2026-09-30"],
+            }
+        }
+        vendor = vendor_quarters(legacy)
+        self.assertEqual(vendor["periods"], ["2026-03-31", "2026-06-30"])
+        self.assertEqual(vendor["rows"]["revenue"], [900, 1000])
+        self.assertEqual(vendor["rows"]["expenses"], [710, 785])
+
+    def test_no_filings_leaves_the_vendors_quarters_alone(self):
+        payload = self.payload()
+        self.assertFalse(apply_filings(payload, []))
+        self.assertEqual(payload["statements"]["quarterly"], {"income": VENDOR})
+        self.assertEqual(payload["latest_quarter"], "2026-06-30")
+
+
+class FilingRepository(FakeRepository):
+    def __init__(self, filings=None, rows=None):
+        super().__init__()
+        self.filings = filings or {}
+        self.rows = rows or []
+
+    def quarterly_filings(self, symbols):
+        return {s: self.filings[s] for s in symbols if s in self.filings}
+
+    def financial_statement_rows(self, symbols):
+        return [row for row in self.rows if row["symbol"] in symbols]
+
+
+class RecomposeTests(unittest.TestCase):
+    def test_a_stored_row_is_redrawn_without_asking_the_vendor(self):
+        row = {
+            "symbol": "AAA",
+            "statements": {"annual": {}, "quarterly": {"income": VENDOR}},
+            "has_data": True,
+            "currency": "INR",
+            "source": SOURCE,
+            "latest_annual": "2026-03-31",
+            "latest_quarter": "2026-06-30",
+            "fetched_at": "2026-10-01T03:00:00+00:00",
+        }
+        repo = FilingRepository({"AAA": [JUNE, SEPTEMBER]}, [row])
+        self.assertEqual(recompose_quarters(repo, ["AAA", "BBB"]), 1)
+        written = repo.written[0]
+        self.assertEqual(written["latest_quarter"], "2026-09-30")
+        self.assertEqual(written["source"], SOURCE_WITH_FILINGS)
+        # When the vendor was last asked is unchanged: its refresh is still due
+        # on its own schedule.
+        self.assertEqual(written["fetched_at"], "2026-10-01T03:00:00+00:00")
+        self.assertEqual(written["latest_annual"], "2026-03-31")
+
+    def test_dry_run_writes_nothing(self):
+        repo = FilingRepository({"AAA": [JUNE]}, [])
+        recompose_quarters(repo, ["AAA"], dry_run=True)
+        self.assertEqual(repo.written, [])
 
 
 class FiledTicker(FakeTicker):
@@ -518,52 +525,46 @@ class FiledTicker(FakeTicker):
 
 
 class FiledQuarterRunTests(unittest.TestCase):
-    def run_worker(self, quarters):
-        repo = FakeRepository()
+    def run_worker(self, repo):
         repo.latest_snapshot_symbols = lambda: ["AAA"]
         repo.financial_statement_state = lambda: {}
-        counts = run(
-            repo, ticker_factory=FiledTicker, pause_seconds=0,
-            today=date(2026, 10, 12), filed_quarters=quarters,
-        )
+        counts = run(repo, ticker_factory=FiledTicker, pause_seconds=0,
+                     today=date(2026, 10, 12))
         return counts, repo.written[0]
 
-    def test_the_stored_row_carries_the_filed_quarter_and_names_its_source(self):
-        quarters = filed_quarters(
-            [filing("AAA", "30-JUN-2026", 1), filing("AAA", "30-SEP-2026", 2)],
-            {"1": JUNE, "2": SEPTEMBER},
-        )
-        counts, row = self.run_worker(quarters)
+    def test_the_stored_row_draws_the_filed_quarters_and_names_its_source(self):
+        counts, row = self.run_worker(FilingRepository({"AAA": [JUNE, SEPTEMBER]}))
         income = row["statements"]["quarterly"]["income"]
-        self.assertEqual(income["periods"][-1], "2026-09-30")
+        self.assertEqual(income["periods"], ["2026-03-31", "2026-06-30", "2026-09-30"])
         self.assertEqual(income["rows"]["revenue"], [900, 1000, 1100])
-        self.assertEqual(income["filed_periods"], ["2026-09-30"])
         self.assertEqual(row["latest_quarter"], "2026-09-30")
         self.assertEqual(row["source"], SOURCE_WITH_FILINGS)
         self.assertEqual(counts["with_filed_quarters"], 1)
 
     def test_a_row_with_nothing_filed_is_the_vendors_alone(self):
-        counts, row = self.run_worker(filed_quarters([], {}))
+        counts, row = self.run_worker(FilingRepository())
         self.assertEqual(row["latest_quarter"], "2026-06-30")
         self.assertEqual(row["source"], SOURCE)
         self.assertNotIn("filed_periods", row["statements"]["quarterly"]["income"])
         self.assertEqual(counts["with_filed_quarters"], 0)
 
-    def test_a_market_with_no_filing_index_loads_none(self):
-        with mock.patch("screener.quarterly_results.fetch_index") as fetch_index:
-            self.assertIsNone(
-                load_filed_quarters(
-                    SimpleNamespace(quarterly_results_provider=None), date(2026, 10, 12)
-                )
-            )
-        fetch_index.assert_not_called()
+    def test_a_market_with_no_filing_index_never_reads_the_filings(self):
+        repo = FilingRepository()
+        repo.market = "US"
+        repo.quarterly_filings = lambda symbols: self.fail("no filings for this market")
+        _, row = self.run_worker(repo)
+        self.assertEqual(row["source"], SOURCE)
 
-    def test_an_unreadable_index_publishes_the_vendors_quarters_only(self):
-        profile = SimpleNamespace(quarterly_results_provider="nse_integrated_filings")
-        with mock.patch(
-            "screener.quarterly_results.fetch_index", side_effect=ConnectionError("blocked")
-        ), self.assertLogs("workers.financial_statements", level="WARNING"):
-            self.assertIsNone(load_filed_quarters(profile, date(2026, 10, 12)))
+    def test_unreadable_filings_publish_the_vendors_quarters_only(self):
+        repo = FilingRepository()
+
+        def missing(symbols):
+            raise RuntimeError("relation quarterly_filings does not exist")
+
+        repo.quarterly_filings = missing
+        with self.assertLogs("workers.financial_statements", level="WARNING"):
+            _, row = self.run_worker(repo)
+        self.assertEqual(row["latest_quarter"], "2026-06-30")
 
 
 if __name__ == "__main__":

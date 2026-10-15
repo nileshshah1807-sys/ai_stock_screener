@@ -9,9 +9,8 @@ old figure for a further week. Through every results season the growth block
 therefore ranks companies that have reported on the quarter before.
 
 NSE's integrated-filing index lists every results filing with the quarter it
-covers, its basis and a link to the figures as filed. This module reads that
-index, fetches the documents it needs, and measures the same two growth rates
-from them. The arithmetic is `backtest.fundamentals.QuarterPanel`, the rule the
+covers, its basis and a link to the figures as filed. This module reads the
+index and the documents, and measures the same two growth rates from them. The arithmetic is `backtest.fundamentals.QuarterPanel`, the rule the
 quarter inputs were validated under, so a live run and the backtest agree by
 construction on what "latest-quarter growth" means:
 
@@ -19,19 +18,20 @@ construction on what "latest-quarter growth" means:
 * earnings growth measured on profit, not on EPS;
 * a non-positive base quarter has no growth rate.
 
-Only two documents per company are ever needed -- the latest quarter and the
-one a year before it -- and a parsed document is cached by the exchange's own
-filing id, so after the first run the daily cost is the handful of companies
-that filed since the last one.
+The documents are fetched and parsed once, by `workers.quarterly_filings`,
+which runs through the evening as companies file and stores every filing in
+the ``quarterly_filings`` table. That table is also what the stock page's
+quarterly results are drawn from, so the screener and the page read the same
+figures. A run reads the table; it fetches nothing from the exchange.
 
 Every miss leaves the vendor's figure exactly as it was served:
 
-* an index that cannot be read is reported once and nothing is fetched; growth
-  is still measured from the documents already cached;
+* a store that cannot be read (or a run with no Supabase credentials, such as
+  a validation dispatch) is reported once and growth keeps the vendor's
+  figures throughout;
 * a company with no comparable pair of filings keeps the vendor's two figures;
 * a taxonomy this module does not read (see `SUPPORTED_TAXONOMIES`) keeps the
-  vendor's figures.
-
+  vendor's figures;
 * a company whose vendor figures already describe a later quarter than its
   filings do keeps them. The index is the exchange's, not a guarantee: a
   filing can be missing from it, or dated to the wrong year by the filer.
@@ -56,7 +56,6 @@ from backtest.xbrl import QUARTER_CONTEXT, extract_fact
 
 logger = logging.getLogger(__name__)
 
-CACHE_SCHEMA_VERSION = 1
 SOURCE_LABEL = "NSE integrated filings"
 
 INDEX_URL = "https://www.nseindia.com/api/integrated-filing-results"
@@ -142,7 +141,8 @@ INDEX_COLUMNS = (
     "Taxonomy",
     "XBRL_URL",
 )
-CACHE_COLUMNS = (
+# A stored filing as the growth arithmetic reads it (`facts_frame`).
+FACT_COLUMNS = (
     "Symbol",
     "Period_End",
     "Is_Consolidated",
@@ -151,8 +151,6 @@ CACHE_COLUMNS = (
     "Taxonomy",
     "Revenue",
     "PAT",
-    "Cached_Date",
-    "Schema_Version",
 )
 GROWTH_COLUMNS = (
     "Symbol",
@@ -162,16 +160,19 @@ GROWTH_COLUMNS = (
     "Quarter_Basis",
 )
 
+# Bumped whenever `parse_filing` would read a document differently. The
+# filings worker then reads every stored filing again, so a fix reaches the
+# whole history rather than only what is filed after it.
+PARSER_VERSION = 1
+
+# Growth needs the latest quarter and the one a year before it; the store is
+# read that far back beyond the age a quarter may have to count as current.
+FILING_HISTORY_DAYS = 400
+
 # The quarter the vendor's two growth figures describe, carried on the
 # fundamental record so a filing older than it is not preferred. Plumbing
 # only: `QuarterlyResultsCollector.enrich` removes it from the frame.
 VENDOR_QUARTER_COLUMN = "Vendor_Quarter_End"
-
-# A plan can only be as good as the documents turn out to be. One that parses
-# to nothing sends that company to its next-best pair; bounded so a run of bad
-# documents cannot keep a run fetching.
-MAX_PLAN_ROUNDS = 3
-
 
 def _parse_stamp(value):
     """NSE's timestamp shapes (``08-Oct-2026 22:07:33``, ``30-SEP-2026``)."""
@@ -338,47 +339,43 @@ def parse_quarter_statement(text):
     return lines
 
 
-def plan_documents(index, *, today, max_age_days, unusable=frozenset()):
-    """The filings each symbol's growth will be measured from.
 
-    Mirrors the choice `QuarterPanel` makes once the figures are in hand: per
-    basis, the newest quarter that has a filing a year before it; then the
-    newer of the two bases, consolidated on a tie. ``unusable`` names filings
-    already fetched and found to carry neither figure, which sends the symbol
-    to its next-best pair instead of asking for the same document again.
+def parse_filing(text):
+    """Everything stored from one results document.
 
-    Returns ``{symbol: (latest_row, year_ago_row)}``.
+    The income statement lines the stock page draws, plus ``pat``: profit as
+    the growth arithmetic measures it (continuing operations first, see
+    `FACT_TAGS`), which is not always the line the page calls net profit.
     """
-    if index is None or len(index) == 0:
-        return {}
-    oldest = today - timedelta(days=int(max_age_days))
-    usable = index[
-        index["Taxonomy"].isin(SUPPORTED_TAXONOMIES)
-        & ~index["Seq_Id"].isin(unusable)
-    ]
-    plan = {}
-    for symbol, group in usable.groupby("Symbol", sort=False):
-        best = None
-        for basis in (True, False):
-            rows = {
-                row["Period_End"]: row
-                for row in group[group["Is_Consolidated"] == basis].to_dict("records")
-            }
-            for period in sorted(rows, reverse=True):
-                if period < oldest:
-                    break
-                year_ago = rows.get(
-                    (pd.Timestamp(period) - pd.DateOffset(years=1)).date()
-                )
-                if year_ago is None:
-                    continue
-                if best is None or period > best[0]:
-                    best = (period, rows[period], year_ago)
-                break
-        if best is not None:
-            plan[symbol] = (best[1], best[2])
-    return plan
+    return {**parse_quarter_statement(text), "pat": parse_quarter_facts(text)["PAT"]}
 
+
+def facts_frame(rows, timezone):
+    """Stored filings (``workers.quarterly_filings``) as `quarter_growth` reads them.
+
+    ``Filed_On`` is the exchange's local date of the filing: a result filed
+    this evening is visible to this evening's run.
+    """
+    records = []
+    for row in rows or ():
+        filed = pd.Timestamp(row.get("filed_at"))
+        if pd.isna(filed):
+            continue
+        if filed.tzinfo is not None:
+            filed = filed.tz_convert(timezone)
+        records.append(
+            {
+                "Symbol": str(row.get("symbol") or "").strip().upper(),
+                "Period_End": pd.Timestamp(row.get("period_end")).date(),
+                "Is_Consolidated": bool(row.get("is_consolidated")),
+                "Seq_Id": str(row.get("seq_id") or ""),
+                "Filed_On": filed.date(),
+                "Taxonomy": str(row.get("taxonomy") or ""),
+                "Revenue": row.get("revenue"),
+                "PAT": row.get("pat"),
+            }
+        )
+    return pd.DataFrame(records, columns=list(FACT_COLUMNS))
 
 class DocumentFetcher:
     """Thread-pooled download of results documents from the exchange archive."""
@@ -475,206 +472,80 @@ def quarter_growth(facts, symbols, *, today, max_age_days):
 
 
 class QuarterlyResultsCollector:
-    """Overlay filing-derived quarter growth onto a merged research frame."""
+    """Overlay filing-derived quarter growth onto a merged research frame.
 
-    def __init__(
-        self,
-        config,
-        *,
-        provider=None,
-        index_loader=None,
-        document_fetcher=None,
-        clock=None,
-    ):
+    Reads the filings `workers.quarterly_filings` has already fetched and
+    parsed into the ``quarterly_filings`` table; nothing here asks the
+    exchange for anything. That worker runs through the evening as companies
+    file, so a run reads every result filed before it started.
+    """
+
+    def __init__(self, config, *, provider=None, filings_loader=None, clock=None):
         self.config = config
-        if provider is None:
-            from .markets import active_profile
+        from .markets import active_profile
 
-            provider = active_profile(config).quarterly_results_provider
+        self.profile = active_profile(config)
+        if provider is None:
+            provider = self.profile.quarterly_results_provider
         self.provider = provider
         self.enabled = bool(provider) and bool(
             getattr(config, "QUARTERLY_RESULTS_FILINGS_ENABLED", False)
         )
-        # Injectable so tests never touch the network.
-        self._index_loader = index_loader
-        self._document_fetcher = document_fetcher
+        # Injectable so tests never touch the store.
+        self._filings_loader = filings_loader
         self._clock = clock or (lambda: datetime.now())
         self.diagnostics = {"quarter_results_source_status": STATUS_DISABLED}
 
-    # -- configuration -----------------------------------------------------
-
-    def _setting(self, name, default):
-        return int(getattr(self.config, name, default))
-
     def _max_age_days(self):
-        return self._setting("QUARTERLY_RESULTS_MAX_AGE_DAYS", 200)
-
-    def _cache_path(self):
-        return self.config.OUTPUT_DIR / "quarterly_results_cache.csv"
+        return int(getattr(self.config, "QUARTERLY_RESULTS_MAX_AGE_DAYS", 200))
 
     def _today(self):
         return pd.Timestamp(self._clock()).date()
 
-    # -- cache -------------------------------------------------------------
+    def _load_filings(self, since):
+        if self._filings_loader is not None:
+            return self._filings_loader(since)
+        url = getattr(self.config, "SUPABASE_URL", "")
+        key = getattr(self.config, "SUPABASE_SERVICE_ROLE_KEY", "")
+        if not url or not key:
+            raise RuntimeError("the filing store is not configured (SUPABASE_URL)")
+        from storage.supabase_repository import SupabaseRepository
 
-    def _load_cache(self):
-        path = self._cache_path()
-        empty = pd.DataFrame(columns=list(CACHE_COLUMNS))
-        if not path.exists():
-            return empty
-        try:
-            cached = pd.read_csv(path, dtype={"Symbol": str, "Seq_Id": str})
-        except Exception as exc:
-            logger.warning("Quarterly results cache load failed: %s", exc)
-            return empty
-        if cached.empty or not set(CACHE_COLUMNS).issubset(cached.columns):
-            return empty
-        version = pd.to_numeric(cached["Schema_Version"], errors="coerce")
-        if not version.eq(CACHE_SCHEMA_VERSION).all():
-            logger.info("Quarterly results cache uses an older schema - rebuilding it")
-            return empty
-        cached["Is_Consolidated"] = (
-            cached["Is_Consolidated"].astype(str).str.lower().isin({"true", "1"})
+        repository = SupabaseRepository(
+            url,
+            key,
+            int(getattr(self.config, "SUPABASE_TIMEOUT_SECONDS", 30)),
+            read_only=bool(getattr(self.config, "SUPABASE_READ_ONLY", False)),
+            market=self.profile.code,
         )
-        return cached[list(CACHE_COLUMNS)]
+        return repository.quarterly_filing_facts(since)
 
-    def _save_cache(self, cache, today):
-        # Two quarters a year apart are all a symbol's growth needs; anything
-        # older than that pair can no longer be either of them.
-        horizon = today - timedelta(days=self._max_age_days() + 400)
-        periods = pd.to_datetime(cache["Period_End"], errors="coerce")
-        kept = cache[periods >= pd.Timestamp(horizon)]
+    def _facts(self, today):
+        """The stored filings, or None when the store cannot be read."""
+        since = today - timedelta(days=self._max_age_days() + FILING_HISTORY_DAYS)
         try:
-            self._cache_path().parent.mkdir(parents=True, exist_ok=True)
-            kept.to_csv(self._cache_path(), index=False)
-            logger.info(
-                "Quarterly results cache saved (%d filings) -> %s",
-                len(kept),
-                self._cache_path(),
-            )
-        except Exception as exc:
-            logger.warning("Quarterly results cache save failed: %s", exc)
-
-    # -- collection --------------------------------------------------------
-
-    def _load_index(self, today):
-        lookback = self._setting("QUARTERLY_RESULTS_INDEX_LOOKBACK_DAYS", 600)
-        start = today - timedelta(days=lookback)
-        if self._index_loader is not None:
-            return self._index_loader(start, today)
-        return fetch_index(
-            start,
-            today,
-            timeout=self._setting("QUARTERLY_RESULTS_TIMEOUT_SECONDS", 60),
-        )
-
-    def _fetcher(self):
-        if self._document_fetcher is None:
-            self._document_fetcher = DocumentFetcher(
-                workers=self._setting("QUARTERLY_RESULTS_FETCH_WORKERS", 6),
-                timeout=self._setting("QUARTERLY_RESULTS_TIMEOUT_SECONDS", 60),
-            )
-        return self._document_fetcher
-
-    def _refresh(self, cache, symbols, today):
-        """Fetch what the index says is missing; return the updated cache."""
-        try:
-            index = self._load_index(today)
+            rows = self._load_filings(since)
         except Exception as exc:  # an overlay must never be why a run dies
             logger.warning(
-                "Quarterly results index (%s) unavailable; growth is measured "
-                "from the filings already cached and the vendor's figures "
-                "otherwise: %s",
+                "Stored results filings (%s) unavailable; growth keeps the "
+                "vendor's figures this run: %s",
                 self.provider,
                 exc,
             )
             self.diagnostics["quarter_results_source_status"] = STATUS_UNAVAILABLE
-            return cache
-        self.diagnostics["quarter_results_source_status"] = STATUS_OK
-
-        index = index[index["Symbol"].isin(set(symbols))]
-        budget = self._setting("QUARTERLY_RESULTS_MAX_DOCUMENTS_PER_RUN", 6000)
-        priority = {symbol: position for position, symbol in enumerate(symbols)}
-        today_text = today.isoformat()
-        fetched = failed = deferred = 0
-        asked = set()
-
-        for _round in range(MAX_PLAN_ROUNDS):
-            known = set(cache["Seq_Id"].astype(str))
-            empty = cache["Revenue"].isna() & cache["PAT"].isna()
-            plan = plan_documents(
-                index,
-                today=today,
-                max_age_days=self._max_age_days(),
-                unusable=frozenset(cache.loc[empty, "Seq_Id"].astype(str)),
-            )
-            # Caller order is a priority order: a capped cold build covers
-            # the most investable names first.
-            needed = {}
-            for symbol in sorted(plan, key=priority.get):
-                for row in plan[symbol]:
-                    seq_id = row["Seq_Id"]
-                    if seq_id not in known and seq_id not in asked:
-                        needed.setdefault(seq_id, row)
-            rows = list(needed.values())
-            room = max(0, budget - len(asked))
-            deferred = max(0, len(rows) - room)
-            rows = rows[:room]
-            if not rows:
-                break
-            logger.info("Quarterly results: fetching %d filing document(s)", len(rows))
-            asked.update(row["Seq_Id"] for row in rows)
-            texts = self._fetcher().fetch_many([row["XBRL_URL"] for row in rows])
-            records = []
-            for row, text in zip(rows, texts, strict=True):
-                if text is None:
-                    # Not cached, so the next run asks again.
-                    failed += 1
-                    continue
-                facts = parse_quarter_facts(text)
-                fetched += 1
-                records.append(
-                    {
-                        "Symbol": row["Symbol"],
-                        "Period_End": row["Period_End"].isoformat(),
-                        "Is_Consolidated": bool(row["Is_Consolidated"]),
-                        "Seq_Id": row["Seq_Id"],
-                        "Filed_On": row["Filed_At"].date().isoformat(),
-                        "Taxonomy": row["Taxonomy"],
-                        "Revenue": facts["Revenue"],
-                        "PAT": facts["PAT"],
-                        "Cached_Date": today_text,
-                        "Schema_Version": CACHE_SCHEMA_VERSION,
-                    }
-                )
-            if not records:
-                break
-            new = pd.DataFrame(records, columns=list(CACHE_COLUMNS))
-            # A revision replaces the filing it revises.
-            cache = pd.concat(
-                [frame for frame in (cache, new) if not frame.empty],
-                ignore_index=True,
-            ).drop_duplicates(
-                subset=["Symbol", "Period_End", "Is_Consolidated"], keep="last"
-            )
-
+            return None
+        facts = facts_frame(rows, self.profile.timezone)
+        latest = facts["Filed_On"].max() if len(facts) else None
         self.diagnostics.update(
             {
-                "quarter_results_documents_fetched": fetched,
-                "quarter_results_documents_failed": failed,
-                "quarter_results_documents_deferred": deferred,
+                "quarter_results_source_status": STATUS_OK,
+                "quarter_results_filings_read": int(len(facts)),
+                "quarter_results_latest_filed_on": (
+                    latest.isoformat() if latest is not None else None
+                ),
             }
         )
-        if failed or deferred:
-            logger.warning(
-                "Quarterly results: %d document(s) failed and %d are deferred "
-                "to the next run; those companies keep their previous figures",
-                failed,
-                deferred,
-            )
-        if fetched:
-            self._save_cache(cache, today)
-        return cache
+        return facts
 
     def collect(self, symbols):
         """Filing-derived growth for ``symbols`` (a priority-ordered list)."""
@@ -684,9 +555,8 @@ class QuarterlyResultsCollector:
         if not self.enabled or not wanted:
             return pd.DataFrame(columns=list(GROWTH_COLUMNS))
         today = self._today()
-        cache = self._refresh(self._load_cache(), wanted, today)
         return quarter_growth(
-            cache, wanted, today=today, max_age_days=self._max_age_days()
+            self._facts(today), wanted, today=today, max_age_days=self._max_age_days()
         )
 
     def enrich(self, frame):
