@@ -58,6 +58,7 @@ from sentiment.outlook import (  # noqa: E402
     MAX_PRICE_PER_MILLION,
     OUTLOOK_VERSION,
     STANCES,
+    QuotaSpentError,
     analyse_stance,
     analyse_transcript,
 )
@@ -132,11 +133,17 @@ class Budget:
     def __init__(self, limit):
         self.limit = float(limit)
         self.spent = 0.0
+        self.stopped = False
         self._lock = threading.Lock()
 
     def exhausted(self):
         with self._lock:
-            return self.spent >= self.limit
+            return self.stopped or self.spent >= self.limit
+
+    def stop(self):
+        """No more requests: the provider will serve none this period."""
+        with self._lock:
+            self.stopped = True
 
     def add(self, cost):
         with self._lock:
@@ -191,6 +198,14 @@ def run(repository, transcripts, provider, *, workers, budget, stance_only=False
                         summary["skipped_no_outlook"] += 1
             elif write:
                 repository.save_outlook(row)
+        except QuotaSpentError as exc:
+            # Every later request would be refused the same way: stop
+            # submitting, and leave the rest for the next period.
+            budget.stop()
+            with lock:
+                summary["skipped_budget"] += 1
+            logger.warning("%s %s not read, allowance spent: %s", transcript.get("symbol"), transcript.get("call_date"), exc)
+            return
         except Exception as exc:  # noqa: BLE001 - one bad call must not stop the run
             # An unusable reply was still billed, and must count toward the cap.
             budget.add(getattr(exc, "cost_usd", 0.0))

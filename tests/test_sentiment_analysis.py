@@ -720,6 +720,25 @@ class OutlookRunTests(unittest.TestCase):
         # BBB's newest call is done; its older one is not picked up in its place.
         self.assertEqual([row["id"] for row in latest], ["a2"])
 
+    def test_a_spent_allowance_stops_the_run_and_leaves_the_rest_unread(self):
+        from sentiment.outlook import QuotaSpentError
+
+        calls = []
+
+        def analyse(session, provider, transcript, text):
+            calls.append(transcript["id"])
+            if len(calls) > 1:
+                raise QuotaSpentError("weekly allowance spent")
+            return {"transcript_id": transcript["id"], "cost_usd": 0.0, "verified_fields": 0, "unverified_fields": 0}
+
+        repository, saved = self.repository({})
+        transcripts = [{"id": f"t{index}", "cleaned_text": "text"} for index in range(4)]
+        with patch.object(self.tool, "analyse_transcript", analyse):
+            summary = self.tool.run(repository, transcripts, "provider", workers=1, budget=self.tool.Budget(1.0))
+        self.assertEqual(calls, ["t0", "t1"])
+        self.assertEqual((summary["extracted"], summary["failed"], summary["skipped_budget"]), (1, 0, 3))
+        self.assertEqual(len(saved), 1)
+
     def test_text_is_restored_from_storage_and_the_row_saved(self):
         repository, saved = self.repository({"t1": "archived call text"})
         with patch.object(self.tool, "analyse_transcript", self.fake_analyse(0.002)):
