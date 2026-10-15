@@ -6,6 +6,7 @@ its quarters from the vendor and only reconciled a filing against it, showed
 nothing for that quarter.
 """
 
+import json
 import re
 import unittest
 from datetime import date
@@ -136,6 +137,16 @@ class StoreTests(FilingsRun):
         # What the Results page shows and links to.
         self.assertEqual(row["company"], "AAA Limited")
         self.assertEqual(row["viewer_url"], f"{ARCHIVE}/INTEGRATED_FILING_INDAS_2_iXBRL_WEB.html")
+
+    def test_a_filing_without_a_name_or_rendering_beside_one_with_them_is_written(self):
+        # One row with both fields and one without: pandas would give the
+        # second NaN, which no JSON body can carry.
+        bare = {**self.RECORDS[1], "cmName": None, "ixbrl": None}
+        _, repo, _, _ = self.run_worker([self.RECORDS[0], bare], self.DOCUMENTS)
+        row = next(r for r in repo.upserted if not r["is_consolidated"])
+        self.assertIsNone(row["company"])
+        self.assertIsNone(row["viewer_url"])
+        json.dumps(repo.upserted, allow_nan=False)
 
     def test_an_absent_rendering_is_stored_as_none_not_as_the_archive_folder(self):
         records = [{**self.RECORDS[0], "ixbrl": "https://archive.example/corporate/null"}]
