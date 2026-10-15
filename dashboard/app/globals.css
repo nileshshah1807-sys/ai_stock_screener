@@ -854,6 +854,22 @@
       var(--duration-fast);
     transition-timing-function: ease-out;
   }
+
+  /* A sort, page or filter change is in flight (components/nav-pending.tsx).
+     The rows dim on the frame the control is used, rather than sitting
+     unchanged for the server round trip; the new rows replace them at full
+     opacity. Opacity only, so nothing reflows while the reader waits. */
+  [data-screener] [data-screener-rows] {
+    transition: opacity var(--duration-fast) var(--ease-standard);
+  }
+
+  [data-screener]:has([data-nav-pending]) [data-screener-rows] {
+    opacity: 0.45;
+  }
+
+  [data-screener]:has([data-nav-pending]) {
+    cursor: progress;
+  }
 }
 
 /*

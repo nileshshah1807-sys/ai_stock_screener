@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 
+import { LinkPending } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
 
 /**
@@ -73,6 +74,7 @@ export function SortHeader({
         )}
       >
         {label}
+        <LinkPending />
         {/*
           The icon swaps element between states, so the direction change itself
           cannot be tweened. What is animated is the affordance: an unsorted

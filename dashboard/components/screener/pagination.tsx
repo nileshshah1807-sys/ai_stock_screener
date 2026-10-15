@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+import { LinkPending } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
 import { formatInteger } from "@/lib/format";
 
@@ -59,6 +60,7 @@ export function Pagination({
           >
             <ChevronLeft className="size-3.5" aria-hidden />
             Previous
+            <LinkPending />
           </Link>
         ) : (
           <span className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-muted-foreground/50">
@@ -83,6 +85,7 @@ export function Pagination({
           >
             Next
             <ChevronRight className="size-3.5" aria-hidden />
+            <LinkPending />
           </Link>
         ) : (
           <span className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-muted-foreground/50">

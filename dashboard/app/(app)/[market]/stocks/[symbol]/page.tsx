@@ -169,28 +169,60 @@ export default async function StockPage({
   // way. See lib/symbol.mjs.
   const symbol = decodeSymbolParam(rawSymbol);
 
-  const run = await getLatestRun(market.code);
-  if (!run) notFound();
-
-  // The price series, its calendar and the statements are independent of the
-  // snapshot, so every read goes out together rather than adding round trips.
+  // Every read starts now, and each waits only on what it actually needs: the
+  // snapshot row on the run date, the chart's tail on the base series' last
+  // session. Everything else is independent of both. Awaited in stages, this
+  // was four round trips end to end (~1.2s measured); started together the
+  // longest chain is two.
+  //
   // Statements are fetched on every view, not only when the Financials tab is
   // asked for: they are one small row, and having them in hand is what makes
   // the tab switch instant instead of a server round trip.
-  const [row, history, priceSeries, sessions, financials] = await Promise.all([
-    getStock(market.code, run.run_date, symbol),
+  //
+  // The viewer's own lists, and which of them already hold this symbol, are
+  // needed to render the Watch control's initial checked state, so they are
+  // fetched here rather than by the client on open -- a popover that opens
+  // empty and then fills in is worse than one that opens correct. The
+  // company's newest call rides along: one row, and "What management said"
+  // reads it when it is newer than the call this run scored. On a new listing
+  // these three go unused; that is three small reads on a rare page, against a
+  // round trip on every scored one.
+  const runRead = getLatestRun(market.code);
+  const rowRead = runRead.then((run) =>
+    run ? getStock(market.code, run.run_date, symbol) : null,
+  );
+  const seriesRead = getPriceSeries(market.code, symbol);
+  // Sessions since the base series was last rebuilt. The cutoff is the base's
+  // own last_session; with no base there is nothing to append to, and the
+  // daily rows alone would draw an unadjusted stub.
+  const tailRead = seriesRead.then((series) =>
+    series ? getPriceTail(market.code, symbol, series.last_session) : [],
+  );
+
+  const [
+    run,
+    row,
+    history,
+    priceSeries,
+    priceTail,
+    sessions,
+    financials,
+    watchlists,
+    watchlistMembership,
+    latestCall,
+  ] = await Promise.all([
+    runRead,
+    rowRead,
     getStockHistory(market.code, symbol),
-    getPriceSeries(market.code, symbol),
+    seriesRead,
+    tailRead,
     getPriceCalendar(market.code),
     getFinancialStatements(market.code, symbol),
+    getWatchlists(market.code),
+    getWatchlistMembership(market.code, symbol),
+    getLatestConcall(market.code, symbol),
   ]);
-
-  // Sessions since the base series was last rebuilt. Fetched after it because
-  // the cutoff is the base's own last_session; with no base there is nothing to
-  // append to, and the daily rows alone would draw an unadjusted stub.
-  const priceTail = priceSeries
-    ? await getPriceTail(market.code, symbol, priceSeries.last_session)
-    : [];
+  if (!run) notFound();
 
   if (!row) {
     // Not in the scored universe. A recent listing still gets a page -- its
@@ -210,18 +242,6 @@ export default async function StockPage({
       />
     );
   }
-
-  // The viewer's own lists, and which of them already hold this symbol. Both are
-  // needed to render the Watch control's initial checked state, so they are
-  // fetched here rather than by the client on open -- a popover that opens empty
-  // and then fills in is worse than one that opens correct.
-  // The company's newest call rides along: one row, and "What management
-  // said" reads it when it is newer than the call this run scored.
-  const [watchlists, watchlistMembership, latestCall] = await Promise.all([
-    getWatchlists(market.code),
-    getWatchlistMembership(market.code, symbol),
-    getLatestConcall(market.code, symbol),
-  ]);
 
   // Last completed session's move. Now that the model publishes it, the row is
   // the source: it puts this tile on the same number the screener grid's 1D

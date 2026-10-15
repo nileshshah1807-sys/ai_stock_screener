@@ -20,6 +20,7 @@ import {
   type ColumnId,
   type Density,
 } from "@/lib/columns";
+import { PendingMarker } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
 
 const DENSITIES: ReadonlyArray<{ value: Density; label: string }> = [
@@ -45,7 +46,7 @@ export function ViewOptions({ factorModel = false }: { factorModel?: boolean }) 
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
 
   const hidden = new Set<ColumnId>(
     parseHiddenColumns(searchParams.get("cols") ?? undefined),
@@ -107,86 +108,89 @@ export function ViewOptions({ factorModel = false }: { factorModel?: boolean }) 
   ).length;
 
   return (
-    <Popover>
-      <PopoverTrigger render={<Button variant="outline" className="gap-1.5" />}>
-        <Columns3 className="size-3.5" aria-hidden />
-        <span className="hidden sm:inline">Columns</span>
-        {/* Only once the reader has changed the columns: the default view hides
-            four audit columns, and a permanent "4" would read as a problem. */}
-        {searchParams.has("cols") && hiddenCount ? (
-          <span className="tabular ml-0.5 rounded bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
-            {hiddenCount}
-          </span>
-        ) : null}
-      </PopoverTrigger>
-
-      <PopoverContent align="end" className="w-72">
-        <div className="space-y-4">
-          <fieldset>
-            <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Visible columns
-            </legend>
-            <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
-              {columns.map((column) => (
-                <div key={column.id} className="flex items-center gap-2">
-                  <Checkbox
-                    id={`column-${column.id}`}
-                    checked={!hidden.has(column.id)}
-                    onCheckedChange={() => toggleColumn(column.id)}
-                  />
-                  <Label
-                    htmlFor={`column-${column.id}`}
-                    className="cursor-pointer text-sm font-normal"
-                  >
-                    {column.label}
-                  </Label>
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-              Rank, Stock and Score always show. Hiding a column also drops it
-              from the query, so a narrower grid is a lighter one.
-            </p>
-          </fieldset>
-
-          <fieldset>
-            <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Row density
-            </legend>
-            <div
-              className="flex gap-1"
-              role="group"
-              aria-label="Row density"
-            >
-              {DENSITIES.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={density === option.value}
-                  onClick={() => setDensity(option.value)}
-                  className={cn(
-                    "inline-flex h-8 flex-1 items-center justify-center rounded-full border text-xs font-medium",
-                    "transition-colors duration-(--duration-fast) ease-(--ease-standard)",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    density === option.value
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
-                  )}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          {searchParams.has("cols") || density !== "compact" ? (
-            <Button variant="ghost" className="h-8 w-full gap-1.5 text-xs" onClick={reset}>
-              <RotateCcw className="size-3" aria-hidden />
-              Reset to defaults
-            </Button>
+    <>
+      <PendingMarker pending={pending} />
+      <Popover>
+        <PopoverTrigger render={<Button variant="outline" className="gap-1.5" />}>
+          <Columns3 className="size-3.5" aria-hidden />
+          <span className="hidden sm:inline">Columns</span>
+          {/* Only once the reader has changed the columns: the default view hides
+              four audit columns, and a permanent "4" would read as a problem. */}
+          {searchParams.has("cols") && hiddenCount ? (
+            <span className="tabular ml-0.5 rounded bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+              {hiddenCount}
+            </span>
           ) : null}
-        </div>
-      </PopoverContent>
-    </Popover>
+        </PopoverTrigger>
+  
+        <PopoverContent align="end" className="w-72">
+          <div className="space-y-4">
+            <fieldset>
+              <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Visible columns
+              </legend>
+              <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+                {columns.map((column) => (
+                  <div key={column.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`column-${column.id}`}
+                      checked={!hidden.has(column.id)}
+                      onCheckedChange={() => toggleColumn(column.id)}
+                    />
+                    <Label
+                      htmlFor={`column-${column.id}`}
+                      className="cursor-pointer text-sm font-normal"
+                    >
+                      {column.label}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+                Rank, Stock and Score always show. Hiding a column also drops it
+                from the query, so a narrower grid is a lighter one.
+              </p>
+            </fieldset>
+  
+            <fieldset>
+              <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Row density
+              </legend>
+              <div
+                className="flex gap-1"
+                role="group"
+                aria-label="Row density"
+              >
+                {DENSITIES.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={density === option.value}
+                    onClick={() => setDensity(option.value)}
+                    className={cn(
+                      "inline-flex h-8 flex-1 items-center justify-center rounded-full border text-xs font-medium",
+                      "transition-colors duration-(--duration-fast) ease-(--ease-standard)",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      density === option.value
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+  
+            {searchParams.has("cols") || density !== "compact" ? (
+              <Button variant="ghost" className="h-8 w-full gap-1.5 text-xs" onClick={reset}>
+                <RotateCcw className="size-3" aria-hidden />
+                Reset to defaults
+              </Button>
+            ) : null}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }
