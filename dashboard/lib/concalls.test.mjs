@@ -12,7 +12,7 @@ import {
   stanceLabel,
 } from "./concalls.mjs";
 
-test("management's stance is the word the outlook step chose, with its sentence", () => {
+test("management's stance is the outlook score's band, with its sentence", () => {
   assert.deepEqual(stanceLabel("optimistic", " We expect a strong second half. "), {
     label: "Optimistic",
     tone: "positive",

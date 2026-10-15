@@ -94,40 +94,6 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
         self.assertNotIn("structured_output", requested_selects[1])
         self.assertNotIn("structured_output", requested_selects[2])
 
-    def test_a_stance_is_replaced_inside_the_stored_outlook(self):
-        repository = SupabaseRepository("https://example.test", "service-role-key")
-        calls = []
-        stored = {"demand": {"tone": "weak", "quote": "Demand is soft."}, "stance": {"view": "optimistic"}}
-
-        def request(method, path, **kwargs):
-            calls.append((method, path, kwargs))
-            return [{"extraction": stored}] if method == "GET" else None
-
-        repository._request = request
-        stance = {"view": "cautious", "quote": "Demand is soft.", "concern": "Demand is soft."}
-
-        self.assertTrue(repository.save_outlook_stance("t1", "m", "outlook-v1", stance))
-
-        method, path, kwargs = calls[1]
-        self.assertEqual(method, "PATCH")
-        self.assertIn("transcript_id=eq.t1&model_name=eq.m&analysis_version=eq.outlook-v1", path)
-        # Only the extraction is sent, and only its stance differs: the score
-        # and the counts the screener reads are not in the request.
-        self.assertEqual(kwargs["json"], {"extraction": stored | {"stance": stance}})
-
-    def test_a_stance_is_not_written_where_no_outlook_is_stored(self):
-        repository = SupabaseRepository("https://example.test", "service-role-key")
-        calls = []
-
-        def request(method, path, **kwargs):
-            calls.append(method)
-            return []
-
-        repository._request = request
-
-        self.assertFalse(repository.save_outlook_stance("t1", "m", "outlook-v1", {"view": "cautious"}))
-        self.assertEqual(calls, ["GET"])
-
     def test_latest_outlooks_keeps_the_newest_call_of_each_symbol(self):
         repository = SupabaseRepository("https://example.test", "service-role-key")
         calls = []

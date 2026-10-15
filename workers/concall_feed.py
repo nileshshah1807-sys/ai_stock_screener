@@ -30,7 +30,7 @@ from typing import Any
 
 from scoring.transcript_enricher import _outlook_breakdown
 from screener.numeric import round_half_up, safe_float
-from sentiment.outlook import OUTLOOK_VERSION, STANCES, compare_outlooks, outlook_items
+from sentiment.outlook import OUTLOOK_VERSION, compare_outlooks, outlook_items, stance_from_score
 from storage.supabase_repository import PREVIOUS_CALL_MIN_GAP_DAYS
 from transcripts.periods import reporting_period_end_for_call
 from transcripts.recordings import SPEECH_METHOD_PREFIX
@@ -110,17 +110,32 @@ def highlights(extraction: dict[str, Any] | None, limit: int = HIGHLIGHTS) -> li
     return chosen
 
 
-def management_stance(extraction: dict[str, Any] | None) -> tuple[str | None, str | None]:
-    """``(view, quote)`` as the outlook read it, or ``(None, None)``.
+def management_stance(outlook: dict[str, Any] | None) -> tuple[str | None, str | None]:
+    """``(view, quote)`` for a call: the band of its outlook score, and the sentence behind it.
 
-    None for a call read before the outlook asked the question, and for one
-    the model could not place: neither is a neutral call.
+    The view is the outlook score read as a label (`stance_from_score`), so
+    the page says in a word what the ranking reads in a number. The quote is
+    the scored statement that moved the score most in the label's direction:
+    the largest gain for an optimistic or bullish call, the largest loss for a
+    cautious or bearish one; a neutral call has none. ``(None, None)`` for a
+    call whose outlook verified nothing: no outlook is not a neutral one.
     """
-    stance = extraction.get("stance") if isinstance(extraction, dict) else None
-    view = stance.get("view") if isinstance(stance, dict) else None
-    if view not in STANCES or view == "unknown":
+    if not isinstance(outlook, dict) or not _verified_outlook(outlook):
         return None, None
-    return view, str(stance.get("quote") or "").strip() or None
+    view = stance_from_score(outlook.get("outlook_score"))
+    if view == "unknown":
+        return None, None
+    sign = {"bullish": 1, "optimistic": 1, "cautious": -1, "bearish": -1}.get(view, 0)
+    quote = None
+    if sign:
+        try:
+            items = outlook_items(outlook.get("extraction") or {})
+        except (KeyError, TypeError, AttributeError):
+            items = []
+        moved = [(points, str(said or "").strip()) for _, points, said in items if points * sign > 0 and said]
+        if moved:
+            quote = max(moved, key=lambda item: abs(item[0]))[1] or None
+    return view, quote
 
 
 def _verified_outlook(outlook: dict[str, Any]) -> bool:
@@ -207,7 +222,7 @@ def build_feed(
         )
         tone = safe_float(sentiment.get("overall_score"))
         outlook_score = safe_float(outlook.get("outlook_score"))
-        stance, stance_quote = management_stance(outlook.get("extraction"))
+        stance, stance_quote = management_stance(outlook)
         rows.append({
             "symbol": symbol,
             "quarter": quarter,

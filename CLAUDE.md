@@ -181,31 +181,20 @@ the scheduled workflows set the same flag.
   `workers/concall_feed.py` derives `concall_feed` (one row per call, no
   text) for the dashboard's Concalls page; the table is in
   `storage/concalls_schema.sql` and must be applied by hand.
-- **Management's sentiment is read by the outlook step and never scored.**
-  After the extraction, a second request (`STANCE_PROMPT` in
-  `sentiment/outlook.py`, with the model's thinking on) labels the call
-  bullish to bearish the way an analyst on it would: which way management's
-  own expectations moved -- raised is bullish, a specific improvement against
-  a real difficulty optimistic, guidance merely reaffirmed neutral even after
-  a strong quarter, a main business delayed or slowed cautious, falling
-  numbers bearish. It is display evidence for the Concalls page and
-  deliberately outside `verified_fields`, which is how the screener knows a
-  call stated something scorable; a stance that cannot be read is stored as
-  unknown and the outlook stands. The wording was chosen against
-  StockScans' labels for the 9 calls both had (14 Oct 2026; see the comment
-  on `STANCES`): 6 of 9 on average across runs, against 1 for the earlier
-  question; thinking off, 3. Measure a change the same way, over the same
-  calls and several runs -- thinking varies between runs even at
-  temperature 0 -- and check the spread on other calls, not a few examples:
-  a local `python -m tools.extract_transcript_outlook --stance-only --limit
-  60` reads them free and prints both. Its order agrees with the call's
-  outlook score at only 0.35, by design. Three wordings measured worse and
-  are recorded beside `STANCES`. Do not label a call from the word-list tone
-  score: its risk component counts vocabulary, and called a wealth manager
-  "Bearish" for discussing market risk. `OUTLOOK_VERSION` was not bumped:
-  `tools.extract_transcript_outlook --refresh-since <date> --stance-only`
-  re-reads stored calls, sending only the stance request and keeping every
-  scored item as first read.
+- **Management's sentiment on the Concalls page is the outlook score in a
+  word.** `workers/concall_feed.management_stance` reads the call's outlook
+  score into a band (`sentiment.outlook.stance_from_score`: bullish from 78,
+  optimistic 68, neutral 58, cautious 48, bearish below) and quotes the
+  scored statement that moved it most that way. The bands sit where the
+  stored scores fall -- median 66, 94% above 50 -- because the ranking
+  measures a call against the median call, not 50. No request asks for it:
+  asked of the model, the label cost more than the outlook (a request of its
+  own with thinking on, some 17,000 tokens a call) and moved nothing that
+  ranks; asked as a field of the extraction it read most calls neutral; asked
+  how upbeat management sounded, nearly all optimistic (14-15 Oct 2026). To
+  make the label better, make the outlook score better. Do not label a call
+  from the word-list tone score: its risk component counts vocabulary, and
+  called a wealth manager "Bearish" for discussing market risk.
 - **The outlook model is paid in production and free in development.**
   `sentiment/llm_provider.py` sends the request to OpenRouter in GitHub
   Actions -- and refuses Token Harbor there -- and to Token Harbor's free
@@ -213,8 +202,9 @@ the scheduled workflows set the same flag.
   `OUTLOOK_PROVIDER` says otherwise; a missing free key is an error, never a
   fall back to the paid one. Local runs read the production Supabase and the
   screener reads the latest outlook of any model, so a Token Harbor reading
-  is printed, not stored, unless `--write` is given, and is stored under
-  `tokenharbor/<model>` so it is never counted as production's.
+  is a trial: printed, never stored. The free allowance is 5M tokens a
+  rolling week, about 400 extractions; a spent allowance stops the run
+  (`QuotaSpentError`) rather than failing every call after it.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and

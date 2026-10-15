@@ -15,18 +15,16 @@ function number(value) {
 }
 
 /**
- * Management's stance as the outlook step read it, with the sentence behind it.
+ * Management's stance: the call's outlook score in a word, with the statement
+ * that moved it most that way.
  *
- * A language model reads the whole call for its outlook and is asked, last,
- * where the company's prospects stand: what management stated, weighed
- * against the difficulty it conceded. This is that answer -- a judgment with
- * a quote, not a count of words. (The page first labelled calls from the
- * word-list tone score, and called a wealth manager "Bearish" for discussing
- * market risk, which is its business; then asked for management's own view,
- * and every call was "Optimistic".)
+ * The feed derives it from the score (`sentiment.outlook.stance_from_score`),
+ * so the page says what the ranking reads. (It was first the word-list tone
+ * score, which called a wealth manager "Bearish" for discussing market risk;
+ * then a language model's own label, which cost more than the outlook and
+ * scored nothing.)
  *
- * Null for a call read before the question was asked or one the model could
- * not place: no stance is not a neutral one.
+ * Null for a call whose outlook verified nothing: no stance is not a neutral one.
  */
 const STANCES = {
   bullish: { label: "Bullish", tone: "positive" },

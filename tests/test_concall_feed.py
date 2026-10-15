@@ -64,15 +64,26 @@ class HighlightTests(unittest.TestCase):
 
 
 class StanceTests(unittest.TestCase):
-    def test_the_stance_the_outlook_read_with_its_sentence(self):
-        self.assertEqual(
-            management_stance(EXTRACTION), ("optimistic", "We now expect eighteen percent growth.")
-        )
+    """Management's sentiment is the band of the call's outlook score."""
 
-    def test_a_call_read_before_the_question_was_asked_has_no_stance(self):
-        earlier = {key: value for key, value in EXTRACTION.items() if key != "stance"}
-        for extraction in (earlier, {"stance": {"view": "unknown", "quote": None}}, {"stance": "bullish"}, None):
-            self.assertEqual(management_stance(extraction), (None, None))
+    def outlook(self, score, verified=4):
+        return {"outlook_score": score, "verified_fields": verified, "extraction": EXTRACTION}
+
+    def test_the_band_of_the_score_with_the_statement_that_moved_it_that_way(self):
+        # Guidance raised (+15) is the largest gain; weak demand (-10) the largest loss.
+        self.assertEqual(management_stance(self.outlook(82)), ("bullish", "We now expect eighteen percent growth."))
+        self.assertEqual(management_stance(self.outlook(70)), ("optimistic", "We now expect eighteen percent growth."))
+        self.assertEqual(management_stance(self.outlook(62)), ("neutral", None))
+        self.assertEqual(management_stance(self.outlook(52)), ("cautious", "Demand in the rural market remains weak."))
+        self.assertEqual(management_stance(self.outlook(40)), ("bearish", "Demand in the rural market remains weak."))
+
+    def test_a_stance_stored_by_an_earlier_reading_is_not_what_the_page_shows(self):
+        # EXTRACTION carries {"view": "optimistic"} from when the model was asked.
+        self.assertEqual(management_stance(self.outlook(40))[0], "bearish")
+
+    def test_a_call_whose_outlook_verified_nothing_has_no_stance(self):
+        for outlook in (self.outlook(50, verified=0), self.outlook(None), {}, None):
+            self.assertEqual(management_stance(outlook), (None, None))
 
 
 class OutlookDetailTests(unittest.TestCase):

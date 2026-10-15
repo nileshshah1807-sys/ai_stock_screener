@@ -57,28 +57,22 @@ GUIDANCE_SCOPES = ("company", "segment", "none")
 TRENDS = ("up", "flat", "down", "unknown")
 DEMAND_TONES = ("strong", "stable", "weak", "unknown")
 CAPACITY_STATES = ("operational", "ramping", "under_construction", "planned", "none")
-# Management's sentiment on the call, for display beside it; never scored --
-# see `_verified_stance`. Asked in a request of its own (`STANCE_PROMPT`),
-# with the model's thinking on, because the label wanted is the one an analyst
-# on the call would give: which way management's own expectations moved.
+# Management's sentiment on the call, for the Concalls page: a band of the
+# call's own outlook score (`stance_from_score`), so the page shows the signal
+# the ranking uses and costs no request of its own. The bands are cut where
+# the stored scores fall (2,263 calls, April-October 2026: median 66, 94%
+# above 50), because the ranking measures a call against the median call, not
+# against 50: bullish is about the top tenth, bearish the bottom twentieth.
 #
-# Measured against StockScans' labels for the 9 calls both had (14 Oct 2026):
-# the earlier question -- the stance weighed from what management stated, as
-# the last field of the extraction -- matched 1, and read 26 of 60 calls
-# neutral; asking for how upbeat management sounded matched 3 and read 55 of
-# 60 bullish or optimistic. This wording, with thinking, matched 7, 5 and 6 in
-# three runs (thinking varies between runs even at temperature 0; a majority
-# of three matched 6, so one reading is kept), and read 45 other calls 13
-# bullish, 14 optimistic, 6 neutral, 11 cautious. Without thinking, 3. Its
-# order agrees with the call's outlook score at 0.35, not 0.70: StockScans
-# calls a strong quarter with guidance merely reaffirmed neutral.
-#
-# Two earlier findings stand. Asked for "management's own view" with nothing
-# to set it against, the model called 83 of 97 calls optimistic. And asked in
-# parts -- what is ahead, better or worse than before, how serious the
-# concern -- with the label placed in code, it answered "growth" and
-# "improving" for almost every call.
+# Asked of the model instead, the label cost more than the outlook it sat
+# beside and moved nothing that ranks. Asked as a field of the extraction it
+# read most calls neutral; asked how upbeat management sounded, 55 of 60
+# optimistic or bullish; asked in a request of its own with thinking on, it
+# matched StockScans' labels on 5 to 7 of 9 calls at some 17,000 tokens a
+# call (14-15 Oct 2026).
 STANCES = ("bullish", "optimistic", "neutral", "cautious", "bearish", "unknown")
+# The lowest outlook score of each band, highest band first.
+STANCE_BANDS = (("bullish", 78.0), ("optimistic", 68.0), ("neutral", 58.0), ("cautious", 48.0))
 
 _QUOTE = {"type": ["string", "null"]}
 _NUMBER = {"type": ["number", "null"]}
@@ -200,61 +194,11 @@ It has exactly these keys; where a set of values is listed, use one of them:
 }"""
 
 
-STANCE_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "additionalProperties": False,
-    "required": ["quote", "concern", "view"],
-    # In the order they are to be answered: see `STANCE_PROMPT`.
-    "properties": {"quote": _QUOTE, "concern": _QUOTE, "view": {"enum": list(STANCES)}},
-}
-# The model thinks before it answers the stance, and a hard call takes it
-# 3,000-6,000 tokens; at 8,000 one in nine ran out before the object.
-STANCE_MAX_OUTPUT_TOKENS = 16_000
-
-STANCE_PROMPT = """You read an Indian company's earnings-call transcript and \
-label management's sentiment on the call, as an analyst listening to it \
-would: which way management's own expectations for the business moved. Judge \
-it by what management says has changed and what it now expects -- not by how \
-confident it sounds, since every management says it is confident, excited or \
-well placed. Analysts' questions are not management's view.
-
-Answer in this order:
-- quote: the one management sentence that best shows that sentiment, copied \
-exactly from the transcript.
-- concern: the most serious difficulty management itself acknowledged in a \
-main business, copied exactly; null if it named none.
-- view, one of:
-  "bullish" -- management raises its expectations: guidance or targets \
-raised, record results with momentum it expects to carry on, growth stepping \
-up; the concern is minor.
-  "optimistic" -- management expects a specific improvement ahead (a margin \
-uplift, a new target, a shortfall to be made up, new business ramping) while \
-acknowledging a real difficulty.
-  "neutral" -- management holds course: existing guidance or targets \
-reaffirmed, steady business, or positives and difficulties in balance. A \
-strong quarter followed by guidance merely reaffirmed is neutral.
-  "cautious" -- management concedes a difficulty in a main business that is \
-delaying or slowing it: deals or projects delayed, demand soft in a key \
-market, risk policy tightened, growth tapering, numbers it will not disclose \
--- even if other parts are doing well. When the improvement management \
-offers is a hope ("we hope", "should get better", "we will see") set against \
-a difficulty it names in a main business, the call is cautious, not \
-optimistic.
-  "bearish" -- management reports or expects falling revenue, profit or \
-margins, or cuts guidance.
-  "unknown" with null quotes only if the call gives no basis.
-
-Answer with one JSON object and nothing else: {"quote": string or null, \
-"concern": string or null, "view": "bullish|optimistic|neutral|cautious|bearish|unknown"}"""
-
-
-def build_messages(
-    company: str, symbol: str, call_date: str, text: str, system: str = SYSTEM_PROMPT
-) -> list[dict[str, str]]:
+def build_messages(company: str, symbol: str, call_date: str, text: str) -> list[dict[str, str]]:
     body = text[:MAX_TRANSCRIPT_CHARACTERS]
     header = f"Company: {company or symbol} ({symbol})\nCall date: {call_date or 'unknown'}\n\nTranscript:\n"
     return [
-        {"role": "system", "content": system},
+        {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": header + body},
     ]
 
@@ -341,32 +285,24 @@ def verify_quotes(extraction: dict[str, Any], transcript: str) -> tuple[dict[str
             else:
                 dropped += 1
         verified[section] = items
-    if "stance" in extraction:
-        # A reading from when the stance was a field of the extraction.
-        verified["stance"] = _verified_stance(extraction.get("stance"), haystack)
     return verified, kept, dropped
 
 
-def _verified_stance(value: Any, haystack: str) -> dict[str, Any]:
-    """The stance, kept only with a sentence of the call behind it.
+def stance_from_score(score: Any) -> str:
+    """Management's sentiment on a call, as the band its outlook score falls in.
 
-    The concern is kept beside it where its sentence is found too; a stance
-    whose concern was invented keeps its view and loses the concern.
-
-    Outside the counts on purpose. `verified_fields` is how the screener knows
-    a call stated something it can score, and a stance is a reading of the
-    whole call, not a statement: counted, it would make a call that said
-    nothing scorable at a neutral 50.
+    "unknown" for a call with no score: no outlook is not a neutral one.
     """
-    view = value.get("view") if isinstance(value, dict) else None
-    if view in STANCES and view != "unknown" and quote_found(value.get("quote"), haystack):
-        concern = value.get("concern")
-        return {
-            "view": view,
-            "quote": str(value["quote"]),
-            "concern": str(concern) if quote_found(concern, haystack) else None,
-        }
-    return {"view": "unknown", "quote": None, "concern": None}
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        return "unknown"
+    if value != value:
+        return "unknown"
+    for view, lowest in STANCE_BANDS:
+        if value >= lowest:
+            return view
+    return "bearish"
 
 
 def _number(value: Any) -> float | None:
@@ -633,10 +569,10 @@ def request_body(
 ) -> dict[str, Any]:
     """The chat-completion request for ``provider``.
 
-    The extraction is sent with thinking off: left on, the model spends the
-    whole reply thinking and never reaches the object. The stance is sent
-    with it on and room for it. Each provider has its own switch and ignores
-    the other's; Token Harbor thinks unless told not to.
+    Sent with thinking off unless asked: left on, the model spends the whole
+    reply thinking and never reaches the object unless it is given room.
+    Each provider has its own switch and ignores the other's; Token Harbor
+    thinks unless told not to.
     """
     body: dict[str, Any] = {
         "model": provider.model,
@@ -715,63 +651,19 @@ def request_extraction(session, provider: Provider, messages, *, timeout: int = 
     return _post(session, provider, request_body(provider, messages), timeout)
 
 
-def _messages(transcript: dict[str, Any], text: str, system: str = SYSTEM_PROMPT):
+def _messages(transcript: dict[str, Any], text: str):
     return build_messages(
         transcript.get("company_name") or "",
         transcript.get("symbol") or "",
         str(transcript.get("call_date") or "")[:10],
         text,
-        system,
     )
-
-
-def read_stance(session, provider: Provider, transcript: dict[str, Any], text: str, *, timeout: int = 600):
-    """Management's sentiment on one call, verified. Returns ``(stance, usage)``; raises on failure."""
-    body = request_body(
-        provider, _messages(transcript, text, STANCE_PROMPT),
-        schema=STANCE_SCHEMA, name="call_stance", thinking=True, max_tokens=STANCE_MAX_OUTPUT_TOKENS,
-    )
-    reading, usage = _post(session, provider, body, timeout)
-    return _verified_stance(reading, _normalise(text)), usage
-
-
-def _usage_row(*usages: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "prompt_tokens": sum(int(usage.get("prompt_tokens") or 0) for usage in usages),
-        "completion_tokens": sum(int(usage.get("completion_tokens") or 0) for usage in usages),
-        "cost_usd": sum(float(usage.get("cost") or 0.0) for usage in usages),
-    }
-
-
-def analyse_stance(session, provider: Provider, transcript: dict[str, Any], text: str):
-    """Read only the stance of one call. Returns a row whose ``extraction`` is the stance alone."""
-    stance, usage = read_stance(session, provider, transcript, text)
-    return {
-        "transcript_id": transcript["id"],
-        "symbol": transcript.get("symbol"),
-        "call_date": str(transcript.get("call_date") or "")[:10] or None,
-        "model_name": provider.stored_model_name,
-        "verified_fields": 0,
-        "unverified_fields": 0,
-        "extraction": {"stance": stance},
-        **_usage_row(usage),
-    }
 
 
 def analyse_transcript(session, provider: Provider, transcript: dict[str, Any], text: str):
-    """Extract, verify and score one call, and read its stance. Returns the row to store.
-
-    A stance that cannot be read is stored as unknown: it is display evidence,
-    and the scored extraction stands without it.
-    """
+    """Extract, verify and score one call. Returns the row to store."""
     extraction, usage = request_extraction(session, provider, _messages(transcript, text))
     verified, kept, dropped = verify_quotes(extraction, text)
-    try:
-        verified["stance"], stance_usage = read_stance(session, provider, transcript, text)
-    except Exception as exc:  # noqa: BLE001 - the stance is never worth losing the outlook for
-        logger.warning("%s stance not read: %s", transcript.get("symbol"), exc)
-        verified["stance"] = {"view": "unknown", "quote": None, "concern": None}
-        stance_usage = {"cost": getattr(exc, "cost_usd", 0.0)}
     return {
         "transcript_id": transcript["id"],
         "market": transcript.get("market") or "NSE",
@@ -786,5 +678,7 @@ def analyse_transcript(session, provider: Provider, transcript: dict[str, Any], 
             **verified,
             "points": [{"reason": reason, "points": value} for reason, value in outlook_points(verified)],
         },
-        **_usage_row(usage, stance_usage),
+        "prompt_tokens": int(usage.get("prompt_tokens") or 0),
+        "completion_tokens": int(usage.get("completion_tokens") or 0),
+        "cost_usd": float(usage.get("cost") or 0.0),
     }

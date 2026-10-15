@@ -398,31 +398,6 @@ class SupabaseRepository:
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
         )
 
-    def save_outlook_stance(
-        self, transcript_id: str, model_name: str, analysis_version: str, stance: dict[str, Any]
-    ) -> bool:
-        """Replace the stance of a stored outlook and nothing else; False if none is stored.
-
-        The stance is display evidence. Every scored item, the score and the
-        counts stay as the first reading left them, so the screener sees no
-        change.
-        """
-        stored = (
-            f"transcript_outlooks?transcript_id=eq.{transcript_id}"
-            f"&model_name=eq.{model_name}&analysis_version=eq.{analysis_version}"
-        )
-        rows = self._request("GET", f"{stored}&select=extraction&limit=1")
-        if not rows:
-            return False
-        extraction = rows[0].get("extraction")
-        self._request(
-            "PATCH",
-            stored,
-            json={"extraction": {**(extraction if isinstance(extraction, dict) else {}), "stance": stance}},
-            headers={"Prefer": "return=minimal"},
-        )
-        return True
-
     def outlook_transcript_ids(self, model_name: str, analysis_version: str) -> set[str]:
         """Transcripts that already have an outlook from this model and version."""
         ids: set[str] = set()
