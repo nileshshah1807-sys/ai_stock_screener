@@ -6,12 +6,14 @@ import { TrendingDown, TrendingUp } from "lucide-react";
 
 import { RatingBadge } from "@/components/rating-badge";
 import { SegmentedControl } from "@/components/segmented-control";
+import { TickFlash } from "@/components/tick-flash";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney, formatPercent, MISSING } from "@/lib/format";
 import { REFRESH_MS, isLive, nextPollDelay, quoteTime } from "@/lib/live-quotes.mjs";
 import {
   LIVE_MOVERS_LIMIT,
   normalizeLiveMarket,
+  withTicks,
   type LiveIndexMovers,
   type LiveMarket,
   type LiveMover,
@@ -163,7 +165,8 @@ function useLiveMarket(market: Market, initial: LiveMarket | null): LiveMarket |
       const next = error ? null : normalizeLiveMarket(fresh);
       if (next && next.fetched_at !== fetchedAt.current) {
         fetchedAt.current = next.fetched_at;
-        setData(next);
+        const at = Date.now();
+        setData((previous) => withTicks(previous, next, at));
       }
       schedule();
     };
@@ -214,10 +217,12 @@ function IndexSummary({ market, index }: { market: Market; index: LiveIndexMover
         <p className="text-sm font-semibold">{index.name}</p>
         {index.level !== null ? (
           <p className="tabular font-mono text-xs">
-            {index.level.toLocaleString(market.locale, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}{" "}
+            <TickFlash tick={index.tick}>
+              {index.level.toLocaleString(market.locale, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </TickFlash>{" "}
             <span
               className={cn(
                 index.change_pct === null
@@ -307,9 +312,12 @@ function MoverRow({ market, row }: { market: Market; row: LiveMover }) {
           {row.company ?? MISSING}
         </span>
       </span>
-      <span className="tabular hidden font-mono text-[11px] text-muted-foreground sm:inline">
+      <TickFlash
+        tick={row.tick}
+        className="tabular hidden font-mono text-[11px] text-muted-foreground sm:inline"
+      >
         {formatMoney(row.price, market, market.listPriceDigits)}
-      </span>
+      </TickFlash>
       <span
         className={cn(
           "tabular w-16 shrink-0 text-right font-mono text-xs",

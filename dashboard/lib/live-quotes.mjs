@@ -100,3 +100,23 @@ export function quoteTime(iso, timeZone, locale, now) {
   const date = at.toLocaleDateString(locale, { timeZone, day: "numeric", month: "short" });
   return `${date}, ${time}`;
 }
+
+/** How long a price that just moved stays tinted, fading out over the end. */
+export const TICK_FLASH_MS = 3_000;
+
+/**
+ * Which way a price moved between two reads, for the tint behind it: "up",
+ * "down", or null when it did not move or there is nothing to compare with.
+ * The first quote a tab sees is not a move -- every row would flash on load.
+ *
+ * @param {number | null | undefined} before
+ * @param {number | null | undefined} after
+ * @returns {"up" | "down" | null}
+ */
+export function tickDirection(before, after) {
+  if (before === null || before === undefined || after === null || after === undefined) {
+    return null;
+  }
+  if (!Number.isFinite(before) || !Number.isFinite(after) || before === after) return null;
+  return after > before ? "up" : "down";
+}

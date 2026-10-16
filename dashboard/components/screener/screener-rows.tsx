@@ -6,6 +6,7 @@ import { StockLink } from "@/components/screener/stock-link";
 import { Money } from "@/components/money";
 import { useMarket } from "@/components/market-provider";
 import { EntryBadge } from "@/components/entry-badge";
+import { TickFlash } from "@/components/tick-flash";
 import {
   CappedChip,
   CoverageCell,
@@ -464,9 +465,11 @@ const CELLS: Record<ColumnId, (row: SnapshotRow, live: LiveContext) => ReactNode
   ),
   price: (row, { quote, market, now }) =>
     quote ? (
-      <span title={liveTitle(quote, market, now)}>
-        <Money value={quote.price} list />
-      </span>
+      <TickFlash tick={quote.tick}>
+        <span title={liveTitle(quote, market, now)}>
+          <Money value={quote.price} list />
+        </span>
+      </TickFlash>
     ) : (
       <Money value={row.current_price} list />
     ),

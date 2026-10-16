@@ -191,6 +191,9 @@
   --animate-fade: fade var(--duration-base) var(--ease-standard) both;
   --animate-grow: grow var(--duration-slow) var(--ease-entrance) both;
   --animate-sweep: sweep 1.4s ease-in-out infinite;
+  /* TICK_FLASH_MS in lib/live-quotes.mjs. */
+  --animate-tick-up: tick-up 3s var(--ease-standard) both;
+  --animate-tick-down: tick-down 3s var(--ease-standard) both;
 
   @keyframes rise {
     from {
@@ -220,6 +223,27 @@
     }
     to {
       transform: scaleX(1);
+    }
+  }
+
+  /* A live price that just moved: held for a beat, then faded out. */
+  @keyframes tick-up {
+    0%,
+    35% {
+      background-color: color-mix(in oklab, var(--positive) 26%, transparent);
+    }
+    to {
+      background-color: transparent;
+    }
+  }
+
+  @keyframes tick-down {
+    0%,
+    35% {
+      background-color: color-mix(in oklab, var(--negative) 26%, transparent);
+    }
+    to {
+      background-color: transparent;
     }
   }
 
@@ -983,5 +1007,18 @@
     animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* A tint is not motion: with no fade, a moved price keeps its colour until
+     the next move rather than losing it in a hundredth of a second. */
+  .animate-tick-up,
+  .animate-tick-down {
+    animation: none !important;
+  }
+  .animate-tick-up {
+    background-color: color-mix(in oklab, var(--positive) 26%, transparent);
+  }
+  .animate-tick-down {
+    background-color: color-mix(in oklab, var(--negative) 26%, transparent);
   }
 }

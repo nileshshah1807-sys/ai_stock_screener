@@ -1,6 +1,7 @@
 "use client";
 
 import { useMarket } from "@/components/market-provider";
+import { TickFlash } from "@/components/tick-flash";
 import { formatMoney, formatPercent } from "@/lib/format";
 import { isLive, liveOverlay, quoteTime } from "@/lib/live-quotes.mjs";
 import { cn } from "@/lib/utils";
@@ -37,7 +38,7 @@ export function LivePrice({
   const time = quoteTime(quote.traded_at, market.timezone, market.locale, now);
   return (
     <>
-      {formatMoney(quote.price, market)}
+      <TickFlash tick={quote.tick}>{formatMoney(quote.price, market)}</TickFlash>
       <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
         {live ? (
           <span className="size-1.5 shrink-0 rounded-full bg-positive" aria-hidden />

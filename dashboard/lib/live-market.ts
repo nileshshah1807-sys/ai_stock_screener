@@ -4,6 +4,9 @@
  * (components/market/live-movers.tsx). No directive: both sides import it.
  */
 
+import { tickDirection } from "@/lib/live-quotes.mjs";
+import type { Tick } from "@/lib/use-live-quotes";
+
 /** One stock in a live movers list (storage/live_quotes_schema.sql). */
 export type LiveMover = {
   symbol: string;
@@ -13,6 +16,8 @@ export type LiveMover = {
   /** Null for an index member the screener does not rate. */
   investment_rank: number | null;
   rating: string | null;
+  /** The last move the browser saw; the server never sets one. */
+  tick?: Tick | null;
 };
 
 export type LiveIndexMovers = {
@@ -21,6 +26,8 @@ export type LiveIndexMovers = {
   /** The index's own level, where the vendor serves one. */
   level: number | null;
   change_pct: number | null;
+  /** The level's last move the browser saw. */
+  tick?: Tick | null;
   advances: number;
   declines: number;
   unchanged: number;
@@ -57,5 +64,42 @@ export function normalizeLiveMarket(data: unknown): LiveMarket | null {
       gainers: index.gainers.map(mover),
       losers: index.losers.map(mover),
     })),
+  };
+}
+
+/**
+ * `next`, with each price that moved since `previous` marked up or down.
+ *
+ * A stock is matched by symbol across every list, not only its own: one that
+ * climbs into the top ten was in no list on the last read, and has nothing to
+ * compare with, but one that moves from an index's gainers into another's
+ * still does. Moves already marked and not repeated keep their mark.
+ */
+export function withTicks(previous: LiveMarket | null, next: LiveMarket, at: number): LiveMarket {
+  if (!previous) return next;
+  const mark = (before: number | null | undefined, after: number | null, kept?: Tick | null) => {
+    const direction = tickDirection(before, after);
+    return direction ? { direction, at } : (kept ?? null);
+  };
+  const stocks = new Map<string, LiveMover>();
+  for (const index of previous.indices) {
+    for (const row of [...index.gainers, ...index.losers]) stocks.set(row.symbol, row);
+  }
+  const levels = new Map(previous.indices.map((index) => [index.name, index]));
+  const mover = (row: LiveMover): LiveMover => {
+    const old = stocks.get(row.symbol);
+    return { ...row, tick: mark(old?.price, row.price, old?.tick) };
+  };
+  return {
+    ...next,
+    indices: next.indices.map((index) => {
+      const old = levels.get(index.name);
+      return {
+        ...index,
+        tick: mark(old?.level, index.level, old?.tick),
+        gainers: index.gainers.map(mover),
+        losers: index.losers.map(mover),
+      };
+    }),
   };
 }

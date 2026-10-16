@@ -3,20 +3,26 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { createClient } from "@/lib/supabase/client";
-import { MIN_POLL_MS, nextPollDelay } from "@/lib/live-quotes.mjs";
+import { MIN_POLL_MS, nextPollDelay, tickDirection } from "@/lib/live-quotes.mjs";
 import type { MarketCode } from "@/lib/markets";
+
+/** Which way a price last moved in this tab, and when the tab saw it. */
+export type Tick = { direction: "up" | "down"; at: number };
 
 /** One stock's latest quote, as the grid and the stock page read it. */
 export type LiveQuote = {
   symbol: string;
   price: number;
   change_pct: number | null;
+  volume: number | null;
   traded_at: string;
   session: string;
   fetched_at: string;
+  /** The last move this tab saw, kept until the next one replaces it. */
+  tick: Tick | null;
 };
 
-const COLUMNS = "symbol,price,change_pct,traded_at,session,fetched_at";
+const COLUMNS = "symbol,price,change_pct,volume,traded_at,session,fetched_at";
 
 /*
  * One store for the whole tab, outside React.
@@ -56,11 +62,18 @@ async function load(market: MarketCode, symbols: readonly string[]): Promise<voi
     .in("symbol", due);
   // A failed read leaves the close on screen; the next poll tries again.
   if (error || !data) return;
+  const readAt = Date.now();
   for (const row of data as unknown as LiveQuote[]) {
-    quotes.set(keyOf(market, row.symbol), {
+    const key = keyOf(market, row.symbol);
+    const before = quotes.get(key);
+    const price = Number(row.price);
+    const direction = tickDirection(before?.price, price);
+    quotes.set(key, {
       ...row,
-      price: Number(row.price),
+      price,
       change_pct: row.change_pct === null ? null : Number(row.change_pct),
+      volume: row.volume === null ? null : Number(row.volume),
+      tick: direction ? { direction, at: readAt } : (before?.tick ?? null),
     });
   }
   publish();

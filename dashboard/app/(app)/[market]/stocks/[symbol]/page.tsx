@@ -837,6 +837,7 @@ export default async function StockPage({
               tail={priceTail}
               height={300}
               markers={stageMarkers(row)}
+              live={{ symbol: row.symbol, barDate: row.price_bar_as_of ?? null }}
             />
           </div>
         </div>
