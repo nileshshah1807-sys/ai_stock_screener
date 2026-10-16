@@ -256,7 +256,8 @@ class RunTests(unittest.TestCase):
         self.assertEqual(repo.pruned, "2026-10-09T06:15:00+00:00")
 
     def test_charted_indices_are_quoted_without_a_movers_list(self):
-        # The US lists no movers, but its Market page charts four indices.
+        # The Nasdaq Composite and Russell 2000 have no movers list, but the
+        # US Market page charts them.
         ten_am_et = datetime(2026, 10, 16, 14, 0, tzinfo=UTC)
         traded = int(datetime(2026, 10, 16, 13, 59, tzinfo=UTC).timestamp())
         levels = {ticker: quote(5000, previous=4990, traded=traded) for ticker, _ in US.headline_indices}

@@ -97,7 +97,7 @@ export const MARKETS: Record<MarketSlug, Market> = {
     benchmark: "S&P 500",
     timezone: "America/New_York",
     timezoneLabel: "ET",
-    liveIndices: false,
+    liveIndices: true,
   },
 };
 

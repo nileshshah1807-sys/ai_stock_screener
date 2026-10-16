@@ -47,20 +47,24 @@ NSE_EQUITY_L_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.c
 # the S&P 400 and 600. The MediaWiki API is used rather than the rendered page
 # so the response is wikitext -- parseable with a regular expression and no HTML
 # parser. Each constituent row names its ticker through an exchange template,
-# e.g. ``{{NyseSymbol|AA}}``, which is what the pattern below matches.
+# e.g. ``{{NyseSymbol|AA}}``, which is what the pattern below matches. The
+# Nasdaq-100 list writes its tickers as plain text in the first cell instead.
 _WIKI_API = (
     "https://en.wikipedia.org/w/api.php"
     "?action=parse&page={page}&prop=wikitext&format=json&formatversion=2"
 )
-_SP_INDEX_PAGES = {
+_WIKI_INDEX_PAGES = {
     "sp500": "List_of_S%26P_500_companies",
     "sp400": "List_of_S%26P_400_companies",
     "sp600": "List_of_S%26P_600_companies",
+    "ndx100": "List_of_NASDAQ-100_companies",
 }
 _WIKI_SYMBOL_PATTERN = re.compile(
     r"\{\{\s*(?:Nyse|Nasdaq|NYSE American|Cboe)Symbol\s*\|\s*"
     r"([A-Za-z0-9.\-]{1,8})\s*(?:\|[^}]*)?\}\}"
 )
+# A row whose first cell is a bare ticker: ``| ADBE || [[Adobe Inc.]] || ...``.
+_WIKI_PLAIN_SYMBOL_PATTERN = re.compile(r"^\|\s*([A-Z][A-Z0-9.\-]{0,7})\s*\|\|", re.MULTILINE)
 
 # Official Nasdaq Trader symbol directory: pipe-delimited, no key, and the
 # authoritative answer to "what is listed in the US today".
@@ -148,9 +152,9 @@ def nse_equity_l(config=None) -> UniverseResult:
 # US
 # ---------------------------------------------------------------------------
 
-def _wikipedia_index_members(index_key: str) -> tuple[str, ...]:
-    """Return one S&P index's constituents from its Wikipedia table."""
-    page = _SP_INDEX_PAGES[index_key]
+def wikipedia_index_members(index_key: str) -> tuple[str, ...]:
+    """Return one index's constituents from its Wikipedia table."""
+    page = _WIKI_INDEX_PAGES[index_key]
     resp = _get(_WIKI_API.format(page=page), timeout=30, user_agent=_WIKI_USER_AGENT)
     resp.raise_for_status()
     wikitext = resp.json()["parse"]["wikitext"]
@@ -163,7 +167,8 @@ def _wikipedia_index_members(index_key: str) -> tuple[str, ...]:
         end = wikitext.find("\n|}", start)
         wikitext = wikitext[start:end] if end > start else wikitext[start:]
 
-    members = {_to_vendor_symbol(match) for match in _WIKI_SYMBOL_PATTERN.findall(wikitext)}
+    symbols = _WIKI_SYMBOL_PATTERN.findall(wikitext) or _WIKI_PLAIN_SYMBOL_PATTERN.findall(wikitext)
+    members = {_to_vendor_symbol(match) for match in symbols}
     if not members:
         raise ValueError(f"No constituents parsed from Wikipedia page {page!r}")
     return tuple(sorted(members))
@@ -174,7 +179,7 @@ def _sp_composite(index_keys: tuple[str, ...], label: str) -> UniverseResult:
     notes: list[str] = []
     for key in index_keys:
         try:
-            members = _wikipedia_index_members(key)
+            members = wikipedia_index_members(key)
         except Exception as exc:
             # A partial composite is still a usable research universe, and is
             # far better than failing the whole run. The shortfall is recorded

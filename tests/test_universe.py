@@ -121,6 +121,18 @@ class SpIndexUniverseTests(unittest.TestCase):
 
         self.assertNotIn("GONE", result.symbols)
 
+    def test_plain_ticker_cells_are_read_where_no_template_names_them(self):
+        """The Nasdaq-100 list writes ``| ADBE || [[Adobe Inc.]]``."""
+        wikitext = (
+            '{| class="wikitable sortable" id="constituents"\n|-\n'
+            "! Ticker !! Company\n|-\n| ADBE || [[Adobe Inc.]]\n|-\n"
+            "| GOOGL || [[Alphabet Inc.]] || Technology\n|}\n"
+        )
+        with mock.patch.object(universe, "_get", return_value=_response(wikitext)):
+            members = universe.wikipedia_index_members("ndx100")
+
+        self.assertEqual(members, ("ADBE", "GOOGL"))
+
     def test_composite_unions_its_three_indices(self):
         pages = {
             "sp500": "{{NyseSymbol|AAA}}",
@@ -129,7 +141,7 @@ class SpIndexUniverseTests(unittest.TestCase):
         }
 
         def fake_get(url, timeout=15, user_agent=""):
-            for key, page in universe._SP_INDEX_PAGES.items():
+            for key, page in universe._WIKI_INDEX_PAGES.items():
                 if page in url:
                     return _response(pages[key])
             raise AssertionError(f"unexpected url {url}")
@@ -143,7 +155,7 @@ class SpIndexUniverseTests(unittest.TestCase):
     def test_one_failed_index_degrades_to_a_partial_universe(self):
         """A partial composite still screens; an empty one would lose the day."""
         def fake_get(url, timeout=15, user_agent=""):
-            if universe._SP_INDEX_PAGES["sp400"] in url:
+            if universe._WIKI_INDEX_PAGES["sp400"] in url:
                 raise TimeoutError("slow")
             return _response("{{NyseSymbol|AAA}}")
 
