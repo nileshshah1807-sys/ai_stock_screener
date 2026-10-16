@@ -203,11 +203,55 @@ class MarketScopingTests(unittest.TestCase):
 
     def test_pruning_retains_runs_per_market(self):
         """Ranked globally, two markets would halve each other's retention."""
-        repository = RecordingDashboardRepository([2], market="US")
+        repository = RecordingDashboardRepository([[{"run_date": "2026-10-15"}], 0], market="US")
 
         repository.prune_snapshots(keep_runs=2)
 
-        self.assertEqual(repository.calls[0][2]["json"]["p_market"], "US")
+        self.assertEqual(repository.calls[0][2]["params"]["market"], "eq.US")
+        self.assertEqual(repository.calls[-1][1], "rpc/prune_screener_snapshots")
+        self.assertEqual(repository.calls[-1][2]["json"]["p_market"], "US")
+
+    def test_pruning_empties_old_runs_in_batches_before_the_run(self):
+        """One cascade of a whole run outran the statement timeout."""
+        runs = [{"run_date": day} for day in ("2026-10-15", "2026-10-14", "2026-10-13")]
+        repository = RecordingDashboardRepository(
+            [
+                runs,
+                [{"symbol": "AAA"}, {"symbol": "BBB"}], None,  # 10-14, first batch
+                [{"symbol": "CCC"}], None,                      # 10-14, second batch
+                [],                                             # 10-14 empty
+                [{"symbol": "AAA"}], None, [],                  # 10-13
+                2,                                              # runs removed
+            ]
+        )
+
+        removed = repository.prune_snapshots(keep_runs=1, batch_size=2)
+
+        self.assertEqual(removed, 2)
+        deletes = [
+            (kwargs["params"]["run_date"], kwargs["params"]["symbol"])
+            for method, _path, kwargs in repository.calls
+            if method == "DELETE"
+        ]
+        self.assertEqual(
+            deletes,
+            [
+                ("eq.2026-10-14", 'in.("AAA","BBB")'),
+                ("eq.2026-10-14", 'in.("CCC")'),
+                ("eq.2026-10-13", 'in.("AAA")'),
+            ],
+        )
+        # The newest run is never touched, and the runs go last.
+        self.assertFalse(any("2026-10-15" in str(call) for call in repository.calls[1:]))
+        self.assertEqual(repository.calls[-1][1], "rpc/prune_screener_snapshots")
+
+    def test_pruning_stops_when_a_delete_removes_nothing(self):
+        stuck = [{"symbol": "AAA"}]
+        repository = RecordingDashboardRepository(
+            [[{"run_date": "2026-10-15"}, {"run_date": "2026-10-14"}], stuck, None, stuck, None]
+        )
+        with self.assertRaises(RuntimeError):
+            repository.prune_snapshots(keep_runs=1)
 
     def test_the_calendar_is_one_object_per_market(self):
         repository = StorageRecordingRepository(market="US")

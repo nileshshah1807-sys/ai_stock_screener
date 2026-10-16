@@ -39,6 +39,11 @@ PRICE_SERIES_CHUNK_SIZE = 25
 #: few thousand small requests; sixteen at a time keeps it to about a minute.
 STORAGE_WORKERS = 16
 
+#: Snapshot rows deleted per statement when pruning. A row is ~27 KB with its
+#: payload, so a whole run (~2,300 rows) in one statement outran the
+#: database's statement timeout; 250 stays well inside it.
+PRUNE_BATCH_SIZE = 250
+
 #: Pause before each retry of an idempotent write that hit a transient network
 #: error. Doubles each time: 5, 10, 20 seconds.
 RETRY_BACKOFF_SECONDS = 5
@@ -1059,13 +1064,68 @@ class DashboardRepository:
 
     # -- retention ----------------------------------------------------------
 
-    def prune_snapshots(self, keep_runs: int = 2) -> int:
+    def prune_snapshots(self, keep_runs: int = 2, batch_size: int = PRUNE_BATCH_SIZE) -> int:
+        """Drop all but this market's newest ``keep_runs`` snapshots.
+
+        The snapshot rows of each doomed run are deleted first, a batch at a
+        time, and only then the run itself through ``prune_screener_snapshots``.
+        Left to the function alone, deleting a run cascades to its ~2,300
+        snapshot rows of ~27 KB each in one statement, which outran the
+        database's statement timeout on every publish (October 2026) and left
+        three runs per market behind. With the rows gone first the cascade is
+        empty and the function's delete is instant.
+        """
+        runs = self._request(
+            "GET",
+            "screener_runs",
+            params=self._scoped({"select": "run_date", "order": "run_date.desc"}),
+        ) or []
+        doomed = [str(row["run_date"]) for row in runs[max(1, int(keep_runs)) :]]
+        for run_date in doomed:
+            self._delete_snapshot_rows(run_date, batch_size)
         removed = self._request(
             "POST",
             "rpc/prune_screener_snapshots",
             json={"keep_runs": int(keep_runs), "p_market": self.market},
         )
         return int(removed or 0)
+
+    def _delete_snapshot_rows(self, run_date: str, batch_size: int) -> int:
+        """Delete one run's snapshot rows, ``batch_size`` symbols per statement."""
+        deleted = 0
+        previous: list[str] = []
+        while True:
+            rows = self._request(
+                "GET",
+                "screener_snapshot",
+                params=self._scoped(
+                    {
+                        "select": "symbol",
+                        "run_date": f"eq.{run_date}",
+                        "order": "symbol.asc",
+                        "limit": str(batch_size),
+                    }
+                ),
+            ) or []
+            symbols = [str(row["symbol"]) for row in rows if row.get("symbol")]
+            if not symbols:
+                return deleted
+            if symbols == previous:
+                # The last delete removed nothing; looping would never end.
+                raise RuntimeError(f"Snapshot rows of {self.market} {run_date} were not deleted")
+            previous = symbols
+            symbols_csv = ",".join(f'"{symbol}"' for symbol in symbols)
+            self._request(
+                "DELETE",
+                "screener_snapshot",
+                params=self._scoped(
+                    {"run_date": f"eq.{run_date}", "symbol": f"in.({symbols_csv})"}
+                ),
+                headers={"Prefer": "return=minimal"},
+                retries=2,
+            )
+            deleted += len(symbols)
+            logger.info("Pruned %d snapshot rows of %s %s", deleted, self.market, run_date)
 
     # -- access control -----------------------------------------------------
 
