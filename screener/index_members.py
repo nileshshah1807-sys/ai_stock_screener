@@ -8,6 +8,11 @@ NSE publishes each index's constituents as a CSV on its archive host, the same
 host the universe master comes from (``screener.universe``). The file changes
 when the index is reconstituted, twice a year plus the odd replacement, so the
 quote worker re-reads it once a day rather than every five minutes.
+
+US lists come from Wikipedia, the same tables the US universe is built from
+(``screener.universe``). They name no company in a fixed column, so the
+company is left empty: a rated member shows the screener's name, an unrated
+one its ticker alone.
 """
 
 from __future__ import annotations
@@ -18,6 +23,8 @@ import logging
 from collections.abc import Callable
 
 import requests
+
+from screener import universe
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +67,13 @@ def nse_index(name: str) -> list[tuple[str, str | None]]:
     return parse_nse_index_csv(response.text)
 
 
+def wikipedia_index(key: str) -> list[tuple[str, str | None]]:
+    return [(symbol, None) for symbol in universe.wikipedia_index_members(key)]
+
+
 SOURCES: dict[str, Callable[[str], list[tuple[str, str | None]]]] = {
     "nse": nse_index,
+    "wiki": wikipedia_index,
 }
 
 

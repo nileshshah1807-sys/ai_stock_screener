@@ -46,8 +46,8 @@ export async function generateMetadata({ params }: PageProps<"/[market]/indices/
  *
  * A constituent the screener does not rate has no row to show; those are
  * named under the table rather than silently dropped, so the count above it
- * still adds up. An index with no published constituents -- every US index
- * today -- shows its chart and says so.
+ * still adds up. An index with no published constituents -- the Nasdaq
+ * Composite, the Russell 2000 -- shows its chart and says so.
  */
 export default async function IndexPage({ params, searchParams }: PageProps<"/[market]/indices/[index]">) {
   const { market: slug, index: indexSlug } = await params;

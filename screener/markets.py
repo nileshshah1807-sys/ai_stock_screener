@@ -193,6 +193,14 @@ _US_PROFILE = MarketProfile(
     ),
     session_open="09:30",
     session_close="16:00",
+    # Only indices with a free, complete constituent list: the Nasdaq
+    # Composite and Russell 2000 have none, so they are charted without one.
+    live_indices=(
+        LiveIndex("S&P 500", "^GSPC", "wiki:sp500"),
+        LiveIndex("S&P MidCap 400", "^SP400", "wiki:sp400"),
+        LiveIndex("S&P SmallCap 600", "^SP600", "wiki:sp600"),
+        LiveIndex("Nasdaq-100", "^NDX", "wiki:ndx100"),
+    ),
 )
 
 MARKETS: dict[str, MarketProfile] = {

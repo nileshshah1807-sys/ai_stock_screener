@@ -30,6 +30,7 @@ const ALIASES = {
   "Nifty 50": ["NIFTY"],
   "Nifty Bank": ["BANKNIFTY"],
   "S&P 500": ["SPX"],
+  "Nasdaq-100": ["NDX", "Nasdaq 100"],
   "Dow Jones Industrial": ["DJIA"],
   "Russell 2000": ["RUT"],
 };
