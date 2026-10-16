@@ -1,10 +1,13 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ChevronRight } from "lucide-react";
 
 import { BreadthChart, ScrubContext, type ChartPoint, type ChartTone } from "@/components/market/breadth-chart";
 import { BreadthListSheet } from "@/components/market/breadth-list-sheet";
+import { IndexChart } from "@/components/market/index-chart";
 import { GroupPicker, type GroupKey } from "@/components/market/group-picker";
 import { SegmentedControl } from "@/components/segmented-control";
 import {
@@ -15,10 +18,10 @@ import {
   rangeStart,
   sliceFrom,
 } from "@/lib/market-breadth.mjs";
-import type { Market } from "@/lib/markets";
-import { isLive, liveOverlay, quoteTime } from "@/lib/live-quotes.mjs";
+import { marketPath, type Market } from "@/lib/markets";
+import { liveOverlay } from "@/lib/live-quotes.mjs";
 import type { BreadthGroup, BreadthRow } from "@/lib/queries";
-import { useLiveQuotes, useNow, type LiveQuote } from "@/lib/use-live-quotes";
+import { useLiveQuotes, useNow } from "@/lib/use-live-quotes";
 import { cn } from "@/lib/utils";
 
 type Unit = "share" | "count";
@@ -267,7 +270,19 @@ export function MarketDashboard({
         aria-busy={pending}
       >
         {decodedIndices.length ? (
-          <Section title="Benchmark indices" description="Where the headline indices are trading.">
+          <Section
+            title="Benchmark indices"
+            description="Where the headline indices are trading."
+            action={
+              <Link
+                href={marketPath(market.slug, "/indices")}
+                className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard) hover:bg-(--control-hover) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                All indices
+                <ChevronRight className="size-3.5" aria-hidden />
+              </Link>
+            }
+          >
             {indexSeries.map(({ name, points }) => (
               <IndexChart
                 key={name}
@@ -379,65 +394,6 @@ export function MarketDashboard({
 
 const LIST_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/**
- * One headline index, with today's live level as its last point when the
- * quote is from a later session than the published closes.
- */
-function IndexChart({
-  name,
-  points,
-  quote,
-  market,
-  now,
-  from,
-  to,
-}: {
-  name: string;
-  points: ChartPoint[];
-  quote: LiveQuote | null;
-  market: Market;
-  now: number;
-  from: string;
-  to: string;
-}) {
-  // The quote object is replaced only when a new read lands, so scrubbing
-  // keeps handing the chart the same array.
-  const withLive = useMemo(() => {
-    const last = points.at(-1);
-    if (!quote || (last && quote.session <= last.time)) return points;
-    return [...points, { time: quote.session, value: quote.price }];
-  }, [points, quote]);
-  const drawn = withLive !== points && quote !== null;
-  const live = drawn
-    ? {
-        pulsing: isLive(quote.fetched_at, now),
-        label: `${isLive(quote.fetched_at, now) ? "Live" : "As of"} ${quoteTime(
-          quote.traded_at,
-          market.timezone,
-          market.locale,
-          now,
-        )} ${market.timezoneLabel}`,
-        tick: quote.tick,
-      }
-    : undefined;
-  return (
-    <BreadthChart
-      title={name}
-      points={withLive}
-      from={from}
-      to={to}
-      unit="level"
-      locale={market.locale}
-      tone={
-        withLive.length > 1 && withLive[withLive.length - 1].value < withLive[0].value
-          ? "negative"
-          : "positive"
-      }
-      live={live}
-    />
-  );
-}
-
 function formatListDay(time: string) {
   const [year, month, day] = time.split("-");
   return `${Number(day)} ${LIST_MONTHS[Number(month) - 1]} ${year}`;
@@ -450,17 +406,23 @@ function subject(selected: GroupKey, market: Market) {
 function Section({
   title,
   description,
+  action,
   children,
 }: {
   title: string;
   description: string;
+  /** A link beside the heading, e.g. to every index. */
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section>
-      <div className="mb-3">
-        <h2 className="text-lead font-semibold tracking-[-0.011em]">{title}</h2>
-        <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
+      <div className="mb-3 flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-lead font-semibold tracking-[-0.011em]">{title}</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
+        </div>
+        {action}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">{children}</div>
     </section>

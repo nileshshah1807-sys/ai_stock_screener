@@ -13,6 +13,8 @@ import { NavLink } from "@/components/nav-link";
 import { MarketProvider } from "@/components/market-provider";
 import { MarketSwitch } from "@/components/market-switch";
 import { GlassTrack } from "@/components/glass-track";
+import { GlobalSearch, GlobalSearchButton } from "@/components/global-search";
+import { SmoothDetails } from "@/components/motion";
 import { formatDate } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
 import { TOOLS } from "@/lib/tools";
@@ -300,24 +302,28 @@ export function AppShell({
           */}
           <div className="flex shrink-0 items-center justify-end xl:flex-1">
             {/*
-              Left to right: what changed, how the system is doing, how it
-              looks, leaving, who. The bell leads because it is the one control
-              here that carries news; the avatar closes the capsule as it
+              Left to right: find, what changed, how the system is doing, how
+              it looks, leaving, who. Search leads because it is the control
+              here a reader reaches for on the way to a stock; the bell is the
+              one that carries news; the avatar closes the capsule as it
               always has. `key` on the bell so switching market resets its
               count to that market's rather than carrying the other's over.
             */}
             <div className="glass flex items-center gap-0.5 rounded-full p-0.5">
+              <GlobalSearchButton />
               <Suspense key={market.slug} fallback={<NotificationBellFallback />}>
                 <NotificationBell market={market} state={notifications} />
               </Suspense>
-              <HealthLink href={marketPath(market.slug, "/health")} />
               {/*
-                Not on a phone. With the avatar already gone there, this is
-                what keeps the capsule at the three circles it had before the
-                bell and run health arrived, and so keeps "Winnow" readable
-                beside it. The theme still follows the phone's own setting.
+                Not on a phone: the theme toggle and run health. With the
+                avatar already gone there, this is what keeps the capsule at
+                three circles -- search, the bell, sign-out -- and so keeps
+                "Winnow" readable beside it; a fourth cut it to "W..." at
+                390px. The theme still follows the phone's own setting, and
+                run health is linked from the footer instead.
               */}
               <span className="hidden sm:contents">
+                <HealthLink href={marketPath(market.slug, "/health")} />
                 <ThemeToggle />
               </span>
               <SignOut viewer={viewer} />
@@ -337,8 +343,14 @@ export function AppShell({
           motion belongs to the components that actually change.
         */}
         <main className="flex-1 animate-fade">
-          <MarketProvider market={market}>{children}</MarketProvider>
+          <MarketProvider market={market}>
+            {children}
+            {/* The header's search dialog: it reads the market, so it lives
+                inside the provider, and is opened from the header by event. */}
+            <GlobalSearch />
+          </MarketProvider>
         </main>
+        <SmoothDetails />
 
         <footer className="border-t px-4 py-5 text-xs text-muted-foreground sm:px-8">
           <p>
@@ -346,6 +358,13 @@ export function AppShell({
               "Research model; point-in-time out-of-sample validation pending."}{" "}
             Not investment advice. {market.advisor}
           </p>
+          {/* Run health's way in on a phone, where the header has no room for it. */}
+          <Link
+            href={marketPath(market.slug, "/health")}
+            className="mt-2 inline-block rounded underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
+          >
+            Run health
+          </Link>
         </footer>
       </div>
     </div>

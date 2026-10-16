@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, ChevronRight } from "lucide-react";
 
 import {
@@ -51,6 +52,15 @@ const TONES = {
 
 export type ChartTone = keyof typeof TONES;
 
+/** The chip in a card's corner: "View list", or a link onward. */
+const CHIP = cn(
+  "-mt-1 -mr-1 inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground",
+  "transition-[background-color,color,transform] duration-(--duration-fast) ease-(--ease-standard)",
+  "hover:bg-(--control-hover) hover:text-foreground",
+  "active:scale-[0.95] active:duration-(--duration-press)",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+);
+
 function useWidth() {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -73,6 +83,7 @@ export function BreadthChart({
   locale,
   tone = "accent",
   onExpand,
+  link,
   live,
 }: {
   title: string;
@@ -85,6 +96,8 @@ export function BreadthChart({
   tone?: ChartTone;
   /** Opens the stocks behind the latest value; the button is absent without it. */
   onExpand?: () => void;
+  /** A page that goes further than the chart -- an index's constituents. */
+  link?: { href: string; label: string; title: string };
   /** The last point is a live quote: "Live 15:25 IST", its last move, and whether to pulse. */
   live?: { label: string; pulsing: boolean; tick: Tick | null };
 }) {
@@ -175,17 +188,16 @@ export function BreadthChart({
               type="button"
               onClick={onExpand}
               aria-label={`View the stocks in “${title}”`}
-              className={cn(
-                "-mt-1 -mr-1 inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground",
-                "transition-[background-color,color,transform] duration-(--duration-fast) ease-(--ease-standard)",
-                "hover:bg-(--control-hover) hover:text-foreground",
-                "active:scale-[0.95] active:duration-(--duration-press)",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              )}
+              className={CHIP}
             >
               View list
               <ChevronRight className="size-3.5" aria-hidden />
             </button>
+          ) : link ? (
+            <Link href={link.href} aria-label={link.title} className={CHIP}>
+              {link.label}
+              <ChevronRight className="size-3.5" aria-hidden />
+            </Link>
           ) : null}
         </div>
         {shown ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import gsap from "gsap";
 
 import { cn } from "@/lib/utils";
@@ -21,8 +21,13 @@ import { cn } from "@/lib/utils";
  *    branch rather than a shortened duration: the reduced path sets the final
  *    state immediately and runs nothing.
  *
- * 3. Nothing animates a layout property. Transform and opacity only, so no
- *    effect here can trigger reflow or shift a neighbour mid-flight.
+ * 3. Nothing animates a layout property -- with one exception, disclosure
+ *    (SmoothDetails, useExpand). Opening a panel must move what is below it;
+ *    the only choice is whether that happens in one frame or over a few
+ *    hundred milliseconds, and a jump is what loses the reader's place. The
+ *    tween is confined to the one box that opens, which clips its own content,
+ *    and is cleared the moment it lands, so the box goes back to sizing
+ *    itself.
  */
 
 /*
@@ -290,6 +295,200 @@ export function ZoomIn({
 
   return (
     <div ref={ref} className={cn(className)}>
+      {children}
+    </div>
+  );
+}
+
+/*
+ * Disclosure timing. Opening decelerates on power3 rather than the expo
+ * curve content arrives on: expo covers 80% of the distance in the first
+ * quarter, which on a panel the reader is watching grow reads as a jump with
+ * a long settle. Closing is shorter and eases in and out, because a panel the
+ * reader dismissed should get out of the way rather than linger.
+ */
+const OPEN = { duration: 0.45, ease: "power3.out" };
+const CLOSE = { duration: 0.28, ease: "power3.inOut" };
+
+/**
+ * Every `<details>` in the app, opened and closed with motion.
+ *
+ * Mounted once, in the shell, as a single delegated click listener -- so a
+ * disclosure rendered on the server needs no client component of its own and
+ * costs nothing until it is pressed. Without JS, or with reduced motion, the
+ * browser's own toggle runs untouched.
+ *
+ * The `<details>` box itself is tweened between its closed and open heights.
+ * While it closes it is still `[open]`, so `data-closing` is set for the
+ * stylesheet to turn its chevron back on the press (globals.css).
+ */
+export function SmoothDetails() {
+  const reduced = usePrefersReducedMotion();
+
+  useEffect(() => {
+    if (reduced) return;
+    const running = new WeakMap<HTMLDetailsElement, gsap.core.Tween>();
+
+    const onClick = (event: MouseEvent) => {
+      if (event.defaultPrevented) return;
+      const summary = (event.target as Element | null)?.closest?.("summary");
+      const details = summary?.parentElement;
+      if (!(details instanceof HTMLDetailsElement) || summary !== details.firstElementChild) return;
+      if (details.hasAttribute("data-instant")) return;
+      event.preventDefault();
+
+      const start = details.offsetHeight;
+      running.get(details)?.kill();
+      const closing = details.open && !details.hasAttribute("data-closing");
+
+      // Measure the end state by setting it for one synchronous layout.
+      details.removeAttribute("data-closing");
+      details.open = !closing;
+      const end = details.offsetHeight;
+      details.open = true;
+      if (closing) details.setAttribute("data-closing", "");
+
+      const content = Array.from(details.children).filter((child) => child !== summary);
+      gsap.set(details, { height: start, overflow: "hidden" });
+      if (!closing) gsap.fromTo(content, { opacity: 0, y: -4 }, { opacity: 1, y: 0, ...OPEN, clearProps: "opacity,transform" });
+      const tween = gsap.to(details, {
+        height: end,
+        ...(closing ? CLOSE : OPEN),
+        onComplete: () => {
+          if (closing) {
+            details.open = false;
+            details.removeAttribute("data-closing");
+          }
+          gsap.set(details, { clearProps: "height,overflow" });
+          running.delete(details);
+        },
+      });
+      running.set(details, tween);
+    };
+
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, [reduced]);
+
+  return null;
+}
+
+/**
+ * Height-animated mount and unmount for a panel that is not a `<details>`:
+ * a list that grows, a table row that opens.
+ *
+ * Returns whether the content should be rendered at all -- it stays mounted
+ * through the closing tween, then leaves the DOM, so a long collapsed list
+ * costs nothing -- and a ref for the box to animate. Inside that box, any
+ * `[data-expand]` descendants are animated instead of the box itself: a
+ * `<tr>` cannot be given a height, but the cells' inner wrappers can.
+ *
+ * The first render is never animated: a panel open on arrival is just open.
+ */
+export function useExpand<T extends HTMLElement>(open: boolean) {
+  const ref = useRef<T>(null);
+  const reduced = usePrefersReducedMotion();
+  const [mounted, setMounted] = useState(open);
+  // With no closing tween to wait for, the content leaves with `open`.
+  if (open !== mounted && (open || reduced)) setMounted(open);
+  const first = useRef(true);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    if (!el || reduced) return;
+    const nested = el.querySelectorAll<HTMLElement>("[data-expand]");
+    const targets = nested.length ? Array.from(nested) : [el];
+    gsap.killTweensOf(targets);
+    if (open) {
+      // Mid-close, the tween already left an inline height: grow from there
+      // rather than snapping back to zero.
+      for (const target of targets) {
+        if (!target.style.height) gsap.set(target, { height: 0, opacity: 0 });
+      }
+      const tween = gsap.to(targets, {
+        height: "auto",
+        opacity: 1,
+        overflow: "hidden",
+        ...OPEN,
+        clearProps: "height,opacity,overflow",
+      });
+      return () => {
+        tween.kill();
+      };
+    }
+    const tween = gsap.to(targets, {
+      height: 0,
+      opacity: 0,
+      overflow: "hidden",
+      ...CLOSE,
+      onComplete: () => setMounted(false),
+    });
+    return () => {
+      tween.kill();
+    };
+  }, [open, reduced]);
+
+  return { ref, mounted: mounted || open };
+}
+
+/** `useExpand` as a box: renders `children` only while open or closing. */
+export function Expand({
+  open,
+  children,
+  className,
+  id,
+}: {
+  open: boolean;
+  children: React.ReactNode;
+  className?: string;
+  id?: string;
+}) {
+  const { ref, mounted } = useExpand<HTMLDivElement>(open);
+  if (!mounted) return null;
+  return (
+    <div ref={ref} id={id} className={className}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Fades its content in whenever `token` changes -- a list that arrives in a
+ * box already holding its skeleton. Opacity only: the box does not move.
+ */
+export function FadeSwap({
+  token,
+  children,
+  className,
+}: {
+  token: unknown;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const reduced = usePrefersReducedMotion();
+  const first = useRef(true);
+  useLayoutEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    if (reduced || !ref.current) return;
+    const tween = gsap.fromTo(
+      ref.current,
+      { opacity: 0, y: 6 },
+      { opacity: 1, y: 0, duration: 0.36, ease: EASE_OUT, clearProps: "opacity,transform" },
+    );
+    return () => {
+      tween.kill();
+    };
+  }, [token, reduced]);
+  return (
+    <div ref={ref} className={className}>
       {children}
     </div>
   );
