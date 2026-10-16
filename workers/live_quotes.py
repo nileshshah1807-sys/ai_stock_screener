@@ -243,6 +243,10 @@ def run(
     index_tickers = {
         index.quote_symbol: index.label for index in profile.live_indices if index.quote_symbol
     }
+    # The Market page's index charts draw today's level too. Their labels are
+    # the names the charts already carry, so a chart finds its quote by name.
+    for ticker, label in profile.headline_indices:
+        index_tickers.setdefault(ticker, label)
     quotes = fetch_quotes([*stock_tickers, *index_tickers])
 
     fetched_at = now.astimezone(UTC).isoformat(timespec="seconds")

@@ -39,32 +39,40 @@ const askedAt = new Map<string, number>();
 const listeners = new Set<() => void>();
 let version = 0;
 
-const keyOf = (market: MarketCode, symbol: string) => `${market}:${symbol}`;
+/** A stock, or an index level stored under the index's name. */
+export type QuoteKind = "stock" | "index";
+
+const keyOf = (market: MarketCode, symbol: string, kind: QuoteKind = "stock") =>
+  `${market}:${kind}:${symbol}`;
 
 function publish() {
   version += 1;
   for (const listener of listeners) listener();
 }
 
-async function load(market: MarketCode, symbols: readonly string[]): Promise<void> {
+async function load(
+  market: MarketCode,
+  symbols: readonly string[],
+  kind: QuoteKind,
+): Promise<void> {
   const now = Date.now();
   const due = symbols.filter(
-    (symbol) => now - (askedAt.get(keyOf(market, symbol)) ?? 0) >= MIN_POLL_MS,
+    (symbol) => now - (askedAt.get(keyOf(market, symbol, kind)) ?? 0) >= MIN_POLL_MS,
   );
   if (!due.length) return;
-  for (const symbol of due) askedAt.set(keyOf(market, symbol), now);
+  for (const symbol of due) askedAt.set(keyOf(market, symbol, kind), now);
 
   const { data, error } = await createClient()
     .from("live_quotes")
     .select(COLUMNS)
     .eq("market", market)
-    .eq("kind", "stock")
+    .eq("kind", kind)
     .in("symbol", due);
   // A failed read leaves the close on screen; the next poll tries again.
   if (error || !data) return;
   const readAt = Date.now();
   for (const row of data as unknown as LiveQuote[]) {
-    const key = keyOf(market, row.symbol);
+    const key = keyOf(market, row.symbol, kind);
     const before = quotes.get(key);
     const price = Number(row.price);
     const direction = tickDirection(before?.price, price);
@@ -79,10 +87,14 @@ async function load(market: MarketCode, symbols: readonly string[]): Promise<voi
   publish();
 }
 
-function newestFetch(market: MarketCode, symbols: readonly string[]): string | null {
+function newestFetch(
+  market: MarketCode,
+  symbols: readonly string[],
+  kind: QuoteKind,
+): string | null {
   let newest: string | null = null;
   for (const symbol of symbols) {
-    const fetched = quotes.get(keyOf(market, symbol))?.fetched_at;
+    const fetched = quotes.get(keyOf(market, symbol, kind))?.fetched_at;
     if (fetched && (!newest || fetched > newest)) newest = fetched;
   }
   return newest;
@@ -97,6 +109,7 @@ function subscribe(listener: () => void) {
 
 /**
  * The latest quote for each of `symbols`, kept fresh while the tab is visible.
+ * With `kind` "index", `symbols` are index names and the quote is the level.
  *
  * Runs after the page has rendered and never blocks it. Polls once per worker
  * run (see `nextPollDelay`), not at all while the tab is hidden, and once on
@@ -105,24 +118,26 @@ function subscribe(listener: () => void) {
 export function useLiveQuotes(
   market: MarketCode | null,
   symbols: readonly string[],
+  kind: QuoteKind = "stock",
 ): (symbol: string) => LiveQuote | null {
   useSyncExternalStore(subscribe, () => version, () => 0);
-  const key = symbols.join(",");
+  // Index names have spaces and ampersands but no newline.
+  const key = symbols.join("\n");
 
   useEffect(() => {
     if (!market || !key) return;
-    const list = key.split(",");
+    const list = key.split("\n");
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
 
     const tick = async () => {
       clearTimeout(timer);
       if (document.visibilityState !== "visible") return;
-      await load(market, list);
+      await load(market, list, kind);
       if (stopped) return;
       // A visibility tick and a timer tick can both reach here; keep one loop.
       clearTimeout(timer);
-      timer = setTimeout(tick, nextPollDelay(newestFetch(market, list), Date.now()));
+      timer = setTimeout(tick, nextPollDelay(newestFetch(market, list, kind), Date.now()));
     };
     const onVisibility = () => {
       if (document.visibilityState === "visible") void tick();
@@ -135,9 +150,9 @@ export function useLiveQuotes(
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [market, key]);
+  }, [market, key, kind]);
 
-  return (symbol) => (market ? (quotes.get(keyOf(market, symbol)) ?? null) : null);
+  return (symbol) => (market ? (quotes.get(keyOf(market, symbol, kind)) ?? null) : null);
 }
 
 /**

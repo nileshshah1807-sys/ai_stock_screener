@@ -16,7 +16,9 @@ import {
   sliceFrom,
 } from "@/lib/market-breadth.mjs";
 import type { Market } from "@/lib/markets";
+import { isLive, liveOverlay, quoteTime } from "@/lib/live-quotes.mjs";
 import type { BreadthGroup, BreadthRow } from "@/lib/queries";
+import { useLiveQuotes, useNow, type LiveQuote } from "@/lib/use-live-quotes";
 import { cn } from "@/lib/utils";
 
 type Unit = "share" | "count";
@@ -125,11 +127,29 @@ export function MarketDashboard({
     [indices],
   );
 
+  // Today's level for each charted index, every five minutes during the
+  // session (workers/live_quotes.py), drawn as the chart's last point.
+  const indexNames = useMemo(() => decodedIndices.map((entry) => entry.name), [decodedIndices]);
+  const liveLevel = useLiveQuotes(market.code, indexNames, "index");
+  const now = useNow();
+  const liveQuotes = new Map(
+    decodedIndices.map(({ name, decoded }) => [
+      name,
+      liveOverlay(liveLevel(name), decoded?.dates.at(-1)),
+    ]),
+  );
+  let liveEnd = "";
+  for (const quote of liveQuotes.values()) {
+    if (quote && quote.session > liveEnd) liveEnd = quote.session;
+  }
+
   // One x-domain for every chart, so a date sits at the same x everywhere
-  // and the synced crosshair lines up down the page.
+  // and the synced crosshair lines up down the page. A live session extends
+  // it by a day, so today's point is on the plot.
   const { from, to } = useMemo(() => {
     const lasts = [breadth, ...decodedIndices.map((entry) => entry.decoded)]
       .map((decoded) => decoded?.dates.at(-1))
+      .concat(liveEnd || undefined)
       .filter((date): date is string => Boolean(date));
     const firsts = [breadth, ...decodedIndices.map((entry) => entry.decoded)]
       .map((decoded) => decoded?.dates[0])
@@ -140,7 +160,7 @@ export function MarketDashboard({
       from: rangeStart(end, entry?.months ?? null, entry?.days ?? null) ?? firsts.sort()[0] ?? "",
       to: end,
     };
-  }, [breadth, decodedIndices, range]);
+  }, [breadth, decodedIndices, range, liveEnd]);
 
   // Memoised as a whole so scrubbing -- which re-renders every chart to move
   // its crosshair -- hands each one the same arrays and its path is not
@@ -249,19 +269,15 @@ export function MarketDashboard({
         {decodedIndices.length ? (
           <Section title="Benchmark indices" description="Where the headline indices are trading.">
             {indexSeries.map(({ name, points }) => (
-              <BreadthChart
+              <IndexChart
                 key={name}
-                title={name}
+                name={name}
                 points={points}
+                quote={liveQuotes.get(name) ?? null}
+                market={market}
+                now={now}
                 from={from}
                 to={to}
-                unit="level"
-                locale={market.locale}
-                tone={
-                  points.length > 1 && points[points.length - 1].value < points[0].value
-                    ? "negative"
-                    : "positive"
-                }
               />
             ))}
           </Section>
@@ -362,6 +378,65 @@ export function MarketDashboard({
 }
 
 const LIST_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * One headline index, with today's live level as its last point when the
+ * quote is from a later session than the published closes.
+ */
+function IndexChart({
+  name,
+  points,
+  quote,
+  market,
+  now,
+  from,
+  to,
+}: {
+  name: string;
+  points: ChartPoint[];
+  quote: LiveQuote | null;
+  market: Market;
+  now: number;
+  from: string;
+  to: string;
+}) {
+  // The quote object is replaced only when a new read lands, so scrubbing
+  // keeps handing the chart the same array.
+  const withLive = useMemo(() => {
+    const last = points.at(-1);
+    if (!quote || (last && quote.session <= last.time)) return points;
+    return [...points, { time: quote.session, value: quote.price }];
+  }, [points, quote]);
+  const drawn = withLive !== points && quote !== null;
+  const live = drawn
+    ? {
+        pulsing: isLive(quote.fetched_at, now),
+        label: `${isLive(quote.fetched_at, now) ? "Live" : "As of"} ${quoteTime(
+          quote.traded_at,
+          market.timezone,
+          market.locale,
+          now,
+        )} ${market.timezoneLabel}`,
+        tick: quote.tick,
+      }
+    : undefined;
+  return (
+    <BreadthChart
+      title={name}
+      points={withLive}
+      from={from}
+      to={to}
+      unit="level"
+      locale={market.locale}
+      tone={
+        withLive.length > 1 && withLive[withLive.length - 1].value < withLive[0].value
+          ? "negative"
+          : "positive"
+      }
+      live={live}
+    />
+  );
+}
 
 function formatListDay(time: string) {
   const [year, month, day] = time.split("-");
