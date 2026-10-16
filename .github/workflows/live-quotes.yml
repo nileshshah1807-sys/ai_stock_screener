@@ -1,0 +1,81 @@
+name: Live quotes
+run-name: Live quotes (${{ inputs.market || 'NSE' }})
+
+# Intraday prices for the dashboard (workers/live_quotes.py): the grid's
+# Price and 1D cells, the stock page's tiles and the Market page's movers by
+# index. Display only -- the screener still scores the completed session.
+#
+# Dispatch only: cron-job.org calls GitHub's workflow-dispatch API every five
+# minutes on weekdays, from a few minutes before the open to a few after the
+# close. GitHub's own schedule was not used because it delays and drops runs
+# under load (see quarterly-filings.yml). A dispatch outside the session, or
+# on an exchange holiday, returns within seconds and writes nothing, so the
+# cron's window need not be exact.
+#
+# A run is about fifteen seconds of work (the whole NSE universe in five
+# requests, measured October 2026): the job installs only what the worker
+# imports, pinned to the CI lock, rather than the full lock.
+
+on:
+  workflow_dispatch:
+    inputs:
+      market:
+        description: Market to quote
+        required: false
+        default: NSE
+        type: choice
+        options: [NSE, US]
+      refresh_members:
+        description: Re-read index constituents now rather than once a day
+        required: false
+        default: false
+        type: boolean
+      force:
+        description: Run outside the session (testing)
+        required: false
+        default: false
+        type: boolean
+      dry_run:
+        description: Fetch without writing to Supabase
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  # One run per market at a time. A run still going when the next dispatch
+  # arrives is left to finish; the queued one then fetches fresher prices.
+  group: live-quotes-${{ inputs.market || 'NSE' }}
+  cancel-in-progress: false
+
+jobs:
+  quote:
+    name: ${{ inputs.market || 'NSE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      MARKET: ${{ inputs.market || 'NSE' }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+
+      # The three packages the worker imports, at the CI lock's versions.
+      - name: Install dependencies
+        run: python -m pip install -c requirements-ci.txt yfinance requests pandas
+
+      - name: Refresh quotes
+        env:
+          REFRESH: ${{ inputs.refresh_members && '--refresh-members' || '' }}
+          FORCE: ${{ inputs.force && '--force' || '' }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.live_quotes --market "${MARKET}" ${REFRESH} ${FORCE} ${DRY_RUN}

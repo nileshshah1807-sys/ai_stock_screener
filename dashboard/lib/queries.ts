@@ -4,6 +4,11 @@ import { cache } from "react";
 
 import { gridProjection } from "@/lib/columns";
 import { priceCalendarPath, priceSeriesPath, readMarketObject } from "@/lib/market-data";
+import {
+  LIVE_MOVERS_LIMIT,
+  normalizeLiveMarket,
+  type LiveMarket,
+} from "@/lib/live-market";
 import { createClient } from "@/lib/supabase/server";
 import type { MarketCode } from "@/lib/markets";
 import type {
@@ -115,6 +120,9 @@ const EXPORT_COLUMNS = [
   "portfolio_actionable",
   "median_turnover_20d_inr",
   "price_bar_aligned",
+  // The session of current_price, so the grid knows whether a live quote is
+  // newer (see lib/live-quotes.mjs).
+  "price_bar_as_of",
   "fund_data_stale",
   // Model 5.0. Null on 4.x rows; the export writes them regardless so a
   // downstream consumer can tell which model scored the run.
@@ -1079,75 +1087,27 @@ export async function getMovers(
   };
 }
 
-export type PriceMoverRow = {
-  symbol: string;
-  company: string | null;
-  investment_rank: number | null;
-  rating: string | null;
-  current_price: number | null;
-  pct_change_1d: number | null;
-};
-
-const PRICE_MOVER_COLUMNS =
-  "symbol, company, investment_rank, rating, current_price, pct_change_1d";
-
 /**
- * Biggest single-session gainers and losers.
+ * Today's movers within each index, from the five-minute quotes.
  *
- * Reads `screener_snapshot` rather than the `screener_movers` view, for two
- * reasons. The view diffs `screener_history.current_price`, which is the *raw*
- * close, so a split or a large dividend would publish a fabricated -90% mover;
- * `pct_change_1d` is computed on adjusted closes by the model itself. And a
- * snapshot read needs no previous run, so these two panels work on a first-ever
- * publication, where every rank and rating bucket is necessarily empty.
- *
- * Two ordered reads rather than one full-universe read and a client-side sort:
- * Postgres already has the index, and the whole point is to move ~2,400 rows of
- * transfer off the wire for the 15 rows actually rendered.
+ * One call for every index: the `live_market` function returns the whole
+ * answer (~15 KB) as one JSON value, so switching index on the page needs no
+ * round trip. Null when the table or function is not deployed, or nothing is
+ * quoted yet -- the page then leaves the section out.
  */
-export async function getPriceMovers(
-  market: MarketCode,
-  runDate: string,
-  limit = 15,
-): Promise<{ gainers: PriceMoverRow[]; losers: PriceMoverRow[] }> {
+export async function getLiveMarket(market: MarketCode): Promise<LiveMarket | null> {
   const supabase = await createClient();
-
-  const side = (ascending: boolean) =>
-    supabase
-      .from("screener_snapshot")
-      .select(PRICE_MOVER_COLUMNS)
-      .eq("market", market)
-      .eq("run_date", runDate)
-      // Runs published before Pct_Change_1D existed carry null for every row.
-      // Excluding them here is what lets the page decide to render nothing at
-      // all rather than two panels of dashes presented as the day's movers.
-      .not("pct_change_1d", "is", null)
-      .order("pct_change_1d", { ascending, nullsFirst: false })
-      .order("symbol", { ascending: true })
-      .limit(limit);
-
-  const [top, bottom] = await Promise.all([side(false), side(true)]);
-
-  if (top.error || bottom.error) {
-    console.error(
-      "getPriceMovers failed",
-      top.error?.message ?? bottom.error?.message,
-    );
-    return { gainers: [], losers: [] };
+  const { data, error } = await supabase.rpc("live_market", {
+    p_market: market,
+    p_limit: LIVE_MOVERS_LIMIT,
+  });
+  if (error) {
+    console.error("getLiveMarket failed", error.message);
+    return null;
   }
-
-  const rows = (result: { data: unknown }) =>
-    ((result.data ?? []) as unknown as PriceMoverRow[]).filter(
-      (row) => row.pct_change_1d !== null,
-    );
-
-  return {
-    // A flat session is neither a gain nor a fall. Without this a universe that
-    // barely moved fills both panels with +0.00% rows.
-    gainers: rows(top).filter((row) => (row.pct_change_1d ?? 0) > 0),
-    losers: rows(bottom).filter((row) => (row.pct_change_1d ?? 0) < 0),
-  };
+  return normalizeLiveMarket(data);
 }
+
 
 /**
  * Full filtered result set for CSV export, paged past the PostgREST cap.

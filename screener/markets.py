@@ -26,6 +26,20 @@ DEFAULT_MARKET = NSE
 
 
 @dataclass(frozen=True)
+class LiveIndex:
+    """An index whose members the Market page ranks by today's move.
+
+    ``quote_symbol`` is the vendor's ticker for the index level, or None where
+    the vendor serves no level (the page then shows the movers without one).
+    ``members_source`` names the constituent list in ``screener.index_members``.
+    """
+
+    label: str
+    quote_symbol: str | None
+    members_source: str
+
+
+@dataclass(frozen=True)
 class MarketProfile:
     """Exchange-specific defaults for one market."""
 
@@ -82,6 +96,12 @@ class MarketProfile:
     # auction is capped at 20% either way, so 1.30 leaves a margin. None where
     # the open is uncapped and a gap of any size can be real, as in the US.
     max_open_gap: float | None = None
+    # The regular session in local time, for the intraday quote worker
+    # (workers/live_quotes.py): it does nothing outside these hours.
+    session_open: str = "09:15"
+    session_close: str = "15:30"
+    # Indices the Market page lists the day's movers for, in display order.
+    live_indices: tuple[LiveIndex, ...] = ()
 
 
 _NSE_PROFILE = MarketProfile(
@@ -122,6 +142,19 @@ _NSE_PROFILE = MarketProfile(
     session_bar_fallback="nse_bhavcopy",
     action_ledger="nse_actions",
     max_open_gap=1.30,
+    session_open="09:15",
+    session_close="15:30",
+    # Nifty Microcap 250 has no Yahoo level (see headline_indices), so its
+    # movers are listed without one.
+    live_indices=(
+        LiveIndex("Nifty 50", "^NSEI", "nse:ind_nifty50list"),
+        LiveIndex("Nifty Next 50", "^NSMIDCP", "nse:ind_niftynext50list"),
+        LiveIndex("Nifty Bank", "^NSEBANK", "nse:ind_niftybanklist"),
+        LiveIndex("Nifty Midcap 150", "NIFTYMIDCAP150.NS", "nse:ind_niftymidcap150list"),
+        LiveIndex("Nifty Smallcap 250", "NIFTYSMLCAP250.NS", "nse:ind_niftysmallcap250list"),
+        LiveIndex("Nifty Microcap 250", None, "nse:ind_niftymicrocap250_list"),
+        LiveIndex("Nifty 500", "^CRSLDX", "nse:ind_nifty500list"),
+    ),
 )
 
 _US_PROFILE = MarketProfile(
@@ -158,6 +191,8 @@ _US_PROFILE = MarketProfile(
         ("^DJI", "Dow Jones Industrial"),
         ("^RUT", "Russell 2000"),
     ),
+    session_open="09:30",
+    session_close="16:00",
 )
 
 MARKETS: dict[str, MarketProfile] = {

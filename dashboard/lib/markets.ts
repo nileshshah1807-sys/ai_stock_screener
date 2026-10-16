@@ -53,6 +53,19 @@ export type Market = {
    * `benchmark_symbol` in `screener/markets.py`.
    */
   benchmark: string;
+  /**
+   * The exchange's clock, for the time of a live quote. Mirrors `timezone`
+   * in `screener/markets.py`.
+   */
+  timezone: string;
+  /** How that clock is labelled beside a time: "11:45 IST". */
+  timezoneLabel: string;
+  /**
+   * Whether the Market page lists today's movers by index. Mirrors a
+   * non-empty `live_indices` in `screener/markets.py`; where it is false the
+   * page reserves no space for them.
+   */
+  liveIndices: boolean;
 };
 
 export const MARKETS: Record<MarketSlug, Market> = {
@@ -67,6 +80,9 @@ export const MARKETS: Record<MarketSlug, Market> = {
     listPriceDigits: 0,
     advisor: "Consult a SEBI-registered advisor.",
     benchmark: "Nifty 500",
+    timezone: "Asia/Kolkata",
+    timezoneLabel: "IST",
+    liveIndices: true,
   },
   us: {
     slug: "us",
@@ -79,6 +95,9 @@ export const MARKETS: Record<MarketSlug, Market> = {
     listPriceDigits: 2,
     advisor: "Consult a registered investment adviser.",
     benchmark: "S&P 500",
+    timezone: "America/New_York",
+    timezoneLabel: "ET",
+    liveIndices: false,
   },
 };
 

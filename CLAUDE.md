@@ -205,6 +205,18 @@ the scheduled workflows set the same flag.
   is a trial: printed, never stored. The free allowance is 5M tokens a
   rolling week, about 400 extractions; a spent allowance stops the run
   (`QuotaSpentError`) rather than failing every call after it.
+- **Live prices are display-only, every five minutes during the session.**
+  `workers/live_quotes.py` (the Live quotes workflow, dispatch-only:
+  cron-job.org calls it every 5 minutes on weekdays; do not add a
+  `schedule:`) writes `live_quotes`, one row per market and symbol from
+  Yahoo's batch quote endpoint, and once a day the constituents of each
+  `MarketProfile.live_indices` into `index_members`. The dashboard reads them
+  in the browser after render: the grid's Price and 1D, the stock page's
+  tiles, and the Market page's movers by index (`live_market()`). Nothing
+  scores, sorts or filters on them; a quote shows only when it is from a later
+  session than the row's bar. A change past `max_open_gap` is withheld as a
+  unit change, not a move. The tables are in
+  `storage/live_quotes_schema.sql` and must be applied by hand.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and
