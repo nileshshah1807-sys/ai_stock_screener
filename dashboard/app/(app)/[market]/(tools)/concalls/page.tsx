@@ -92,7 +92,7 @@ export default async function ConcallsPage({
               <ul className="divide-y">
                 {group.calls.map((call) => (
                   <li key={`${call.symbol}:${call.quarter}`}>
-                    <ConcallRow call={call} market={market} logoDomain={logos.get(call.symbol)} />
+                    <ConcallRow call={call} logoDomain={logos.get(call.symbol)} />
                   </li>
                 ))}
               </ul>

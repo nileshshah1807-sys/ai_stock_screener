@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 
-import { CompanyLogo } from "@/components/company-logo";
+import { StockIdentity } from "@/components/stock-identity";
 import { RatingBadge } from "@/components/rating-badge";
 import { SegmentedControl } from "@/components/segmented-control";
 import { formatDate, formatMoney, formatPercent, MISSING } from "@/lib/format";
@@ -266,21 +266,7 @@ function HoldingsTable({
             <tr key={row.symbol} className="hover:bg-muted/50">
               <td className="tabular px-4 py-2 font-mono text-xs text-muted-foreground">{row.rankThen ?? MISSING}</td>
               <td className="max-w-[18rem] px-2 py-2">
-                <Link
-                  href={marketPath(market.slug, `/stocks/${encodeURIComponent(row.symbol)}`)}
-                  // Off, as in the screener grid: up to 50 rows would each
-                  // prefetch a stock page the reader will mostly never open.
-                  prefetch={false}
-                  className="group flex items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <CompanyLogo symbol={row.symbol} domain={row.logoDomain} />
-                  <span className="min-w-0">
-                    <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
-                      {row.symbol}
-                    </span>
-                    <span className="block truncate text-[11px] text-muted-foreground">{row.company ?? MISSING}</span>
-                  </span>
-                </Link>
+                <StockIdentity symbol={row.symbol} company={row.company} logoDomain={row.logoDomain} />
               </td>
               <td className="tabular hidden px-2 py-2 text-right font-mono text-xs sm:table-cell">
                 {row.entry ? formatMoney(row.entry.close, market, market.listPriceDigits) : MISSING}
@@ -591,25 +577,21 @@ function Closed({ trades, market, costs }: { trades: ClosedTrade[]; market: Mark
             {visible.map((trade) => (
               <tr key={`${trade.symbol}-${trade.soldOn}`} className="hover:bg-muted/50">
                 <td className="max-w-[18rem] px-4 py-2">
-                  <Link
-                    href={marketPath(market.slug, `/stocks/${encodeURIComponent(trade.symbol)}`)}
-                    prefetch={false}
-                    className="group flex items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <CompanyLogo symbol={trade.symbol} domain={trade.logoDomain} />
-                    <span className="min-w-0">
-                      <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
-                        {trade.symbol}
-                      </span>
-                      <span className="block truncate text-[11px] text-muted-foreground sm:hidden">
-                        {trade.boughtOn ? shortDate(trade.boughtOn) : MISSING} → {shortDate(trade.soldOn)}
-                        {trade.stopped ? <span className="text-caution"> · stopped</span> : null}
-                      </span>
-                      <span className="hidden truncate text-[11px] text-muted-foreground sm:block">
-                        {trade.company ?? "No longer listed"}
-                      </span>
-                    </span>
-                  </Link>
+                  <StockIdentity
+                    symbol={trade.symbol}
+                    company={trade.company}
+                    logoDomain={trade.logoDomain}
+                    subtitle={
+                      <>
+                        {/* The dates stand in for the columns a phone hides. */}
+                        <span className="sm:hidden">
+                          {trade.boughtOn ? shortDate(trade.boughtOn) : MISSING} → {shortDate(trade.soldOn)}
+                          {trade.stopped ? <span className="text-caution"> · stopped</span> : null}
+                        </span>
+                        <span className="hidden sm:inline">{trade.company ?? "No longer listed"}</span>
+                      </>
+                    }
+                  />
                 </td>
                 <td className="tabular hidden px-2 py-2 text-right font-mono text-xs sm:table-cell">
                   {trade.boughtAt !== null ? formatMoney(trade.boughtAt, market, market.listPriceDigits) : MISSING}

@@ -3,6 +3,7 @@ import { Clock } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { CompanyLogo } from "@/components/company-logo";
+import { StockIdentity } from "@/components/stock-identity";
 import {
   formatDate,
   formatMoney,
@@ -148,19 +149,13 @@ export function NewListingsList({ rows, market }: { rows: NewListingRow[]; marke
             {rows.map((row) => (
               <tr key={row.symbol} className="group transition-colors hover:bg-(--control)">
                 <td className="px-4 py-3">
-                  <Link
-                    href={href(row.symbol)}
-                    prefetch={false}
-                    className="flex items-center gap-3 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <CompanyLogo symbol={row.symbol} domain={row.logo_domain} />
-                    <span className="min-w-0">
-                      <span className="block font-mono text-sm font-semibold">{row.symbol}</span>
-                      <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
-                        {row.company ?? MISSING}
-                      </span>
-                    </span>
-                  </Link>
+                  <StockIdentity
+                    symbol={row.symbol}
+                    company={row.company}
+                    logoDomain={row.logo_domain}
+                    size="md"
+                    textClassName="max-w-[16rem]"
+                  />
                 </td>
                 <td className="tabular px-4 py-3 whitespace-nowrap text-muted-foreground">
                   {formatDate(row.listed_on)}

@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Loader2, Search } from "lucide-react";
 
 import { RatingBadge } from "@/components/rating-badge";
+import { StockIdentity } from "@/components/stock-identity";
 import { cn } from "@/lib/utils";
 import { rank } from "@/lib/search.mjs";
 import { useMarket } from "@/components/market-provider";
-import type { MarketSlug } from "@/lib/markets";
+import { loadSearchIndex } from "@/lib/stock-directory";
 import type { SearchEntry } from "@/lib/types";
 
 
@@ -23,34 +24,6 @@ import type { SearchEntry } from "@/lib/types";
  * stocks" versus "Add stocks"), and they own their own shortcut binding through
  * `useStockPickerShortcut`.
  */
-
-/**
- * Module-scoped so the index survives remounts and is fetched at most once per
- * page load, no matter how often the dialog is opened and closed -- and now, no
- * matter which of the two pickers opens it.
- *
- * Keyed by market, not a single slot. Each market has its own universe, and a
- * shared slot would serve whichever one happened to be opened first: switch to
- * the US tab, press Cmd+K, and search NSE tickers.
- */
-const indexPromises = new Map<MarketSlug, Promise<SearchEntry[]>>();
-
-function loadIndex(market: MarketSlug): Promise<SearchEntry[]> {
-  const cached = indexPromises.get(market);
-  if (cached) return cached;
-
-  const promise = fetch(`/api/search-index?market=${market}`)
-    .then((response) => (response.ok ? response.json() : { entries: [] }))
-    .then((payload) => (payload.entries ?? []) as SearchEntry[])
-    .catch(() => {
-      // Let a failed load retry the next time the dialog opens rather than
-      // caching the failure for the life of the page.
-      indexPromises.delete(market);
-      return [];
-    });
-  indexPromises.set(market, promise);
-  return promise;
-}
 
 /**
  * Bind Cmd/Ctrl+K and Escape.
@@ -117,12 +90,12 @@ export function StockPicker({
   const loading = open && status === "idle";
 
   // Fetched on first open rather than with the page: the index is ~180 KB and
-  // most visits never open the dialog at all. loadIndex() dedupes at module
+  // most visits never open the dialog at all. loadSearchIndex() dedupes at module
   // scope, so a double-invoked effect still makes one request.
   useEffect(() => {
     if (!open || status === "ready") return;
     let active = true;
-    loadIndex(market.slug).then((loaded) => {
+    loadSearchIndex(market.slug).then((loaded) => {
       if (!active) return;
       setEntries(loaded);
       setStatus("ready");
@@ -242,14 +215,14 @@ export function StockPicker({
                   <span className="tabular w-9 shrink-0 font-mono text-xs text-muted-foreground">
                     {entry.r ?? "—"}
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-mono text-sm font-medium">
-                      {entry.s}
-                    </span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {entry.c}
-                    </span>
-                  </span>
+                  <StockIdentity
+                    symbol={entry.s}
+                    company={entry.c || null}
+                    logoDomain={entry.l ?? null}
+                    link={false}
+                    size="md"
+                    className="flex-1"
+                  />
                   <span className="tabular shrink-0 font-mono text-xs">
                     {entry.d?.toFixed(1) ?? "—"}
                   </span>

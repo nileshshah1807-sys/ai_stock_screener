@@ -394,6 +394,7 @@ export type SearchEntry = {
   r: number | null; // investment rank
   g: string | null; // rating
   d: number | null; // decision score
+  l?: string | null; // logo domain, for the company's logo
 };
 
 export type ScreenerFilters = {

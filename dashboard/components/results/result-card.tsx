@@ -1,14 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { Fragment, useState } from "react";
 import { ChevronRight, FileText } from "lucide-react";
 
-import { CompanyLogo } from "@/components/company-logo";
+import { StockIdentity } from "@/components/stock-identity";
 import { useMarket } from "@/components/market-provider";
 import { SegmentedControl } from "@/components/segmented-control";
 import { MISSING, formatDateTimeIST, formatMoneyCompact } from "@/lib/format";
-import { marketPath, type Market } from "@/lib/markets";
+import type { Market } from "@/lib/markets";
 import { amountDigits, formatChange } from "@/lib/results.mjs";
 import { cn } from "@/lib/utils";
 
@@ -134,22 +133,12 @@ export function ResultCard({ card }: { card: ResultCardData }) {
   return (
     <article className="panel flex min-w-0 flex-col gap-3 p-4">
       <header className="flex items-start justify-between gap-4">
-        <Link
-          href={marketPath(market.slug, `/stocks/${encodeURIComponent(card.symbol)}`)}
-          // A season's worth of cards would otherwise prefetch that many stock pages.
-          prefetch={false}
-          className="group flex min-w-0 items-center gap-2.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <CompanyLogo symbol={card.symbol} domain={card.logoDomain} />
-          <span className="min-w-0">
-            <span className="block truncate text-base font-semibold tracking-[-0.011em] underline-offset-2 group-hover:underline">
-              {card.company ?? card.symbol}
-            </span>
-            {card.company ? (
-              <span className="block font-mono text-xs text-muted-foreground">{card.symbol}</span>
-            ) : null}
-          </span>
-        </Link>
+        <StockIdentity
+          symbol={card.symbol}
+          company={card.company}
+          logoDomain={card.logoDomain}
+          emphasis="company"
+        />
         <span className="tabular shrink-0 pt-0.5 text-right text-xs text-muted-foreground">
           {formatDateTimeIST(table.filedAt)}
         </span>
