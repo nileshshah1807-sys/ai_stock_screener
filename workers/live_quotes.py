@@ -151,7 +151,15 @@ def quote_row(
     if price is None or traded is None or traded <= 0:
         return None
     traded_at = datetime.fromtimestamp(traded, UTC)
-    previous = _positive(quote.get("regularMarketPreviousClose"))
+    # The previous close is the price less Yahoo's own change for the day.
+    # Its regularMarketPreviousClose field is stale on index quotes -- an
+    # older session's close on every NSE index measured (October 2026), so
+    # Nifty 50 read +2.2% on a +0.55% day -- while the change agrees with
+    # the price; the field is only the fallback.
+    change = safe_float(quote.get("regularMarketChange"))
+    previous = _positive(
+        price - change if change is not None else quote.get("regularMarketPreviousClose")
+    )
 
     change_pct = None
     if previous is not None:
