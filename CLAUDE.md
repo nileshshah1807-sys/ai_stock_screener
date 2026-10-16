@@ -79,16 +79,21 @@ the scheduled workflows set the same flag.
   Four readers, none of which fetches anything itself: the stock page's
   quarterly results (`workers/financial_statements.compose_quarters`: every
   filed quarter from its filing, consolidated where the latest quarter was
-  filed so; Yahoo only for quarters with no filing, minus any line that
+  filed so -- unless only the standalone filings reach the year-ago
+  quarter, a company just begun to consolidate; the Results page's card
+  opens on the same basis; Yahoo only for quarters with no filing, minus any line that
   disagrees with the filing on a shared quarter -- a broker's net revenue,
   pretax profit counting associates); the screener's `Revenue_Growth` and
   `Earnings_Growth` (`screener/quarterly_results.py`, by the backtest's own
   rule, `backtest.fundamentals.QuarterPanel`: both quarters on one basis,
   profit not EPS, no rate on a non-positive base; read only where the run
   has Supabase credentials, so a validation dispatch keeps Yahoo's); and the
-  bell's results events. Yahoo's figures stand for banks and insurers (a
-  different statement, not stored), a company with no year-ago filing, and
-  one where Yahoo is already on a later quarter; see `quarter_results_*` in
+  bell's results events. Banks and insurers file a different statement,
+  parsed by `FINANCIAL_TAGS` into the page's rows as Yahoo means them (a
+  bank's revenue is net interest income plus other income); they are stored
+  for the stock page, the Results page and the bell, but the screener keeps
+  Yahoo's growth for them (`DISPLAY_ONLY_TAXONOMIES`), as for a company
+  with no year-ago filing, and one where Yahoo is already on a later quarter; see `quarter_results_*` in
   the run diagnostics. The fourth is the dashboard's Results page
   (`dashboard/lib/results.ts`), which reads the table as the signed-in
   viewer through the `quarterly_result_feed` view and re-renders every few

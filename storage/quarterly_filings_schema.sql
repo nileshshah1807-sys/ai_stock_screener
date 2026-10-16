@@ -28,8 +28,9 @@
 --   growth arithmetic measures it)
 -- A line the filing did not report is null, never zero.
 --
--- Banks and insurers file a different statement altogether and are not
--- stored (see SUPPORTED_TAXONOMIES in screener/quarterly_results.py).
+-- Banks and insurers file a different statement altogether; it is read into
+-- the same lines as the vendor means them, plus a bank's net_interest_income
+-- and no operating_profit (FINANCIAL_TAGS in screener/quarterly_results.py).
 --
 -- Apply with:  psql "$SUPABASE_DB_URL" -f storage/quarterly_filings_schema.sql
 -- Safe to re-run. Re-apply it before deploying a worker that writes a column

@@ -187,7 +187,7 @@ def run(
             rows.append(
                 filing_row(
                     row,
-                    quarterly_results.parse_filing(text),
+                    quarterly_results.parse_filing(text, row["Taxonomy"]),
                     broadcast=first.get((row["Symbol"], row["Period_End"])),
                     stored_broadcast=(stored.get(key) or {}).get("broadcast_at"),
                     timezone=profile.timezone,

@@ -208,6 +208,52 @@ class StoredFilingTests(unittest.TestCase):
         self.assertEqual(lines["pat"], 50.0)
         self.assertIsNone(lines["pbt"])
 
+    def test_a_banks_lines_mean_what_the_vendor_means_by_them(self):
+        # SOUTHBANK, June 2026 quarter, in lakh: the vendor's revenue is net
+        # interest income plus other income, its interest is interest expended.
+        tags = {
+            "InterestEarned": 2627.8, "InterestExpended": 1603.1, "OtherIncome": 379.5,
+            "ProfitLossFromOrdinaryActivitiesBeforeTax": 507.5, "TaxExpense": 129.8,
+            "ProfitLossForThePeriod": 377.6,
+            # A consolidated filer that leaves the owners' share at nil.
+            "ProfitLossAfterTaxesMinorityInterestAndShareOfProfitLossOfAssociates": 0,
+            "DilutedEarningsPerShareAfterExtraordinaryItems": 1.44,
+        }
+        text = "<xbrli:xbrl>" + "".join(
+            f'<in-capmkt:{tag} contextRef="OneD">{value}</in-capmkt:{tag}>'
+            for tag, value in tags.items()
+        ) + "</xbrli:xbrl>"
+        lines = parse_filing(text, "BANKING")
+        self.assertAlmostEqual(lines["net_interest_income"], 1024.7)
+        self.assertAlmostEqual(lines["revenue"], 1404.2)
+        self.assertEqual(lines["interest"], 1603.1)
+        self.assertEqual((lines["pbt"], lines["tax"], lines["eps"]), (507.5, 129.8, 1.44))
+        self.assertEqual(lines["net_profit"], 377.6)
+        self.assertIsNone(lines["operating_profit"])
+
+    def test_an_insurers_profit_is_the_shareholders_account(self):
+        # A life insurer files a policyholders' tax line too; it is not the company's.
+        text = (
+            '<xbrli:xbrl><in-capmkt:NetPremiumIncome contextRef="OneD">2553'
+            '</in-capmkt:NetPremiumIncome><in-capmkt:ProvisionForTax contextRef="OneD">0'
+            '</in-capmkt:ProvisionForTax><in-capmkt:ProvisionsForTaxes contextRef="OneD">5'
+            '</in-capmkt:ProvisionsForTaxes><in-capmkt:ProfitLossAfterTaxAndExtraordinaryItems'
+            ' contextRef="OneD">43</in-capmkt:ProfitLossAfterTaxAndExtraordinaryItems>'
+            "</xbrli:xbrl>"
+        )
+        lines = parse_filing(text, "LI")
+        self.assertEqual((lines["revenue"], lines["tax"], lines["net_profit"]), (2553, 5, 43))
+        self.assertIsNone(lines["pbt"])
+
+    def test_banks_and_insurers_keep_the_vendors_growth(self):
+        facts = facts_frame(
+            [{"symbol": "BNK", "period_end": "2026-09-30", "is_consolidated": True,
+              "seq_id": "1", "filed_at": "2026-10-12T19:00:00+00:00",
+              "taxonomy": "BANKING", "revenue": 1.0, "pat": 1.0}],
+            "Asia/Kolkata",
+        )
+        self.assertTrue(facts.empty)
+
     def test_the_filing_date_is_the_exchanges_local_date(self):
         # 00:30 in India on the 13th is still the 12th in UTC.
         facts = facts_frame(

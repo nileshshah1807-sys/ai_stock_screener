@@ -47,7 +47,8 @@ built from those rows (`compose_quarters`):
 
 * every quarter the company has filed is drawn from its filing, on one basis
   -- consolidated where the latest quarter was filed consolidated, which is
-  also the vendor's convention;
+  also the vendor's convention, unless only the standalone filings reach back
+  to the year-ago quarter (a company that has just begun to consolidate);
 * the vendor's figures stand only for a quarter with no filing on that basis
   (before the exchange's index begins, or a filing missing from it), and of
   those only the lines that mean the same at both sources: a vendor line that
@@ -109,6 +110,7 @@ FILED_LINES = (
     "net_profit",
     "eps",
     "operating_profit",
+    "net_interest_income",  # banks only
 )
 
 # Yahoo row labels, first available wins. Several are absent for banks and
@@ -300,9 +302,15 @@ def filed_statement(filings: Iterable[dict[str, Any]]) -> dict[str, Any] | None:
     if not usable:
         return None
     period_of = {id(f): str(f["period_end"])[:10] for f in usable}
+    filed = {(period_of[id(f)], bool(f.get("is_consolidated"))) for f in usable}
     latest = max(period_of.values())
-    consolidated = any(
-        f.get("is_consolidated") and period_of[id(f)] == latest for f in usable
+    year_ago = f"{int(latest[:4]) - 1}{latest[4:]}"
+    # Consolidated where the latest quarter was filed so -- unless the company
+    # has only just begun to consolidate and its year-ago quarter is
+    # standalone: drawn consolidated, every earlier filing would be dropped.
+    consolidated = (latest, True) in filed and (
+        (year_ago, True) in filed
+        or not {(latest, False), (year_ago, False)} <= filed
     )
     chosen = {
         period_of[id(f)]: f["lines"]

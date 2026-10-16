@@ -30,8 +30,7 @@ Every miss leaves the vendor's figure exactly as it was served:
   a validation dispatch) is reported once and growth keeps the vendor's
   figures throughout;
 * a company with no comparable pair of filings keeps the vendor's two figures;
-* a taxonomy this module does not read (see `SUPPORTED_TAXONOMIES`) keeps the
-  vendor's figures;
+* a bank or insurer (`DISPLAY_ONLY_TAXONOMIES`) keeps the vendor's figures;
 * a company whose vendor figures already describe a later quarter than its
   filings do keeps them. The index is the exchange's, not a guarantee: a
   filing can be missing from it, or dated to the wrong year by the filer.
@@ -80,9 +79,52 @@ STATUS_DISABLED = "disabled"
 # (Ind-AS and the older Indian GAAP) and NBFC taxonomies share the tags below.
 # Banks and insurers file a different statement altogether -- no revenue from
 # operations, income split between interest and other, or between the
-# policyholders' and shareholders' accounts -- and are left to the vendor.
+# policyholders' and shareholders' accounts -- read by `FINANCIAL_TAGS`.
 TAXONOMY_PATTERN = re.compile(r"INTEGRATED_FILING_([A-Z]+)_", re.IGNORECASE)
-SUPPORTED_TAXONOMIES = frozenset({"INDAS", "NBFC", "NONINDAS"})
+SUPPORTED_TAXONOMIES = frozenset({"INDAS", "NBFC", "NONINDAS", "BANKING", "LI", "GI"})
+# Stored for the stock page, the Results page and the bell, but not read by the
+# screen's growth block: its rule was validated on commercial and NBFC filings,
+# and banks and insurers keep the vendor's growth as they always have.
+DISPLAY_ONLY_TAXONOMIES = frozenset({"BANKING", "LI", "GI"})
+
+# A bank's or insurer's quarter, line by line, in the page's row names. Each
+# line means what the vendor means by it for these issuers, so a filed quarter
+# sits beside the vendor's: a bank's revenue is net interest income plus other
+# income, its interest is interest expended; an insurer's revenue is its net
+# premium (life: premium income, general: premium earned), and only the
+# shareholders' account's tax is the company's. Neither has an operating
+# profit in the vendor's sense, so none is derived.
+FINANCIAL_TAGS = {
+    "BANKING": {
+        "interest_earned": ("InterestEarned",),
+        "interest": ("InterestExpended",),
+        "other_income": ("OtherIncome",),
+        "pbt": ("ProfitLossFromOrdinaryActivitiesBeforeTax",),
+        "tax": ("TaxExpense",),
+        "net_profit": (
+            "ProfitLossAfterTaxesMinorityInterestAndShareOfProfitLossOfAssociates",
+        ),
+        "profit": ("ProfitLossForThePeriod",),
+        "eps": (
+            "DilutedEarningsPerShareAfterExtraordinaryItems",
+            "BasicEarningsPerShareAfterExtraordinaryItems",
+        ),
+    },
+    "LI": {
+        "revenue": ("NetPremiumIncome",),
+        "pbt": ("ProfitLossBeforeTax",),
+        "tax": ("ProvisionsForTaxes",),
+        "profit": ("ProfitLossAfterTaxAndExtraordinaryItems",),
+        "eps": ("BasicAndDilutedEPSAfterExtraordinaryItemsNetOfTaxExpenseForThePeriodNotToBeAnnualized",),
+    },
+    "GI": {
+        "revenue": ("PremiumEarned",),
+        "pbt": ("ProfitOrLossBeforeTax",),
+        "tax": ("ProvisionForTax",),
+        "profit": ("ProfitLossAfterTax",),
+        "eps": ("BasicAndDilutedEPSAfterExtraordinaryItemsNetOfTaxExpenseForThePeriodNotToBeAnnualized",),
+    },
+}
 
 # First tag present in the quarter's own context wins. The tag names differ
 # between the Ind-AS and Indian GAAP taxonomies; the lines are the same.
@@ -380,13 +422,35 @@ def parse_quarter_statement(text):
 
 
 
-def parse_filing(text):
+def parse_financial_statement(text, taxonomy):
+    """A bank's or insurer's quarter (`FINANCIAL_TAGS`) in the page's row names."""
+    facts = {
+        key: extract_fact(text, tags, QUARTER_CONTEXT)
+        for key, tags in FINANCIAL_TAGS[taxonomy].items()
+    }
+    profit = facts.pop("profit")
+    # The owners' share, where a consolidated bank states one; a zero beside a
+    # profit is an empty field, as in the commercial taxonomy.
+    owners = facts.pop("net_profit", None)
+    lines = dict.fromkeys((*STATEMENT_TAGS, "operating_profit"))
+    lines.update(facts, net_profit=owners or profit, pat=profit)
+    earned = lines.pop("interest_earned", None)
+    if earned is not None and lines["interest"] is not None:
+        lines["net_interest_income"] = earned - lines["interest"]
+        if lines["other_income"] is not None:
+            lines["revenue"] = lines["net_interest_income"] + lines["other_income"]
+    return lines
+
+
+def parse_filing(text, taxonomy=""):
     """Everything stored from one results document.
 
     The income statement lines the stock page draws, plus ``pat``: profit as
     the growth arithmetic measures it (continuing operations first, see
     `FACT_TAGS`), which is not always the line the page calls net profit.
     """
+    if taxonomy in FINANCIAL_TAGS:
+        return parse_financial_statement(text, taxonomy)
     return {**parse_quarter_statement(text), "pat": parse_quarter_facts(text)["PAT"]}
 
 
@@ -399,7 +463,7 @@ def facts_frame(rows, timezone):
     records = []
     for row in rows or ():
         filed = pd.Timestamp(row.get("filed_at"))
-        if pd.isna(filed):
+        if pd.isna(filed) or row.get("taxonomy") in DISPLAY_ONLY_TAXONOMIES:
             continue
         if filed.tzinfo is not None:
             filed = filed.tz_convert(timezone)
