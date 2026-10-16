@@ -47,7 +47,14 @@ export async function GET(request: NextRequest) {
     ...rated,
     ...pending
       .filter((row) => !seen.has(row.symbol))
-      .map((row) => ({ s: row.symbol, c: row.company ?? "", r: null, g: "NEW", d: null })),
+      .map((row) => ({
+        s: row.symbol,
+        c: row.company ?? "",
+        r: null,
+        g: "NEW",
+        d: null,
+        l: row.logo_domain ?? null,
+      })),
   ];
 
   return NextResponse.json(

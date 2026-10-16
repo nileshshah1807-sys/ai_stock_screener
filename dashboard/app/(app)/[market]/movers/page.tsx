@@ -4,8 +4,9 @@ import { ArrowDownRight, ArrowUpRight, Sparkles, TrendingDown, TrendingUp } from
 
 import { RatingBadge } from "@/components/rating-badge";
 import { Reveal } from "@/components/motion";
+import { StockListRow } from "@/components/stock-identity";
 import { formatDate, formatScore, MISSING } from "@/lib/format";
-import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
+import { marketFromSlug, marketPath } from "@/lib/markets";
 import { getLatestRun, getMovers } from "@/lib/queries";
 import type { MoverRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -42,14 +43,12 @@ function MoverList({
   icon: Icon,
   rows,
   mode,
-  market,
 }: {
   title: string;
   description: string;
   icon: typeof TrendingUp;
   rows: MoverRow[];
   mode: "rank" | "rating" | "new";
-  market: Market;
 }) {
   return (
     <section data-mover className="panel overflow-hidden">
@@ -68,28 +67,11 @@ function MoverList({
         <ul className="divide-y">
           {rows.map((row) => (
             <li key={row.symbol}>
-              <Link
-                href={marketPath(
-                  market.slug,
-                  `/stocks/${encodeURIComponent(row.symbol)}`,
-                )}
-                // Thirty rows would prefetch thirty stock pages; see stock-link.tsx.
-                prefetch={false}
-                className="group flex items-center gap-3 px-4 py-2 transition-colors duration-(--duration-fast) ease-(--ease-standard) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              <StockListRow
+                symbol={row.symbol}
+                company={row.company}
+                rank={row.investment_rank}
               >
-                <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">
-                  {row.investment_rank ?? MISSING}
-                </span>
-
-                <span className="min-w-0 flex-1">
-                  <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
-                    {row.symbol}
-                  </span>
-                  <span className="block truncate text-[11px] text-muted-foreground">
-                    {row.company ?? MISSING}
-                  </span>
-                </span>
-
                 {mode === "rank" ? (
                   <>
                     <span className="tabular hidden font-mono text-[11px] text-muted-foreground sm:inline">
@@ -118,7 +100,7 @@ function MoverList({
                     <RatingBadge rating={row.rating} />
                   </>
                 ) : null}
-              </Link>
+              </StockListRow>
             </li>
           ))}
         </ul>
@@ -187,7 +169,6 @@ export default async function MoversPage({
         {hasComparison ? (
           <Reveal selector="[data-mover]" bounce className="grid gap-4 lg:grid-cols-2">
             <MoverList
-              market={market}
               title="Biggest rank gains"
               description="Largest improvements in Investment Rank since the previous run."
               icon={TrendingUp}
@@ -195,7 +176,6 @@ export default async function MoversPage({
               mode="rank"
             />
             <MoverList
-              market={market}
               title="Biggest rank falls"
               description="Largest deteriorations in Investment Rank since the previous run."
               icon={TrendingDown}
@@ -203,7 +183,6 @@ export default async function MoversPage({
               mode="rank"
             />
             <MoverList
-              market={market}
               title="Rating upgrades"
               description="Published rating moved up a class."
               icon={ArrowUpRight}
@@ -211,7 +190,6 @@ export default async function MoversPage({
               mode="rating"
             />
             <MoverList
-              market={market}
               title="Rating downgrades"
               description="Published rating moved down a class."
               icon={ArrowDownRight}
@@ -219,7 +197,6 @@ export default async function MoversPage({
               mode="rating"
             />
             <MoverList
-              market={market}
               title="New to the universe"
               description="Scored for the first time in the recorded history."
               icon={Sparkles}

@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { TrendingDown, TrendingUp } from "lucide-react";
 
 import { RatingBadge } from "@/components/rating-badge";
 import { SegmentedControl } from "@/components/segmented-control";
+import { StockListRow } from "@/components/stock-identity";
 import { TickFlash } from "@/components/tick-flash";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatMoney, formatPercent, MISSING } from "@/lib/format";
+import { formatMoney, formatPercent } from "@/lib/format";
 import { REFRESH_MS, isLive, nextPollDelay, quoteTime } from "@/lib/live-quotes.mjs";
 import {
   LIVE_MOVERS_LIMIT,
@@ -18,7 +18,7 @@ import {
   type LiveMarket,
   type LiveMover,
 } from "@/lib/live-market";
-import { marketPath, type Market } from "@/lib/markets";
+import type { Market } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/client";
 import { useNow } from "@/lib/use-live-quotes";
 import { cn } from "@/lib/utils";
@@ -299,19 +299,14 @@ function MoverColumn({
 }
 
 function MoverRow({ market, row }: { market: Market; row: LiveMover }) {
-  const content = (
-    <>
-      <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">
-        {row.investment_rank ?? MISSING}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
-          {row.symbol}
-        </span>
-        <span className="block truncate text-[11px] text-muted-foreground">
-          {row.company ?? MISSING}
-        </span>
-      </span>
+  return (
+    <StockListRow
+      symbol={row.symbol}
+      company={row.company}
+      rank={row.investment_rank}
+      // An index member the screener does not rate has no stock page to open.
+      linked={row.investment_rank !== null}
+    >
       <TickFlash
         tick={row.tick}
         className="tabular hidden font-mono text-[11px] text-muted-foreground sm:inline"
@@ -329,23 +324,6 @@ function MoverRow({ market, row }: { market: Market; row: LiveMover }) {
       <span className="hidden w-20 shrink-0 justify-end sm:flex">
         {row.rating ? <RatingBadge rating={row.rating} /> : null}
       </span>
-    </>
-  );
-  const rowClass = "flex items-center gap-3 px-4 py-2";
-
-  // An index member the screener does not rate has no stock page to open.
-  if (row.investment_rank === null) return <div className={rowClass}>{content}</div>;
-  return (
-    <Link
-      href={marketPath(market.slug, `/stocks/${encodeURIComponent(row.symbol)}`)}
-      // Twenty rows would prefetch twenty stock pages; see stock-link.tsx.
-      prefetch={false}
-      className={cn(
-        "group transition-colors duration-(--duration-fast) ease-(--ease-standard) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        rowClass,
-      )}
-    >
-      {content}
-    </Link>
+    </StockListRow>
   );
 }

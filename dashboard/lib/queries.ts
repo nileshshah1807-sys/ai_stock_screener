@@ -516,13 +516,14 @@ export const getSearchIndex = cache(
     rowCount?: number,
   ): Promise<SearchEntry[]> => {
     const supabase = await createClient();
-    const select = "symbol, company, investment_rank, rating, final_score";
+    const select = "symbol, company, investment_rank, rating, final_score, logo_domain";
     const toEntry = (row: Record<string, unknown>): SearchEntry => ({
       s: row.symbol as string,
       c: (row.company as string) ?? "",
       r: row.investment_rank as number | null,
       g: row.rating as string | null,
       d: row.final_score as number | null,
+      l: (row.logo_domain as string | null) ?? null,
     });
 
     const chunk = (offset: number) =>

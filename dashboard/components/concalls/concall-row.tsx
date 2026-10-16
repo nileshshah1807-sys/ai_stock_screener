@@ -1,11 +1,9 @@
-import Link from "next/link";
 import { ChevronRight, Mic } from "lucide-react";
 
-import { CompanyLogo } from "@/components/company-logo";
+import { StockIdentity } from "@/components/stock-identity";
 import { MISSING } from "@/lib/format";
 import { highlightList, outlookTone, sourceLabel, stanceLabel } from "@/lib/concalls.mjs";
 import type { Concall } from "@/lib/concalls";
-import { marketPath, type Market } from "@/lib/markets";
 import { cn } from "@/lib/utils";
 
 const TONES: Record<string, string> = {
@@ -100,11 +98,9 @@ function Measure({
  */
 export function ConcallRow({
   call,
-  market,
   logoDomain = null,
 }: {
   call: Concall;
-  market: Market;
   /** The company's web domain from the latest run, for its logo. */
   logoDomain?: string | null;
 }) {
@@ -116,22 +112,7 @@ export function ConcallRow({
   return (
     <div className="grid gap-x-6 gap-y-3 px-4 py-3.5 md:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_minmax(0,13rem)]">
       <div className="min-w-0">
-        <Link
-          href={marketPath(market.slug, `/stocks/${encodeURIComponent(call.symbol)}`)}
-          // A season's worth of rows would otherwise prefetch that many stock pages.
-          prefetch={false}
-          className="group flex items-center gap-2.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <CompanyLogo symbol={call.symbol} domain={logoDomain} />
-          <span className="min-w-0">
-            <span className="block font-mono text-xs font-semibold underline-offset-2 group-hover:underline">
-              {call.symbol}
-            </span>
-            <span className="block truncate text-xs text-muted-foreground">
-              {call.company ?? MISSING}
-            </span>
-          </span>
-        </Link>
+        <StockIdentity symbol={call.symbol} company={call.company} logoDomain={logoDomain} />
         <span
           title={source.title}
           className={cn(
