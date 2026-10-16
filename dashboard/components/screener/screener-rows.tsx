@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { StockLink } from "@/components/screener/stock-link";
 import { Money } from "@/components/money";
+import { useMarket } from "@/components/market-provider";
 import { EntryBadge } from "@/components/entry-badge";
 import {
   CappedChip,
@@ -27,8 +28,11 @@ import {
   ratingToken,
   MISSING,
 } from "@/lib/format";
+import { liveOverlay, quoteTime } from "@/lib/live-quotes.mjs";
+import type { Market } from "@/lib/markets";
 import { stageAge } from "@/lib/stage-age.mjs";
 import { STAGES, type SnapshotRow } from "@/lib/types";
+import { useLiveQuotes, useNow, type LiveQuote } from "@/lib/use-live-quotes";
 
 /*
  * The grid's rows, rendered in the browser from the rows themselves.
@@ -57,15 +61,22 @@ import { STAGES, type SnapshotRow } from "@/lib/types";
 function ChangeCell({
   value,
   decimals = 1,
+  title,
 }: {
   value: number | null;
   decimals?: number;
+  title?: string;
 }) {
   if (value === null || value === undefined) {
-    return <span className="text-muted-foreground">{MISSING}</span>;
+    return (
+      <span className="text-muted-foreground" title={title}>
+        {MISSING}
+      </span>
+    );
   }
   return (
     <span
+      title={title}
       className={cn(
         "tabular",
         value > 0 ? "text-positive" : value < 0 ? "text-negative" : "",
@@ -397,7 +408,23 @@ function RsCell({ row }: { row: SnapshotRow }) {
  * what ties a column's metadata to its rendering; TypeScript enforces that this
  * record is exhaustive, so a registry entry cannot ship without a cell.
  */
-const CELLS: Record<ColumnId, (row: SnapshotRow) => ReactNode> = {
+/**
+ * What a live cell says on hover: when the quote is from, and that it is not
+ * the close the model scored.
+ */
+function liveTitle(quote: LiveQuote, market: Market, now: number): string {
+  const time = quoteTime(quote.traded_at, market.timezone, market.locale, now);
+  return `Live, last trade ${time} ${market.timezoneLabel}. Rank and rating use the last close.`;
+}
+
+/** What the Price and 1D cells need beyond the row. */
+type LiveContext = { quote: LiveQuote | null; market: Market; now: number };
+
+/**
+ * Every cell's renderer. `live.quote` is today's quote when one is newer than
+ * the row's bar (see `liveOverlay`); only Price and 1D read it.
+ */
+const CELLS: Record<ColumnId, (row: SnapshotRow, live: LiveContext) => ReactNode> = {
   rank: (row) => row.investment_rank ?? MISSING,
   stock: (row) => <StockLink row={row} />,
   score: (row) => <ScoreCell row={row} />,
@@ -435,8 +462,20 @@ const CELLS: Record<ColumnId, (row: SnapshotRow) => ReactNode> = {
       />
     </span>
   ),
-  price: (row) => <Money value={row.current_price} list />,
-  change1d: (row) => <ChangeCell value={row.pct_change_1d} decimals={2} />,
+  price: (row, { quote, market, now }) =>
+    quote ? (
+      <span title={liveTitle(quote, market, now)}>
+        <Money value={quote.price} list />
+      </span>
+    ) : (
+      <Money value={row.current_price} list />
+    ),
+  change1d: (row, { quote, market, now }) =>
+    quote ? (
+      <ChangeCell value={quote.change_pct} decimals={2} title={liveTitle(quote, market, now)} />
+    ) : (
+      <ChangeCell value={row.pct_change_1d} decimals={2} />
+    ),
   change1m: (row) => <ChangeCell value={row.pct_change_1m} />,
   marketCap: (row) => <Money value={row.market_cap} compact />,
   pe: (row) => formatNumber(row.pe_ratio, 1),
@@ -457,37 +496,54 @@ export function ScreenerRows({
   actions?: Record<string, ReactNode>;
 }) {
   const columns = visibleColumns(hiddenColumns, factorModel);
+  const market = useMarket();
+  // Only when a live column is on screen: a grid with Price and 1D hidden
+  // asks for nothing.
+  const wantsLive = columns.some((column) => column.id === "price" || column.id === "change1d");
+  const liveQuote = useLiveQuotes(
+    wantsLive ? market.code : null,
+    rows.map((row) => row.symbol),
+  );
+  // Only decides whether a tooltip shows the date, so a coarse clock will do.
+  const now = useNow(5 * 60_000);
 
   return (
     /* data-match feeds the filter box's instant pass (see FilterBar): the
        same symbol/company text the server's ilike matches on. */
     <tbody data-screener-rows>
-      {rows.map((row) => (
-        <tr
-          key={row.symbol}
-          data-match={`${row.symbol} ${row.company ?? ""}`.toLowerCase()}
-          className={cn(
-            "group border-t transition-colors duration-(--duration-fast) ease-(--ease-standard)",
-            // focus-within, not just hover: keyboard traversal down the
-            // grid highlights the same band the mouse would.
-            "hover:bg-muted/40 focus-within:bg-muted/40",
-          )}
-        >
-          {columns.map((column) => (
-            <td
-              key={column.id}
-              className={cn("grid-cell", column.cellClassName)}
-            >
-              {CELLS[column.id](row)}
-            </td>
-          ))}
-          {actions ? (
-            <td className="grid-cell sticky-col-right text-right">
-              {actions[row.symbol]}
-            </td>
-          ) : null}
-        </tr>
-      ))}
+      {rows.map((row) => {
+        const live = {
+          quote: liveOverlay(liveQuote(row.symbol), row.price_bar_as_of),
+          market,
+          now,
+        };
+        return (
+          <tr
+            key={row.symbol}
+            data-match={`${row.symbol} ${row.company ?? ""}`.toLowerCase()}
+            className={cn(
+              "group border-t transition-colors duration-(--duration-fast) ease-(--ease-standard)",
+              // focus-within, not just hover: keyboard traversal down the
+              // grid highlights the same band the mouse would.
+              "hover:bg-muted/40 focus-within:bg-muted/40",
+            )}
+          >
+            {columns.map((column) => (
+              <td
+                key={column.id}
+                className={cn("grid-cell", column.cellClassName)}
+              >
+                {CELLS[column.id](row, live)}
+              </td>
+            ))}
+            {actions ? (
+              <td className="grid-cell sticky-col-right text-right">
+                {actions[row.symbol]}
+              </td>
+            ) : null}
+          </tr>
+        );
+      })}
     </tbody>
   );
 }

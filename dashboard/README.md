@@ -88,6 +88,33 @@ Wording, the unread rule and day grouping live in `lib/notifications.mjs`
 (tested in `lib/notifications.test.mjs`). A kind that file does not know still
 renders, by its name.
 
+## Live prices
+
+The grid's Price and 1D cells, the stock page's tiles, and the Market page's
+"Today's movers" by index, refreshed every five minutes during the session.
+
+```text
+cron-job.org, every 5 min on weekdays  ->  live-quotes.yml (workflow_dispatch)
+        └─ python -m workers.live_quotes --market NSE
+                    │   one Yahoo quote request per 500 symbols (~15 s a run)
+                    │   index constituents re-read once a day
+                    ▼
+        Supabase: live_quotes     (one row per market and symbol, overwritten)
+                  index_members   (constituents of each index on the Market page)
+                  live_market()   (every index's movers as one JSON value)
+```
+
+Display only: sorting, filters, rank and rating stay on the last close. Pages
+render exactly as before and read the quotes in the browser afterwards
+(`lib/use-live-quotes.ts`, one store per tab, so a sort or a step back shows
+the live figures with no new request). A quote replaces a row's close only
+when it is from a later session than the row's bar, so after the evening
+publish the close stands again. Each viewer polls once per worker run, aligned
+to when the next one lands, and not at all while the tab is hidden; the rules
+are in `lib/live-quotes.mjs` (tested in `lib/live-quotes.test.mjs`). Every read
+degrades to the close if the tables are missing, and the Market page leaves the
+section out.
+
 ## Access control
 
 Invite-only, enforced at three layers:
@@ -115,6 +142,7 @@ Run both files in the Supabase SQL Editor, in order:
 storage/supabase_schema.sql     # transcripts + red flags (may already be applied)
 storage/dashboard_schema.sql    # this dashboard's tables, views, and RLS
 storage/concalls_schema.sql     # the Concalls page's feed (after dashboard_schema.sql)
+storage/live_quotes_schema.sql  # live prices and index movers (after dashboard_schema.sql)
 ```
 
 Then invite yourself (the SQL Editor runs as owner, bypassing RLS):

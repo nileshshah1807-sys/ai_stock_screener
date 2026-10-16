@@ -1,14 +1,22 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 
 import { MarketDashboard, type BreadthList } from "@/components/market/market-dashboard";
 import type { GroupKey } from "@/components/market/group-picker";
+import { LiveMovers, LiveMoversSkeleton } from "@/components/market/live-movers";
 import { Pagination } from "@/components/screener/pagination";
 import { ScreenerTable } from "@/components/screener/screener-table";
 import { parseFilters, toSearchParams } from "@/lib/filters";
 import { formatDate } from "@/lib/format";
 import { LIST_METRICS } from "@/lib/market-breadth.mjs";
 import { marketFromSlug, type Market } from "@/lib/markets";
-import { getLatestRun, getMarketBreadth, getSnapshotPage, PAGE_SIZE } from "@/lib/queries";
+import {
+  getLatestRun,
+  getLiveMarket,
+  getMarketBreadth,
+  getSnapshotPage,
+  PAGE_SIZE,
+} from "@/lib/queries";
 
 export const metadata: Metadata = { title: "Market" };
 export const dynamic = "force-dynamic";
@@ -31,6 +39,9 @@ function selectedGroup(query: Record<string, string | string[] | undefined>): Gr
  * share above their averages, in Stage 2, or at new highs is what says whether
  * a trend is broad. Every series is rebuilt daily by
  * tools/publish_market_breadth.py from the same closes the model scores on.
+ *
+ * Above the breadth, today's movers within each index, from the five-minute
+ * quotes (components/market/live-movers.tsx).
  */
 export default async function MarketPage({ params, searchParams }: PageProps<"/[market]/market">) {
   const market = marketFromSlug((await params).market)!;
@@ -56,6 +67,16 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
         </p>
       </div>
 
+      {/* Today's prices first: what is moving now is the question a reader
+          arrives with; breadth below is the slower, session-by-session view.
+          Streamed, so the page never waits on the read: the skeleton holds
+          its place until it lands. */}
+      {market.liveIndices ? (
+        <Suspense fallback={<LiveMoversSkeleton />}>
+          <LiveMoversSection market={market} />
+        </Suspense>
+      ) : null}
+
       <MarketDashboard
         // Remount per group so a new row starts from a clean scrub.
         key={`${selected.scope}:${selected.name}`}
@@ -79,6 +100,11 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
       ) : null}
     </div>
   );
+}
+
+/** Today's movers, read on the server and kept current in the browser. */
+async function LiveMoversSection({ market }: { market: Market }) {
+  return <LiveMovers market={market} initial={await getLiveMarket(market.code)} />;
 }
 
 /**

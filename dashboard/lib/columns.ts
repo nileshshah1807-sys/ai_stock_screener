@@ -276,6 +276,8 @@ export const COLUMNS: readonly ColumnSpec[] = [
     sort: "current_price",
     numeric: true,
     cellClassName: "tabular text-right font-mono text-xs",
+    title:
+      "During the session, the latest trade (refreshed every five minutes); otherwise the last close. Sorting uses the last close.",
     fields: ["current_price"],
   },
   {
@@ -287,7 +289,7 @@ export const COLUMNS: readonly ColumnSpec[] = [
     numeric: true,
     cellClassName: "text-right font-mono text-xs",
     title:
-      "Last completed session's move, on the same adjusted close every technical feature uses. Display evidence: no score, gate or rank reads it.",
+      "During the session, today's move so far (refreshed every five minutes); otherwise the last completed session's move, on the same adjusted close every technical feature uses. Sorting uses the completed session. Display evidence: no score, gate or rank reads it.",
     fields: ["pct_change_1d"],
   },
   {

@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { AddToWatchlist } from "@/components/watchlist/add-to-watchlist";
 import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
+import { LiveChange, LivePrice } from "@/components/live-quote";
 import { CallOutlook } from "@/components/stock/call-outlook";
 import { getLatestConcall } from "@/lib/concalls";
 import { callPanelSource } from "@/lib/concalls.mjs";
@@ -776,16 +777,27 @@ export default async function StockPage({
 
           <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border sm:grid-cols-3 lg:grid-cols-5">
             {[
-              { label: "Price", value: formatMoney(row.current_price, market), tone: "" },
+              {
+                label: "Price",
+                value: (
+                  <LivePrice
+                    symbol={row.symbol}
+                    barDate={row.price_bar_as_of}
+                    close={row.current_price}
+                  />
+                ),
+                tone: "",
+              },
               {
                 label: "1D",
-                value: formatPercent(change1d, 2, true),
-                tone:
-                  change1d === null
-                    ? ""
-                    : change1d >= 0
-                      ? "text-positive"
-                      : "text-negative",
+                value: (
+                  <LiveChange
+                    symbol={row.symbol}
+                    barDate={row.price_bar_as_of}
+                    change={change1d}
+                  />
+                ),
+                tone: "",
               },
               {
                 label: "1M",
