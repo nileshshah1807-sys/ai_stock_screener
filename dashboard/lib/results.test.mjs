@@ -81,7 +81,7 @@ test("figures are never compared across bases", () => {
 test("there is no growth rate off a loss, and a missing line is not a zero", () => {
   const filings = [
     filing("2026-09-30", { revenue: 100, net_profit: 10 }),
-    filing("2025-09-30", { revenue: 90, net_profit: -5 }),
+    filing("2025-09-30", { revenue: 90, operating_profit: 20, net_profit: -5 }),
   ];
   const [revenue, operating, net] = basisTable(filings, "2026-09-30", "consolidated").rows;
   assert.equal(net.yoy, null);
@@ -127,4 +127,25 @@ test("a row's decimals follow its largest figure", () => {
   assert.equal(amountDigits([4.2 * CRORE], CRORE), 2);
   assert.equal(formatChange(null), null);
   assert.equal(formatChange(-55.34), "-55.3%");
+});
+
+test("a company that has just begun to consolidate opens on standalone", () => {
+  // SGFIN, Oct 2026: its first consolidated quarter, a year of standalone ones.
+  const filings = [
+    filing("2026-09-30", { revenue: 161 }),
+    filing("2026-09-30", { consolidated: false, revenue: 161 }),
+    filing("2025-09-30", { consolidated: false, revenue: 75 }),
+  ];
+  const card = resultCard({ symbol: "SGFIN" }, filings, "2026-09-30");
+  assert.deepEqual(card.bases.map((basis) => basis.basis), ["standalone", "consolidated"]);
+  assert.ok(card.bases[0].rows[0].yoy > 100);
+  // Once the consolidated year-ago quarter is there, consolidated leads again.
+  const later = resultCard({ symbol: "SGFIN" }, [...filings, filing("2025-09-30", { revenue: 75 })], "2026-09-30");
+  assert.equal(later.bases[0].basis, "consolidated");
+});
+
+test("a bank's card has net interest income and no operating profit", () => {
+  const filings = [filing("2026-09-30", { revenue: 1584, net_interest_income: 1116, net_profit: 426, eps: 1.62 })];
+  const rows = basisTable(filings, "2026-09-30", "consolidated").rows;
+  assert.deepEqual(rows.map((row) => row.key), ["revenue", "net_interest_income", "net_profit", "eps"]);
 });

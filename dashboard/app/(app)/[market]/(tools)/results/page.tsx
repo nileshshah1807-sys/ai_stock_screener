@@ -90,10 +90,11 @@ export default async function ResultsPage({
   // The newest quarter anyone has filed for: in the first days after a
   // quarter ends nobody has, and an empty page would hide last season.
   const newest = latest ?? offered[0];
-  const quarter = chosenQuarter(query.quarter, offered) ?? newest;
-  const quarters = offered
-    .filter((end) => end <= newest)
-    .map((end) => ({ value: end, label: quarterLabel(end, { fiscal: true }) }));
+  const ended = offered.filter((end) => end <= newest);
+  // Only a quarter the picker lists: one nobody has filed for yet would be
+  // an empty page under another quarter's label.
+  const quarter = chosenQuarter(query.quarter, ended) ?? newest;
+  const quarters = ended.map((end) => ({ value: end, label: quarterLabel(end, { fiscal: true }) }));
 
   const search = searchTerm(query.q);
   const shown = shownCount(query.shown);
@@ -213,10 +214,11 @@ export default async function ResultsPage({
           ) : null}
           <p className="max-w-3xl border-t pt-4 text-xs leading-relaxed text-muted-foreground">
             Figures are the company&rsquo;s own, as filed; a company that files on both bases opens
-            on its consolidated results, and changes are only ever taken within one basis. Operating
-            profit is profit before tax with interest and depreciation added back, as on the stock
-            page. There is no growth rate off a loss, and a figure the filing did not report is a
-            dash. Banks and insurers file a different statement and are not shown yet.
+            on its consolidated results, unless only its standalone results reach back a year, and
+            changes are only ever taken within one basis. Operating profit is profit before tax with
+            interest and depreciation added back, as on the stock page. A bank&rsquo;s revenue is net
+            interest income plus other income, and an insurer&rsquo;s is its net premium. There is no
+            growth rate off a loss, and a figure the filing did not report is a dash.
           </p>
         </Reveal>
       ) : (

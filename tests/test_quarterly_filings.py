@@ -158,10 +158,26 @@ class StoreTests(FilingsRun):
         self.assertEqual(repo.redrawn, ["AAA"])
 
     def test_a_taxonomy_that_is_not_read_is_never_fetched(self):
-        records = [filing("BNK", "30-SEP-2026", 9, taxonomy="BANKING")]
+        records = [filing("XYZ", "30-SEP-2026", 9, taxonomy="UNKNOWN")]
         _, repo, fetcher, _ = self.run_worker(records, {"9": document(1, 1)})
         self.assertEqual(fetcher.asked, [])
         self.assertEqual(repo.upserted, [])
+
+    def test_a_bank_is_stored_from_its_own_statement(self):
+        # SOUTHBANK, 15 Oct 2026: filed that evening, absent from the page
+        # for a week while the worker left banks to the vendor.
+        bank = (
+            '<xbrli:xbrl><in-capmkt:InterestEarned contextRef="OneD">2796'
+            '</in-capmkt:InterestEarned><in-capmkt:InterestExpended contextRef="OneD">1680'
+            '</in-capmkt:InterestExpended><in-capmkt:OtherIncome contextRef="OneD">468'
+            '</in-capmkt:OtherIncome><in-capmkt:ProfitLossForThePeriod contextRef="OneD">426'
+            "</in-capmkt:ProfitLossForThePeriod></xbrli:xbrl>"
+        )
+        records = [filing("BNK", "30-SEP-2026", 9, taxonomy="BANKING")]
+        _, repo, _, _ = self.run_worker(records, {"9": bank})
+        lines = repo.upserted[0]["lines"]
+        self.assertEqual((lines["revenue"], lines["net_profit"]), (1584, 426))
+        self.assertEqual(repo.redrawn, ["BNK"])
 
     def test_a_document_that_cannot_be_fetched_is_asked_for_next_run(self):
         counts, repo, _, _ = self.run_worker(self.RECORDS, {"2": document(2732, 419)})

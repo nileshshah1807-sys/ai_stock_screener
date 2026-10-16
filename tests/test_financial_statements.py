@@ -404,6 +404,29 @@ class ComposeQuarterTests(unittest.TestCase):
         only = compose_quarters({"periods": [], "rows": {}}, [standalone_june, standalone_sept])
         self.assertEqual(only["rows"]["revenue"], [600, 650])
 
+    def test_a_company_that_has_just_begun_to_consolidate_is_drawn_standalone(self):
+        # SGFIN, Oct 2026: its first consolidated filing beside a year of
+        # standalone ones. Drawn consolidated, the year-ago quarter the vendor
+        # never had would vanish from the page.
+        standalone = [
+            stored("AAA", period, consolidated=False, revenue=revenue, net_profit=10)
+            for period, revenue in [("2025-09-30", 500), ("2026-06-30", 600),
+                                    ("2026-09-30", 650)]
+        ]
+        empty = {"periods": [], "rows": {}}
+        composed = compose_quarters(empty, [*standalone, SEPTEMBER])
+        self.assertEqual(composed["rows"]["revenue"], [500, 600, 650])
+        # A year on, with a consolidated year-ago quarter, it is consolidated.
+        year_ago = quarter("2025-09-30", 900, 100, 5, 10, 80, 0.8)
+        composed = compose_quarters(empty, [*standalone, year_ago, SEPTEMBER])
+        self.assertEqual(composed["rows"]["revenue"], [900, 1100])
+
+    def test_a_banks_net_interest_income_is_drawn_from_its_filing(self):
+        bank = stored("AAA", "2026-09-30", revenue=1584, net_interest_income=1116,
+                      net_profit=426)
+        composed = compose_quarters({"periods": [], "rows": {}}, [bank])
+        self.assertEqual(composed["rows"]["net_interest_income"], [1116])
+
     def test_a_filing_that_parsed_to_nothing_is_not_a_quarter(self):
         empty = stored("AAA", "2026-09-30", revenue=None, net_profit=None)
         composed = compose_quarters(VENDOR, [JUNE, empty])

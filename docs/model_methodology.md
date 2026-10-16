@@ -107,8 +107,8 @@ filing a year before it on the same basis, consolidated preferred, earnings as
 profit rather than EPS. A company files within minutes of its board meeting
 and the vendor republishes days or weeks later, so reading the filing is what
 keeps the block on the current quarter through a results season. The vendor's
-quote metadata still supplies them for banks and insurers, whose statement the
-filing parser does not read, for a company with no year-ago filing, and for
+quote metadata still supplies them for banks and insurers, whose filings are
+stored for display only (`DISPLAY_ONLY_TAXONOMIES`), for a company with no year-ago filing, and for
 the US. Against the vendor on 220 NSE companies (12 Oct 2026), where both
 described the same quarter revenue growth differed by a median 0.03 percentage
 points and earnings growth by 0.23 against the vendor's net-income figure

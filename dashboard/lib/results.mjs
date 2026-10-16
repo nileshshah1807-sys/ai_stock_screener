@@ -15,8 +15,11 @@ import { growth, monthsBefore, periodLabel, ratio } from "./financials.mjs";
 /** The lines a card shows, in the stock page's words. */
 export const RESULT_LINES = [
   { key: "revenue", label: "Revenue" },
+  // A bank's; a line no column has is left off, not shown as dashes.
+  { key: "net_interest_income", label: "Net interest income", optional: true },
   // Margin rows open under the line they divide, as on the stock page.
-  { key: "operating_profit", label: "Operating profit", margin: { key: "opm", label: "OPM" } },
+  // Banks and insurers have none in this sense.
+  { key: "operating_profit", label: "Operating profit", margin: { key: "opm", label: "OPM" }, optional: true },
   { key: "net_profit", label: "Net profit", margin: { key: "npm", label: "NPM" } },
   { key: "eps", label: "EPS", perShare: true },
 ];
@@ -118,7 +121,7 @@ export function basisTable(filings, quarter, basis) {
       };
     }
     return row;
-  });
+  }).filter((row, index) => !RESULT_LINES[index].optional || row.values.some((value) => value != null));
 
   return {
     basis,
@@ -131,13 +134,17 @@ export function basisTable(filings, quarter, basis) {
 
 /**
  * A company's card: a table per basis it filed this quarter on, consolidated
- * first -- the stock page's rule, since a group's consolidated figures are
- * the company an investor owns.
+ * first -- the stock page's rule (`filed_statement` in
+ * workers/financial_statements.py), since a group's consolidated figures are
+ * the company an investor owns. A company that has only just begun to
+ * consolidate opens on standalone, the basis its year-ago quarter is on.
  */
 export function resultCard(entry, filings, quarter) {
   const bases = ["consolidated", "standalone"]
     .map((basis) => basisTable(filings, quarter, basis))
     .filter(Boolean);
+  const yearAgo = byPeriod(filings).get(monthsBefore(quarter, 12)) ?? {};
+  if (bases.length > 1 && !yearAgo.consolidated && yearAgo.standalone) bases.reverse();
   return { ...entry, bases };
 }
 
