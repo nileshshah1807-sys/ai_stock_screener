@@ -9,6 +9,7 @@ import {
   liveOverlay,
   nextPollDelay,
   quoteTime,
+  tickDirection,
 } from "./live-quotes.mjs";
 
 const WRITTEN = "2026-10-16T06:15:00Z";
@@ -54,4 +55,13 @@ test("quote times read in the exchange's clock", () => {
   const tomorrow = at(24 * 60);
   assert.match(quoteTime("2026-10-16T06:14:00Z", "Asia/Kolkata", "en-IN", tomorrow), /16 Oct, 11:44/);
   assert.equal(quoteTime(null, "Asia/Kolkata", "en-IN", at(0)), "");
+});
+
+test("a price that moved tints its way; the first read and a repeat do not", () => {
+  assert.equal(tickDirection(100, 101.5), "up");
+  assert.equal(tickDirection(100, 99.95), "down");
+  assert.equal(tickDirection(100, 100), null);
+  assert.equal(tickDirection(undefined, 100), null);
+  assert.equal(tickDirection(null, 100), null);
+  assert.equal(tickDirection(100, Number.NaN), null);
 });

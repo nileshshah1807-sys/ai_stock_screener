@@ -5,12 +5,18 @@ import { useTheme } from "next-themes";
 import {
   AreaSeries,
   HistogramSeries,
+  LastPriceAnimationMode,
   LineSeries,
   createChart,
   createSeriesMarkers,
   type IChartApi,
+  type ISeriesApi,
   type UTCTimestamp,
 } from "lightweight-charts";
+
+import { useMarket } from "@/components/market-provider";
+import { isLive, liveOverlay } from "@/lib/live-quotes.mjs";
+import { useLiveQuotes, useNow } from "@/lib/use-live-quotes";
 
 import {
   RANGES,
@@ -35,6 +41,12 @@ import { SegmentedControl } from "@/components/segmented-control";
  * The averages are computed over the whole series and then clipped to the
  * visible range, so a 1M view still shows a true 200-day average rather than
  * one restarted at the left edge of the window.
+ *
+ * During the session the five-minute quote (lib/live-quotes.mjs) is drawn as
+ * today's point and moved in place on each read, without redrawing the chart,
+ * and the line's end pulses while the quote is live. The averages stay on
+ * completed sessions: a 50-day mean of 49 closes and a price mid-session is
+ * neither.
  */
 
 /**
@@ -95,6 +107,7 @@ export function PriceChart({
   tail = [],
   height = 380,
   markers = [],
+  live,
 }: {
   series: EncodedSeries | null;
   sessions: string[];
@@ -102,8 +115,19 @@ export function PriceChart({
   tail?: { time: string; close: number; volume: number }[];
   height?: number;
   markers?: ChartMarker[];
+  /** Draw today's live quote for this symbol, when it is newer than `barDate`. */
+  live?: { symbol: string; barDate: string | null };
 }) {
   const container = useRef<HTMLDivElement>(null);
+  const priceSeries = useRef<ISeriesApi<"Area"> | null>(null);
+  const volumeSeries = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const chart = useRef<IChartApi | null>(null);
+  const market = useMarket();
+  const now = useNow();
+  const liveQuote = useLiveQuotes(live ? market.code : null, live ? [live.symbol] : [])(
+    live?.symbol ?? "",
+  );
+  const quote = liveOverlay(liveQuote, live?.barDate);
   const { resolvedTheme } = useTheme();
   const [rangeLabel, setRangeLabel] = useState("1Y");
 
@@ -117,6 +141,17 @@ export function PriceChart({
   );
 
   const range = RANGES.find((entry) => entry.label === rangeLabel) ?? RANGES[2];
+
+  // Only a session after the chart's last one: once the evening run publishes
+  // today's close, the drawn bar stands and the quote steps aside.
+  const lastTime = points[points.length - 1]?.time;
+  const livePrice = quote && (!lastTime || quote.session > lastTime) ? quote.price : null;
+  const liveVolume = livePrice === null ? null : (quote?.volume ?? null);
+  const liveSession = livePrice === null ? null : (quote?.session ?? null);
+  const pulsing = livePrice !== null && isLive(quote?.fetched_at, now);
+  // Read by the chart's build effect, so a rebuild (a range change, the
+  // theme) keeps today's point without rebuilding on every quote.
+  const livePoint = useRef<{ time: string; price: number; volume: number | null } | null>(null);
 
   // Averages come from the full series; only the view is sliced.
   const { visible, ma50, ma200 } = useMemo(() => {
@@ -177,6 +212,7 @@ export function PriceChart({
         value: point.volume,
       })),
     );
+    volumeSeries.current = volume;
 
     const price = instance.addSeries(AreaSeries, {
       lineColor: colors.price,
@@ -191,6 +227,9 @@ export function PriceChart({
         value: point.close,
       })),
     );
+    priceSeries.current = price;
+    chart.current = instance;
+    drawLive(price, volume, livePoint.current);
 
     // Only draw an average that has a full window behind it.
     // No `title` on these: it renders an on-canvas badge that overlaps the
@@ -245,9 +284,37 @@ export function PriceChart({
     instance.timeScale().fitContent();
 
     return () => {
+      priceSeries.current = null;
+      volumeSeries.current = null;
+      chart.current = null;
       instance.remove();
     };
   }, [visible, ma50, ma200, resolvedTheme, height, markers]);
+
+  // Each new quote moves today's point in place.
+  useEffect(() => {
+    const point =
+      livePrice === null || liveSession === null
+        ? null
+        : { time: liveSession, price: livePrice, volume: liveVolume };
+    const added = point !== null && livePoint.current === null;
+    livePoint.current = point;
+    const price = priceSeries.current;
+    if (!price || !volumeSeries.current || !point) return;
+    drawLive(price, volumeSeries.current, point);
+    // The first live point is a new bar at the right edge; bring it into view.
+    if (added) chart.current?.timeScale().fitContent();
+  }, [livePrice, liveVolume, liveSession, visible]);
+
+  // The heartbeat: the line's end pulses while the quote is live, and stops
+  // once the session is over and the point is only "as of".
+  useEffect(() => {
+    priceSeries.current?.applyOptions({
+      lastPriceAnimation: pulsing
+        ? LastPriceAnimationMode.Continuous
+        : LastPriceAnimationMode.Disabled,
+    });
+  }, [pulsing, visible, resolvedTheme]);
 
   if (points.length === 0) {
     return (
@@ -289,9 +356,24 @@ export function PriceChart({
         same series the model is scored on. Untraded sessions are left as gaps,
         not filled; the most recent points come from the daily run and are
         restated at the next rebuild.
+        {livePrice !== null
+          ? " Today\u2019s point is the live price, refreshed every five minutes; the averages use completed sessions only."
+          : null}
       </p>
     </div>
   );
+}
+
+/** Today's point on the price line and, where the vendor reports it, its volume so far. */
+function drawLive(
+  price: ISeriesApi<"Area">,
+  volume: ISeriesApi<"Histogram">,
+  point: { time: string; price: number; volume: number | null } | null,
+) {
+  if (!point) return;
+  const time = point.time as unknown as UTCTimestamp;
+  price.update({ time, value: point.price });
+  if (point.volume !== null) volume.update({ time, value: point.volume });
 }
 
 function Swatch({ color, label }: { color: string; label: string }) {
