@@ -121,7 +121,9 @@ Invite-only, enforced at three layers:
 
 1. `shouldCreateUser: false` on sign-in — Supabase will not provision an account
    for an unknown address.
-2. `dashboard_allowlist` + `requireAccess()` in the app.
+2. `dashboard_allowlist` + `requireAccess()` in the app. A user invited from
+   Supabase → Authentication → Users is added as a viewer when they accept
+   (`storage/dashboard_invites_schema.sql`); anyone else is listed by hand.
 3. **RLS policies** — the authoritative gate. Every browser read runs as the
    signed-in user; `anon` has no policy and reads nothing.
 
@@ -143,6 +145,7 @@ storage/supabase_schema.sql     # transcripts + red flags (may already be applie
 storage/dashboard_schema.sql    # this dashboard's tables, views, and RLS
 storage/concalls_schema.sql     # the Concalls page's feed (after dashboard_schema.sql)
 storage/live_quotes_schema.sql  # live prices and index movers (after dashboard_schema.sql)
+storage/dashboard_invites_schema.sql  # invited users join the allowlist on accepting
 ```
 
 Then invite yourself (the SQL Editor runs as owner, bypassing RLS):
