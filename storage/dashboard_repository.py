@@ -716,6 +716,79 @@ class DashboardRepository:
             )
         return written
 
+    # -- live quotes ------------------------------------------------------
+
+    def upsert_live_quotes(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
+        """Overwrite this market's latest quote for each row's symbol.
+
+        One row per symbol, replaced in place every run, so the table stays
+        the size of the universe however long it runs. Retried: an upsert on
+        the primary key is idempotent.
+        """
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "live_quotes?on_conflict=market,symbol",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                retries=2,
+            )
+            written += len(chunk)
+        return written
+
+    def prune_live_quotes(self, before: str) -> None:
+        """Drop quotes no run has refreshed since ``before`` (a delisted symbol)."""
+        self._request(
+            "DELETE",
+            "live_quotes",
+            params=self._scoped({"fetched_at": f"lt.{before}"}),
+            headers={"Prefer": "return=minimal"},
+        )
+
+    def index_members_refreshed_at(self) -> str | None:
+        """When this market's constituent lists were last replaced, or None."""
+        rows = self._request(
+            "GET",
+            "index_members",
+            params=self._scoped(
+                {"select": "refreshed_at", "order": "refreshed_at.desc", "limit": "1"}
+            ),
+        ) or []
+        return rows[0]["refreshed_at"] if rows else None
+
+    def index_member_symbols(self) -> list[str]:
+        """Every symbol in any of this market's tracked indices."""
+        rows = self._paged("index_members", {"select": "symbol", "order": "symbol.asc"})
+        return sorted({str(row["symbol"]) for row in rows if row.get("symbol")})
+
+    def replace_index_members(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
+        """Make this market's constituent lists exactly ``rows``.
+
+        Stamped and upserted, then everything older deleted -- as for the
+        breadth lists -- so a stock that left an index leaves its list, and a
+        failure between the two steps leaves yesterday's extras, never an
+        empty list.
+        """
+        stamp = datetime.now(UTC).isoformat(timespec="seconds")
+        stamped = [{**row, "refreshed_at": stamp} for row in rows]
+        written = 0
+        for chunk in chunked(stamped, chunk_size):
+            self._request(
+                "POST",
+                "index_members?on_conflict=market,index_name,symbol",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        self._request(
+            "DELETE",
+            "index_members",
+            params=self._scoped({"refreshed_at": f"lt.{stamp}"}),
+            headers={"Prefer": "return=minimal"},
+        )
+        return written
+
     # -- notifications ----------------------------------------------------
 
     def snapshot_companies(self) -> dict[str, str | None]:
