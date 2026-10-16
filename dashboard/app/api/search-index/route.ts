@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getViewer } from "@/lib/auth";
 import { DEFAULT_MARKET, marketFromSlug } from "@/lib/markets";
-import { getLatestRun, getNewListings, getSearchIndex } from "@/lib/queries";
+import { getIndexDirectory, getLatestRun, getNewListings, getSearchIndex } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -30,9 +30,14 @@ export async function GET(request: NextRequest) {
   const market =
     marketFromSlug(request.nextUrl.searchParams.get("market")) ?? DEFAULT_MARKET;
 
-  const run = await getLatestRun(market.code);
+  // The indices ride along: a dozen names the header search lists beside the
+  // stocks, which would not earn a request of their own.
+  const [run, indices] = await Promise.all([
+    getLatestRun(market.code),
+    getIndexDirectory(market.code),
+  ]);
   if (!run) {
-    return NextResponse.json({ market: market.slug, runDate: null, entries: [] });
+    return NextResponse.json({ market: market.slug, runDate: null, entries: [], indices });
   }
 
   const [rated, pending] = await Promise.all([
@@ -58,7 +63,7 @@ export async function GET(request: NextRequest) {
   ];
 
   return NextResponse.json(
-    { market: market.slug, runDate: run.run_date, entries },
+    { market: market.slug, runDate: run.run_date, entries, indices },
     {
       headers: {
         // A run is immutable once published, so the browser can hold this for

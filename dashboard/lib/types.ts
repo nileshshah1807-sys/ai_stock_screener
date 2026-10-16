@@ -397,6 +397,19 @@ export type SearchEntry = {
   l?: string | null; // logo domain, for the company's logo
 };
 
+/**
+ * One index a market publishes something for: its constituents
+ * (`index_members`), its level history (`market_breadth`, scope `index`), or
+ * both. `members` is null where no constituent list is published -- every US
+ * index today -- so its page has a chart and no table.
+ */
+export type IndexInfo = {
+  slug: string;
+  name: string;
+  members: number | null;
+  chart: boolean;
+};
+
 export type ScreenerFilters = {
   q?: string;
   rating?: string[];

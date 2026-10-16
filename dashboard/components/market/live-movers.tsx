@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { TrendingDown, TrendingUp } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, ChevronRight, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 
+import { Expand } from "@/components/motion";
 import { RatingBadge } from "@/components/rating-badge";
 import { SegmentedControl } from "@/components/segmented-control";
 import { StockListRow } from "@/components/stock-identity";
@@ -18,7 +20,8 @@ import {
   type LiveMarket,
   type LiveMover,
 } from "@/lib/live-market";
-import type { Market } from "@/lib/markets";
+import { indexSlug } from "@/lib/indices.mjs";
+import { marketPath, type Market } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/client";
 import { useNow } from "@/lib/use-live-quotes";
 import { cn } from "@/lib/utils";
@@ -32,12 +35,25 @@ import { cn } from "@/lib/utils";
  * asking once per worker run while the tab is visible. Every index arrives in
  * that one answer, so switching index is local state and costs no request.
  */
+/**
+ * Movers per column once the list is expanded. The first LIVE_MOVERS_LIMIT
+ * arrive with the page; the rest are asked for on the press, once, and kept
+ * current by the same poll while the list stays open.
+ */
+const EXPANDED_LIMIT = 25;
+
 export function LiveMovers({ market, initial }: { market: Market; initial: LiveMarket | null }) {
-  const data = useLiveMarket(market, initial);
+  const [expanded, setExpanded] = useState(false);
+  const { data, limit } = useLiveMarket(market, initial, expanded ? EXPANDED_LIMIT : LIVE_MOVERS_LIMIT);
   const [chosen, setChosen] = useState<string | null>(null);
   if (!data) return null;
 
   const index = data.indices.find((entry) => entry.name === chosen) ?? data.indices[0];
+  // Open only once the longer list is here, so the rows grow in with their
+  // content rather than opening on an empty box.
+  const showMore = expanded && limit >= EXPANDED_LIMIT;
+  const loadingMore = expanded && !showMore;
+  const longest = Math.max(index.gainers.length, index.losers.length);
 
   return (
     <section aria-labelledby="live-movers-title" className="space-y-3">
@@ -78,6 +94,7 @@ export function LiveMovers({ market, initial }: { market: Market; initial: LiveM
             title="Top gainers"
             icon={TrendingUp}
             rows={index.gainers}
+            more={showMore}
             empty="No stock in this index is up today."
           />
           <MoverColumn
@@ -85,9 +102,38 @@ export function LiveMovers({ market, initial }: { market: Market; initial: LiveM
             title="Top losers"
             icon={TrendingDown}
             rows={index.losers}
+            more={showMore}
             empty="No stock in this index is down today."
           />
         </div>
+        {/* The expand bar. Offered while there may be more to show: a full
+            first page in either column means the index has more movers. */}
+        {expanded || longest >= LIVE_MOVERS_LIMIT ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((open) => !open)}
+            aria-expanded={showMore}
+            className={cn(
+              "flex w-full items-center justify-center gap-1.5 border-t px-4 py-2.5 text-xs font-medium text-muted-foreground",
+              "transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard)",
+              "hover:bg-(--control) hover:text-foreground",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+            )}
+          >
+            {loadingMore ? (
+              <Loader2 className="size-3.5 animate-spin" aria-hidden />
+            ) : (
+              <ChevronDown
+                className={cn(
+                  "size-3.5 transition-transform duration-(--duration-slow) ease-(--ease-standard)",
+                  showMore && "rotate-180",
+                )}
+                aria-hidden
+              />
+            )}
+            {showMore ? "Show fewer" : `Show top ${EXPANDED_LIMIT}`}
+          </button>
+        ) : null}
       </div>
     </section>
   );
@@ -132,8 +178,19 @@ function shortName(name: string) {
   return /^\d/.test(short) ? name : short;
 }
 
-function useLiveMarket(market: Market, initial: LiveMarket | null): LiveMarket | null {
+/**
+ * The movers, polled once per worker run while the tab is visible, at
+ * `limit` per column. Raising `limit` asks at once; `limit` in the answer is
+ * how many per column the data now holds.
+ */
+function useLiveMarket(
+  market: Market,
+  initial: LiveMarket | null,
+  limit: number,
+): { data: LiveMarket | null; limit: number } {
   const [data, setData] = useState(initial);
+  const [loaded, setLoaded] = useState(LIVE_MOVERS_LIMIT);
+  const loadedRef = useRef(LIVE_MOVERS_LIMIT);
   // A server render (a breadth group change re-renders the page) can bring
   // newer movers than the last poll; take whichever is newer.
   const [seenInitial, setSeenInitial] = useState(initial);
@@ -159,14 +216,17 @@ function useLiveMarket(market: Market, initial: LiveMarket | null): LiveMarket |
       if (document.visibilityState !== "visible") return;
       const { data: fresh, error } = await createClient().rpc("live_market", {
         p_market: market.code,
-        p_limit: LIVE_MOVERS_LIMIT,
+        p_limit: limit,
       });
       if (stopped) return;
       const next = error ? null : normalizeLiveMarket(fresh);
-      if (next && next.fetched_at !== fetchedAt.current) {
+      // A longer list is news even from the same worker run.
+      if (next && (next.fetched_at !== fetchedAt.current || loadedRef.current !== limit)) {
         fetchedAt.current = next.fetched_at;
+        loadedRef.current = limit;
         const at = Date.now();
         setData((previous) => withTicks(previous, next, at));
+        setLoaded(limit);
       }
       schedule();
     };
@@ -178,16 +238,18 @@ function useLiveMarket(market: Market, initial: LiveMarket | null): LiveMarket |
       else schedule();
     };
 
-    schedule();
+    // A longer list than the one held is wanted now, not at the next run.
+    if (limit > loadedRef.current) void tick();
+    else schedule();
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
       stopped = true;
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [market.code]);
+  }, [market.code, limit]);
 
-  return data;
+  return { data, limit: loaded };
 }
 
 function Freshness({ market, data }: { market: Market; data: LiveMarket }) {
@@ -260,6 +322,19 @@ function IndexSummary({ market, index }: { market: Market; index: LiveIndexMover
           </p>
         </div>
       ) : null}
+
+      <Link
+        href={marketPath(market.slug, `/indices/${indexSlug(index.name)}`)}
+        className={cn(
+          "inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground sm:ml-auto",
+          "transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard)",
+          "hover:bg-(--control-hover) hover:text-foreground",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+      >
+        All {index.members} constituents
+        <ChevronRight className="size-3.5" aria-hidden />
+      </Link>
     </div>
   );
 }
@@ -269,14 +344,19 @@ function MoverColumn({
   title,
   icon: Icon,
   rows,
+  more,
   empty,
 }: {
   market: Market;
   title: string;
   icon: typeof TrendingUp;
   rows: LiveMover[];
+  /** Show the rows past the first page, grown open under it. */
+  more: boolean;
   empty: string;
 }) {
+  const first = rows.slice(0, LIVE_MOVERS_LIMIT);
+  const rest = rows.slice(LIVE_MOVERS_LIMIT);
   return (
     <div className="min-w-0">
       <h3 className="flex items-center gap-2 px-4 pb-1 pt-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -284,13 +364,24 @@ function MoverColumn({
         {title}
       </h3>
       {rows.length ? (
-        <ul className="divide-y">
-          {rows.map((row) => (
-            <li key={row.symbol}>
-              <MoverRow market={market} row={row} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="divide-y">
+            {first.map((row) => (
+              <li key={row.symbol}>
+                <MoverRow market={market} row={row} />
+              </li>
+            ))}
+          </ul>
+          <Expand open={more && rest.length > 0}>
+            <ul className="divide-y border-t">
+              {rest.map((row) => (
+                <li key={row.symbol}>
+                  <MoverRow market={market} row={row} />
+                </li>
+              ))}
+            </ul>
+          </Expand>
+        </>
       ) : (
         <p className="px-4 py-8 text-center text-sm text-muted-foreground">{empty}</p>
       )}

@@ -3,6 +3,7 @@
 import { Fragment, useState } from "react";
 import { ChevronRight, FileText } from "lucide-react";
 
+import { useExpand } from "@/components/motion";
 import { StockIdentity } from "@/components/stock-identity";
 import { useMarket } from "@/components/market-provider";
 import { SegmentedControl } from "@/components/segmented-control";
@@ -55,11 +56,42 @@ function unitFor(market: Market) {
   return market.scale === "indian" ? { divisor: 1e7, label: "Cr" } : { divisor: 1e6, label: "M" };
 }
 
-function ChangeCell({ value, unit = "%" }: { value: Value; unit?: string }) {
+/**
+ * A cell's content in a row that opens (MarginRow). A `<tr>` cannot be given
+ * a height, so each cell's content is wrapped in a box that can, and the
+ * padding moves inside it so the row closes to nothing.
+ */
+function Opening({ children }: { children: React.ReactNode }) {
+  return (
+    <div data-expand>
+      <div className="py-1.5">{children}</div>
+    </div>
+  );
+}
+
+/** A margin line, grown open under its amount rather than appearing in one frame. */
+function MarginRow({ open, children }: { open: boolean; children: React.ReactNode }) {
+  const { ref, mounted } = useExpand<HTMLTableRowElement>(open);
+  if (!mounted) return null;
+  return <tr ref={ref}>{children}</tr>;
+}
+
+function ChangeCell({
+  value,
+  unit = "%",
+  opening = false,
+}: {
+  value: Value;
+  unit?: string;
+  /** In a MarginRow: the content is wrapped so the row can open. */
+  opening?: boolean;
+}) {
+  const text = formatChange(value, unit) ?? MISSING;
   return (
     <td
       className={cn(
-        "tabular whitespace-nowrap px-2 py-2 text-right font-mono text-[13px]",
+        "tabular whitespace-nowrap px-2 text-right font-mono text-[13px]",
+        opening ? "py-0" : "py-2",
         value == null || value === 0
           ? "text-muted-foreground"
           : value > 0
@@ -67,7 +99,7 @@ function ChangeCell({ value, unit = "%" }: { value: Value; unit?: string }) {
             : "text-negative",
       )}
     >
-      {formatChange(value, unit) ?? MISSING}
+      {opening ? <Opening>{text}</Opening> : text}
     </td>
   );
 }
@@ -79,15 +111,24 @@ function ChangeCell({ value, unit = "%" }: { value: Value; unit?: string }) {
  */
 const OLDER_QUARTER = "hidden sm:table-cell";
 
-function AmountCell({ text, current }: { text: string; current?: boolean }) {
+function AmountCell({
+  text,
+  current,
+  opening = false,
+}: {
+  text: string;
+  current?: boolean;
+  opening?: boolean;
+}) {
   return (
     <td
       className={cn(
-        "tabular whitespace-nowrap px-2 py-2 text-right font-mono text-[13px]",
+        "tabular whitespace-nowrap px-2 text-right font-mono text-[13px]",
+        opening ? "py-0" : "py-2",
         current ? "font-semibold text-foreground" : cn("text-muted-foreground", OLDER_QUARTER),
       )}
     >
-      {text}
+      {opening ? <Opening>{text}</Opening> : text}
     </td>
   );
 }
@@ -231,24 +272,25 @@ export function ResultCard({ card }: { card: ResultCardData }) {
                       <AmountCell key={index} text={amount(row, value, digits)} current={index === 0} />
                     ))}
                   </tr>
-                  {expanded && row.margin ? (
-                    <tr>
+                  {row.margin ? (
+                    <MarginRow open={expanded}>
                       <th
                         scope="row"
-                        className="py-1.5 pl-5 pr-2 text-left text-xs font-medium text-muted-foreground"
+                        className="py-0 pl-5 pr-2 text-left text-xs font-medium text-muted-foreground"
                       >
-                        {row.margin.label}
+                        <Opening>{row.margin.label}</Opening>
                       </th>
-                      <ChangeCell value={row.margin.yoy} unit=" pp" />
-                      <ChangeCell value={row.margin.qoq} unit=" pp" />
+                      <ChangeCell value={row.margin.yoy} unit=" pp" opening />
+                      <ChangeCell value={row.margin.qoq} unit=" pp" opening />
                       {row.margin.values.map((value, index) => (
                         <AmountCell
                           key={index}
                           text={value == null ? MISSING : `${value.toFixed(1)}%`}
                           current={index === 0}
+                          opening
                         />
                       ))}
-                    </tr>
+                    </MarginRow>
                   ) : null}
                 </Fragment>
               );

@@ -1006,6 +1006,16 @@
 }
 
 /*
+ * A disclosure SmoothDetails is animating shut (components/motion.tsx) is
+ * still [open] until it lands, so its chevron would stay turned for the whole
+ * close. Unlayered, so it outranks the `group-open:rotate-90` utility and the
+ * chevron turns back on the press.
+ */
+details[data-closing] > summary svg {
+  rotate: none;
+}
+
+/*
  * Honour the OS reduced-motion setting globally. Individual components should
  * not have to remember this, and a data tool has no animation worth forcing on
  * someone who has asked for less of it.

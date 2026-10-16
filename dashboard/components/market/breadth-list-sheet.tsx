@@ -1,5 +1,6 @@
 "use client";
 
+import { FadeSwap } from "@/components/motion";
 import { TableSkeleton } from "@/components/skeletons";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 
@@ -10,7 +11,8 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
  * reader came from a chart and goes back to it, so the charts stay where they
  * were -- same range, same scroll -- underneath. It opens on the press, before
  * the rows have arrived, with a skeleton of the table in place; the rows then
- * fill the same box, so nothing jumps.
+ * fill the same box, so nothing jumps, and fade in over where the skeleton
+ * was rather than replacing it in one frame.
  *
  * The table itself is rendered on the server and passed in, so every column,
  * sort key and link is the screener's. Sorting and paging are links that keep
@@ -46,9 +48,11 @@ export function BreadthListSheet({
           <SheetDescription className="tabular mt-0.5 text-sm">{detail}</SheetDescription>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 sm:px-5 sm:pb-5">
-          <div aria-busy={loading} className="space-y-4">
-            {loading ? <TableSkeleton rows={10} /> : children}
-          </div>
+          <FadeSwap token={loading} className="space-y-4">
+            <div aria-busy={loading} className="space-y-4">
+              {loading ? <TableSkeleton rows={10} /> : children}
+            </div>
+          </FadeSwap>
         </div>
       </SheetContent>
     </Sheet>

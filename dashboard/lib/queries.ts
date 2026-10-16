@@ -10,9 +10,11 @@ import {
   type LiveMarket,
 } from "@/lib/live-market";
 import { createClient } from "@/lib/supabase/server";
+import { indexSlug } from "@/lib/indices.mjs";
 import type { MarketCode } from "@/lib/markets";
 import type {
   HistoryRow,
+  IndexInfo,
   MoverRow,
   ScreenerFilters,
   ScreenerRun,
@@ -1249,4 +1251,136 @@ export async function getMarketBreadth(
     group: (groupResult.data as BreadthRow | null) ?? null,
     indices: (indicesResult.data as BreadthRow[] | null) ?? [],
   };
+}
+
+/**
+ * Every index the market publishes constituents or a level history for, in
+ * the Market page's order: the live indices' own order first, then any index
+ * that only has a chart.
+ *
+ * `index_members` is read whole (~1,300 short rows across NSE's indices) and
+ * counted here, since PostgREST's aggregates are off; it is paged because the
+ * API caps a read at 1,000 rows. Cached per request, so the index page and
+ * the search route each pay for it once.
+ */
+export const getIndexDirectory = cache(async (market: MarketCode): Promise<IndexInfo[]> => {
+  const supabase = await createClient();
+  const page = (from: number) =>
+    supabase
+      .from("index_members")
+      .select("index_name, position", { count: from === 0 ? "exact" : undefined })
+      .eq("market", market)
+      .order("position")
+      .order("symbol")
+      .range(from, from + FETCH_CHUNK - 1);
+
+  const [first, charts] = await Promise.all([
+    page(0),
+    supabase
+      .from("market_breadth")
+      .select("name, position")
+      .eq("market", market)
+      .eq("scope", "index")
+      .order("position"),
+  ]);
+  if (first.error) console.error("getIndexDirectory members failed", first.error.message);
+  if (charts.error) console.error("getIndexDirectory charts failed", charts.error.message);
+
+  type MemberRow = { index_name: string; position: number };
+  const rows: MemberRow[] = [...((first.data as MemberRow[] | null) ?? [])];
+  const total = first.count ?? rows.length;
+  if (total > rows.length) {
+    const rest = await Promise.all(
+      chunkOffsets(total)
+        .filter((offset) => offset > 0)
+        .map(page),
+    );
+    for (const result of rest) {
+      if (result.error) console.error("getIndexDirectory members failed", result.error.message);
+      rows.push(...((result.data as MemberRow[] | null) ?? []));
+    }
+  }
+
+  const listed = new Map<string, { position: number; members: number }>();
+  for (const row of rows) {
+    const entry = listed.get(row.index_name);
+    if (entry) entry.members += 1;
+    else listed.set(row.index_name, { position: row.position, members: 1 });
+  }
+  const charted = new Set(
+    ((charts.data as { name: string }[] | null) ?? []).map((row) => row.name),
+  );
+
+  const ordered = [...listed.entries()]
+    .sort((a, b) => a[1].position - b[1].position)
+    .map(([name, entry]) => ({ name, members: entry.members as number | null }));
+  for (const row of (charts.data as { name: string }[] | null) ?? []) {
+    if (!listed.has(row.name)) ordered.push({ name: row.name, members: null });
+  }
+  return ordered.map(({ name, members }) => ({
+    slug: indexSlug(name),
+    name,
+    members,
+    chart: charted.has(name),
+  }));
+});
+
+/** One index's constituents as the provider lists them. */
+export async function getIndexMembers(
+  market: MarketCode,
+  name: string,
+): Promise<{ symbol: string; company: string | null }[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("index_members")
+    .select("symbol, company")
+    .eq("market", market)
+    .eq("index_name", name)
+    .order("symbol")
+    .range(0, FETCH_CHUNK - 1);
+  if (error) {
+    console.error("getIndexMembers failed", error.message);
+    return [];
+  }
+  return (data as { symbol: string; company: string | null }[] | null) ?? [];
+}
+
+/** One index's level history, as the Market page charts it. */
+export async function getIndexChart(market: MarketCode, name: string): Promise<BreadthRow | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("market_breadth")
+    .select(BREADTH_COLUMNS)
+    .eq("market", market)
+    .eq("scope", "index")
+    .eq("name", name)
+    .maybeSingle();
+  if (error) console.error("getIndexChart failed", error.message);
+  return (data as BreadthRow | null) ?? null;
+}
+
+/**
+ * Which of `symbols` the run rates. An index lists stocks the screener has
+ * no row for -- too new, too illiquid -- and those have no stock page, so the
+ * index page names them apart from the table rather than dropping them.
+ */
+export async function getRatedSymbols(
+  market: MarketCode,
+  runDate: string,
+  symbols: readonly string[],
+): Promise<Set<string>> {
+  if (!symbols.length) return new Set();
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("screener_snapshot")
+    .select("symbol")
+    .eq("market", market)
+    .eq("run_date", runDate)
+    .in("symbol", [...symbols]);
+  if (error) {
+    console.error("getRatedSymbols failed", error.message);
+    // Unknown is not "none rated": with no answer, name nobody as unrated.
+    return new Set(symbols);
+  }
+  return new Set(((data as { symbol: string }[] | null) ?? []).map((row) => row.symbol));
 }

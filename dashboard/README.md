@@ -88,6 +88,27 @@ Wording, the unread rule and day grouping live in `lib/notifications.mjs`
 (tested in `lib/notifications.test.mjs`). A kind that file does not know still
 renders, by its name.
 
+## Search and indices
+
+The header's magnifier (and the screener toolbar's field, and ⌘K) opens one
+dialog over the market's stocks and indices (`components/global-search.tsx`,
+the shared `StockPicker`). The indices arrive in the same cached
+`/api/search-index` answer as the stocks, so the dialog costs one request a
+tab. A page with a picker of its own -- the watchlist's "Add stocks" -- keeps
+⌘K; the header's button still searches there.
+
+Each index has a page, `/[market]/indices/[slug]` (the slug is the label,
+`lib/indices.mjs`), with its level chart where `market_breadth` holds one and
+its constituents from `index_members` in the screener's own table: the same
+`getSnapshotPage`, columns, sorts and live Price and 1D. Constituents the run
+does not rate are named under the table. `/[market]/indices` lists them all.
+US indices have charts and no constituent lists yet.
+
+Disclosures open with motion: every `<details>` through one delegated
+listener (`SmoothDetails` in `components/motion.tsx`), and lists that grow --
+the movers' expand bar, the results' margin rows -- through `useExpand`. Both
+are GSAP, already in the bundle, and both do nothing under reduced motion.
+
 ## Live prices
 
 The grid's Price and 1D cells, the stock page's tiles, and the Market page's

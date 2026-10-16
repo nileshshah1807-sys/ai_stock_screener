@@ -212,8 +212,11 @@ the scheduled workflows set the same flag.
   Yahoo's batch quote endpoint, and once a day the constituents of each
   `MarketProfile.live_indices` into `index_members`. The dashboard reads them
   in the browser after render: the grid's Price and 1D, the stock page's
-  tiles, and the Market page's movers by index (`live_market()`). Nothing
-  scores, sorts or filters on them; a quote shows only when it is from a later
+  tiles, the Market page's movers by index (`live_market()`), and each index's
+  page (`/[market]/indices/[slug]`), whose constituents table is
+  `index_members` read through the screener's own `getSnapshotPage`. Nothing
+  scores or sorts on them, and only that page filters, by membership alone; a
+  quote shows only when it is from a later
   session than the row's bar. A change past `max_open_gap` is withheld as a
   unit change, not a move. The tables are in
   `storage/live_quotes_schema.sql` and must be applied by hand.
