@@ -9,6 +9,8 @@ import {
   timeTicks,
   timeValue,
 } from "@/lib/market-breadth.mjs";
+import { TickFlash } from "@/components/tick-flash";
+import type { Tick } from "@/lib/use-live-quotes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -24,6 +26,10 @@ import { cn } from "@/lib/utils";
  * any chart it shows the value on the hovered date instead, so scrubbing one
  * chart reads the whole page at that date. There is no floating tooltip to
  * chase the pointer -- the number lives where the eye already is.
+ *
+ * With `live`, the last point is today's intraday quote: the header says when
+ * it is from instead of the date, the figure flashes when it moves, and the
+ * line's end pulses while the quote is live.
  */
 
 export type ChartPoint = { time: string; value: number; count?: number; total?: number };
@@ -67,6 +73,7 @@ export function BreadthChart({
   locale,
   tone = "accent",
   onExpand,
+  live,
 }: {
   title: string;
   points: ChartPoint[];
@@ -78,6 +85,8 @@ export function BreadthChart({
   tone?: ChartTone;
   /** Opens the stocks behind the latest value; the button is absent without it. */
   onExpand?: () => void;
+  /** The last point is a live quote: "Live 15:25 IST", its last move, and whether to pulse. */
+  live?: { label: string; pulsing: boolean; tick: Tick | null };
 }) {
   const { time: scrubTime, setTime } = useContext(ScrubContext);
   const [container, width] = useWidth();
@@ -128,6 +137,7 @@ export function BreadthChart({
   const hovered = scrubTime ? pointAt(points, scrubTime) : null;
   const shown = hovered ?? latest;
   const base = points[0] ?? null;
+  const liveShown = live && !hovered && latest ? live : null;
 
   const onPointer = (event: React.PointerEvent<SVGRectElement>) => {
     if (!geometry || !points.length) return;
@@ -182,7 +192,11 @@ export function BreadthChart({
           <>
             <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2">
               <span className="numeral text-[1.625rem] leading-tight font-semibold tracking-[-0.02em]">
-                {format(shown.value)}
+                {liveShown ? (
+                  <TickFlash tick={liveShown.tick}>{format(shown.value)}</TickFlash>
+                ) : (
+                  format(shown.value)
+                )}
               </span>
               {base && shown !== base ? (
                 <Change from={base.value} to={shown.value} unit={unit} locale={locale} />
@@ -192,7 +206,16 @@ export function BreadthChart({
               {shown.count !== undefined && shown.total !== undefined
                 ? `${shown.count.toLocaleString(locale)} of ${shown.total.toLocaleString(locale)} · `
                 : ""}
-              {formatDay(shown.time)}
+              {liveShown ? (
+                <span className="inline-flex items-center gap-1.5">
+                  {liveShown.pulsing ? (
+                    <span className="size-1.5 shrink-0 rounded-full bg-positive" aria-hidden />
+                  ) : null}
+                  {liveShown.label}
+                </span>
+              ) : (
+                formatDay(shown.time)
+              )}
             </p>
           </>
         ) : (
@@ -284,15 +307,26 @@ export function BreadthChart({
                 />
               </g>
             ) : latest ? (
-              <circle
-                aria-hidden
-                cx={geometry.x(latest.time)}
-                cy={geometry.y(latest.value)}
-                r={3}
-                fill={color}
-                stroke="var(--card)"
-                strokeWidth={2}
-              />
+              <g aria-hidden>
+                {live?.pulsing ? (
+                  // The heartbeat: a ring that swells from the last point and fades.
+                  <circle
+                    cx={geometry.x(latest.time)}
+                    cy={geometry.y(latest.value)}
+                    r={3}
+                    fill={color}
+                    className="origin-center animate-heartbeat [transform-box:fill-box]"
+                  />
+                ) : null}
+                <circle
+                  cx={geometry.x(latest.time)}
+                  cy={geometry.y(latest.value)}
+                  r={3}
+                  fill={color}
+                  stroke="var(--card)"
+                  strokeWidth={2}
+                />
+              </g>
             ) : null}
 
             {/* The hit area covers the plot, not just the line, and pans

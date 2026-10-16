@@ -247,6 +247,24 @@ class RunTests(unittest.TestCase):
         self.assertEqual(by_symbol["BBB"]["change_pct"], -1)
         self.assertEqual(repo.pruned, "2026-10-09T06:15:00+00:00")
 
+    def test_charted_indices_are_quoted_without_a_movers_list(self):
+        # The US lists no movers, but its Market page charts four indices.
+        ten_am_et = datetime(2026, 10, 16, 14, 0, tzinfo=UTC)
+        traded = int(datetime(2026, 10, 16, 13, 59, tzinfo=UTC).timestamp())
+        levels = {ticker: quote(5000, previous=4990, traded=traded) for ticker, _ in US.headline_indices}
+        fetch, requested = fetcher({"AAA": quote(101, traded=traded), **levels})
+        summary = run(FakeRepo(snapshot=["AAA"]), US, now=ten_am_et, fetch_quotes=fetch)
+        self.assertEqual(summary["indices"], len(US.headline_indices))
+        for ticker, _ in US.headline_indices:
+            self.assertIn(ticker, requested)
+
+    def test_a_charted_index_with_a_movers_list_is_asked_for_once(self):
+        fetch, requested = fetcher({"AAA.NS": quote(101)})
+        run(FakeRepo(snapshot=["AAA"]), NSE, now=IN_SESSION, fetch_quotes=fetch, fetch_members=must_not_fetch)
+        self.assertEqual(requested.count("^NSEI"), 1)
+        charted = {label for _, label in NSE.headline_indices}
+        self.assertLessEqual(charted, {index.label for index in NSE.live_indices})
+
     def test_holiday_writes_nothing(self):
         yesterday = int(datetime(2026, 10, 15, 10, 0, tzinfo=UTC).timestamp())
         repo = FakeRepo(snapshot=["AAA"])
