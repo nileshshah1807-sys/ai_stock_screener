@@ -13,6 +13,7 @@ from unittest import mock
 
 from screener.index_members import parse_nse_index_csv
 from screener.markets import resolve as resolve_market
+from screener.numeric import round_half_up
 from workers.live_quotes import (
     in_session,
     member_rows,
@@ -126,6 +127,13 @@ class QuoteRowTests(unittest.TestCase):
         for bad in (None, 0, -1, "n/a", float("nan")):
             self.assertIsNone(quote_row("AAA", quote(bad), NSE, "stock", FETCHED), bad)
         self.assertIsNone(quote_row("AAA", quote(100, traded=None), NSE, "stock", FETCHED))
+
+    def test_previous_close_from_the_days_change_not_the_stale_field(self):
+        # The index shape: the field names an older close, the change is right.
+        stale = quote(23124.05, previous=22622.7, regularMarketChange=126.7)
+        row = quote_row("Index", stale, NSE, "index", FETCHED)
+        self.assertEqual(row["previous_close"], 22997.35)
+        self.assertEqual(row["change_pct"], round_half_up((23124.05 / 22997.35 - 1) * 100, 4))
 
     def test_missing_previous_close_keeps_the_price(self):
         row = quote_row("AAA", quote(100, previous=None), NSE, "stock", FETCHED)
