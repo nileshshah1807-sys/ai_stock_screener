@@ -683,7 +683,7 @@ class FactorModel:
             working["Research_Score"] = working["Research_Score_Raw"]
             working["Research_Score_Basis"] = "weighted_block_average"
         for name, weight in weights.items():
-            working[f"{name}_Weight"] = round(weight / total, 6)
+            working[f"{name}_Weight"] = round_half_up(weight / total, 6)
             working[f"{name}_Score"] = round_series(working[f"{name}_Score"], 2)
             working[f"{name}_Coverage"] = round_series(working[f"{name}_Coverage"], 4)
             # Percentile of the block itself, which the STRONG BUY gates use.

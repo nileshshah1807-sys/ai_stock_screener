@@ -7,7 +7,7 @@ model selection, and the generic fundamental score itself.
 import numpy as np
 import pandas as pd
 
-from ..numeric import safe_float
+from ..numeric import round_half_up, safe_float
 from .constants import (
     FUNDAMENTAL_ABSENCE_IS_ZERO,
     FUNDAMENTAL_COMPONENT_INPUTS,
@@ -319,7 +319,7 @@ def score_fundamentals(
                 sector_score = sector_relative.get(column) if hasattr(sector_relative, "get") else None
                 if sector_score is None or (isinstance(sector_score, float) and pd.isna(sector_score)):
                     continue
-                scores[key] = round(scores[key] * (1 - weight) + sector_score * weight, 2)
+                scores[key] = round_half_up(scores[key] * (1 - weight) + sector_score * weight, 2)
 
     # Invalid valuation/domain observations remain zero even if an older cache
     # or external caller supplies a peer score for them.

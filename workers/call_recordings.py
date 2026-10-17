@@ -304,6 +304,12 @@ class CallRecordingWorker:
                 call["filing_id"], status="rejected", last_error=f"recording gave {len(text)} characters of text"
             )
             return "rejected"
+        # Asked again: the filed transcript may have been stored since the plan
+        # was made, and its worker only removes a recording stored before it.
+        quarter = _results_period(call.get("announcement_date"))
+        if quarter and self.repository.has_transcript(call["symbol"], quarter):
+            self.repository.update_filing(call["filing_id"], status="rejected", last_error=ALREADY_FILED_ERROR)
+            return "rejected"
         self._store_text(
             filing_id=call["filing_id"],
             symbol=call["symbol"],

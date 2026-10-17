@@ -6,8 +6,8 @@ run-name: Price series (${{ github.event_name }})
 # Two jobs, because the two markets have nothing in common here beyond the
 # encoder. NSE reads the point-in-time bhavcopy archive and needs its ~160 MB
 # cache restored; US is sourced from yfinance and needs no cache at all, so it
-# finishes in a few minutes. They run in parallel and write disjoint rows --
-# `market` is part of the price_series and price_calendar keys -- so neither
+# finishes in a few minutes. They run in parallel and write disjoint objects --
+# each market has its own `price-series/{MARKET}/` folder in Storage -- so neither
 # can lose the other's work, and a failure of one must not hold up the other.
 #
 # Deliberately separate from daily-stock-screener.yml. The chart is a reading

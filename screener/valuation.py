@@ -74,10 +74,7 @@ class ReverseDCFModel:
             sector, self.DEFAULT_SECTOR_GROWTH
         )
         adjusted = base + self._size_adjustment(market_cap)
-        return round(
-            max(self.EXPECTED_GROWTH_FLOOR, min(adjusted, self.EXPECTED_GROWTH_CAP)),
-            4,
-        )
+        return round_half_up(max(self.EXPECTED_GROWTH_FLOOR, min(adjusted, self.EXPECTED_GROWTH_CAP)), 4)
 
     @staticmethod
     def _safe_float(value, default=None):
@@ -190,15 +187,15 @@ class ReverseDCFModel:
         return {
             f"{prefix}_Solve_State": solve.state,
             f"{prefix}": (
-                round(solve.point, 4) if solve.point is not None else np.nan
+                round_half_up(solve.point, 4) if solve.point is not None else np.nan
             ),
             f"{prefix}_Lower_Bound": (
-                round(solve.lower_bound, 4)
+                round_half_up(solve.lower_bound, 4)
                 if solve.lower_bound is not None
                 else np.nan
             ),
             f"{prefix}_Upper_Bound": (
-                round(solve.upper_bound, 4)
+                round_half_up(solve.upper_bound, 4)
                 if solve.upper_bound is not None
                 else np.nan
             ),
@@ -383,21 +380,21 @@ class ReverseDCFModel:
             "DCF_Cash_Flow_Basis": "operating_cash_flow_less_capex_equity_proxy" if can_model else "n/a",
             "DCF_Sector": sector if sector else "Unknown",
             "DCF_Expected_Growth": expected_growth,
-            "DCF_Base_FCF": round(fcf, 2) if fcf is not None else np.nan,
-            "DCF_Market_Cap": round(market_cap, 2) if market_cap is not None else np.nan,
-            "DCF_Net_Debt": round(net_debt, 2) if net_debt is not None else np.nan,
-            "DCF_Enterprise_Value": round(enterprise_value, 2) if enterprise_value is not None else np.nan,
+            "DCF_Base_FCF": round_half_up(fcf, 2) if fcf is not None else np.nan,
+            "DCF_Market_Cap": round_half_up(market_cap, 2) if market_cap is not None else np.nan,
+            "DCF_Net_Debt": round_half_up(net_debt, 2) if net_debt is not None else np.nan,
+            "DCF_Enterprise_Value": round_half_up(enterprise_value, 2) if enterprise_value is not None else np.nan,
             "DCF_EV_Method": "equity_value_proxy" if can_model else "n/a",
-            "DCF_FCF_Yield": round(fcf_yield, 4) if fcf_yield is not None else np.nan,
-            "DCF_Revenue_FCF_Margin": round(revenue_fcf_margin, 4) if revenue_fcf_margin is not None else np.nan,
+            "DCF_FCF_Yield": round_half_up(fcf_yield, 4) if fcf_yield is not None else np.nan,
+            "DCF_Revenue_FCF_Margin": round_half_up(revenue_fcf_margin, 4) if revenue_fcf_margin is not None else np.nan,
             "DCF_Years": years if can_model else np.nan,
             "DCF_Discount_Rate": discount_rate if can_model else np.nan,
             "DCF_Assumed_Growth": expected_growth if can_model else np.nan,
             "DCF_Assumed_Terminal_Growth": fixed_terminal_growth if can_model else np.nan,
-            "DCF_Base_Case_Value": round(base_case_value, 2) if base_case_value is not None else np.nan,
-            "DCF_Value_to_Market_Cap": round(value_to_market, 4) if value_to_market is not None else np.nan,
-            "DCF_Base_Case_Gap": round(valuation_gap, 4) if valuation_gap is not None else np.nan,
-            "DCF_Base_Case_Upside": round(valuation_gap, 4) if valuation_gap is not None else np.nan,
+            "DCF_Base_Case_Value": round_half_up(base_case_value, 2) if base_case_value is not None else np.nan,
+            "DCF_Value_to_Market_Cap": round_half_up(value_to_market, 4) if value_to_market is not None else np.nan,
+            "DCF_Base_Case_Gap": round_half_up(valuation_gap, 4) if valuation_gap is not None else np.nan,
+            "DCF_Base_Case_Upside": round_half_up(valuation_gap, 4) if valuation_gap is not None else np.nan,
             "DCF_Valuation_Score": score,
             "DCF_Assessment": direction.title() if direction != "unknown" else "Insufficient data",
             # Orthogonal evidence contract.
@@ -424,20 +421,6 @@ class ReverseDCFModel:
         # which diagnostic solve supplied the state.
         result["DCF_Solve_State"] = fcf_solve.state
         return result
-
-    @staticmethod
-    def _rating_from_score(score):
-        """Deprecated compatibility helper; final ratings live elsewhere."""
-
-        if score >= 70:
-            return "STRONG BUY"
-        if score >= 60:
-            return "BUY"
-        if score >= 50:
-            return "HOLD"
-        if score >= 40:
-            return "REDUCE"
-        return "SELL"
 
     def enrich(self, df):
         """Attach DCF evidence without changing score, rating, order, or rank."""

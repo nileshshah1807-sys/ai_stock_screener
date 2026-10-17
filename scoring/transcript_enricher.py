@@ -474,18 +474,6 @@ def _score_threshold(value, default):
         return default
 
 
-def _rating_from_score(score):
-    if score >= 70:
-        return "STRONG BUY"
-    if score >= 60:
-        return "BUY"
-    if score >= 50:
-        return "HOLD"
-    if score >= 40:
-        return "REDUCE"
-    return "SELL"
-
-
 def _summary(
     score,
     guidance,

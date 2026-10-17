@@ -69,6 +69,8 @@ import json
 import numpy as np
 import pandas as pd
 
+from .numeric import round_series_half_up
+
 # Guidance ordered from weakest to strongest commitment. "Unclear" sits below
 # "maintained" deliberately: a management team that gave a number last quarter
 # and declines to this quarter has withdrawn something, and the withdrawal is
@@ -238,8 +240,8 @@ def attach_expectations_gap(frame: pd.DataFrame, config=None) -> pd.DataFrame:
     )
     status = status.mask(have_change & (change >= 0.0), "Priced for growth")
 
-    working["Expected_EPS_Forward"] = forward_eps.round(2)
-    working["Expected_EPS_Change_Pct"] = change.round(2)
+    working["Expected_EPS_Forward"] = round_series_half_up(forward_eps, 2)
+    working["Expected_EPS_Change_Pct"] = round_series_half_up(change, 2)
     working["Expectations_Status"] = status
 
     gap = implied_growth_gap(
@@ -247,7 +249,7 @@ def attach_expectations_gap(frame: pd.DataFrame, config=None) -> pd.DataFrame:
         _numeric(working, "DCF_Assumed_Growth"),
         _text(working, "DCF_Solve_State"),
     )
-    working["Implied_Growth_Gap_Pct"] = gap.round(2)
+    working["Implied_Growth_Gap_Pct"] = round_series_half_up(gap, 2)
 
     eligible = (
         working.get(
@@ -293,7 +295,7 @@ def attach_expectations_gap(frame: pd.DataFrame, config=None) -> pd.DataFrame:
         notes,
         have_change & (change <= decline_warn),
         "Market prices a "
-        + change.abs().round(1).astype(str)
+        + round_series_half_up(change.abs(), 1).astype(str)
         + "% earnings decline against trailing EPS; the score is computed on trailing.",
     )
     notes = append(

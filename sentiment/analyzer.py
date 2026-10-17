@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from screener.numeric import round_half_up
 from transcripts.chunker import TranscriptChunk, build_chunks
 from transcripts.segmenter import segment_transcript
 
@@ -87,14 +88,11 @@ def aggregate_sentiments(
         output[key] = _weighted_outlook(analyses, chunks, core_indexes, key)
     for key in ("catalysts", "risks", "evidence"):
         output[key] = _unique_items(item for analysis in analyses for item in getattr(analysis, key))[:20]
-    output["overall_score"] = round(
-        output["optimism"] * 0.25
+    output["overall_score"] = round_half_up(output["optimism"] * 0.25
         + output["management_confidence"] * 0.20
         + output["guidance_strength"] * 0.20
         + (100 - output["risk_intensity"]) * 0.20
-        + output["answer_quality"] * 0.15,
-        2,
-    )
+        + output["answer_quality"] * 0.15, 2)
     output["confidence_score"] = output["management_confidence"]
     if feature_payloads is not None:
         if len(feature_payloads) != len(chunks):
@@ -128,13 +126,10 @@ def _weighted_metric(
     key: str,
 ) -> float:
     total_weight = sum(max(1, chunks[index].estimated_tokens) for index in indexes)
-    return round(
-        sum(
+    return round_half_up(sum(
             getattr(analyses[index], key) * max(1, chunks[index].estimated_tokens)
             for index in indexes
-        ) / total_weight,
-        2,
-    )
+        ) / total_weight, 2)
 
 
 def _weighted_outlook(
@@ -175,7 +170,7 @@ def _add_hybrid_features(
         "model_disagreement",
     ):
         value = _weighted_payload_value(payloads, chunks, key)
-        output[key] = round(value, 4) if value is not None else None
+        output[key] = round_half_up(value, 4) if value is not None else None
 
     prepared = _section_analyses("prepared_remarks", analyses, chunks)
     management_qa = _section_analyses("management_answer", analyses, chunks)
@@ -228,13 +223,10 @@ def _weighted_analysis_value(
     if not items:
         return None
     total_weight = sum(max(1, chunk.estimated_tokens) for _, chunk in items)
-    return round(
-        sum(getattr(analysis, key) * max(1, chunk.estimated_tokens) for analysis, chunk in items) / total_weight,
-        2,
-    )
+    return round_half_up(sum(getattr(analysis, key) * max(1, chunk.estimated_tokens) for analysis, chunk in items) / total_weight, 2)
 
 
 def _difference(left: float | None, right: float | None) -> float | None:
     if left is None or right is None:
         return None
-    return round(left - right, 2)
+    return round_half_up(left - right, 2)

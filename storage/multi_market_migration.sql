@@ -11,10 +11,11 @@
 -- The backfill is free. Every row that exists today was published by the NSE
 -- pipeline, so `default 'NSE'` is not a guess -- it is the fact.
 --
--- Run this in the Supabase SQL Editor after storage/dashboard_schema.sql and
--- storage/price_series_schema.sql. It is idempotent and safe to re-run. The
--- same columns are also folded into those two files, so a fresh deployment is
--- correct without running this at all.
+-- Run this in the Supabase SQL Editor after storage/dashboard_schema.sql. It
+-- is idempotent and safe to re-run. The same columns are also folded into that
+-- file, so a fresh deployment is correct without running this at all. Chart
+-- price series are no longer tables (storage/market_data_storage.sql), so the
+-- section that keyed price_series and price_calendar by market is gone.
 --
 --   psql "$SUPABASE_DB_URL" -f storage/multi_market_migration.sql
 
@@ -224,67 +225,6 @@ revoke all on screener_movers from public;
 revoke all on screener_movers from anon;
 grant select on screener_movers to authenticated;
 grant select on screener_movers to service_role;
-
--- =====================================================================
--- Price series
--- =====================================================================
-
-alter table price_series
-    add column if not exists market text not null default 'NSE';
-
-do $$
-begin
-    if not exists (
-        select 1 from pg_constraint where conname = 'price_series_market_known'
-    ) then
-        alter table price_series
-            add constraint price_series_market_known
-            check (market in ('NSE', 'US'));
-    end if;
-end
-$$;
-
-alter table price_series
-    drop constraint if exists price_series_pkey;
-alter table price_series
-    add constraint price_series_pkey primary key (market, symbol);
-
-drop index if exists price_series_last_session_idx;
-create index if not exists price_series_last_session_idx
-    on price_series (market, last_session desc);
-
--- The calendar was a deliberate single row: one trading calendar, stored once,
--- that every series indexes into. With two markets it is one row per market --
--- NSE and NYSE do not share sessions -- so the single-row check becomes a
--- per-market primary key.
-alter table price_calendar
-    add column if not exists market text not null default 'NSE';
-
-alter table price_calendar
-    drop constraint if exists price_calendar_single_row;
-
-do $$
-begin
-    if not exists (
-        select 1 from pg_constraint where conname = 'price_calendar_market_known'
-    ) then
-        alter table price_calendar
-            add constraint price_calendar_market_known
-            check (market in ('NSE', 'US'));
-    end if;
-end
-$$;
-
-alter table price_calendar
-    drop constraint if exists price_calendar_pkey;
-alter table price_calendar
-    add constraint price_calendar_pkey primary key (market);
-
--- `id` is left in place, nullable and unused, so an older publisher that still
--- sends it does not fail. It can be dropped once nothing writes it.
-alter table price_calendar
-    alter column id drop not null,
-    alter column id drop default;
 
 -- =====================================================================
 -- Watchlists

@@ -823,23 +823,27 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
         self.assertIn("EMAIL_ENABLED: ${{ github.event_name == 'schedule' }}", nse)
         self.assertIn("GMAIL_REFRESH_TOKEN: ${{ github.event_name == 'schedule' && secrets", nse)
 
-    def test_us_dedupe_keys_on_the_session_guard_step(self):
-        workflow = (
-            Path(__file__).resolve().parents[1]
-            / ".github"
-            / "workflows"
-            / "daily-us-screener.yml"
-        ).read_text(encoding="utf-8")
-        guard_name = "Check whether completed US session is already published"
+    def test_dedupe_keys_on_the_session_guard_step(self):
+        for filename, market, zone in (
+            ("daily-us-screener.yml", "US", "America/New_York"),
+            ("daily-stock-screener.yml", "NSE", "Asia/Kolkata"),
+        ):
+            with self.subTest(market=market):
+                workflow = (
+                    Path(__file__).resolve().parents[1] / ".github" / "workflows" / filename
+                ).read_text(encoding="utf-8")
+                guard_name = f"Check whether completed {market} session is already published"
 
-        # The dedupe finds earlier runs' guard step by name, so a rename that
-        # left it behind would silently turn the dedupe off.
-        self.assertIn("id: session-guard", self._step_block(workflow, guard_name))
-        dedupe = self._step_block(workflow, "Skip successful scheduled duplicate")
-        self.assertIn(f'select(.name == "{guard_name}")', dedupe)
-        # Keyed to the session, not to the date the run was created on.
-        self.assertIn("MARKET_BAR_COMPLETE_AFTER_IST", dedupe)
-        self.assertNotIn('today="$(TZ=America/New_York date +%F)"', dedupe)
+                # The dedupe finds earlier runs' guard step by name, so a rename
+                # that left it behind would silently turn the dedupe off.
+                self.assertIn("id: session-guard", self._step_block(workflow, guard_name))
+                dedupe = self._step_block(workflow, "Skip successful scheduled duplicate")
+                self.assertIn(f'select(.name == "{guard_name}")', dedupe)
+                # Keyed to the session in market time, not to the date the run
+                # was created on.
+                self.assertIn("MARKET_BAR_COMPLETE_AFTER_IST", dedupe)
+                self.assertIn(f"TZ={zone}", dedupe)
+                self.assertNotIn("date -u +%F", dedupe)
 
 
 if __name__ == "__main__":

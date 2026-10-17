@@ -59,10 +59,12 @@ class RecordingDashboardRepository:
     _scoped = DashboardRepository._scoped
 
     def __init__(self, *, existing_run=False, fail_at=None, market="NSE",
-                 existing_market=None):
+                 existing_market=None, previous_row_count=None):
         self.existing_run = existing_run
         self.fail_at = fail_at
         self.market = market
+        # Row count of the newest published run before this one; None for none.
+        self.previous_row_count = previous_row_count
         # Which market already holds a run on the publish date. Defaults to
         # this repository's own, which is what every single-market test means.
         self.existing_market = existing_market or market
@@ -91,6 +93,11 @@ class RecordingDashboardRepository:
             self.calls.append(("cleanup_run", kwargs))
             return None
         raise AssertionError(f"Unexpected repository request: {method} {path}")
+
+    def latest_completed_run(self):
+        if self.previous_row_count is None:
+            return None
+        return {"run_date": "2026-08-10", "row_count": self.previous_row_count}
 
     def replace_snapshot_rows(self, run_date, rows, chunk_size):
         self.calls.append(("snapshot", {"run_date": run_date, "rows": rows}))
@@ -509,6 +516,23 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(summary["skip_reason"], "already_published")
         self.assertEqual(summary["existing_row_count"], 1)
         self.assertNotIn("snapshot_rows_written", summary)
+
+    def test_a_run_far_smaller_than_the_last_one_is_refused_before_any_write(self):
+        # One row against 2,300: the universe download failed and only the
+        # safety net was scored. Yesterday's run must stay on the dashboard.
+        repository = RecordingDashboardRepository(previous_row_count=2300)
+
+        with self.assertRaisesRegex(RuntimeError, "shrunken universe"):
+            self.publish_with(repository)
+
+        self.assertEqual([name for name, _ in repository.calls], ["check_run"])
+
+    def test_a_run_of_similar_size_to_the_last_one_publishes(self):
+        repository = RecordingDashboardRepository(previous_row_count=2)
+
+        summary = self.publish_with(repository)
+
+        self.assertEqual(summary["snapshot_rows_written"], 1)
 
     def test_invalid_if_exists_value_is_rejected_before_reading_the_csv(self):
         with self.assertRaisesRegex(ValueError, "if_exists"):

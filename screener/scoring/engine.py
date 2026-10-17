@@ -501,7 +501,7 @@ class StockScorer:
         merged_df.at[idx, "Fundamental_Score"] = f_score
         merged_df.at[idx, "Technical_Score"] = t_score
         merged_df.at[idx, "ATR_Pct"] = (
-            round(atr_pct, 2) if pd.notna(atr_pct) else np.nan
+            round_half_up(atr_pct, 2) if pd.notna(atr_pct) else np.nan
         )
         merged_df.at[idx, "Dynamic_Weight_Fund"] = weight_fund
         merged_df.at[idx, "Dynamic_Weight_Tech"] = weight_tech
@@ -509,25 +509,19 @@ class StockScorer:
         merged_df.at[idx, "Core_Score"] = combined
         merged_df.at[idx, "Fund_Fields_Present"] = fields_present
         merged_df.at[idx, "Fund_Fields_Expected"] = len(expected_fund_fields)
-        merged_df.at[idx, "Fundamental_Coverage"] = round(fundamental_coverage, 4)
+        merged_df.at[idx, "Fundamental_Coverage"] = round_half_up(fundamental_coverage, 4)
         merged_df.at[idx, "Fundamental_Missing_Fields"] = ", ".join(missing_fund_fields)
         merged_df.at[idx, "Fundamental_Coverage_Eligible"] = fundamental_coverage_eligible
         # Capacity coverage weights each component by the points it can
         # contribute; the field-count coverage above still drives the gates.
-        merged_df.at[idx, "Fundamental_Observed_Score"] = round(
-            fundamental["observed_score"], 2
-        )
-        merged_df.at[idx, "Fundamental_Capacity_Coverage"] = round(
-            fundamental["coverage"], 4
-        )
+        merged_df.at[idx, "Fundamental_Observed_Score"] = round_half_up(fundamental["observed_score"], 2)
+        merged_df.at[idx, "Fundamental_Capacity_Coverage"] = round_half_up(fundamental["coverage"], 4)
         merged_df.at[idx, "Fundamental_Missing_Components"] = ", ".join(
             fundamental["missing_components"]
         )
-        merged_df.at[idx, "Fundamental_Raw_Points"] = round(f_raw, 2)
-        merged_df.at[idx, "Technical_Coverage"] = round(technical["coverage"], 4)
-        merged_df.at[idx, "Technical_Observed_Score"] = round(
-            technical["observed_score"], 2
-        )
+        merged_df.at[idx, "Fundamental_Raw_Points"] = round_half_up(f_raw, 2)
+        merged_df.at[idx, "Technical_Coverage"] = round_half_up(technical["coverage"], 4)
+        merged_df.at[idx, "Technical_Observed_Score"] = round_half_up(technical["observed_score"], 2)
         merged_df.at[idx, "Technical_Missing_Components"] = ", ".join(
             technical["missing_components"]
         )
@@ -553,35 +547,35 @@ class StockScorer:
             value for key, value in fund_components.items() if key in income_keys
         )
         quality_points = f_raw - valuation_points - growth_points - income_points
-        merged_df.at[idx, "Fund_Valuation_Points"] = round(valuation_points, 2)
-        merged_df.at[idx, "Fund_Quality_Points"] = round(quality_points, 2)
-        merged_df.at[idx, "Fund_Growth_Points"] = round(growth_points, 2)
-        merged_df.at[idx, "Fund_Income_Points"] = round(income_points, 2)
+        merged_df.at[idx, "Fund_Valuation_Points"] = round_half_up(valuation_points, 2)
+        merged_df.at[idx, "Fund_Quality_Points"] = round_half_up(quality_points, 2)
+        merged_df.at[idx, "Fund_Growth_Points"] = round_half_up(growth_points, 2)
+        merged_df.at[idx, "Fund_Income_Points"] = round_half_up(income_points, 2)
         merged_df.at[idx, "Fund_Component_Summary"] = (
             f"Val {valuation_points:.1f} | Quality {quality_points:.1f} | "
             f"Growth {growth_points:.1f} | Income {income_points:.1f}"
         )
         for component, points in fund_components.items():
-            merged_df.at[idx, f"Fund_Component_{component}"] = round(points, 2)
+            merged_df.at[idx, f"Fund_Component_{component}"] = round_half_up(points, 2)
         for component, points in technical["components"].items():
             merged_df.at[idx, f"Tech_Component_{component}"] = (
-                round(points, 2) if points is not None else np.nan
+                round_half_up(points, 2) if points is not None else np.nan
             )
         merged_df.at[idx, "Demand_Proxy_Points"] = technical["components"].get("VOL")
         merged_df.at[idx, "Demand_Proxy_Continuous_Signal"] = (
-            round(technical["demand_proxy_signal"], 6)
+            round_half_up(technical["demand_proxy_signal"], 6)
             if technical["demand_proxy_signal"] is not None else np.nan
         )
         merged_df.at[idx, "Demand_Proxy_CMF_Signal"] = (
-            round(technical["demand_proxy_cmf_signal"], 6)
+            round_half_up(technical["demand_proxy_cmf_signal"], 6)
             if technical["demand_proxy_cmf_signal"] is not None else np.nan
         )
         merged_df.at[idx, "Demand_Proxy_Return_Signal"] = (
-            round(technical["demand_proxy_return_signal"], 6)
+            round_half_up(technical["demand_proxy_return_signal"], 6)
             if technical["demand_proxy_return_signal"] is not None else np.nan
         )
         merged_df.at[idx, "Demand_Proxy_Volume_Weight"] = (
-            round(technical["demand_proxy_volume_weight"], 6)
+            round_half_up(technical["demand_proxy_volume_weight"], 6)
             if technical["demand_proxy_volume_weight"] is not None else np.nan
         )
         merged_df.at[idx, "Demand_Proxy_Input_Complete"] = technical[
