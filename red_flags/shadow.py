@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from screener.numeric import round_series_half_up
+
 # Keep the red-flag worker's dependency surface small. Importing the full
 # screener scoring module also imports market-data clients that this worker
 # deliberately does not install.
@@ -51,7 +53,7 @@ class RedFlagShadowSimulator:
         hypothetical_scores.loc[issuer_hard_stop] = hypothetical_scores.loc[
             issuer_hard_stop
         ].clip(upper=59.99)
-        simulated["Shadow_Red_Flag_Score_If_Confirmed"] = hypothetical_scores.round(2)
+        simulated["Shadow_Red_Flag_Score_If_Confirmed"] = round_series_half_up(hypothetical_scores, 2)
 
         hypothetical_ratings = base_ratings.copy()
         for index in simulated.index[buy_cap]:

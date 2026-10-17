@@ -12,8 +12,8 @@ instead -- see `workers/price_series_market.py`, which states the trade. The
 encoding, the shrink guard and the publish path are shared, so both markets
 produce the same rows and the dashboard reads them the same way.
 
-Apply `storage/price_series_schema.sql` once before the first real run, and
-`storage/multi_market_migration.sql` before the first non-NSE one.
+The series are objects in Supabase Storage; apply
+`storage/market_data_storage.sql` once before the first real run.
 """
 
 from __future__ import annotations

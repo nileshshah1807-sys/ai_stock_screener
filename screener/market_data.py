@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import requests
 
+from .numeric import round_half_up, round_series_half_up
 from .runtime import Config
 
 logger = logging.getLogger(__name__)
@@ -376,18 +377,16 @@ def calculate_trend_risk_features(closes, opens=None, sessions_per_year=252):
         ma200_series = values.rolling(200).mean()
         ma200 = float(ma200_series.iloc[-1])
         if np.isfinite(ma200) and ma200 > 0:
-            out["MA200"] = round(ma200, 2)
-            out["Price_To_MA200_Pct"] = round((price / ma200 - 1.0) * 100.0, 3)
+            out["MA200"] = round_half_up(ma200, 2)
+            out["Price_To_MA200_Pct"] = round_half_up((price / ma200 - 1.0) * 100.0, 3)
             if len(ma200_series) >= 221 and np.isfinite(ma200_series.iloc[-21]):
                 prior = float(ma200_series.iloc[-21])
                 if prior > 0:
-                    out["MA200_Slope_Pct"] = round((ma200 / prior - 1.0) * 100.0, 4)
+                    out["MA200_Slope_Pct"] = round_half_up((ma200 / prior - 1.0) * 100.0, 4)
             if len(values) >= 250:
                 ma50_now = float(values.rolling(50).mean().iloc[-1])
                 if np.isfinite(ma50_now):
-                    out["MA50_To_MA200_Pct"] = round(
-                        (ma50_now / ma200 - 1.0) * 100.0, 3
-                    )
+                    out["MA50_To_MA200_Pct"] = round_half_up((ma50_now / ma200 - 1.0) * 100.0, 3)
             # Mask sessions with no 200-day average yet. A bare ``>`` against
             # NaN yields False, which would report "closed below its average"
             # for the first 199 sessions when the truth is that the average did
@@ -395,7 +394,7 @@ def calculate_trend_risk_features(closes, opens=None, sessions_per_year=252):
             above = (values > ma200_series).where(ma200_series.notna())
             recent = above.iloc[-126:].dropna()
             if len(recent) >= 60:
-                out["Sessions_Above_MA200_Share"] = round(float(recent.mean()), 4)
+                out["Sessions_Above_MA200_Share"] = round_half_up(float(recent.mean()), 4)
             # Consecutive completed sessions closing below the average. The
             # downgrade side uses this so one dip through the line cannot flip a
             # rating that a rebound would flip straight back.
@@ -419,23 +418,21 @@ def calculate_trend_risk_features(closes, opens=None, sessions_per_year=252):
         annualizer = float(np.sqrt(sessions_per_year))
         volatility = float(returns.std(ddof=1))
         if np.isfinite(volatility):
-            out["Volatility_Ann_Pct"] = round(volatility * annualizer * 100.0, 3)
+            out["Volatility_Ann_Pct"] = round_half_up(volatility * annualizer * 100.0, 3)
         downside = returns[returns < 0]
         if len(downside) >= 20:
             deviation = float(downside.std(ddof=1))
             if np.isfinite(deviation):
-                out["Downside_Deviation_Pct"] = round(
-                    deviation * annualizer * 100.0, 3
-                )
+                out["Downside_Deviation_Pct"] = round_half_up(deviation * annualizer * 100.0, 3)
         running_peak = window.cummax()
         drawdown = (window / running_peak - 1.0).min()
         if np.isfinite(drawdown):
-            out["Max_Drawdown_1Y_Pct"] = round(float(drawdown) * 100.0, 3)
+            out["Max_Drawdown_1Y_Pct"] = round_half_up(float(drawdown) * 100.0, 3)
         absolute = returns.abs()
         total = float(absolute.sum())
         if total > 0:
             top = float(absolute.nlargest(min(5, len(absolute))).sum())
-            out["Return_Concentration_1Y"] = round(top / total, 4)
+            out["Return_Concentration_1Y"] = round_half_up(top / total, 4)
 
     if opens is not None:
         open_values = pd.to_numeric(pd.Series(opens), errors="coerce")
@@ -446,9 +443,7 @@ def calculate_trend_risk_features(closes, opens=None, sessions_per_year=252):
             ).dropna().abs()
             gaps = gaps.iloc[-sessions_per_year:]
             if len(gaps) >= 60:
-                out["Gap_Risk_Pct"] = round(
-                    float(gaps.quantile(0.99)) * 100.0, 3
-                )
+                out["Gap_Risk_Pct"] = round_half_up(float(gaps.quantile(0.99)) * 100.0, 3)
 
     # --- trend smoothness ---------------------------------------------------
     # Signed R-squared of log price against time, on [-1, 1]. A steady advance
@@ -464,9 +459,7 @@ def calculate_trend_risk_features(closes, opens=None, sessions_per_year=252):
         if np.isfinite(y).all() and y.std() > 0:
             correlation = float(np.corrcoef(x, y)[0, 1])
             if np.isfinite(correlation):
-                out["Trend_Quality_R2"] = round(
-                    correlation**2 * np.sign(correlation), 4
-                )
+                out["Trend_Quality_R2"] = round_half_up(correlation**2 * np.sign(correlation), 4)
     return out
 
 # =====================================================
@@ -778,7 +771,7 @@ class BacktestEngine:
                 average_return_pct="mean",
                 median_return_pct="median",
                 hit_rate_pct=lambda returns: (returns > 0).mean() * 100,
-            ).round(2).to_dict("index")
+            ).apply(round_series_half_up, places=2).astype({"observations": int}).to_dict("index")
         except Exception as e:
             logger.warning(f"Backtest analysis failed: {e}")
             return None

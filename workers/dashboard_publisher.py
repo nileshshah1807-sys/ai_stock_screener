@@ -29,6 +29,7 @@ import pandas as pd
 
 from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
+from screener.numeric import round_half_up
 from storage.dashboard_repository import DashboardRepository
 
 logger = logging.getLogger("dashboard_publisher")
@@ -43,6 +44,9 @@ RATING_COUNT_FIELDS = {
 
 TRUE_TOKENS = {"true", "t", "yes", "y", "1"}
 FALSE_TOKENS = {"false", "f", "no", "n", "0"}
+
+# A run with fewer rows than this share of the last published one is refused.
+MIN_ROWS_VS_PREVIOUS_RUN = 0.5
 
 
 # (db_column, csv_column, kind). `kind` is either a scalar type name or
@@ -371,7 +375,7 @@ def coerce_int(value: Any) -> int | None:
     # wrapped, because a wrapped rank or count would be silently wrong.
     if not -2_147_483_648 <= number <= 2_147_483_647:
         return None
-    return int(round(number))
+    return int(round_half_up(number, 0))
 
 
 def coerce_bigint(value: Any) -> int | None:
@@ -391,7 +395,7 @@ def coerce_bigint(value: Any) -> int | None:
         return None
     if not -9_223_372_036_854_775_808 <= number <= 9_223_372_036_854_775_807:
         return None
-    return int(round(number))
+    return int(round_half_up(number, 0))
 
 
 def coerce_numeric(value: Any, precision: int, scale: int) -> float | None:
@@ -406,7 +410,7 @@ def coerce_numeric(value: Any, precision: int, scale: int) -> float | None:
     limit = 10 ** (precision - scale)
     if abs(number) >= limit:
         return None
-    return round(number, scale)
+    return round_half_up(number, scale)
 
 
 def coerce_date(value: Any) -> str | None:
@@ -883,6 +887,19 @@ def publish(
                 + "; ".join(cleanup_errors)
             )
         logger.warning("Reclaimed incomplete dashboard reservation for %s", run_date)
+
+    # A failed universe download leaves only the built-in safety net (~45
+    # names). Published, it would replace the full snapshot -- one run is kept
+    # -- and count as the day's success, so no later slot would retry. Failing
+    # here keeps yesterday's run on the dashboard and lets the next slot run.
+    previous_run = repository.latest_completed_run() or {}
+    previous_rows = coerce_int(previous_run.get("row_count")) or 0
+    if len(snapshot_rows) < MIN_ROWS_VS_PREVIOUS_RUN * previous_rows:
+        raise RuntimeError(
+            f"Run {run_date} has {len(snapshot_rows)} rows against {previous_rows} in "
+            f"the last published run ({previous_run.get('run_date')}); refusing to "
+            "replace it with a shrunken universe"
+        )
 
     # screener_snapshot has a foreign key to screener_runs, so a minimal parent
     # must exist before the chunked dependent writes. It is only a reservation:

@@ -17,6 +17,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+from .numeric import round_half_up
+
 logger = logging.getLogger(__name__)
 
 RISK_ON = "RISK_ON"
@@ -62,10 +64,10 @@ def classify_regime(
     slope_pct = (ma_now / ma_then - 1.0) * 100.0
     result.update(
         {
-            "Market_Index_Close": round(close_now, 2),
-            "Market_Index_MA": round(ma_now, 2),
-            "Market_Index_Distance_Pct": round(distance_pct, 3),
-            "Market_Index_MA_Slope_Pct": round(slope_pct, 4),
+            "Market_Index_Close": round_half_up(close_now, 2),
+            "Market_Index_MA": round_half_up(ma_now, 2),
+            "Market_Index_Distance_Pct": round_half_up(distance_pct, 3),
+            "Market_Index_MA_Slope_Pct": round_half_up(slope_pct, 4),
         }
     )
 
@@ -204,7 +206,7 @@ def _lookback_return(series, sessions):
     latest = float(values.iloc[-1])
     if prior <= 0 or not np.isfinite(prior) or not np.isfinite(latest):
         return np.nan
-    return round((latest / prior - 1.0) * 100.0, 4)
+    return round_half_up((latest / prior - 1.0) * 100.0, 4)
 
 
 def _skip_month_return(series, sessions, skip=21):
@@ -221,4 +223,4 @@ def _skip_month_return(series, sessions, skip=21):
     prior = float(values.iloc[-(sessions + 1)])
     if prior <= 0 or not np.isfinite(prior) or not np.isfinite(latest):
         return np.nan
-    return round((latest / prior - 1.0) * 100.0, 4)
+    return round_half_up((latest / prior - 1.0) * 100.0, 4)

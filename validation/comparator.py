@@ -11,6 +11,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from screener.numeric import round_half_up
+
 RATING_ORDER = ("STRONG BUY", "BUY", "HOLD", "REDUCE", "SELL", "UNKNOWN")
 SCORE_COLUMNS = (
     "Fundamental_Score",
@@ -210,7 +212,7 @@ def _delta(candidate: Any, baseline: Any) -> float | None:
     baseline_number = _number(baseline)
     if candidate_number is None or baseline_number is None:
         return None
-    return round(candidate_number - baseline_number, 6)
+    return round_half_up(candidate_number - baseline_number, 6)
 
 
 def _value(row: pd.Series | None, column: str) -> Any:
@@ -234,7 +236,7 @@ def _spearman(baseline_ranks: Iterable[float], candidate_ranks: Iterable[float])
     candidate = pd.Series(list(candidate_ranks), dtype=float).rank(method="average").to_numpy()
     if len(baseline) < 2 or np.std(baseline) == 0 or np.std(candidate) == 0:
         return None
-    return round(float(np.corrcoef(baseline, candidate)[0, 1]), 6)
+    return round_half_up(float(np.corrcoef(baseline, candidate)[0, 1]), 6)
 
 
 def _weighted_effect(
@@ -254,7 +256,7 @@ def _weighted_effect(
     candidate_weight = _number(_value(candidate_row, weight_column))
     baseline_weight = default_weight if baseline_weight is None else baseline_weight
     candidate_weight = default_weight if candidate_weight is None else candidate_weight
-    return round(candidate_score * candidate_weight - baseline_score * baseline_weight, 6)
+    return round_half_up(candidate_score * candidate_weight - baseline_score * baseline_weight, 6)
 
 
 def _reason(parts: list[str]) -> str:
@@ -321,7 +323,7 @@ def compare_frames(
         baseline_rank = _number(_value(baseline_row, selected_rank))
         candidate_rank = _number(_value(candidate_row, selected_rank))
         rank_shift = (
-            round(candidate_rank - baseline_rank, 6)
+            round_half_up(candidate_rank - baseline_rank, 6)
             if baseline_rank is not None and candidate_rank is not None
             else None
         )
@@ -356,7 +358,7 @@ def compare_frames(
         )
         combined_delta = record.get("Delta_Combined_Score")
         core_residual = (
-            round(combined_delta - fundamental_effect - technical_effect, 6)
+            round_half_up(combined_delta - fundamental_effect - technical_effect, 6)
             if combined_delta is not None
             and fundamental_effect is not None
             and technical_effect is not None
@@ -364,7 +366,7 @@ def compare_frames(
         )
         final_delta = record.get("Delta_Final_Score")
         post_core_effect = (
-            round(final_delta - combined_delta, 6)
+            round_half_up(final_delta - combined_delta, 6)
             if final_delta is not None and combined_delta is not None
             else None
         )
@@ -432,13 +434,13 @@ def compare_frames(
         "top_overlap_count": len(top_overlap),
         "entrants": entrants,
         "exits": exits,
-        "top_jaccard": round(len(top_overlap) / len(top_union), 6) if top_union else 1.0,
+        "top_jaccard": round_half_up(len(top_overlap) / len(top_union), 6) if top_union else 1.0,
         "spearman_common_ranks": _spearman(baseline_common_ranks, candidate_common_ranks),
         "mean_absolute_rank_shift": (
-            round(float(mean_abs_shift), 6) if pd.notna(mean_abs_shift) else None
+            round_half_up(float(mean_abs_shift), 6) if pd.notna(mean_abs_shift) else None
         ),
         "max_absolute_rank_shift": (
-            round(float(max_abs_shift), 6) if pd.notna(max_abs_shift) else None
+            round_half_up(float(max_abs_shift), 6) if pd.notna(max_abs_shift) else None
         ),
         "largest_rank_shifts": largest_shifts,
         "rating_transitions": rating_transitions,

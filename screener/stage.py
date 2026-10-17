@@ -50,6 +50,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from .numeric import round_half_up, round_series_half_up
+
 STAGE_1 = "Stage 1"
 STAGE_2 = "Stage 2"
 S2_CANDIDATE = "S2 Candidate"
@@ -267,16 +269,16 @@ def stage_features(closes, dates=None):
 
     if len(values) >= 150:
         ma150 = values.rolling(150).mean()
-        out["MA150"] = round(float(ma150.iloc[-1]), 2)
-        out["Price_To_MA150_Pct"] = round((price / float(ma150.iloc[-1]) - 1.0) * 100.0, 3)
+        out["MA150"] = round_half_up(float(ma150.iloc[-1]), 2)
+        out["Price_To_MA150_Pct"] = round_half_up((price / float(ma150.iloc[-1]) - 1.0) * 100.0, 3)
         if len(values) >= 150 + SLOPE_SESSIONS:
             prior = float(ma150.iloc[-1 - SLOPE_SESSIONS])
-            out["MA150_Slope_Pct"] = round((float(ma150.iloc[-1]) / prior - 1.0) * 100.0, 4)
+            out["MA150_Slope_Pct"] = round_half_up((float(ma150.iloc[-1]) / prior - 1.0) * 100.0, 4)
 
     if len(values) >= 252:
         window = values.iloc[-252:]
-        out["Pct_From_52W_High"] = round((price / float(window.max()) - 1.0) * 100.0, 3)
-        out["Pct_Above_52W_Low"] = round((price / float(window.min()) - 1.0) * 100.0, 3)
+        out["Pct_From_52W_High"] = round_half_up((price / float(window.max()) - 1.0) * 100.0, 3)
+        out["Pct_Above_52W_Low"] = round_half_up((price / float(window.min()) - 1.0) * 100.0, 3)
 
     out["RS_Raw_Pct"] = _weighted_return_pct(values)
     if len(values) > RS_CHANGE_SESSIONS:
@@ -295,15 +297,13 @@ def stage_features(closes, dates=None):
     start = _run_start(labels, {current})
     first_defined = int(np.flatnonzero(labels.notna().to_numpy())[0])
     out["Days_In_Stage"] = _calendar_days(values.index, start)
-    out["Stage_Entry_Price"] = round(float(values.iloc[start]), 2)
+    out["Stage_Entry_Price"] = round_half_up(float(values.iloc[start]), 2)
     if isinstance(values.index, pd.DatetimeIndex):
         out["Stage_Entry_Date"] = values.index[start].date().isoformat()
     # A run that began on the first classifiable session may have begun
     # earlier: the count is a floor, not a measurement.
     out["Stage_Run_Censored"] = bool(start <= first_defined)
-    out["Return_Since_Stage_Entry_Pct"] = round(
-        (price / float(values.iloc[start]) - 1.0) * 100.0, 2
-    )
+    out["Return_Since_Stage_Entry_Pct"] = round_half_up((price / float(values.iloc[start]) - 1.0) * 100.0, 2)
 
     # "When did it enter Stage 2, and what has it done since?" -- answered for
     # the latest advance whether or not it is still running, so a stock that
@@ -312,8 +312,8 @@ def stage_features(closes, dates=None):
     if latest is not None:
         run_start, entry, run_end = latest
         entry_price = float(values.iloc[entry])
-        out["Stage2_Entry_Price"] = round(entry_price, 2)
-        out["Return_Since_Stage2_Entry_Pct"] = round((price / entry_price - 1.0) * 100.0, 2)
+        out["Stage2_Entry_Price"] = round_half_up(entry_price, 2)
+        out["Return_Since_Stage2_Entry_Pct"] = round_half_up((price / entry_price - 1.0) * 100.0, 2)
         # An advance already under way when the data begins may have entered
         # Stage 2 earlier than we can see: the date is then an upper bound.
         out["Stage2_Entry_Censored"] = bool(run_start <= first_defined)
@@ -402,13 +402,13 @@ def attach_timing(frame, *, timing_weight=0.0, research_column="Research_Score")
                 else np.nan
             )
 
-    working["RS_Rating"] = _percentile_rating(working["RS_Raw_Pct"]).round(1)
+    working["RS_Rating"] = round_series_half_up(_percentile_rating(working["RS_Raw_Pct"]), 1)
     prior_rating = _percentile_rating(working["RS_Raw_1M_Ago_Pct"])
-    working["RS_Rating_Change_1M"] = (working["RS_Rating"] - prior_rating).round(1)
+    working["RS_Rating_Change_1M"] = round_series_half_up(working["RS_Rating"] - prior_rating, 1)
 
     working["Stage_Score"] = working["Stage"].map(STAGE_SCORES).astype(float)
-    working["RS_Trend_Score"] = _percentile_rating(working["RS_Rating_Change_1M"]).round(1)
-    working["Extension_Score"] = extension_score(working["Price_To_MA150_Pct"]).round(1)
+    working["RS_Trend_Score"] = round_series_half_up(_percentile_rating(working["RS_Rating_Change_1M"]), 1)
+    working["Extension_Score"] = round_series_half_up(extension_score(working["Price_To_MA150_Pct"]), 1)
 
     numerator = pd.Series(0.0, index=working.index)
     denominator = pd.Series(0.0, index=working.index)
@@ -417,7 +417,7 @@ def attach_timing(frame, *, timing_weight=0.0, research_column="Research_Score")
         present = values.notna()
         numerator = numerator + values.fillna(0.0) * weight
         denominator = denominator + present.astype(float) * weight
-    timing = (numerator / denominator.where(denominator > 0)).round(2)
+    timing = round_series_half_up(numerator / denominator.where(denominator > 0), 2)
     # Without a stage the remaining components describe momentum, which the
     # research score already carries; a timing score built from them alone
     # would be a second momentum vote wearing a different name.
@@ -429,9 +429,7 @@ def attach_timing(frame, *, timing_weight=0.0, research_column="Research_Score")
     working["Timing_Weight"] = weight
     if research_column in working:
         research = pd.to_numeric(working[research_column], errors="coerce")
-        working["Action_Score"] = (
-            (1.0 - weight) * research + weight * working["Timing_Score"].fillna(50.0)
-        ).round(2).where(research.notna())
+        working["Action_Score"] = round_series_half_up((1.0 - weight) * research + weight * working["Timing_Score"].fillna(50.0), 2).where(research.notna())
     else:
         working["Action_Score"] = np.nan
 

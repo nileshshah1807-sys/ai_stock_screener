@@ -28,6 +28,7 @@ from .market_data import (
     normalize_market_holidays,
 )
 from .markets import active_profile, bare_symbol, ticker_for
+from .numeric import round_half_up
 from .price_basis import (
     CHANGE_BAD_PRINT,
     ActionLedger,
@@ -858,12 +859,12 @@ class StockDataCollector:
                         )
                         results.append({
                             "Symbol": clean_sym,
-                            "Current_Price": round(current_price, 2),
+                            "Current_Price": round_half_up(current_price, 2),
                             # All indicators are calculated on adjusted OHLC.
                             # Keep their price denominator on that same scale;
                             # raw close remains Current_Price for valuation,
                             # turnover and display.
-                            "Technical_Price": round(signal_current_price, 2),
+                            "Technical_Price": round_half_up(signal_current_price, 2),
                             "Price_Bar_As_Of": (
                                 price_bar_as_of.isoformat()
                                 if price_bar_as_of is not None else None
@@ -898,42 +899,36 @@ class StockDataCollector:
                             ),
                             "Analysis_As_Of": analysis_as_of_text,
                             "Price_Fetched_At": fetched_at_text,
-                            "MA20": round(ma20, 2),
-                            "MA50": round(ma50, 2),
-                            "MA50_Slope_Pct": round(ma50_slope_pct, 2),
-                            "RSI_14": round(current_rsi, 2),
+                            "MA20": round_half_up(ma20, 2),
+                            "MA50": round_half_up(ma50, 2),
+                            "MA50_Slope_Pct": round_half_up(ma50_slope_pct, 2),
+                            "RSI_14": round_half_up(current_rsi, 2),
                             "Technical_Indicator_Version": (
                                 TechnicalEnhancer.FACTOR_INDICATOR_VERSION
                                 if factor_model_enabled
                                 else TechnicalEnhancer.INDICATOR_VERSION
                             ),
-                            "MACD": round(float(macd.iloc[-1]), 4),
-                            "MACD_Signal": round(float(signal.iloc[-1]), 4),
-                            "ADX_14": round(adx_val, 2),
-                            "ADX_Plus_DI": round(adx_plus_di, 2),
-                            "ADX_Minus_DI": round(adx_minus_di, 2),
-                            "StochRSI_14": round(stoch_rsi_val, 2),
-                            "ATR_14": round(atr_val, 2),
-                            "High_6M": round(
-                                float(
+                            "MACD": round_half_up(float(macd.iloc[-1]), 4),
+                            "MACD_Signal": round_half_up(float(signal.iloc[-1]), 4),
+                            "ADX_14": round_half_up(adx_val, 2),
+                            "ADX_Plus_DI": round_half_up(adx_plus_di, 2),
+                            "ADX_Minus_DI": round_half_up(adx_minus_di, 2),
+                            "StochRSI_14": round_half_up(stoch_rsi_val, 2),
+                            "ATR_14": round_half_up(atr_val, 2),
+                            "High_6M": round_half_up(float(
                                     closes.tail(legacy_window).max()
                                     if legacy_window is not None
                                     else closes.max()
-                                ),
-                                2,
-                            ),
-                            "Low_6M": round(
-                                float(
+                                ), 2),
+                            "Low_6M": round_half_up(float(
                                     closes.tail(legacy_window).min()
                                     if legacy_window is not None
                                     else closes.min()
-                                ),
-                                2,
-                            ),
-                            "Pct_Change_1D": round(pct_1d, 2),
-                            "Pct_Change_1M": round(pct_1m, 2),
-                            "Pct_Change_3M": round(pct_3m, 2),
-                            "Pct_Change_6M": round(pct_6m, 2),
+                                ), 2),
+                            "Pct_Change_1D": round_half_up(pct_1d, 2),
+                            "Pct_Change_1M": round_half_up(pct_1m, 2),
+                            "Pct_Change_3M": round_half_up(pct_3m, 2),
+                            "Pct_Change_6M": round_half_up(pct_6m, 2),
                             **trend_risk,
                             "Avg_Volume": int(avg_volume),
                             # Shares traded on the same completed bar that
@@ -943,35 +938,25 @@ class StockDataCollector:
                             # design: it is a count of shares that changed hands
                             # that session, not a price to be restated.
                             "Latest_Volume": int(last_volume),
-                            "Avg_Turnover_INR": round(liquidity["Avg_Turnover_INR"], 2),
-                            "Median_Turnover_20D_INR": round(
-                                liquidity["Median_Turnover_20D_INR"], 2
-                            ),
-                            "Turnover_P10_20D_INR": round(
-                                liquidity["Turnover_P10_20D_INR"], 2
-                            ),
-                            "Median_Turnover_60D_INR": round(
-                                liquidity["Median_Turnover_60D_INR"], 2
-                            ),
-                            "Turnover_Top5_Share_60D": round(
-                                liquidity["Turnover_Top5_Share_60D"], 4
-                            ),
+                            "Avg_Turnover_INR": round_half_up(liquidity["Avg_Turnover_INR"], 2),
+                            "Median_Turnover_20D_INR": round_half_up(liquidity["Median_Turnover_20D_INR"], 2),
+                            "Turnover_P10_20D_INR": round_half_up(liquidity["Turnover_P10_20D_INR"], 2),
+                            "Median_Turnover_60D_INR": round_half_up(liquidity["Median_Turnover_60D_INR"], 2),
+                            "Turnover_Top5_Share_60D": round_half_up(liquidity["Turnover_Top5_Share_60D"], 4),
                             "Turnover_Observations": liquidity["Turnover_Observations"],
-                            "Trading_Frequency_60D": round(
-                                liquidity["Trading_Frequency_60D"], 4
-                            ),
+                            "Trading_Frequency_60D": round_half_up(liquidity["Trading_Frequency_60D"], 4),
                             "CMF_21": (
-                                round(liquidity["CMF_21"], 4)
+                                round_half_up(liquidity["CMF_21"], 4)
                                 if liquidity["CMF_21"] is not None else None
                             ),
                             "Price_Return_20D_Pct": (
-                                round(liquidity["Price_Return_20D_Pct"], 2)
+                                round_half_up(liquidity["Price_Return_20D_Pct"], 2)
                                 if liquidity["Price_Return_20D_Pct"] is not None else None
                             ),
                             "Demand_Proxy_Status": liquidity["Demand_Proxy_Status"],
                             "Demand_Proxy_Method": liquidity["Demand_Proxy_Method"],
-                            "Vol_Ratio": round(vol_ratio, 2),
-                            "BB_Position": round(bb_pos, 2),
+                            "Vol_Ratio": round_half_up(vol_ratio, 2),
+                            "BB_Position": round_half_up(bb_pos, 2),
                         })
                     except Exception:
                         failed.append(clean_sym)

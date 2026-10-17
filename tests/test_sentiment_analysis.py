@@ -745,6 +745,20 @@ class OutlookRunTests(unittest.TestCase):
         self.assertEqual(summary["skipped_budget"], 3)
         self.assertEqual(len(saved), 2)
 
+    def test_a_reply_that_cannot_be_saved_still_counts_toward_the_budget(self):
+        # A full database refuses every save; the calls were still billed, so
+        # the cap must still stop the run.
+        class FullDatabase:
+            def save_outlook(self, row):
+                raise RuntimeError("database is read-only")
+
+        transcripts = [{"id": f"t{index}", "cleaned_text": "text"} for index in range(5)]
+        budget = self.tool.Budget(1.0)
+        with patch.object(self.tool, "analyse_transcript", self.fake_analyse(0.5)):
+            summary = self.tool.run(FullDatabase(), transcripts, "provider", workers=1, budget=budget)
+        self.assertEqual((summary["failed"], summary["skipped_budget"]), (2, 3))
+        self.assertAlmostEqual(budget.spent, 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

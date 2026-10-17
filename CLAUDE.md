@@ -53,8 +53,9 @@ the scheduled workflows set the same flag.
   renaming them would cascade for no behavioural gain.
 - **`market` is part of every read-model key.** A symbol does not identify a
   company across exchanges — TCS is Tata Consultancy on NSE and The Container
-  Store in the US. Any new query against `screener_snapshot`, `screener_history`
-  or `price_series` must filter on it; `DashboardRepository` is scoped to one
+  Store in the US. Any new query against `screener_snapshot` or
+  `screener_history` must filter on it, and chart price series live under
+  `price-series/{MARKET}/` in Storage; `DashboardRepository` is scoped to one
   market at construction so it cannot be forgotten.
 - **US annual statements come from SEC EDGAR; Yahoo is the fallback.**
   `STATEMENT_SOURCE=edgar` (set in the US workflow) makes

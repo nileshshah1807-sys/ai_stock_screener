@@ -290,13 +290,13 @@ class AssembleTests(unittest.TestCase):
         "pieces": [{"part": 1, "start": 0.0, "end": 900.0}, {"part": 2, "start": 900.0, "end": 1800.0}],
     }
 
-    def assemble(self, pieces, nested=False):
+    def assemble(self, pieces, nested=False, has_transcript=False):
         directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
         for part, piece in pieces.items():
             path = piece_path(directory / f"call-piece-900-{part}" if nested else directory, "900", part)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps({"key": "900", "part": part, "language": "en", **piece}))
-        repository = FakeRepository()
+        repository = FakeRepository(has_transcript=has_transcript)
         plan = {"model": "large-v3-turbo", "calls": [self.CALL]}
         return CallRecordingWorker(repository, RecordingSettings()).assemble(plan, directory), repository
 
@@ -328,6 +328,17 @@ class AssembleTests(unittest.TestCase):
         self.assertEqual(summary["rejected"], 1)
         self.assertEqual(repository.transcripts, [])
         self.assertEqual(repository.updates, [("filing-1", {"status": "rejected", "last_error": NOT_ENGLISH_ERROR})])
+
+    def test_a_transcript_filed_while_the_pieces_ran_is_not_joined_by_the_recording(self):
+        # Stored after the filed one, the recording's text would never be
+        # removed and would read as that call's previous quarter.
+        summary, repository = self.assemble(
+            {1: {"text": SPOKEN * 30}, 2: {"text": SPOKEN * 30}}, has_transcript=True
+        )
+        self.assertEqual(summary["rejected"], 1)
+        self.assertEqual(repository.transcripts, [])
+        self.assertEqual(repository.asked, ("ALPHA", "2026-09-30"))
+        self.assertEqual(repository.updates, [("filing-1", {"status": "rejected", "last_error": ALREADY_FILED_ERROR})])
 
     def test_a_recording_that_gave_almost_no_text_is_rejected(self):
         summary, repository = self.assemble({1: {"text": "Hello."}, 2: {"text": "Thank you."}})

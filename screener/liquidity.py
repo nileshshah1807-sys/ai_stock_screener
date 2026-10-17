@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import requests
 
+from .numeric import round_half_up, round_series_half_up
+
 logger = logging.getLogger(__name__)
 
 NSE_MONTHLY_REPORTS_URL = "https://www.nseindia.com/api/monthly-reports?key=CM"
@@ -282,16 +284,16 @@ class LiquidityQualityEnricher:
         enriched["Investment_Rating"] = enriched.get(
             "Rating", pd.Series("", index=enriched.index)
         )
-        enriched["Portfolio_Target_Position_INR"] = round(target_position)
+        enriched["Portfolio_Target_Position_INR"] = int(round_half_up(target_position, 0))
         enriched["Liquidity_Participation_Rate"] = participation_rate
-        enriched["Liquidity_20D_Median_Cr"] = (median_20d / 1_00_00_000.0).round(2)
-        enriched["Liquidity_60D_Median_Cr"] = (median_60d / 1_00_00_000.0).round(2)
-        enriched["Liquidity_20D_P10_Cr"] = (p10_20d / 1_00_00_000.0).round(2)
-        enriched["Liquidity_Top5_Share_60D"] = top5_share.round(4)
-        enriched["Liquidity_Trading_Frequency_60D"] = trading_frequency.round(4)
-        enriched["Liquidity_Max_One_Day_Order_INR"] = max_one_day_order.round(0)
+        enriched["Liquidity_20D_Median_Cr"] = round_series_half_up(median_20d / 1_00_00_000.0, 2)
+        enriched["Liquidity_60D_Median_Cr"] = round_series_half_up(median_60d / 1_00_00_000.0, 2)
+        enriched["Liquidity_20D_P10_Cr"] = round_series_half_up(p10_20d / 1_00_00_000.0, 2)
+        enriched["Liquidity_Top5_Share_60D"] = round_series_half_up(top5_share, 4)
+        enriched["Liquidity_Trading_Frequency_60D"] = round_series_half_up(trading_frequency, 4)
+        enriched["Liquidity_Max_One_Day_Order_INR"] = round_series_half_up(max_one_day_order, 0)
         # Compatibility alias retained for existing CSV consumers.
-        enriched["Liquidity_Suggested_Max_Position_INR"] = max_one_day_order.round(0)
+        enriched["Liquidity_Suggested_Max_Position_INR"] = round_series_half_up(max_one_day_order, 0)
         enriched["Turnover_Proxy_Estimated_Build_Days"] = build_days
         effective_build_days = build_days.copy()
         # NSE directly measures a Rs1 lakh order in the order book. When that

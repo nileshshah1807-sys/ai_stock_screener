@@ -9,7 +9,7 @@ on:
     # The 20:37 and 22:37 IST slots exist because GitHub starts these hours
     # late or not at all (5 Oct 2026: the 16:30 IST slot began at 00:54 IST and
     # nothing followed it), and because they fall after NSE has published the
-    # bhavcopy the price fallback reads. All four are the same UTC date, so
+    # bhavcopy the price fallback reads. All four build the same session, so
     # once one succeeds the rest stop at the dedupe step.
     #
     # Minute 7, not 0. GitHub runs schedules best-effort and says the start of
@@ -143,11 +143,32 @@ jobs:
         if: github.event_name == 'schedule'
         shell: bash
         run: |
-          today="$(date -u +%F)"
-          successful_runs="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow daily-stock-screener.yml --event schedule --status success --limit 20 --json createdAt --jq '.[].createdAt')"
-          if grep -q "^${today}T" <<< "${successful_runs}"; then
+          # Keyed to the session a run could build -- the IST date of the most
+          # recent close -- not the UTC calendar date, as in
+          # daily-us-screener.yml. GitHub has started these slots over eight
+          # hours late; a 17:07 UTC slot that starts after midnight UTC built
+          # yesterday's session but, keyed on the calendar date, counted as
+          # today's success and skipped all four of today's slots.
+          #
+          # Only a run that reached the session guard counts: a run skipped
+          # here is also a "success". Any lookup failure falls through to the
+          # guard, which checks Supabase itself.
+          IFS=: read -r cutoff_h cutoff_m _ <<< "${MARKET_BAR_COMPLETE_AFTER_IST}"
+          cutoff_seconds=$(( 10#${cutoff_h} * 3600 + 10#${cutoff_m} * 60 ))
+          session_day() { TZ=Asia/Kolkata date -d "@$(( $(date -d "$1" +%s) - cutoff_seconds ))" +%F; }
+          session="$(session_day now)"
+          published=false
+          while read -r run_id created; do
+            [ "$(session_day "${created}")" = "${session}" ] || continue
+            guard="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs" --jq '[.jobs[].steps[]? | select(.name == "Check whether completed NSE session is already published") | .conclusion][0] // ""')" || guard=""
+            if [ "${guard}" = "success" ]; then
+              published=true
+              break
+            fi
+          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow daily-stock-screener.yml --event schedule --status success --limit 20 --json databaseId,createdAt --jq '.[] | "\(.databaseId) \(.createdAt)"')
+          if [ "${published}" = "true" ]; then
             echo "skip=true" >> "${GITHUB_OUTPUT}"
-            echo "A scheduled screener run already succeeded on ${today}; skipping fallback."
+            echo "A scheduled screener run already covered the ${session} session; skipping fallback."
           else
             echo "skip=false" >> "${GITHUB_OUTPUT}"
           fi

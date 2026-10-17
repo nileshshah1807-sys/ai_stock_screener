@@ -44,6 +44,7 @@ import re
 import time
 from typing import Any
 
+from screener.numeric import round_half_up
 from sentiment.llm_provider import OPENROUTER_MODEL, Provider
 
 logger = logging.getLogger(__name__)
@@ -406,7 +407,7 @@ def outlook_points(verified: dict[str, Any]) -> list[tuple[str, float]]:
 def outlook_score(verified: dict[str, Any]) -> float:
     """0-100, neutral at 50, from verified items only."""
     total = 50.0 + sum(value for _, value in outlook_points(verified))
-    return round(min(100.0, max(0.0, total)), 2)
+    return round_half_up(min(100.0, max(0.0, total)), 2)
 
 
 _DEMAND_ORDER = {"weak": -1, "stable": 0, "strong": 1}

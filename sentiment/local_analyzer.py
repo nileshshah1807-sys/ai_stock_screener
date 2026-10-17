@@ -13,6 +13,8 @@ from functools import lru_cache
 
 from textblob import TextBlob
 
+from screener.numeric import round_half_up
+
 from .schemas import ChunkSentiment
 
 logger = logging.getLogger(__name__)
@@ -148,13 +150,13 @@ class LocalSentimentAnalyzer:
         ).to_dict()
         output.update({
             "section": section,
-            "textblob_polarity": round(textblob_polarity, 4),
-            "finbert_score": round(finbert_score, 4) if finbert_score is not None else None,
-            "financial_lexicon_score": round(lexical_balance, 4),
-            "uncertainty_density": round(uncertainty_density, 4),
-            "constraint_density": round(constraint_density, 4),
-            "forward_looking_density": round(_density(_hits(tokens, FORWARD_LOOKING_TERMS), tokens), 4),
-            "model_disagreement": round(abs(textblob_polarity - finbert_score), 4) if finbert_score is not None else 0.0,
+            "textblob_polarity": round_half_up(textblob_polarity, 4),
+            "finbert_score": round_half_up(finbert_score, 4) if finbert_score is not None else None,
+            "financial_lexicon_score": round_half_up(lexical_balance, 4),
+            "uncertainty_density": round_half_up(uncertainty_density, 4),
+            "constraint_density": round_half_up(constraint_density, 4),
+            "forward_looking_density": round_half_up(_density(_hits(tokens, FORWARD_LOOKING_TERMS), tokens), 4),
+            "model_disagreement": round_half_up(abs(textblob_polarity - finbert_score), 4) if finbert_score is not None else 0.0,
         })
         return output
 
@@ -328,7 +330,7 @@ def _scale(value: float) -> float:
 
 
 def _bounded(value: float) -> float:
-    return round(max(0.0, min(100.0, value)), 2)
+    return round_half_up(max(0.0, min(100.0, value)), 2)
 
 
 def _finbert_required() -> bool:

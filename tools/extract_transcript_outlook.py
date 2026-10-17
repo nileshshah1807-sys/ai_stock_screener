@@ -172,6 +172,9 @@ def run(repository, transcripts, provider, *, workers, budget, write=True):
             if not text:
                 raise ValueError("transcript has no text in the column or in storage")
             row = analyse_transcript(session(), provider, transcript, text)
+            # Billed now, stored or not: counted after the save, a failing save
+            # (a full database) would leave every later call unbudgeted.
+            budget.add(row["cost_usd"])
             if write:
                 repository.save_outlook(row)
         except QuotaSpentError as exc:
@@ -189,7 +192,6 @@ def run(repository, transcripts, provider, *, workers, budget, write=True):
                 summary["failed"] += 1
             logger.warning("%s %s failed: %s", transcript.get("symbol"), transcript.get("call_date"), exc)
             return
-        budget.add(row["cost_usd"])
         with lock:
             summary["extracted"] += 1
             summary["verified"] += row["verified_fields"]

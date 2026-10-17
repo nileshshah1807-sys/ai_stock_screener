@@ -28,6 +28,7 @@ import pandas as pd
 
 from . import edgar
 from .markets import active_profile, ticker_for
+from .numeric import round_half_up
 
 logger = logging.getLogger(__name__)
 
@@ -738,7 +739,7 @@ class FinancialStatementCollector:
                 available,
                 len(enriched),
             )
-        enriched["Statement_Universe_Coverage"] = round(share, 4)
+        enriched["Statement_Universe_Coverage"] = round_half_up(share, 4)
         return enriched
 
     def enrich(self, frame):

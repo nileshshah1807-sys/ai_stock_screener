@@ -26,10 +26,4 @@ create policy market_data_read
     to authenticated
     using (bucket_id = 'market-data' and public.dashboard_has_access());
 
--- ---------------------------------------------------------------------
--- After tools/migrate_price_series_to_storage.py reports every market
--- verified and the dashboard reads from Storage, reclaim the space:
---
---   drop table if exists price_series;
---   drop table if exists price_calendar;
--- ---------------------------------------------------------------------
+-- The old tables were copied here once and dropped (confirmed 17 Oct 2026).
