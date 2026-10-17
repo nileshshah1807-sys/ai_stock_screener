@@ -193,13 +193,13 @@ class SelectDueTests(unittest.TestCase):
         due = select_due(["OLD", "FRESH", "NEW", "OLDER"], state, self.today)
         self.assertEqual(due, ["NEW", "OLDER", "OLD"])
 
-    def test_results_due_rechecks_weekly_not_daily(self):
+    def test_results_due_rechecks_daily_not_every_run(self):
         stale_quarter = {"latest_quarter": "2026-03-31"}  # 176 days ago
         state = {
-            "WEEK": {**stale_quarter, "fetched_at": "2026-09-10T00:00:00+00:00"},
-            "YESTERDAY": {**stale_quarter, "fetched_at": "2026-09-22T00:00:00+00:00"},
+            "YESTERDAY": {**stale_quarter, "fetched_at": "2026-09-22T23:00:00+00:00"},
+            "TODAY": {**stale_quarter, "fetched_at": "2026-09-23T01:00:00+00:00"},
         }
-        self.assertEqual(select_due(["WEEK", "YESTERDAY"], state, self.today), ["WEEK"])
+        self.assertEqual(select_due(["YESTERDAY", "TODAY"], state, self.today), ["YESTERDAY"])
 
     def test_limit_bounds_the_run(self):
         self.assertEqual(select_due(["A", "B", "C"], {}, self.today, limit=2), ["A", "B"])
