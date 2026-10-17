@@ -12,7 +12,8 @@ row is refreshed only when it is due:
 * it is older than ``--max-age-days``, or
 * its latest reported quarter ended more than ``RESULTS_DUE_DAYS`` ago, which
   means the next quarter's results are out or imminent -- checked at most every
-  ``RESULTS_RECHECK_DAYS`` so a company that reports late is not re-asked daily.
+  ``RESULTS_RECHECK_DAYS``, so a result reaches the page within a day of the
+  vendor serving it rather than up to a week later.
 
 In steady state that is a few dozen symbols a day, not the whole universe.
 
@@ -88,7 +89,7 @@ DEFAULT_MAX_AGE_DAYS = 30
 # A quarter's results are due within 45 days of quarter end (60 for Q4 in
 # India). Past 100 days the next quarter has almost certainly been reported.
 RESULTS_DUE_DAYS = 100
-RESULTS_RECHECK_DAYS = 7
+RESULTS_RECHECK_DAYS = 1
 DEFAULT_MAX_SYMBOLS = 500
 
 SOURCE_WITH_FILINGS = "NSE filings (quarterly results) and Yahoo Finance"

@@ -46,6 +46,12 @@ on:
         description: Refresh exactly these (space separated, NSE job only), ignoring staleness
         required: false
         type: string
+      # Its own input, not a shared one: a symbol names a different company on
+      # each exchange (TCS), and an NSE name sent to the US job stores an empty row.
+      us_symbols:
+        description: Refresh exactly these (space separated, US job only), ignoring staleness
+        required: false
+        type: string
       dry_run:
         description: Fetch and report without writing to Supabase
         required: false
@@ -101,7 +107,7 @@ jobs:
       - name: Refresh financial statements
         env:
           MAX_SYMBOLS: ${{ inputs.max_symbols || '5000' }}
-          SYMBOLS: ${{ matrix.market == 'NSE' && inputs.symbols || '' }}
+          SYMBOLS: ${{ matrix.market == 'NSE' && inputs.symbols || matrix.market == 'US' && inputs.us_symbols || '' }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: |
           python -m workers.financial_statements \
