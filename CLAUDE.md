@@ -211,6 +211,18 @@ the scheduled workflows set the same flag.
   is a trial: printed, never stored. The free allowance is 5M tokens a
   rolling week, about 400 extractions; a spent allowance stops the run
   (`QuotaSpentError`) rather than failing every call after it.
+- **NSE shareholding and bulk/block deals are display evidence, read from the
+  exchange.** `workers/shareholding.py` (a step of the Quarterly filings
+  workflow) stores each quarter's shareholding pattern, parsed once from its
+  XBRL by `screener/shareholding.py`, in `shareholding_patterns`, and the
+  exchange's deal history in `bulk_block_deals`; the stock page's Shareholding
+  tab (NSE only) reads both. FII and DII are the filing's own "Institutions
+  (Foreign/Domestic)" subtotals and public is the rest, as StockScans and
+  Screener print it; a group nobody is in is 0, since a complete filing omits
+  its subtotal. Filings before September 2022 have no such split, so the
+  sweep starts there. The deals export's JSON stops at 70 rows; its CSV form
+  (`csv=true`) is complete. The tables are in `storage/shareholding_schema.sql`
+  and must be applied by hand.
 - **Live prices are display-only, every five minutes during the session.**
   `workers/live_quotes.py` (the Live quotes workflow, dispatch-only:
   cron-job.org calls it every 5 minutes on weekdays; do not add a

@@ -765,6 +765,75 @@ export async function getFinancialStatements(
   return (data as FinancialStatementsRow | null) ?? null;
 }
 
+/** One quarter's shareholding pattern as filed. See storage/shareholding_schema.sql. */
+export type ShareholdingPatternRow = {
+  period_end: string;
+  filed_at: string;
+  document_url: string;
+  promoter: number | null;
+  fii: number | null;
+  dii: number | null;
+  public: number | null;
+  shareholders: number | null;
+  holders: { name: string; group: "promoter" | "fii" | "dii" | "public"; pct: number; shares: number | null }[];
+};
+
+export type BulkBlockDealRow = {
+  kind: "bulk" | "block";
+  deal_date: string;
+  client_name: string;
+  side: string;
+  quantity: number;
+  price: number;
+  remarks: string | null;
+};
+
+export type Shareholding = {
+  patterns: ShareholdingPatternRow[];
+  deals: BulkBlockDealRow[];
+};
+
+/** Deals listed on the tab: the newest, which on any company is years of them. */
+const DEALS_SHOWN = 200;
+
+/**
+ * The Shareholding tab's filings and deals (workers/shareholding.py). NSE
+ * only; any other market has neither and is not asked. Like the statements,
+ * read on every view so the tab switch needs no round trip.
+ */
+export async function getShareholding(
+  market: MarketCode,
+  symbol: string,
+): Promise<Shareholding | null> {
+  if (market !== "NSE") return null;
+  const supabase = await createClient();
+  const code = symbol.toUpperCase();
+  const [patterns, deals] = await Promise.all([
+    supabase
+      .from("shareholding_patterns")
+      .select("period_end, filed_at, document_url, promoter, fii, dii, public, shareholders, holders")
+      .eq("market", market)
+      .eq("symbol", code)
+      .order("period_end", { ascending: false })
+      .limit(16),
+    supabase
+      .from("bulk_block_deals")
+      .select("kind, deal_date, client_name, side, quantity, price, remarks")
+      .eq("market", market)
+      .eq("symbol", code)
+      .order("deal_date", { ascending: false })
+      .limit(DEALS_SHOWN),
+  ]);
+  if (patterns.error || deals.error) {
+    console.error("getShareholding failed", (patterns.error ?? deals.error)!.message);
+    return null;
+  }
+  return {
+    patterns: (patterns.data ?? []) as ShareholdingPatternRow[],
+    deals: (deals.data ?? []) as BulkBlockDealRow[],
+  };
+}
+
 export type NewListingStatus =
   | "insufficient_history"
   | "below_liquidity_floor"

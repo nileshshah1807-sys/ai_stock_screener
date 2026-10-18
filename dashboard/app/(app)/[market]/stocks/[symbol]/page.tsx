@@ -23,6 +23,7 @@ import { PriceChart } from "@/components/stock/price-chart";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { StageSummary, stageMarkers } from "@/components/stock/stage-summary";
 import { Financials } from "@/components/stock/financials";
+import { Shareholding } from "@/components/stock/shareholding";
 import { StockTabs } from "@/components/stock/stock-tabs";
 import { HistoryBar, NotRatedBadge, listingDetail } from "@/components/new-listing";
 import { STATUS_LABEL } from "@/lib/new-listings.mjs";
@@ -59,6 +60,7 @@ import {
   getPriceCalendar,
   getPriceSeries,
   getPriceTail,
+  getShareholding,
   getStock,
   getStockHistory,
   STOCK_HISTORY_LIMIT,
@@ -215,6 +217,7 @@ export default async function StockPage({
     priceTail,
     sessions,
     financials,
+    shareholding,
     watchlists,
     watchlistMembership,
     latestCall,
@@ -226,6 +229,7 @@ export default async function StockPage({
     tailRead,
     getPriceCalendar(market.code),
     getFinancialStatements(market.code, symbol),
+    getShareholding(market.code, symbol),
     getWatchlists(market.code),
     getWatchlistMembership(market.code, symbol),
     getLatestConcall(market.code, symbol),
@@ -1009,6 +1013,23 @@ export default async function StockPage({
                 </Panel>
               ),
             },
+            // NSE only: no other market files a shareholding pattern.
+            ...(market.code === "NSE"
+              ? [
+                  {
+                    key: "shareholding",
+                    label: "Shareholding",
+                    content: (
+                      <Panel
+                        title="Shareholding"
+                        description="Promoter, FII, DII and public stakes by quarter as filed with NSE, the named holders behind them, and bulk and block deals."
+                      >
+                        <Shareholding data={shareholding} market={market} symbol={row.symbol} />
+                      </Panel>
+                    ),
+                  },
+                ]
+              : []),
             {
               key: "audit",
               label: "Audit",
