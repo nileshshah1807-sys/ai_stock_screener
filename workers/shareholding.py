@@ -29,7 +29,7 @@ from zoneinfo import ZoneInfo
 
 from screener import shareholding
 from screener.markets import resolve as resolve_market
-from screener.quarterly_results import DocumentFetcher
+from screener.quarterly_results import REQUEST_HEADERS, DocumentFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +37,11 @@ DEFAULT_LOOKBACK_DAYS = 7
 # Back to the September 2022 format, the first to split institutions into
 # domestic and foreign; an older filing has no FII or DII to show.
 FULL_LOOKBACK_DAYS = 1480
-# The index and the deals export are each read in windows no longer than
-# this: the deals export refuses more than a year, and a month of the index
-# is already some 5,000 filings.
-INDEX_WINDOW_DAYS = 30
+# The index serves a whole year in one call (2024: 8,960 filings, the same
+# as twelve monthly calls), and a full sweep that asked month by month -- 49
+# calls in a burst -- was followed by the archive refusing the runner. The
+# deals export refuses more than a year, so it is read by quarter.
+INDEX_WINDOW_DAYS = 365
 DEALS_WINDOW_DAYS = 90
 BATCH_SIZE = 60
 FETCH_WORKERS = 4
@@ -51,6 +52,17 @@ def _windows(start: date, end: date, days: int):
         stop = min(end, start + timedelta(days=days - 1))
         yield start, stop
         start = stop + timedelta(days=1)
+
+
+def _answer(url: str) -> str:
+    """What the archive says to one request, for the log when it refuses a batch."""
+    import requests
+
+    try:
+        response = requests.get(url, headers=REQUEST_HEADERS, timeout=30)
+    except requests.RequestException as exc:
+        return type(exc).__name__
+    return f"HTTP {response.status_code}: {response.text.lstrip()[:60]!r}"
 
 
 def due_patterns(
@@ -115,8 +127,8 @@ def store_patterns(
             counts["failed"] += len(batch)
             counts["deferred"] = len(due) - position - len(batch)
             logger.warning(
-                "The archive refused a whole batch; stopping with %d pattern(s) left",
-                counts["deferred"],
+                "The archive refused a whole batch (%s); stopping with %d pattern(s) left",
+                _answer(batch[0]["document_url"]), counts["deferred"],
             )
             break
         parsed_at = datetime.now(UTC).isoformat(timespec="seconds")
