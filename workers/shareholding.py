@@ -44,7 +44,33 @@ FULL_LOOKBACK_DAYS = 1480
 INDEX_WINDOW_DAYS = 365
 DEALS_WINDOW_DAYS = 90
 BATCH_SIZE = 60
-FETCH_WORKERS = 4
+# The archive's CDN answers "Access Denied" to a hosted runner fetching at
+# ~12 documents a second (18 Oct 2026). The `nse` package the rest of the
+# repo uses throttles every request to 3 a second; documents are fetched one
+# at a time at that rate.
+REQUESTS_PER_SECOND = 3
+
+
+class PacedFetcher:
+    """Documents one at a time, no faster than ``rate`` a second."""
+
+    def __init__(self, rate: float = REQUESTS_PER_SECOND, *, fetcher=None,
+                 clock=time.monotonic, sleep=time.sleep):
+        self.interval = 1.0 / rate
+        self.fetcher = fetcher or DocumentFetcher(workers=1)
+        self.clock = clock
+        self.sleep = sleep
+        self._next = 0.0
+
+    def fetch_many(self, urls: list[str]) -> list[str | None]:
+        texts = []
+        for url in urls:
+            wait = self._next - self.clock()
+            if wait > 0:
+                self.sleep(wait)
+            self._next = self.clock() + self.interval
+            texts.append(self.fetcher.fetch_one(url))
+        return texts
 
 
 def _windows(start: date, end: date, days: int):
@@ -200,7 +226,7 @@ def run(
         end=today,
         timezone=profile.timezone,
         index_loader=index_loader or shareholding.fetch_index_records,
-        fetcher=fetcher or DocumentFetcher(workers=FETCH_WORKERS),
+        fetcher=fetcher or PacedFetcher(),
         time_budget_seconds=time_budget_seconds,
         clock=clock,
         dry_run=dry_run,
