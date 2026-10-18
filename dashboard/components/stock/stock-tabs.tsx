@@ -11,7 +11,7 @@ export type StockTab = {
 };
 
 /**
- * Overview / Financials / Audit.
+ * Overview / Financials / Shareholding (NSE) / Audit.
  *
  * Every tab's content is already rendered on the server, so switching is a
  * local state change with no round trip: the lens moves on pointer-down and the

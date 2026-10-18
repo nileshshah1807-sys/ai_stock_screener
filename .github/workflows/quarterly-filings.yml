@@ -14,6 +14,12 @@ run-name: Quarterly filings (${{ github.event_name }})
 #   * the notification bell, recorded by the step after it, so the bell never
 #     announces a result the page cannot show.
 #
+# It also stores the stock page's Shareholding tab: each quarter's
+# shareholding pattern and the day's bulk and block deals
+# (workers/shareholding.py, storage/shareholding_schema.sql). Filed through
+# the same weeks as results and cheap when nothing is new, so it rides along
+# rather than needing a schedule of its own.
+#
 # Dispatch only: cron-job.org calls GitHub's workflow-dispatch API every 15
 # minutes, and once a day with full=true. GitHub's own schedule was not used
 # because it delays and drops runs under load, which for a job whose point is
@@ -60,7 +66,7 @@ jobs:
   store:
     name: NSE
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -89,6 +95,22 @@ jobs:
           python -m workers.quarterly_filings \
             --market NSE \
             --time-budget-minutes 22 \
+            ${FULL} \
+            ${DRY_RUN}
+
+      # Shareholding patterns and bulk/block deals for the stock page. Runs
+      # even if the results step failed; the two share nothing. The first
+      # full sweep is some 30,000 patterns; the budget stops it cleanly and
+      # the next daily full run carries on.
+      - name: Store shareholding patterns and deals
+        if: ${{ !cancelled() }}
+        env:
+          FULL: ${{ inputs.full && '--full' || '' }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: |
+          python -m workers.shareholding \
+            --market NSE \
+            --time-budget-minutes 12 \
             ${FULL} \
             ${DRY_RUN}
 

@@ -596,6 +596,46 @@ class DashboardRepository:
             },
         )
 
+    # -- shareholding ---------------------------------------------------------
+
+    def shareholding_state(self) -> dict[tuple[str, str], dict[str, Any]]:
+        """What is stored for each (symbol, quarter end), to tell what is new."""
+        rows = self._paged(
+            "shareholding_patterns",
+            {
+                "select": "symbol,period_end,record_id,parser_version",
+                "order": "symbol.asc,period_end.asc",
+            },
+        )
+        return {(str(row["symbol"]), str(row["period_end"])[:10]): row for row in rows}
+
+    def upsert_shareholding_patterns(self, rows: list[dict[str, Any]], chunk_size: int = 100) -> int:
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "shareholding_patterns?on_conflict=market,symbol,period_end",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                retries=2,
+            )
+            written += len(chunk)
+        return written
+
+    def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "bulk_block_deals?on_conflict="
+                "market,kind,deal_date,symbol,client_name,side,quantity,price",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                retries=2,
+            )
+            written += len(chunk)
+        return written
+
     # -- market breadth ---------------------------------------------------
 
     def latest_snapshot_classification(self) -> dict[str, tuple[str | None, str | None]]:
