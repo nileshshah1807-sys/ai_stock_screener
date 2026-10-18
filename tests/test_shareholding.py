@@ -208,6 +208,18 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual(sorted(d["kind"] for d in repo.deals), ["block", "bulk"])
         self.assertEqual(counts["stored"], 1)
 
+    def test_a_refused_batch_stops_the_run(self):
+        records = [
+            index_record(f"S{i}", "30-SEP-2026", str(i), "12-OCT-2026 14:51:34")
+            for i in range(130)
+        ]
+        repo = FakeRepository(stored={("TCS", "2026-09-30"): {}})
+        counts, fetcher = self._run(repo, records, {})
+        self.assertEqual(len(fetcher.asked), 60)
+        self.assertEqual((counts["failed"], counts["deferred"]), (60, 70))
+        # Deals come from a different host and are still stored.
+        self.assertTrue(repo.deals)
+
     def test_a_dry_run_writes_nothing(self):
         repo = FakeRepository(stored={("TCS", "2026-09-30"): {}})
         records = [index_record("ONWARDTEC", "30-SEP-2026", "9", "12-OCT-2026 14:51:34")]

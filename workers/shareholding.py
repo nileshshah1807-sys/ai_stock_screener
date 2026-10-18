@@ -108,6 +108,17 @@ def store_patterns(
             break
         batch = due[position:position + BATCH_SIZE]
         texts = fetcher.fetch_many([row["document_url"] for row in batch])
+        if all(text is None for text in texts):
+            # The archive refuses some hosted runners' addresses outright
+            # (18 Oct 2026: 35,111 of 35,114 refused on one runner, none on the
+            # next). Asking for the rest from here only spends the budget.
+            counts["failed"] += len(batch)
+            counts["deferred"] = len(due) - position - len(batch)
+            logger.warning(
+                "The archive refused a whole batch; stopping with %d pattern(s) left",
+                counts["deferred"],
+            )
+            break
         parsed_at = datetime.now(UTC).isoformat(timespec="seconds")
         rows = []
         for filing, text in zip(batch, texts, strict=True):
