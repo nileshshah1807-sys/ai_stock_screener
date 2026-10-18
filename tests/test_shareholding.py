@@ -9,7 +9,7 @@ from datetime import date
 from unittest import mock
 
 from screener.shareholding import PARSER_VERSION, parse_deals, parse_pattern, quarter_filings
-from workers.shareholding import run
+from workers.shareholding import PacedFetcher, run
 
 PCT = "ShareholdingAsAPercentageOfTotalNumberOfShares"
 
@@ -231,6 +231,22 @@ class WorkerTest(unittest.TestCase):
 
     def test_us_has_nothing_to_store(self):
         self.assertEqual(run(FakeRepository(market="US")), {})
+
+
+class PacedFetcherTest(unittest.TestCase):
+    def test_requests_are_spaced_to_the_rate(self):
+        now = [0.0]
+        waits = []
+
+        def sleep(seconds):
+            waits.append(round(seconds, 3))
+            now[0] += seconds
+
+        inner = mock.Mock()
+        inner.fetch_one.side_effect = lambda url: url.upper()
+        paced = PacedFetcher(3, fetcher=inner, clock=lambda: now[0], sleep=sleep)
+        self.assertEqual(paced.fetch_many(["a", "b", "c"]), ["A", "B", "C"])
+        self.assertEqual(waits, [0.333, 0.333])
 
 
 if __name__ == "__main__":
