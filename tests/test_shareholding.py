@@ -6,6 +6,7 @@ StockScans prints as Promoter 40.20, FII 9.28, DII 1.74, Public 48.78.
 
 import unittest
 from datetime import date
+from unittest import mock
 
 from screener.shareholding import PARSER_VERSION, parse_deals, parse_pattern, quarter_filings
 from workers.shareholding import run
@@ -214,7 +215,8 @@ class WorkerTest(unittest.TestCase):
             for i in range(130)
         ]
         repo = FakeRepository(stored={("TCS", "2026-09-30"): {}})
-        counts, fetcher = self._run(repo, records, {})
+        with mock.patch("workers.shareholding._answer", return_value="HTTP 403"):
+            counts, fetcher = self._run(repo, records, {})
         self.assertEqual(len(fetcher.asked), 60)
         self.assertEqual((counts["failed"], counts["deferred"]), (60, 70))
         # Deals come from a different host and are still stored.
