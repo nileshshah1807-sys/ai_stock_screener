@@ -6,6 +6,7 @@ import { Search } from "lucide-react";
 
 import { useMarketPath } from "@/components/market-provider";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { StockPicker, useStockPickerShortcut } from "@/components/screener/stock-picker";
 
 /**
@@ -55,7 +56,12 @@ export function GlobalSearch() {
   );
 }
 
-/** The magnifier in the header's account capsule. */
+/**
+ * Search, at the head of the header's account controls: a magnifier on
+ * narrow screens, and from lg a field-shaped button that names what it finds
+ * and its shortcut, which is where a reader of this category of tool looks
+ * for it. Either way it opens the same picker.
+ */
 export function GlobalSearchButton() {
   return (
     <Button
@@ -63,12 +69,19 @@ export function GlobalSearchButton() {
       variant="ghost"
       size="icon"
       onClick={openSearch}
-      className="rounded-full hover:bg-(--control-hover)"
+      className={cn(
+        "text-muted-foreground hover:text-foreground",
+        "lg:mr-1.5 lg:w-56 lg:justify-start lg:gap-2 lg:border-input lg:bg-muted/60 lg:px-2.5 lg:font-normal lg:hover:bg-muted",
+      )}
       aria-label="Search stocks and indices"
       aria-keyshortcuts="Meta+K Control+K"
       title="Search  ⌘K"
     >
       <Search className="size-4" aria-hidden />
+      <span className="hidden text-sm lg:inline">Search stocks…</span>
+      <kbd className="ml-auto hidden rounded-[4px] border bg-card px-1.5 text-[10px] leading-4 font-medium text-muted-foreground lg:inline">
+        ⌘K
+      </kbd>
     </Button>
   );
 }

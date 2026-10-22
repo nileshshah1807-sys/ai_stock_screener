@@ -5,7 +5,7 @@ import { ratingToken } from "@/lib/format";
 import { primaryGate } from "@/lib/labels";
 
 /**
- * Rating pill, with gated rows relabelled as an entry state.
+ * Rating badge, with gated rows relabelled as an entry state.
  *
  * The five-word ramp -- STRONG BUY / BUY / HOLD / REDUCE / SELL -- is a
  * *merit* vocabulary, and for a gated row it is attached to a *trend*
@@ -133,7 +133,7 @@ export function EntryBadge({
 }) {
   const gated = ratingWasGated(row);
   const shell = cn(
-    "inline-flex items-center gap-1 whitespace-nowrap rounded-full font-semibold uppercase tracking-wide ring-1 ring-inset",
+    "inline-flex items-center gap-1 whitespace-nowrap rounded-[0.3125rem] font-semibold uppercase tracking-wide ring-1 ring-inset",
     size === "sm" ? "px-1.5 py-0.5 text-[10px]" : "px-2.5 py-1 text-xs",
     className,
   );

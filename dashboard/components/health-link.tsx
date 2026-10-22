@@ -8,9 +8,9 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * Run health, as an icon in the account capsule.
+ * Run health, as an icon among the account controls.
  *
- * It was the sixth pill in the primary nav. That group is the reader's
+ * It was the sixth tab in the primary nav. That group is the reader's
  * destinations -- where the stocks are -- and run health is about the system
  * that produced them: looked at when something seems off, not on the way to a
  * stock. It sits with the other things about the app itself (theme, session).
@@ -30,7 +30,7 @@ export function HealthLink({ href }: { href: string }) {
       title="Run health"
       className={cn(
         buttonVariants({ variant: "ghost", size: "icon" }),
-        "rounded-full hover:bg-(--control-hover)",
+        "text-muted-foreground hover:text-foreground",
         active && "bg-(--control) text-foreground",
       )}
     >

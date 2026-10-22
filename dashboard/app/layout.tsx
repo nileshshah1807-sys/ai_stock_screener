@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
+import { Geist } from "next/font/google";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,46 +9,29 @@ import "./globals.css";
 
 /*
  * ---------------------------------------------------------------------------
- * Typeface: Satoshi (Deni Anggara, Indian Type Foundry via Fontshare)
+ * Typeface: Geist (Vercel, SIL Open Font License)
  * ---------------------------------------------------------------------------
  *
  * ONE family for the entire interface -- headings, labels, tickers, prices,
- * every figure in the grid. There is no second "mono" face any more, and that
- * is the point: the previous pairing set stock symbols and numbers in Geist
- * Mono while everything around them was General Sans, which read as two
- * unrelated fonts sharing a table.
+ * every figure in the grid. A separate mono for tickers and numbers read as
+ * two unrelated fonts sharing a table; what those call sites need is aligned
+ * figures, and Geist's `tnum` feature provides them in the same face.
  *
- * Satoshi is the family that makes a single face possible here. It ships a
- * `tnum` feature, so its digits are proportional by default -- which is what
- * you want for a 64px KPI figure -- and switch to fixed-width on demand for
- * anything that has to line up down a column. General Sans could not do this:
- * it has no `tnum` at all and its "1" advances 384 units against "0" at 630,
- * so a column of prices simply would not align, which is why it needed a mono
- * companion in the first place.
+ * Geist is a neutral grotesque drawn for interfaces: open apertures at 12px,
+ * a tall x-height that keeps a dense grid legible, and tight, even figures
+ * that hold up at display size with negative tracking.
  *
  * Columnar alignment is requested through `font-variant-numeric: tabular-nums`
  * -- see the `.tabular` and `.font-mono` rules in globals.css.
  *
- * Self-hosted: the whole 300-900 weight range is one 42KB variable file, so it
- * costs a single same-origin request rather than a third-party DNS lookup, TLS
- * handshake and render-blocking stylesheet. Licence is vendored beside the
- * font as Satoshi-LICENSE.txt.
+ * next/font downloads the variable file at build time and serves it from this
+ * origin, so it costs one same-origin request rather than a third-party DNS
+ * lookup, TLS handshake and render-blocking stylesheet.
  */
-const satoshi = localFont({
+const geist = Geist({
   variable: "--font-sans",
+  subsets: ["latin"],
   display: "swap",
-  src: [
-    {
-      path: "./fonts/Satoshi-Variable.woff2",
-      weight: "300 900",
-      style: "normal",
-    },
-    {
-      path: "./fonts/Satoshi-VariableItalic.woff2",
-      weight: "300 900",
-      style: "italic",
-    },
-  ],
 });
 
 export const metadata: Metadata = {
@@ -66,7 +49,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${satoshi.variable} h-full antialiased`}
+      className={`${geist.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col">

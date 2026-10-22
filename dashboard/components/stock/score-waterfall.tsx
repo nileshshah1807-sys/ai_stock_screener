@@ -203,7 +203,7 @@ export function ScoreWaterfall({ row }: { row: SnapshotRowWithPayload }) {
           reachable, and announced as collapsed. */}
       <figcaption className="mt-3">
         <details className="group">
-          <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-full py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
             <ChevronDown
               className="size-3.5 transition-transform group-open:rotate-180"
               aria-hidden

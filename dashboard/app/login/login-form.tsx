@@ -33,7 +33,7 @@ export function LoginForm({ notice }: { notice: string | null }) {
         <p className="mt-4 text-sm font-medium">Check your inbox</p>
         <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
         {state.email ? (
-          <p className="mt-3 truncate rounded-full bg-(--control) px-4 py-2 text-sm font-medium">
+          <p className="mt-3 truncate rounded-md bg-(--control) px-4 py-2 text-sm font-medium">
             {state.email}
           </p>
         ) : null}
@@ -68,7 +68,7 @@ export function LoginForm({ notice }: { notice: string | null }) {
           defaultValue={state.email}
           aria-describedby={state.status === "error" ? "login-error" : undefined}
           aria-invalid={state.status === "error"}
-          className="h-11"
+          className="h-10"
         />
       </div>
 
@@ -83,7 +83,7 @@ export function LoginForm({ notice }: { notice: string | null }) {
         </p>
       ) : null}
 
-      <Button type="submit" className="h-11 w-full" disabled={pending}>
+      <Button type="submit" className="h-10 w-full" disabled={pending}>
         {pending ? (
           <>
             <Loader2 className="size-4 animate-spin" aria-hidden />

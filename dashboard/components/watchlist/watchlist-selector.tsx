@@ -18,7 +18,7 @@ import { WATCHLIST_MAX_LISTS, type Watchlist } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const CHIP =
-  "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium " +
+  "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium " +
   "transition-colors duration-(--duration-fast) ease-(--ease-standard) " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 

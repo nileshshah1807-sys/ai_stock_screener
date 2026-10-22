@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 export const NOTIFICATIONS_SEEN_EVENT = "winnow:notifications-seen";
 
 /**
- * The bell in the header's account capsule.
+ * The bell among the header's account controls.
  *
  * Opening it is reading it: the badge clears as the panel opens and the server
  * is told in the background. The rows keep their unread marks for as long as
@@ -73,7 +73,7 @@ export function NotificationBell({
           <Button
             variant="ghost"
             size="icon"
-            className="relative rounded-full hover:bg-(--control-hover)"
+            className="relative text-muted-foreground hover:text-foreground"
             aria-label={label}
             title="Notifications"
           />
@@ -149,7 +149,7 @@ export function NotificationBellFallback() {
     <Button
       variant="ghost"
       size="icon"
-      className="relative rounded-full"
+      className="relative rounded-md"
       aria-label="Notifications"
       title="Notifications"
       disabled

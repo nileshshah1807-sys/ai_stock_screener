@@ -40,7 +40,7 @@ export default async function IndicesPage({ params }: PageProps<"/[market]/indic
                 <span className="flex items-center gap-3">
                   <span
                     aria-hidden
-                    className="flex size-9 shrink-0 items-center justify-center rounded-[0.75rem] bg-(--control) text-foreground"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-md bg-(--control) text-foreground"
                   >
                     <ChartLine className="size-4" />
                   </span>

@@ -35,8 +35,8 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         {/* The same mark-in-a-disc and wordmark as the app header, so the door
             and the room behind it are visibly the same product. */}
         <div className="mb-6 flex animate-rise items-center justify-center gap-2.5">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <BrandMark className="size-5" />
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <BrandMark className="size-4" />
           </span>
           <span className="text-lead font-semibold tracking-[-0.011em]">
             Winnow

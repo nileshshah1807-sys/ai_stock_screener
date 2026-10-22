@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Check, Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 
 import { Button } from "@/components/ui/button";
@@ -34,7 +34,12 @@ export function ThemeToggle() {
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
-          <Button variant="ghost" size="icon" aria-label="Change colour theme" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Change colour theme"
+          />
         }
       >
         <Icon className="size-4" aria-hidden />
@@ -49,7 +54,7 @@ export function ThemeToggle() {
             <OptionIcon className="size-4" aria-hidden />
             {label}
             {mounted && theme === value ? (
-              <span className="ml-auto text-xs text-muted-foreground">✓</span>
+              <Check className="ml-auto size-3.5 text-muted-foreground" aria-hidden />
             ) : null}
           </DropdownMenuItem>
         ))}

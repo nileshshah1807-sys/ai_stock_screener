@@ -116,7 +116,7 @@ export function ConcallRow({
         <span
           title={source.title}
           className={cn(
-            "mt-1.5 inline-flex cursor-help items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
+            "mt-1.5 inline-flex cursor-help items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium",
             source.provisional
               ? "bg-(--control) text-foreground"
               : "text-muted-foreground ring-1 ring-inset ring-border",

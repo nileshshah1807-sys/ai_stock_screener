@@ -66,7 +66,7 @@ export function GroupPicker({
     >
       <PopoverTrigger
         className={cn(
-          "inline-flex h-9 max-w-full min-w-0 items-center gap-2 rounded-full bg-(--control) py-2 pr-3 pl-4 text-sm font-medium",
+          "inline-flex h-9 max-w-full min-w-0 items-center gap-2 rounded-md bg-(--control) py-2 pr-3 pl-4 text-sm font-medium",
           "transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-standard) hover:bg-(--control-hover)",
           "active:scale-[0.97] active:duration-(--duration-press)",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -81,7 +81,7 @@ export function GroupPicker({
         className="w-[min(22rem,calc(100vw-2rem))] gap-2 p-2"
         initialFocus={input}
       >
-        <label className="flex items-center gap-2 rounded-[0.75rem] bg-(--control) px-3 py-2">
+        <label className="flex items-center gap-2 rounded-md bg-(--control) px-3 py-2">
           <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <input
             ref={input}
@@ -165,7 +165,7 @@ function Option({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 rounded-[0.75rem] px-3 py-2 text-left text-sm",
+        "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm",
         "transition-colors duration-(--duration-fast) hover:bg-(--control-hover)",
         "focus-visible:bg-(--control-hover) focus-visible:outline-none",
       )}

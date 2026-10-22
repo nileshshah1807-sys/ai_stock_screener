@@ -138,7 +138,7 @@ export function Financials({
             }))}
           />
         </div>
-        <span className="rounded-full bg-(--control) px-3 py-1 text-xs font-medium text-muted-foreground">
+        <span className="rounded-md bg-(--control) px-3 py-1 text-xs font-medium text-muted-foreground">
           {unitFor(market).label}
           {current === "quarterly" || current === "profit_loss" ? " · EPS in " + market.currencySymbol : ""}
         </span>

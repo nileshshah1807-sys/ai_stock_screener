@@ -13,11 +13,11 @@ import type { ScreenerRun } from "@/lib/types";
  * and each tile links into the grid pre-filtered to that rating so the number is
  * a starting point rather than a dead end.
  *
- * Presentation follows the Figma KPI band (node 1:1092): one panel rather than
- * six floating cards, hairline dividers between cells, a small muted label over
- * a large display figure, and a rounded vertical accent bar carrying the
- * rating's hue. The mock sets its figure at 64px across three cells; at six
- * cells the same proportion lands near 48px.
+ * One panel rather than six floating cards, hairline dividers between cells,
+ * a small muted label over
+ * a large figure, with the rating's hue carried by a small square key beside
+ * the label and a thin bar under the figure showing the band's share of the
+ * run -- the same bar the grid draws under every score.
  *
  * The band tops out at 36px rather than 48px, and pads 12px rather than 16px.
  * That is a deliberate departure from the mock, made for the screener page
@@ -31,47 +31,62 @@ const TILES = [
     rating: "STRONG BUY",
     field: "strong_buy_count",
     rule: "bg-rating-strong-buy ring-rating-strong-buy-edge",
+    fill: "bg-rating-strong-buy",
   },
   {
     rating: "BUY",
     field: "buy_count",
     rule: "bg-rating-buy ring-rating-buy-edge",
+    fill: "bg-rating-buy",
   },
   {
     rating: "HOLD",
     field: "hold_count",
     rule: "bg-rating-hold ring-rating-hold-edge",
+    fill: "bg-rating-hold-edge",
   },
   {
     rating: "REDUCE",
     field: "reduce_count",
     rule: "bg-rating-reduce ring-rating-reduce-edge",
+    fill: "bg-rating-reduce",
   },
   {
     rating: "SELL",
     field: "sell_count",
     rule: "bg-rating-sell ring-rating-sell-edge",
+    fill: "bg-rating-sell",
   },
 ] as const;
 
 /**
- * The mock's accent bar: 8px wide, fully rounded, full cell height.
+ * The band's key: an 8px square of its rating fill beside the label.
  *
  * The inset ring is required, not cosmetic. Four of the five rating fills sit
  * between 1.4:1 and 1.8:1 against the light card, so the ring -- a darker step
- * of the bar's own hue -- is what gives it a boundary at all.
+ * of the swatch's own hue -- is what gives it a boundary at all.
  */
-function AccentBar({ className }: { className: string }) {
+function Swatch({ className }: { className: string }) {
   return (
     <span
-      className={cn(
-        "h-11 w-2 shrink-0 rounded-full ring-1 ring-inset",
-        "origin-center transition-transform duration-(--duration-slow) ease-(--ease-spring)",
-        "group-hover:scale-y-115",
-        className,
-      )}
+      className={cn("size-2 shrink-0 rounded-[2px] ring-1 ring-inset", className)}
       aria-hidden
     />
+  );
+}
+
+/**
+ * The band's share of the run as a length: the grid's score bar, reused, so
+ * the five tiles read as one distribution rather than five unrelated counts.
+ */
+function ShareBar({ share, className }: { share: number; className: string }) {
+  return (
+    <span className="mt-2 block h-1 overflow-hidden rounded-[1px] bg-muted" aria-hidden>
+      <span
+        className={cn("block h-full origin-left animate-grow rounded-[1px]", className)}
+        style={{ width: `${Math.max(0, Math.min(100, share))}%` }}
+      />
+    </span>
   );
 }
 
@@ -109,8 +124,7 @@ export function SummaryTiles({
         "sm:grid sm:grid-cols-3 xl:grid-cols-6",
       )}
     >
-      <div data-kpi className="flex items-center gap-3 bg-card px-4 py-3">
-        <AccentBar className="bg-muted-foreground/40 ring-muted-foreground/30" />
+      <div data-kpi className="bg-card px-4 py-3">
         <div className="min-w-0">
           <p className="truncate text-[13px] text-muted-foreground">Universe</p>
           <p className="flex items-baseline gap-1.5">
@@ -135,24 +149,23 @@ export function SummaryTiles({
             href={`${marketPath(market.slug)}?rating=${encodeURIComponent(tile.rating)}`}
             data-kpi
             className={cn(
-              "press group flex items-center gap-3 bg-card px-4 py-3",
+              "press group block bg-card px-4 py-3",
               "hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
             )}
           >
-            <AccentBar className={tile.rule} />
             <div className="min-w-0">
               {/* The label stays sentence-cased at 13px rather than the old
                   uppercase micro-label: at this figure size the caps were
                   competing with the number instead of introducing it. */}
-              <p className="truncate text-[13px] text-muted-foreground">
+              <p className="flex items-center gap-1.5 truncate text-[13px] text-muted-foreground">
+                <Swatch className={tile.rule} />
                 {tile.rating}
               </p>
               {/*
-                The figure is foreground-coloured, not rating-coloured, which
-                is what the mock does: its three KPI numbers are all #1c1b1b
-                and only the accent bar carries hue. That is also the only
-                readable option here -- amber as 48px text on the light card
-                measures 1.45:1, below even the 3:1 large-text floor.
+                The figure is foreground-coloured, not rating-coloured: the
+                swatch and the share bar carry the hue. That is also the only
+                readable option: the pale ramp steps as large text on the
+                light card measure under 2:1, below the 3:1 large-text floor.
               */}
               <p className="flex items-baseline gap-1.5">
                 <CountUp
@@ -165,6 +178,7 @@ export function SummaryTiles({
               <p className="tabular text-[11px] text-muted-foreground">
                 {share.toFixed(1)}% of run
               </p>
+              <ShareBar share={share} className={tile.fill} />
             </div>
           </Link>
         );

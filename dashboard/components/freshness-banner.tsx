@@ -52,8 +52,8 @@ export function FreshnessBanner({ run }: { run: ScreenerRun | null }) {
       role="status"
       className={cn(
         // An inset card rather than a full-bleed strip: it sits under the
-        // floating header as content, not as a second piece of chrome.
-        "mx-4 mt-1 mb-2 flex items-start gap-2.5 rounded-2xl border px-4 py-3 text-sm sm:mx-8",
+        // header as content, not as a second piece of chrome.
+        "mx-4 mt-4 flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm sm:mx-6",
         critical
           ? "border-destructive/30 bg-destructive/8 text-destructive"
           : "border-caution/30 bg-caution/8 text-caution",

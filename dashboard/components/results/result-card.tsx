@@ -193,7 +193,7 @@ export function ResultCard({ card }: { card: ResultCardData }) {
           options={card.bases.map((entry) => ({ value: entry.basis, label: BASIS_LABELS[entry.basis] }))}
         />
       ) : (
-        <span className="w-max rounded-full px-3 py-1 text-[0.8125rem] font-medium text-muted-foreground ring-1 ring-inset ring-border">
+        <span className="w-max rounded-md px-3 py-1 text-[0.8125rem] font-medium text-muted-foreground ring-1 ring-inset ring-border">
           {BASIS_LABELS[table.basis]}
         </span>
       )}

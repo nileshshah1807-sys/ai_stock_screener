@@ -20,7 +20,7 @@ export function ToolsNav({ market }: { market: Market }) {
   const pathname = usePathname();
 
   return (
-    <GlassTrack label="Tools" className="w-max gap-0.5 p-1">
+    <GlassTrack label="Tools" className="w-max gap-0.5 p-0.5">
       {TOOLS.map(({ path, label, icon: Icon }) => {
         const href = marketPath(market.slug, path);
         const active = pathname === href || pathname.startsWith(`${href}/`);
@@ -32,8 +32,8 @@ export function ToolsNav({ market }: { market: Market }) {
             prefetch
             aria-current={active ? "page" : undefined}
             className={cn(
-              "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-full",
-              "px-3.5 text-xs font-semibold leading-none",
+              "inline-flex min-h-7 items-center justify-center gap-1.5 rounded-md",
+              "px-3 text-xs font-medium leading-none",
               "transition-[color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
               "active:scale-[0.92] active:duration-(--duration-press) active:ease-out",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",

@@ -43,7 +43,7 @@ import { cn } from "@/lib/utils";
 import { useMarket } from "@/components/market-provider";
 
 const CHIP =
-  "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium " +
+  "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium " +
   "transition-colors duration-(--duration-fast) ease-(--ease-standard) " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -289,7 +289,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
               onClick={() =>
                 persist(saved.filter((item) => item.id !== view.id))
               }
-              className="rounded-full p-0.5 opacity-60 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-md p-0.5 opacity-60 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Trash2 className="size-3" aria-hidden />
             </button>

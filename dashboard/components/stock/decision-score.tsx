@@ -2,45 +2,23 @@ import { cn } from "@/lib/utils";
 import { formatScore, ratingToken } from "@/lib/format";
 
 /**
- * The published decision score as a ring.
+ * The published decision score: the figure, then the same thin 0-100 bar the
+ * screener grid draws under every score, at full width.
  *
- * Ported from the Figma "Decision Score" card (node 1:895), which is the one
- * element of the mock the app had no equivalent for: the score existed only as
- * a figure in a table cell, with nothing showing where it sat on the 0-100
- * range it is judged against.
+ * One bar in both places, so a reader who has learnt the grid's column reads
+ * this at a glance. The bar is a gauge -- the track is always the full 0-100
+ * scale and the fill is the score -- and the rating boundaries are drawn on
+ * the track as 1px gaps and labelled beneath it, because a bare length
+ * answers "how big" but not "does this clear BUY", which is the actual
+ * question.
  *
- * The ring is a gauge, not a pie -- it encodes one value against a fixed scale,
- * so the track is always the full circle and the arc is the score. Rating
- * thresholds are drawn as ticks on the track, because a bare arc answers "how
- * big" but not "does this clear BUY", which is the actual question.
- *
- * Colour comes from the rating ramp, and the rating word is printed underneath.
- * Hue is never the only carrier: the number, the word, and the arc length all
- * say the same thing.
+ * Colour comes from the rating ramp, and the rating word is carried by the
+ * badge beside the page title and the caption here. Hue is never the only
+ * carrier: the number, the bar length and the word all say the same thing.
  */
-
-const SIZE = 176;
-const STROKE = 14;
-const RADIUS = (SIZE - STROKE) / 2;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 /** Rating band lower bounds, matching the finalizer's mapping. */
 const THRESHOLDS = [40, 50, 60, 70];
-
-const ARC_STROKE: Record<string, string> = {
-  "strong-buy": "stroke-rating-strong-buy",
-  buy: "stroke-rating-buy",
-  hold: "stroke-rating-hold",
-  reduce: "stroke-rating-reduce",
-  sell: "stroke-rating-sell",
-};
-
-/*
- * The centre figure is deliberately NOT rating-coloured. The mock's own score
- * card prints "60.8" in its near-black foreground and lets the ring carry the
- * hue, and under this palette that is also the only legible option: the amber
- * fill measures 1.45:1 on the card, far below the 3:1 large-text floor.
- */
 
 export function DecisionScore({
   score,
@@ -57,95 +35,66 @@ export function DecisionScore({
   const hasScore = typeof score === "number" && Number.isFinite(score);
   const clamped = hasScore ? Math.max(0, Math.min(100, score)) : 0;
 
-  // The arc starts at 12 o'clock and runs clockwise; the -90deg rotation on
-  // the group is what moves it off the SVG's native 3 o'clock start.
-  const offset = CIRCUMFERENCE * (1 - clamped / 100);
-
   return (
-    <figure className={cn("m-0 flex flex-col items-center gap-3", className)}>
-      <div className="relative" style={{ width: SIZE, height: SIZE }}>
-        <svg
-          viewBox={`0 0 ${SIZE} ${SIZE}`}
-          width={SIZE}
-          height={SIZE}
-          role="img"
-          aria-label={
-            hasScore
-              ? `Decision score ${formatScore(clamped)} out of 100, rated ${rating ?? "unrated"}.`
-              : "Decision score unavailable."
-          }
-        >
-          <g transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}>
-            <circle
-              cx={SIZE / 2}
-              cy={SIZE / 2}
-              r={RADIUS}
-              fill="none"
-              strokeWidth={STROKE}
-              className="stroke-muted"
+    <figure
+      className={cn("m-0 flex flex-col gap-3", className)}
+      role="img"
+      aria-label={
+        hasScore
+          ? `Decision score ${formatScore(clamped)} out of 100, rated ${rating ?? "unrated"}.`
+          : "Decision score unavailable."
+      }
+    >
+      {/*
+        The figure is deliberately NOT rating-coloured: the pale steps of the
+        ramp measure under 2:1 on the card, below the large-text floor. The
+        bar carries the hue.
+      */}
+      <p className="flex items-baseline gap-1.5" aria-hidden>
+        <span className="numeral text-display text-foreground">
+          {hasScore ? formatScore(clamped) : "—"}
+        </span>
+        <span className="text-xs text-muted-foreground">/ 100</span>
+      </p>
+
+      <div aria-hidden>
+        <div className="relative h-2 overflow-hidden rounded-[2px] bg-muted">
+          {hasScore ? (
+            <div
+              className="absolute inset-y-0 left-0 origin-left animate-grow rounded-[2px]"
+              style={{
+                width: `${clamped}%`,
+                // HOLD's fill is the ramp's palest step and all but vanishes
+                // on the muted track; its edge tone is the same band.
+                background: `var(--rating-${token}${token === "hold" ? "-edge" : ""})`,
+              }}
             />
-
-            {hasScore ? (
-              <circle
-                cx={SIZE / 2}
-                cy={SIZE / 2}
-                r={RADIUS}
-                fill="none"
-                strokeWidth={STROKE}
-                strokeLinecap="round"
-                strokeDasharray={CIRCUMFERENCE}
-                strokeDashoffset={offset}
-                className={cn(
-                  "animate-[arc_var(--duration-slow)_var(--ease-entrance)_both]",
-                  ARC_STROKE[token] ?? ARC_STROKE.hold,
-                )}
-                style={
-                  {
-                    "--arc-from": CIRCUMFERENCE,
-                    "--arc-to": offset,
-                  } as React.CSSProperties
-                }
-              />
-            ) : null}
-
-            {/* Band boundaries. Drawn over the track so the reader can see
-                which side of BUY the arc actually lands on. */}
-            {THRESHOLDS.map((threshold) => {
-              const angle = (threshold / 100) * 2 * Math.PI;
-              const inner = RADIUS - STROKE / 2;
-              const outer = RADIUS + STROKE / 2;
-              const cx = SIZE / 2;
-              const cy = SIZE / 2;
-              return (
-                <line
-                  key={threshold}
-                  x1={cx + inner * Math.cos(angle)}
-                  y1={cy + inner * Math.sin(angle)}
-                  x2={cx + outer * Math.cos(angle)}
-                  y2={cy + outer * Math.sin(angle)}
-                  // stroke-card, not stroke-background: the ring always sits
-                  // on a card, and in dark mode the two differ enough that
-                  // background-coloured ticks read as smudges on the track.
-                  className="stroke-card"
-                  strokeWidth={2}
-                />
-              );
-            })}
-          </g>
-        </svg>
-
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="numeral text-5xl font-semibold text-foreground">
-            {hasScore ? formatScore(clamped) : "—"}
-          </span>
-          <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
-            of 100
-          </span>
+          ) : null}
+          {/* Band boundaries, cut through track and fill alike so the reader
+              can see which side of BUY the score lands on. */}
+          {THRESHOLDS.map((threshold) => (
+            <span
+              key={threshold}
+              className="absolute inset-y-0 w-px bg-card"
+              style={{ left: `${threshold}%` }}
+            />
+          ))}
+        </div>
+        <div className="tabular relative mt-1 h-4 text-[11px] text-muted-foreground">
+          {THRESHOLDS.map((threshold) => (
+            <span
+              key={threshold}
+              className="absolute -translate-x-1/2"
+              style={{ left: `${threshold}%` }}
+            >
+              {threshold}
+            </span>
+          ))}
         </div>
       </div>
 
       {caption ? (
-        <figcaption className="max-w-64 text-center text-xs leading-relaxed text-muted-foreground">
+        <figcaption className="text-xs leading-relaxed text-muted-foreground">
           {caption}
         </figcaption>
       ) : null}
