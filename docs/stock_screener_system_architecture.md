@@ -1259,7 +1259,7 @@ UNKNOWN  : fewer than MA + slope sessions of index history
 |---|---|
 | RISK_ON | normal policy |
 | NEUTRAL | STRONG BUY additionally requires momentum percentile `>= 85` |
-| RISK_OFF | STRONG BUY disabled; BUY additionally requires momentum percentile `>= 90` |
+| RISK_OFF | BUY additionally requires momentum percentile `>= 90`; STRONG BUY is no longer disabled (policy 5.4.0, `REGIME_RISK_OFF_DISABLES_STRONG_BUY=false`) |
 
 The overlay changes **deployment conviction only**. It never edits a factor score, so the
 research ranking stays fully visible and auditable in every regime. This is locked by

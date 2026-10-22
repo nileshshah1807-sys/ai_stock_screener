@@ -359,12 +359,31 @@ class FinancialSpecialistGateTests(unittest.TestCase):
             Config.FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT = original
 
 
+class RegimeOffDoesNotDisableStrongBuyConfig(Config):
+    """Recommendation policy 5.4.0 production default."""
+
+    REGIME_RISK_OFF_DISABLES_STRONG_BUY = False
+
+
 class RegimeOverlayTests(unittest.TestCase):
     def test_risk_off_disables_strong_buy(self):
         result = finalize([clean_row(Market_Regime="RISK_OFF")])
         self.assertIn(
             "market regime risk-off: STRONG BUY disabled", failures(result, "ALPHA")
         )
+
+    def test_risk_off_keeps_strong_buy_when_the_switch_is_off(self):
+        result = finalize_recommendations(
+            pd.DataFrame(
+                [clean_row(Market_Regime="RISK_OFF", Momentum_Percentile=95.0)]
+            ),
+            RegimeOffDoesNotDisableStrongBuyConfig,
+        )
+        self.assertNotIn(
+            "market regime risk-off: STRONG BUY disabled", failures(result, "ALPHA")
+        )
+        self.assertTrue(bool(result.iloc[0]["Strong_Buy_Eligible"]))
+        self.assertEqual(result.iloc[0]["Rating"], "STRONG BUY")
 
     def test_risk_off_buy_requires_top_decile_momentum(self):
         weak = finalize([clean_row(Market_Regime="RISK_OFF", Momentum_Percentile=75.0)])
