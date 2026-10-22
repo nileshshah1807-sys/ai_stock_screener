@@ -136,7 +136,21 @@ class GateFailureTests(unittest.TestCase):
         self.assertIn(
             "market regime risk-off: BUY requires top-decile momentum", buy
         )
-        self.assertIn("market regime risk-off: STRONG BUY disabled", strong)
+        self.assertNotIn("market regime risk-off: STRONG BUY disabled", strong)
+
+    def test_risk_off_leaves_a_name_clearing_every_gate_strong_buy(self):
+        """Recommendation policy 5.4.0: the index no longer vetoes STRONG BUY."""
+        buy, strong = gate_failures(
+            clean_row(Momentum_Percentile=95.0), self.config, regime="RISK_OFF"
+        )
+        self.assertEqual((buy, strong), ([], []))
+
+    def test_risk_off_strong_buy_switch_still_works_when_set(self):
+        self.config.REGIME_RISK_OFF_DISABLES_STRONG_BUY = True
+        _buy, strong = gate_failures(
+            clean_row(Momentum_Percentile=95.0), self.config, regime="RISK_OFF"
+        )
+        self.assertEqual(strong, ["market regime risk-off: STRONG BUY disabled"])
 
     def test_risk_off_spares_a_top_decile_name_from_the_buy_gate(self):
         buy, _ = gate_failures(
@@ -171,15 +185,15 @@ class GateFailureTests(unittest.TestCase):
         measurably cost return as a selection input. See
         docs/Review/p2_relative_strength_gate_preregistration.md (R4).
 
-        The absolute protections must remain on, which is the other half of
-        this assertion: risk-off still disables STRONG BUY outright.
+        The stock's own absolute protections remain on. Policy 5.4.0 turned
+        off the index's veto on STRONG BUY; risk-off keeps its BUY floor.
         """
         config = GateConfig.from_runtime()
         self.assertEqual(config.STRONG_BUY_MIN_MOMENTUM_PCT, 0.0)
         self.assertEqual(
             config.REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY, 0.0
         )
-        self.assertTrue(config.REGIME_RISK_OFF_DISABLES_STRONG_BUY)
+        self.assertFalse(config.REGIME_RISK_OFF_DISABLES_STRONG_BUY)
         self.assertEqual(config.REGIME_RISK_OFF_MIN_MOMENTUM_PCT, 90.0)
         self.assertEqual(config.BUY_MA200_TOLERANCE, 0.98)
         self.assertTrue(config.STRONG_BUY_REQUIRE_MA50_ABOVE_MA200)

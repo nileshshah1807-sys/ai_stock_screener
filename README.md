@@ -188,6 +188,18 @@ NSE and 8 US names to STRONG BUY (57 -> ~64, 46 -> ~54). `MODEL_VERSION` stays
 exact boundary. Evidence and the rest of the audit are in
 [`docs/Review/p6_rank_hygiene_preregistration.md`](docs/Review/p6_rank_hygiene_preregistration.md).
 
+**Recommendation policy 5.4.0 lets a stock be STRONG BUY in a risk-off market**
+(`REGIME_RISK_OFF_DISABLES_STRONG_BUY` true -> false). The index's regime
+switched STRONG BUY off for every name, so a stock clearing every gate of its
+own -- MA200 band and slope, the MA50/MA200 stack, positive 6M and 12M relative
+strength, the quality and growth floors -- read BUY for as long as the index
+stayed down: NSE published none from 2026-09-28. Those stock-level trend gates
+still bar a name falling with the market, and risk-off keeps its BUY floor
+(top-decile momentum), which a STRONG BUY must also clear. On the 2026-10-21
+NSE run this moves 11 of 2,321 names from BUY to STRONG BUY; the US run was
+RISK_ON and is unchanged. `MODEL_VERSION` and ranks are untouched.
+`REGIME_RISK_OFF_DISABLES_STRONG_BUY=true` restores the veto.
+
 So a row can read **99.8 / BUY**, and that is not a contradiction: the score
 says how strong the evidence is, the rating says whether policy will act on it.
 `Decision_Score` (the ceiling), `Decision_Score_Ceiling`,

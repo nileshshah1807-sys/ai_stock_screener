@@ -498,8 +498,14 @@ class Config:
     MARKET_REGIME_NEUTRAL_BAND_PCT = _env_float(
         "MARKET_REGIME_NEUTRAL_BAND_PCT", 2.0
     )
+    # Off from policy 5.4.0. A risk-off index switched STRONG BUY off for
+    # every name, so a stock clearing every gate of its own read BUY for as
+    # long as the index stayed down. The stock's own trend gates -- the MA200
+    # band and slope, confirmed breakdown, the MA50/MA200 stack and positive
+    # relative strength -- still bar a name that is falling with the market.
+    # Risk-off keeps its BUY momentum floor below.
     REGIME_RISK_OFF_DISABLES_STRONG_BUY = _env_bool(
-        "REGIME_RISK_OFF_DISABLES_STRONG_BUY", True
+        "REGIME_RISK_OFF_DISABLES_STRONG_BUY", False
     )
     REGIME_RISK_OFF_MIN_MOMENTUM_PCT = _env_float(
         "REGIME_RISK_OFF_MIN_MOMENTUM_PCT", 90.0
@@ -509,8 +515,8 @@ class Config:
     # cross-sectional: in a falling market the top 30% by momentum is still the
     # top 30%, so the floor keeps clearing and buys no absolute protection. The
     # gates that do buy it -- the MA200 band and slope, confirmed breakdown, the
-    # MA50/MA200 stack, and REGIME_RISK_OFF_DISABLES_STRONG_BUY -- are unchanged,
-    # so STRONG BUY remains fully disabled in a risk-off regime.
+    # MA50/MA200 stack, and (until policy 5.4.0) REGIME_RISK_OFF_DISABLES_STRONG_BUY
+    # -- were unchanged.
     # Measured in docs/Review/p2_relative_strength_gate_preregistration.md (R4).
     # Restore the previous policy with the env var; no code change needed.
     REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY = _env_float(

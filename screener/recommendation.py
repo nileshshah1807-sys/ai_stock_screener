@@ -370,7 +370,7 @@ class RecommendationPolicy:
         regime = _safe_text(row.get("Market_Regime")).upper()
         if regime == "RISK_OFF":
             if _as_bool(
-                getattr(config, "REGIME_RISK_OFF_DISABLES_STRONG_BUY", True), True
+                getattr(config, "REGIME_RISK_OFF_DISABLES_STRONG_BUY", False), False
             ):
                 strong_failures.append("market regime risk-off: STRONG BUY disabled")
             floor = float(getattr(config, "REGIME_RISK_OFF_MIN_MOMENTUM_PCT", 90.0))

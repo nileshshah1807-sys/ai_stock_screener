@@ -62,11 +62,15 @@ export default async function HealthPage({ params }: PageProps<"/[market]/health
       hint: formatRelativeAge(run.generated_at_utc),
     },
     { label: "Ingested", value: formatRelativeAge(run.ingested_at) },
-    { label: "Model version", value: run.model_version ?? MISSING },
+    {
+      label: "Model version",
+      value: run.model_version ?? MISSING,
+      hint: "How scores and ranks are computed. The header shows this one.",
+    },
     {
       label: "Policy version",
       value: run.recommendation_policy_version ?? MISSING,
-      hint: "Bumped for a ranking change, separately from the output schema.",
+      hint: "The gates that turn a score into a rating. Bumped when a rule changes ratings while scores and ranks stay put, so it moves without the model version.",
     },
     {
       label: "Output schema",
@@ -203,7 +207,8 @@ export default async function HealthPage({ params }: PageProps<"/[market]/health
                       </span>
                     </th>
                   ))}
-                  <th scope="col" className="py-2 text-left">Model</th>
+                  <th scope="col" className="py-2 pr-3 text-left">Model</th>
+                  <th scope="col" className="py-2 text-left">Policy</th>
                 </tr>
               </thead>
               <tbody>
@@ -226,8 +231,11 @@ export default async function HealthPage({ params }: PageProps<"/[market]/health
                         {formatInteger(item[column.field] as number)}
                       </td>
                     ))}
-                    <td className="py-1.5 font-mono text-[11px] text-muted-foreground">
+                    <td className="py-1.5 pr-3 font-mono text-[11px] text-muted-foreground">
                       {short(item.model_version, 18)}
+                    </td>
+                    <td className="py-1.5 font-mono text-[11px] text-muted-foreground">
+                      {short(item.recommendation_policy_version, 18)}
                     </td>
                   </tr>
                 ))}
