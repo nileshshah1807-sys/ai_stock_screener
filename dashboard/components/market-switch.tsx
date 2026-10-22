@@ -22,7 +22,7 @@ import { MARKET_LIST, switchMarketPath, type Market } from "@/lib/markets";
  * its own URL, so a middle click or a bookmark works, and the switch costs a
  * normal navigation rather than a client-side refetch.
  *
- * The glass track and its sliding lens deliberately match the primary nav,
+ * The track and its sliding chip echo the primary nav's sliding underline,
  * because both are "one of these is current" controls and inventing a second
  * visual language for the same idea would make the header read as two
  * unrelated widgets.
@@ -31,7 +31,7 @@ export function MarketSwitch({ current }: { current: Market }) {
   const pathname = usePathname();
 
   return (
-    <GlassTrack label="Market" className="shrink-0 gap-0.5 p-1">
+    <GlassTrack label="Market" className="shrink-0 gap-0.5 p-0.5">
       {MARKET_LIST.map((market) => {
         const active = market.slug === current.slug;
         return (
@@ -44,11 +44,11 @@ export function MarketSwitch({ current }: { current: Market }) {
               // inline-flex + items-center, not just min-height. A bare
               // min-height reserves the box but leaves the text sitting at the
               // top of it, which is what made these read as misaligned against
-              // the nav pills beside them -- those centre via NavLink's own
+              // the nav tabs beside them -- those centre via NavLink's own
               // flex. justify-center keeps NSE and US optically even despite
               // their different widths.
-              "inline-flex min-h-8 items-center justify-center rounded-full",
-              "px-3.5 text-xs font-semibold leading-none",
+              "inline-flex min-h-7 items-center justify-center rounded-md",
+              "px-3 text-xs font-semibold leading-none",
               "transition-[color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
               "active:scale-[0.92] active:duration-(--duration-press) active:ease-out",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",

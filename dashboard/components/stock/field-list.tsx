@@ -69,7 +69,7 @@ export function FieldList({
       <dl className={grid}>{items(fields.slice(0, cut))}</dl>
       {rest.length ? (
         <details className="group mt-3">
-          <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-full py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
             <ChevronDown
               className="size-3.5 transition-transform group-open:rotate-180"
               aria-hidden

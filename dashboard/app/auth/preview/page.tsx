@@ -53,7 +53,7 @@ export default function PreviewPage() {
   if (process.env.NODE_ENV !== "development") notFound();
 
   return (
-    // Wrapped in the real AppShell so the rail, the pill nav, the brand mark,
+    // Wrapped in the real AppShell so the top bar, the tabs, the brand mark,
     // the freshness banner and the footer are all exercised too -- those are
     // the surfaces a component-only preview would silently skip.
     <AppShell

@@ -4,9 +4,10 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 /*
- * Buttons follow the reference dashboard's control language: every control is
- * a full pill, filled solid black when it is the primary action and recessed
- * onto the muted surface otherwise. Icon-only buttons are circles.
+ * Buttons: 6px corners, near-black when the button is the primary action,
+ * a white face with a hairline when it is a secondary one (outline), and no
+ * face at all until hovered when it is a quiet one (ghost). Icon-only buttons
+ * are squares with the same corners.
  *
  * Press feedback is a scale rather than the previous 1px nudge. `translate-y`
  * moved the button inside its own layout box, which makes a row of controls
@@ -20,19 +21,17 @@ import { cn } from "@/lib/utils"
  * gesture that carries energy. `:active` swaps the duration and curve, so the
  * base values describe the release.
  *
- * Recessed controls (outline, secondary, ghost hover) fill with --control, a
- * translucent grey, so they read correctly on a solid card and on glass alike
- * rather than painting an opaque grey chip onto a translucent capsule.
+ * Secondary and ghost-hover fills use --control, one step off the card.
  */
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-full border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none transition-[background-color,border-color,color,box-shadow,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring) focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:scale-[0.96] active:duration-(--duration-press) active:ease-out disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-md border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none transition-[background-color,border-color,color,box-shadow,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring) focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:scale-[0.97] active:duration-(--duration-press) active:ease-out disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.18),0_1px_2px_rgb(0_0_0/0.12)] hover:bg-primary/88",
+          "bg-primary text-primary-foreground shadow-xs hover:bg-primary/88",
         outline:
-          "bg-(--control) text-foreground hover:bg-(--control-hover) aria-expanded:bg-(--control-hover) aria-expanded:text-accent-foreground",
+          "border-border bg-card text-foreground shadow-xs hover:bg-(--control) aria-expanded:bg-(--control) aria-expanded:text-accent-foreground",
         secondary:
           "bg-(--control) text-secondary-foreground hover:bg-(--control-hover) aria-expanded:bg-(--control-hover) aria-expanded:text-secondary-foreground",
         ghost:
@@ -43,7 +42,7 @@ const buttonVariants = cva(
       },
       size: {
         default:
-          "h-9 gap-1.5 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+          "h-9 gap-1.5 px-3.5 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
         xs: "h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-8 gap-1 px-3 text-[0.8rem] has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-10 gap-2 px-5 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4",

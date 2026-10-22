@@ -89,7 +89,7 @@ function ChangeCell({
 }
 
 /**
- * A 2px rule under the decision score showing where it sits on 0-100.
+ * A 4px rule under the decision score showing where it sits on 0-100.
  *
  * A column of bare four-character numbers gives the eye nothing to grab: to
  * compare two rows you have to actually read and subtract them. The rule turns
@@ -109,16 +109,19 @@ function ScoreMeter({
 }) {
   if (score === null || score === undefined) return null;
   const pct = Math.max(0, Math.min(100, score));
+  const token = ratingToken(rating);
   return (
     <span
-      className="mt-1 block h-0.5 w-full overflow-hidden rounded-full bg-muted"
+      className="mt-1 block h-1 w-full overflow-hidden rounded-[1px] bg-muted"
       aria-hidden
     >
       <span
-        className="block h-full rounded-full transition-[width] duration-(--duration-slow) ease-(--ease-entrance)"
+        className="block h-full rounded-[1px] transition-[width] duration-(--duration-slow) ease-(--ease-entrance)"
         style={{
           width: `${pct}%`,
-          background: `var(--rating-${ratingToken(rating)})`,
+          // HOLD's fill is the ramp's palest step, a swatch colour that all
+          // but vanishes on the muted track; its edge tone is the same band.
+          background: `var(--rating-${token}${token === "hold" ? "-edge" : ""})`,
         }}
       />
     </span>

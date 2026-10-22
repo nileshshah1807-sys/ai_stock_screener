@@ -32,7 +32,7 @@ export function PanelHeader({
       <div className="flex items-center gap-2">
         <h2 className="text-lead font-semibold tracking-[-0.011em]">{title}</h2>
         {tag ? (
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+          <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
             {tag}
           </span>
         ) : null}
@@ -44,7 +44,7 @@ export function PanelHeader({
             aria-controls={infoId}
             aria-label={`About ${title}`}
             className={cn(
-              "ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               open && "bg-muted text-foreground",
             )}
           >

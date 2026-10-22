@@ -54,7 +54,7 @@ export type ChartTone = keyof typeof TONES;
 
 /** The chip in a card's corner: "View list", or a link onward. */
 const CHIP = cn(
-  "-mt-1 -mr-1 inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground",
+  "-mt-1 -mr-1 inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground",
   "transition-[background-color,color,transform] duration-(--duration-fast) ease-(--ease-standard)",
   "hover:bg-(--control-hover) hover:text-foreground",
   "active:scale-[0.95] active:duration-(--duration-press)",

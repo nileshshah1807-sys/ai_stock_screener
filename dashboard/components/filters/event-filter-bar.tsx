@@ -30,7 +30,7 @@ export type EventFilterFacet = { param: string; label: string; options: FilterOp
 type Draft = { metric: string; op: string; value: string };
 
 const SELECT_CLASS =
-  "h-8 min-w-0 rounded-full border border-transparent bg-(--control) px-3 text-sm outline-none hover:bg-(--control-hover) focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
+  "h-8 min-w-0 rounded-md border border-input bg-card px-3 text-sm shadow-xs outline-none hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
 
 /**
  * The rules popover: each row is a figure, a comparison and a value, and all

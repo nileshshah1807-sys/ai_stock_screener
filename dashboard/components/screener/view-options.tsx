@@ -168,7 +168,7 @@ export function ViewOptions({ factorModel = false }: { factorModel?: boolean }) 
                     aria-pressed={density === option.value}
                     onClick={() => setDensity(option.value)}
                     className={cn(
-                      "inline-flex h-8 flex-1 items-center justify-center rounded-full border text-xs font-medium",
+                      "inline-flex h-8 flex-1 items-center justify-center rounded-md border text-xs font-medium",
                       "transition-colors duration-(--duration-fast) ease-(--ease-standard)",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       density === option.value

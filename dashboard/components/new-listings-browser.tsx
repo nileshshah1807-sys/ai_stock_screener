@@ -97,7 +97,7 @@ export function NewListingsBrowser({
                 }}
                 onClick={() => setStatus(chip.key)}
                 className={cn(
-                  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-xs font-medium whitespace-nowrap",
+                  "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md px-3.5 text-xs font-medium whitespace-nowrap",
                   "transition-[background-color,color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
                   "active:scale-[0.95] active:duration-(--duration-press) active:ease-out",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -127,7 +127,7 @@ export function NewListingsBrowser({
               setQuery("");
               setStatus("all");
             }}
-            className="mt-2 inline-flex items-center gap-1 rounded-full text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="mt-2 inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="size-3" aria-hidden />
             Clear search

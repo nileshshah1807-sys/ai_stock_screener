@@ -150,7 +150,7 @@ export function LiveMoversSkeleton() {
         <Skeleton className="h-5 w-40" />
         <Skeleton className="h-4 w-full max-w-md" />
       </div>
-      <Skeleton className="h-10 w-full max-w-xl rounded-full" />
+      <Skeleton className="h-10 w-full max-w-xl rounded-md" />
       <div className="panel overflow-hidden">
         <div className="border-b px-4 py-3">
           <Skeleton className="h-9 w-56" />
@@ -326,7 +326,7 @@ function IndexSummary({ market, index }: { market: Market; index: LiveIndexMover
       <Link
         href={marketPath(market.slug, `/indices/${indexSlug(index.name)}`)}
         className={cn(
-          "inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground sm:ml-auto",
+          "inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground sm:ml-auto",
           "transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard)",
           "hover:bg-(--control-hover) hover:text-foreground",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

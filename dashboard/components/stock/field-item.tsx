@@ -45,7 +45,7 @@ export function FieldItem({
             className={cn(
               // A 24px target around a 12px glyph; the negative margin keeps
               // the label's line height unchanged.
-              "-my-1.5 inline-flex size-6 items-center justify-center rounded-full transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "-my-1.5 inline-flex size-6 items-center justify-center rounded-md transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               open && "text-foreground",
             )}
           >

@@ -206,7 +206,7 @@ export default async function ResultsPage({
               <Link
                 href={`${base}?${moreParams.toString()}`}
                 scroll={false}
-                className="inline-flex items-center rounded-full border px-4 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex items-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Show more results
               </Link>

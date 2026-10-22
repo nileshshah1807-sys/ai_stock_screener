@@ -373,7 +373,7 @@ function History({
           <button
             type="button"
             onClick={() => setShown((count) => count + NEXT_PAGE)}
-            className="rounded-full px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-md px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Show {Math.min(NEXT_PAGE, remaining)} earlier ({remaining} left)
           </button>
@@ -475,7 +475,7 @@ function Names({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="rounded-full px-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="rounded-md px-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           +{hidden} more
         </button>
@@ -626,7 +626,7 @@ function Closed({ trades, market, costs }: { trades: ClosedTrade[]; market: Mark
           <button
             type="button"
             onClick={() => setShown((count) => count + CLOSED_PAGE * 2)}
-            className="rounded-full px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-md px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Show {Math.min(CLOSED_PAGE * 2, remaining)} more ({remaining} left)
           </button>

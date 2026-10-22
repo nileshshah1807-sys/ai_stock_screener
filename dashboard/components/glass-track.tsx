@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 type Box = { x: number; y: number; w: number; h: number };
 
 /**
- * A glass capsule whose selected item is marked by a lens that glides between
+ * A track whose selected item is marked by a lens that glides between
  * items, the way an iOS segmented control or tab bar does.
  *
  * Two details carry the feel, and both are about latency:
@@ -39,6 +39,7 @@ const SELECTED =
 export function GlassTrack({
   label,
   role,
+  variant = "track",
   className,
   lensClassName,
   onKeyDown,
@@ -50,6 +51,12 @@ export function GlassTrack({
    * segmented choice, rather than navigation links.
    */
   role?: "tablist" | "radiogroup";
+  /**
+   * `track` is a recessed segmented control whose selection is a raised chip.
+   * `tabs` has no track at all: the selection is a 2px underline along the
+   * item's bottom edge, for a row of top-level destinations.
+   */
+  variant?: "track" | "tabs";
   className?: string;
   lensClassName?: string;
   onKeyDown?: React.KeyboardEventHandler<HTMLElement>;
@@ -135,7 +142,11 @@ export function GlassTrack({
       ref={track}
       aria-label={label}
       role={role}
-      className={cn("glass relative isolate flex rounded-full", className)}
+      className={cn(
+        "relative isolate flex",
+        variant === "track" && "glass rounded-lg",
+        className,
+      )}
       onPointerDown={onPointerDown}
       onKeyDown={onKeyDown}
       onKeyUp={(event) => {
@@ -146,7 +157,10 @@ export function GlassTrack({
         <span
           aria-hidden
           className={cn(
-            "lens pointer-events-none absolute top-0 left-0 -z-10 rounded-full",
+            "pointer-events-none absolute top-0 left-0 -z-10",
+            variant === "track"
+              ? "lens rounded-md"
+              : "after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-foreground",
             animate &&
               "transition-[transform,width,height] duration-(--duration-spring-bouncy) ease-(--ease-spring) motion-reduce:transition-none",
             lensClassName,

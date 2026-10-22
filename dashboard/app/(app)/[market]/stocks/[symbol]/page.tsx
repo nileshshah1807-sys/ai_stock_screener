@@ -758,7 +758,7 @@ export default async function StockPage({
         <div className="panel p-5 sm:p-6">
           <Link
             href={marketPath(market.slug)}
-            className="inline-flex items-center gap-1 rounded-full text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ArrowLeft className="size-3" aria-hidden />
             Back to screener
@@ -955,7 +955,7 @@ export default async function StockPage({
                     }
                   >
                     <div className="grid items-start gap-6 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-8">
-                      {/* One line under the ring: what the gates do to the
+                      {/* One line under the score: what the gates do to the
                           rating. Since Model 5.1 they hold the rating down and
                           leave this score alone, so "capped" under an
                           unchanged number read as a contradiction. */}
@@ -1285,7 +1285,7 @@ function NewListingView({
       <div className="panel p-5 sm:p-6">
         <Link
           href={marketPath(market.slug, "/new-listings")}
-          className="inline-flex items-center gap-1 rounded-full text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ArrowLeft className="size-3" aria-hidden />
           New listings

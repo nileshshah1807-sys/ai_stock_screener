@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { ratingToken } from "@/lib/format";
 
 /**
- * Rating pill.
+ * Rating badge.
  *
  * Solid fill with a darker edge of the same hue. The edge is not decoration:
  * four of the five fills measure between 1.4:1 and 1.8:1 against the light
@@ -57,7 +57,7 @@ export function RatingBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 whitespace-nowrap rounded-full font-semibold uppercase tracking-wide ring-1 ring-inset",
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-[0.3125rem] font-semibold uppercase tracking-wide ring-1 ring-inset",
         size === "sm" ? "px-1.5 py-0.5 text-[10px]" : "px-2.5 py-1 text-xs",
         RATING_STYLES[token] ?? RATING_STYLES.hold,
         className,

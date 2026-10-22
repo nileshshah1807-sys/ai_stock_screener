@@ -74,7 +74,7 @@ export function SegmentedControl<T extends string>({
     <GlassTrack
       label={label}
       role={kind === "tabs" ? "tablist" : "radiogroup"}
-      className={cn("w-max gap-0.5 p-1", className)}
+      className={cn("w-max gap-0.5 p-0.5", className)}
       onKeyDown={onKeyDown}
     >
       {options.map((option) => {
@@ -101,14 +101,13 @@ export function SegmentedControl<T extends string>({
             }}
             onClick={() => onChange(option.value)}
             className={cn(
-              "relative inline-flex items-center justify-center whitespace-nowrap rounded-full",
-              size === "md" ? "min-h-9 px-5 text-sm" : "min-h-8 min-w-10 px-3 text-[0.8125rem] sm:px-3.5",
+              "relative inline-flex items-center justify-center whitespace-nowrap rounded-md",
+              size === "md" ? "min-h-8 px-4 text-sm" : "min-h-7 min-w-10 px-3 text-[0.8125rem]",
               "transition-[color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
               "active:scale-[0.95] active:duration-(--duration-press) active:ease-out",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
-              active
-                ? "font-semibold text-foreground"
-                : "font-medium text-muted-foreground hover:text-foreground",
+              "font-medium",
+              active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {option.label}

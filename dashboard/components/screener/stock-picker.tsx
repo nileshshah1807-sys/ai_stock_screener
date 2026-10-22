@@ -245,7 +245,7 @@ export function StockPicker({
       role="presentation"
     >
       <div
-        className="glass-thick w-full max-w-lg overflow-hidden rounded-[1.75rem] animate-in fade-in-0 zoom-in-[0.97] slide-in-from-top-2 duration-(--duration-spring) ease-(--ease-spring-smooth)"
+        className="glass-thick w-full max-w-lg overflow-hidden rounded-(--radius-glass) animate-in fade-in-0 zoom-in-[0.97] slide-in-from-top-2 duration-(--duration-spring) ease-(--ease-spring-smooth)"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -287,7 +287,7 @@ export function StockPicker({
                   setCursor(0);
                 }}
                 className={cn(
-                  "h-7 rounded-full px-3 text-xs font-medium",
+                  "h-7 rounded-md px-3 text-xs font-medium",
                   "transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard)",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   kind === option.value
@@ -330,7 +330,7 @@ export function StockPicker({
               </li>
             ) : null;
             const optionClass = cn(
-              "flex w-full items-center gap-3 rounded-[1rem] px-3 py-2 text-left",
+              "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left",
               active ? "bg-(--control-hover)" : "hover:bg-(--control)",
             );
 

@@ -332,21 +332,21 @@ export function ReturnsView({ report, market }: { report: Report; market: Market
           ) : null}
           {report.backtestRounds ? (
             <span
-              className="rounded-full border border-caution/40 bg-caution/10 px-2 py-0.5 text-[11px] font-medium text-caution"
+              className="rounded-md border border-caution/40 bg-caution/10 px-2 py-0.5 text-[11px] font-medium text-caution"
               title="Built on backtest rankings over the period the model was fitted on"
             >
               {report.backtestRounds === rounds ? "Backtest" : "Mostly backtest"} · in-sample
             </span>
           ) : null}
           {report.shortRounds ? (
-            <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
               Short on {report.shortRounds} of {rounds}
             </span>
           ) : null}
           <Popover>
             <PopoverTrigger
               aria-label="About this result"
-              className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Info className="size-4" aria-hidden />
             </PopoverTrigger>
@@ -753,7 +753,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
           <Popover>
             <PopoverTrigger
               aria-label={`About ${label}`}
-              className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="inline-flex size-5 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Info className="size-3.5" aria-hidden />
             </PopoverTrigger>

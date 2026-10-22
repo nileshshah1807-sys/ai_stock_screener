@@ -66,7 +66,7 @@ export function FilterMultiSelect({
       >
         {label}
         {selected.length ? (
-          <span className="tabular rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground">
+          <span className="tabular rounded-md bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground">
             {selected.length}
           </span>
         ) : null}
@@ -100,7 +100,7 @@ export function FilterMultiSelect({
                 <li key={option.value}>
                   <label
                     htmlFor={optionId}
-                    className="flex cursor-pointer items-center gap-2.5 rounded-[0.75rem] px-2 py-1.5 text-sm hover:bg-(--control-hover)"
+                    className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-(--control-hover)"
                   >
                     <Checkbox
                       id={optionId}

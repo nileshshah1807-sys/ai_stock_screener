@@ -276,7 +276,7 @@ export function MarketDashboard({
             action={
               <Link
                 href={marketPath(market.slug, "/indices")}
-                className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard) hover:bg-(--control-hover) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard) hover:bg-(--control-hover) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 All indices
                 <ChevronRight className="size-3.5" aria-hidden />

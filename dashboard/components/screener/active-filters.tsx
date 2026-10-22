@@ -116,14 +116,14 @@ export function ActiveFilters() {
       {chips.map((chip) => (
         <span
           key={`${chip.key}:${chip.value ?? ""}`}
-          className="inline-flex h-7 items-center gap-1 rounded-full border bg-muted pl-2.5 pr-1 text-[11px] font-medium"
+          className="inline-flex h-7 items-center gap-1 rounded-md border bg-muted pl-2.5 pr-1 text-[11px] font-medium"
         >
           {chip.label}
           <button
             type="button"
             onClick={() => remove(chip.key, chip.value)}
             aria-label={`Remove filter ${chip.label}`}
-            className="rounded-full p-0.5 text-muted-foreground transition-colors duration-(--duration-fast) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-md p-0.5 text-muted-foreground transition-colors duration-(--duration-fast) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="size-3" aria-hidden />
           </button>

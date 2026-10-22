@@ -82,14 +82,14 @@ export default async function IndexPage({ params, searchParams }: PageProps<"/[m
       <div>
         <Link
           href={marketPath(market.slug, "/indices")}
-          className="inline-flex items-center gap-1 rounded-full text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ArrowLeft className="size-3" aria-hidden />
           All indices
         </Link>
         <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h1 className="text-title font-semibold">{info.name}</h1>
-          <span className="rounded-full bg-(--control) px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+          <span className="rounded-md bg-(--control) px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
             {market.label}
           </span>
         </div>
@@ -168,7 +168,7 @@ export default async function IndexPage({ params, searchParams }: PageProps<"/[m
                   <li
                     key={member.symbol}
                     title={member.company ?? undefined}
-                    className="rounded-full bg-(--control) px-2.5 py-1 text-xs"
+                    className="rounded-md bg-(--control) px-2.5 py-1 text-xs"
                   >
                     <span className="font-mono font-semibold">{member.symbol}</span>
                     {member.company ? (

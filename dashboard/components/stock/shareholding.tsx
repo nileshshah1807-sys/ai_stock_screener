@@ -105,7 +105,7 @@ function QuarterTable({
                 <th scope="row" className={ROW_HEAD}>
                   <span className="whitespace-nowrap">{row.label}</span>
                   {row.group ? (
-                    <span className="ml-2 rounded-full bg-(--control) px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    <span className="ml-2 rounded-md bg-(--control) px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
                       {GROUP_LABEL[row.group]}
                     </span>
                   ) : null}

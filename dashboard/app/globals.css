@@ -10,9 +10,9 @@
   --font-sans: var(--font-sans);
   /*
    * There is no separate monospace face. `font-mono` is retained as a token
-   * because ~30 components ask for it, but it now resolves to the same Satoshi
-   * as everything else -- what those call sites actually need is *aligned
-   * figures*, not a different typeface, and Satoshi's `tnum` provides that.
+   * because ~30 components ask for it, but it resolves to the same Geist as
+   * everything else -- what those call sites actually need is *aligned
+   * figures*, not a different typeface, and Geist's `tnum` provides that.
    * The alignment is applied by the `.font-mono` rule in the base layer below.
    */
   --font-mono: var(--font-sans);
@@ -47,8 +47,11 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
 
-  /* The mock's floating outer sheet. */
   --color-workspace: var(--workspace);
+  --color-border-strong: var(--border-strong);
+  /* The accent: focus, selection, links, the active view. Nothing else. */
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
 
   /* Rating scale, exposed as utilities (bg-rating-buy, text-rating-sell, ...).
      Each fill is paired with the label colour that clears 4.5:1 on it, so a
@@ -84,66 +87,57 @@
 
 /*
  * ---------------------------------------------------------------------------
- * Type scale, ported from the Figma file (node 1:1048 / 1:844).
+ * Type scale
  * ---------------------------------------------------------------------------
  *
- * The Figma file reports its typeface as "Liberation Sans", which is not a
- * design decision -- it is the metric-compatible Arial substitute Figma falls
- * back to when a file carries no embedded font. What the file *does* specify,
- * and what actually carries its character, is the scale: a very large display
- * figure with tight negative tracking, then a sharp drop to a 14px working
- * size. Those sizes and tracking values are reproduced exactly below; the
- * typeface itself is chosen in app/layout.tsx.
- *
- * Line heights are the mock's literal pixel values rather than ratios, because
- * the mock's vertical rhythm depends on them landing on the 4px grid.
+ * Five working steps and two display steps, and no others: rank is carried by
+ * weight and colour before it is carried by another size. The working size is
+ * 14px (Tailwind's text-sm); 12px (text-xs) is the label and caption step.
+ * Display steps are fluid so a three-word title does not wrap three times on
+ * a 375px phone, and track tighter as they grow, which is what keeps a large
+ * Geist heading reading as set rather than enlarged. The display, title and
+ * heading steps carry semibold as their default weight, so a heading set
+ * without a weight class still reads as one.
  */
 @theme {
-  /*
-   * The two display sizes are fluid. The mock's 64px and 36px are correct at
-   * its own 1280px artboard and too large at 375px, where a 36px title wraps a
-   * three-word heading onto three lines. Each clamp lands on the mock's exact
-   * value at desktop and steps down to a size that still reads as display type
-   * on a phone. Line height goes unitless here because a fixed px leading
-   * cannot follow a changing font size.
-   */
+  /* 32 -> 44 -- a standalone figure: the score on a stock page */
+  --text-display: clamp(2rem, 3.6vw, 2.75rem);
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.035em;
+  --text-display--font-weight: 600;
 
-  /* 40 -> 64/1.125, -1.6px at full size -- the KPI figure */
-  --text-display: clamp(2.5rem, 5vw, 4rem);
-  --text-display--line-height: 1.125;
-  --text-display--letter-spacing: -0.025em;
+  /* 24 -> 30 -- page title */
+  --text-title: clamp(1.5rem, 2.4vw, 1.875rem);
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: -0.03em;
+  --text-title--font-weight: 600;
 
-  /* 28 -> 36/1.22, -0.72px at full size -- page title */
-  --text-title: clamp(1.75rem, 3.2vw, 2.25rem);
-  --text-title--line-height: 1.22;
-  --text-title--letter-spacing: -0.02em;
+  /* 18/26 -- section heading, brand */
+  --text-heading: 1.125rem;
+  --text-heading--line-height: 1.625rem;
+  --text-heading--letter-spacing: -0.015em;
+  --text-heading--font-weight: 600;
 
-  /* 24/32 -- card heading and brand */
-  --text-heading: 1.5rem;
-  --text-heading--line-height: 2rem;
-  --text-heading--letter-spacing: -0.011em;
+  /* 15/22 -- panel title, lead paragraph */
+  --text-lead: 0.9375rem;
+  --text-lead--line-height: 1.375rem;
+  --text-lead--letter-spacing: -0.01em;
 
-  /* 18/28 -- lead paragraph */
-  --text-lead: 1.125rem;
-  --text-lead--line-height: 1.75rem;
-
-  /* 10/15 -- the mock's smallest chip label */
-  --text-micro: 0.625rem;
-  --text-micro--line-height: 0.9375rem;
+  /* 11/16 -- the smallest chip label */
+  --text-micro: 0.6875rem;
+  --text-micro--line-height: 1rem;
 
   /*
-   * Surface radii. The mock nests three levels of roundness -- a 40px outer
-   * workspace, 24px panels inside it, 16px rows inside those -- and reading
-   * that nesting is what makes the layout feel composed rather than flat.
-   * Dense controls keep the smaller `--radius` ramp above; these are for
-   * surfaces only.
+   * Surface radii. Tight on purpose: a 10px panel, an 8px row or inset block
+   * inside it, and 6px controls (the `--radius` ramp). Roundness past this
+   * reads as soft and consumer on a page of figures. The workspace is no
+   * longer a floating sheet, so its radius is zero.
    */
-  --radius-panel: 1.5rem;
-  --radius-row: 1rem;
-  --radius-workspace: 2.5rem;
-  /* Floating glass: menus, popovers, the command palette. Concentric with the
-     panel radius once their 6px inner padding is taken off. */
-  --radius-glass: 1.25rem;
+  --radius-panel: 0.625rem;
+  --radius-row: 0.5rem;
+  --radius-workspace: 0;
+  /* Menus, popovers, the command palette. */
+  --radius-glass: 0.625rem;
 
   /*
    * Motion. One duration ramp and one easing set for the whole interface, so
@@ -287,38 +281,18 @@
 }
 
 /*
- * Palette, ported from the Figma file (nodes 1:1048 and 1:844).
+ * Palette: one neutral scale, and colour only where it is data.
  *
- * Surfaces are the mock's literal values: a warm off-white card (#fdf8f8) on a
- * cool grey ground (#f2f2f2), a pure-white floating workspace above both, and
- * a recessed #f7f8fa for nav tracks, list rows and inset panels. Borders are
- * the mock's single hairline #eee. The primary is pure black, which is what
- * fills the mock's active nav pill and avatar.
+ * The chrome is a zinc ramp from a near-white ground to a near-black ink, on
+ * solid surfaces: a #fafafa ground, white panels and menus, 1px hairlines.
+ * There is no translucency and no ambient colour. The one accent is indigo,
+ * and it has exactly four jobs -- focus, selection, links and the active
+ * view -- so that every other hue on the page is a datum: the rating ramp,
+ * an up or down change, a chart series, a caution.
  *
- * RATING RAMP -- read this before changing it.
- *
- * The ramp below is the mock's: amber STRONG BUY, red BUY, purple HOLD. That
- * assignment is deliberate and was chosen by the project owner over an
- * explicit objection, which is recorded here so it is not silently "fixed"
- * later: red conventionally signals *down* in every other financial interface,
- * so a red BUY inverts the reader's prior. Two consequences follow, and both
- * are load-bearing:
- *
- *   1. The rating word is ALWAYS rendered next to the colour. Hue is never the
- *      only carrier of the BUY/SELL distinction (WCAG 1.4.1). With the
- *      conventional mapping broken, the label is not a nicety -- it is the
- *      only reliable signal, so it must never be reduced to a bare swatch.
- *
- *   2. These hues are used as SOLID FILLS, never as text colour. The mock uses
- *      them that way (bubbles, legend swatches, progress bars) and it is also
- *      the only way they pass contrast: #ffca28 as text on a light card is
- *      about 1.8:1. Each fill therefore carries an explicit foreground token
- *      below, chosen so the pair clears 4.5:1.
- *
- * REDUCE and SELL have no counterpart in the mock -- its legend defines only
- * the three ratings above. They are extended into desaturated blue-greys
- * rather than more reds, because the red slot is already spent on BUY and a
- * second red would make the two ends of the scale indistinguishable.
+ * The primary is near-black rather than the accent. A solid-black primary
+ * button is the strongest neutral the page has, and keeping indigo off the
+ * buttons is what lets it mean "you are here" without competition.
  */
 :root {
   /* Width of the grid's frozen ticker column. Declared once because the second
@@ -327,85 +301,62 @@
      logo, the ticker, and a truncated company name. */
   --sticky-col-w: 11.5rem;
 
-  /* iOS grouped-background grey, a touch cooler than the mock's #f2f2f2 so the
-     ambient colour field below reads as light rather than as a stain. */
-  --background: #eceef3;
-  --foreground: #1c1b1b;
-  /* Content is solid. Glass is reserved for the control layer that floats
-     above it (nav, menus, sheets); a 100-row grid of figures on a translucent
-     card would lose contrast every time the colour behind it changed. */
+  --background: #fafafa;
+  --foreground: #09090b;
   --card: #ffffff;
-  --card-foreground: #1c1b1b;
+  --card-foreground: #09090b;
   --popover: #ffffff;
-  --popover-foreground: #1c1b1b;
-  --primary: #000000;
-  --primary-foreground: #ffffff;
-  --secondary: #f4f5f8;
-  --secondary-foreground: #1c1b1b;
-  --muted: #f4f5f8;
-  --muted-foreground: #5e5e63; /* 6.0:1 on card */
-  --accent: #eef0f4;
-  --accent-foreground: #1c1b1b;
+  --popover-foreground: #09090b;
+  --primary: #18181b;
+  --primary-foreground: #fafafa;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #5f5f68; /* 6.4:1 on card, 6.1:1 on the ground */
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
   --destructive: #c62828;
-  /* The reference design's hairline is #eee, which measures 1.10:1 against the
-     card -- effectively invisible, and this interface leans on rules to
-     separate a 100-row grid and six KPI cells. Stepped to 1.34:1, which reads
-     as a boundary without turning the layout into a wireframe. */
-  --border: #d9d9de;
-  --input: #d9d9de;
-  --ring: #1c1b1b;
+  /* 1.26:1 against the card: a boundary, not a rule that competes with the
+     figures. --border-strong is for the one rule a table needs under its
+     header. */
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --input: #e4e4e7;
+  /* The accent. 6.3:1 on card as text. */
+  --ring: #4f46e5;
+  --brand: #4f46e5;
+  --brand-soft: #eef0ff;
 
-  /* The outermost sheet. Translucent over the ambient field so the page reads
-     as one pane of frosted material; the field behind it is already a soft
-     gradient, so no backdrop blur is needed to frost it -- which keeps a
-     3,000px-tall surface off the compositor's blur path entirely. */
-  --workspace: rgb(255 255 255 / 0.62);
-  --workspace-edge:
-    inset 0 1px 0 rgb(255 255 255 / 0.9), inset 0 0 0 1px rgb(255 255 255 / 0.5);
-
-  /* Ambient light. Three static, very low-chroma pools behind everything.
-     They never move: a drifting full-viewport background is a vestibular
-     trigger, and the glass only needs *something* to refract. */
-  --ambient-1: rgb(112 146 255 / 0.3);
-  --ambient-2: rgb(255 160 205 / 0.22);
-  --ambient-3: rgb(96 214 196 / 0.22);
+  /* The page itself. No longer a floating sheet: the workspace is the
+     ground, and the header is a solid bar above it. */
+  --workspace: var(--background);
+  --workspace-edge: none;
 
   /*
-   * Glass. Two weights, per Apple's rule that material weight encodes
-   * hierarchy: the lighter one for controls that sit in the page (nav track,
-   * account cluster), the thicker one for surfaces that float over content
-   * and must carry text (menus, popovers, sheets, the command palette).
-   *
-   * The specular edge is two inset strokes -- a brighter top line where light
-   * catches the rim, and a faint full-perimeter one -- plus a 0.5px outer
-   * hairline so the shape still holds over a white card.
+   * The control layer. Formerly frosted glass; now solid. `glass` is the
+   * recessed track a segmented control or a tab group sits in, `glass-thick`
+   * the floating surface of a menu, popover or sheet. The names are kept so
+   * the ~40 call sites follow the new material without an edit each.
    */
-  --glass: rgb(255 255 255 / 0.56);
-  --glass-thick: rgb(252 252 254 / 0.76);
-  --glass-blur: blur(20px) saturate(180%);
-  --glass-blur-thick: blur(40px) saturate(190%);
-  --glass-edge:
-    inset 0 1px 0 rgb(255 255 255 / 0.85), inset 0 0 0 1px rgb(255 255 255 / 0.4),
-    0 0 0 0.5px rgb(15 23 42 / 0.08);
-  --glass-shadow:
-    0 1px 2px rgb(15 23 42 / 0.05), 0 8px 24px -10px rgb(15 23 42 / 0.16);
+  --glass: var(--muted);
+  --glass-thick: var(--popover);
+  --glass-blur: none;
+  --glass-blur-thick: none;
+  --glass-edge: inset 0 0 0 1px var(--border);
+  --glass-shadow: none;
   --glass-shadow-lg:
-    0 2px 6px rgb(15 23 42 / 0.06), 0 24px 56px -16px rgb(15 23 42 / 0.28);
+    0 0 0 1px var(--border), 0 4px 6px -2px rgb(9 9 11 / 0.04),
+    0 16px 32px -8px rgb(9 9 11 / 0.12);
 
-  /* The lens: the selected segment inside a glass track. A lit, near-solid
-     bead rather than a black fill, which is how a selection reads on glass. */
-  --lens: #ffffff;
-  --lens-shadow:
-    0 0 0 0.5px rgb(15 23 42 / 0.06), 0 1px 1px rgb(15 23 42 / 0.04),
-    0 3px 10px -2px rgb(15 23 42 / 0.14);
+  /* The selected segment inside a track: a white chip with a hairline. */
+  --lens: var(--card);
+  --lens-shadow: 0 0 0 1px var(--border), 0 1px 2px rgb(9 9 11 / 0.06);
 
-  /* Recessed controls on a solid card: inputs, outline buttons. */
-  --control: rgb(118 118 128 / 0.1);
-  --control-hover: rgb(118 118 128 / 0.16);
+  /* Recessed controls on a solid card: secondary buttons, hovers. */
+  --control: #f4f4f5;
+  --control-hover: #e9e9ec;
 
-  /* The panel's rim, lighter than --border: a white card on a pale sheet
-     needs a hint of edge, not a rule. */
-  --panel-edge: rgb(15 23 42 / 0.07);
+  --panel-edge: var(--border);
 
   /*
    * Rating ramp: a conventional diverging green -> neutral -> red, with the
@@ -429,9 +380,9 @@
   --rating-buy: #4ade80;
   --rating-buy-fg: #14532d;
   --rating-buy-edge: #16a34a;
-  --rating-hold: #e2e8f0;
-  --rating-hold-fg: #334155;
-  --rating-hold-edge: #64748b;
+  --rating-hold: #e4e4e7;
+  --rating-hold-fg: #3f3f46;
+  --rating-hold-edge: #71717a;
   --rating-reduce: #fca5a5;
   --rating-reduce-fg: #7f1d1d;
   --rating-reduce-edge: #ef4444;
@@ -445,48 +396,44 @@
    * five-band classification; a percentage change is a signed quantity, and
    * the two would be actively confusing sharing a red.
    */
-  --positive: #00796b; /* 5.1:1 on card; #00897b measured 4.1 and failed */
+  --positive: #00796b; /* 5.1:1 on card */
   --negative: #c62828; /* 5.3:1 */
-  --caution: #b45309; /* 4.8:1; the mock's #ef6c00 measured 2.9 and failed */
+  --caution: #b45309; /* 4.8:1 */
 
   /* Chart series. Drawn from the rating ramp so a distribution chart and the
      badges beside it name the same band with the same colour, ordered
      STRONG BUY -> SELL. */
   --chart-1: #15803d;
   --chart-2: #4ade80;
-  --chart-3: #94a3b8;
+  --chart-3: #a1a1aa;
   --chart-4: #fca5a5;
   --chart-5: #b91c1c;
 
   /* A single-series line with no rating meaning -- market breadth, an index
-     level. The price chart's indigo, so every time series in the app shares
-     one ink. 6.3:1 on card. */
+     level, a price. The accent, so every time series in the app shares one
+     ink. 6.3:1 on card. */
   --chart-line: #4f46e5;
 
-  /* The mock is built on generous roundness: 40px workspace, 24px panels,
-     16px rows. This is the dense-control step; surfaces use --radius-panel. */
-  --radius: 0.625rem;
+  /* The control step; surfaces use --radius-panel. */
+  --radius: 0.5rem;
 
-  --elevation-panel:
-    0 1px 2px rgb(15 23 42 / 0.04), 0 10px 30px -18px rgb(15 23 42 / 0.18);
-  --elevation-workspace:
-    0 30px 60px -20px rgb(15 23 42 / 0.12), 0 10px 20px -8px rgb(15 23 42 / 0.04);
+  --elevation-panel: 0 1px 2px rgb(9 9 11 / 0.04);
+  --elevation-workspace: none;
 
   --sidebar: #ffffff;
-  --sidebar-foreground: #1c1b1b;
-  --sidebar-primary: #000000;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f7f8fa;
-  --sidebar-accent-foreground: #1c1b1b;
-  --sidebar-border: #d9d9de;
-  --sidebar-ring: #1c1b1b;
+  --sidebar-foreground: #09090b;
+  --sidebar-primary: #18181b;
+  --sidebar-primary-foreground: #fafafa;
+  --sidebar-accent: #f4f4f5;
+  --sidebar-accent-foreground: #18181b;
+  --sidebar-border: #e4e4e7;
+  --sidebar-ring: #4f46e5;
 }
 
 /*
- * Dark mode is a tonal counterpart, not an inversion. The mock is a light
- * design and defines no dark variant, so the neutrals below are derived: the
- * same three-step surface stack (ground / workspace / panel) rebuilt on a near
- * black, keeping the mock's warm cast in the panel.
+ * Dark mode is a tonal counterpart, not an inversion: a near-black ground,
+ * panels one step up, menus one step above those, and hairlines that hold
+ * the same boundary strength as in light.
  *
  * The rating fills are re-picked rather than reused. A fill must clear 3:1
  * against the surface it sits on to read as a component boundary, and the
@@ -496,51 +443,35 @@
  * themes.
  */
 .dark {
-  --background: #060608;
-  --foreground: #f5f5f5;
-  --card: #151518;
-  --card-foreground: #f5f5f5;
-  --popover: #232228;
-  --popover-foreground: #f5f5f5;
-  --primary: #ffffff;
-  --primary-foreground: #000000;
-  --secondary: #232228;
-  --secondary-foreground: #f5f5f5;
-  --muted: #232228;
-  --muted-foreground: #a1a0a8; /* 7.2:1 on card */
-  --accent: #232228;
-  --accent-foreground: #f5f5f5;
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #111113;
+  --card-foreground: #fafafa;
+  --popover: #18181b;
+  --popover-foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-foreground: #09090b;
+  --secondary: #1c1c1f;
+  --secondary-foreground: #fafafa;
+  --muted: #1c1c1f;
+  --muted-foreground: #a1a1aa; /* 7.6:1 on card */
+  --accent: #1c1c1f;
+  --accent-foreground: #fafafa;
   --destructive: #ff8a80;
-  /* Same reasoning on the dark ground: 1.27:1 -> 1.59:1. */
-  --border: #3a3944;
-  --input: #3a3944;
-  --ring: #d4d4d8;
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --input: #27272a;
+  --ring: #818cf8;
+  --brand: #818cf8;
+  --brand-soft: #1e1b4b;
 
-  --workspace: rgb(18 18 22 / 0.6);
-  --workspace-edge:
-    inset 0 1px 0 rgb(255 255 255 / 0.07), inset 0 0 0 1px rgb(255 255 255 / 0.04);
+  --glass-shadow-lg:
+    0 0 0 1px var(--border), 0 16px 32px -8px rgb(0 0 0 / 0.6);
+  --lens: #27272a;
+  --lens-shadow: 0 0 0 1px #3f3f46;
 
-  --ambient-1: rgb(76 96 255 / 0.2);
-  --ambient-2: rgb(176 70 210 / 0.13);
-  --ambient-3: rgb(20 170 150 / 0.12);
-
-  --glass: rgb(44 44 52 / 0.5);
-  --glass-thick: rgb(32 32 38 / 0.74);
-  --glass-edge:
-    inset 0 1px 0 rgb(255 255 255 / 0.12), inset 0 0 0 1px rgb(255 255 255 / 0.06),
-    0 0 0 0.5px rgb(0 0 0 / 0.6);
-  --glass-shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 10px 28px -10px rgb(0 0 0 / 0.7);
-  --glass-shadow-lg: 0 2px 6px rgb(0 0 0 / 0.4), 0 28px 64px -16px rgb(0 0 0 / 0.85);
-
-  --lens: rgb(255 255 255 / 0.14);
-  --lens-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.14), 0 0 0 0.5px rgb(255 255 255 / 0.08),
-    0 3px 10px -2px rgb(0 0 0 / 0.5);
-
-  --control: rgb(118 118 128 / 0.22);
-  --control-hover: rgb(118 118 128 / 0.3);
-
-  --panel-edge: rgb(255 255 255 / 0.07);
+  --control: #1c1c1f;
+  --control-hover: #27272a;
 
   /* Same ramp, re-picked for a dark ground. Every fill must clear 3:1 against
      the panel to read as a component; the light ramp's #15803d measures 1.6:1
@@ -552,9 +483,9 @@
   --rating-buy: #86efac;
   --rating-buy-fg: #052e16;
   --rating-buy-edge: #4ade80;
-  --rating-hold: #94a3b8;
-  --rating-hold-fg: #0f172a;
-  --rating-hold-edge: #cbd5e1;
+  --rating-hold: #a1a1aa;
+  --rating-hold-fg: #09090b;
+  --rating-hold-edge: #d4d4d8;
   --rating-reduce: #fecaca;
   --rating-reduce-fg: #7f1d1d;
   --rating-reduce-edge: #fca5a5;
@@ -568,24 +499,22 @@
 
   --chart-1: #22c55e;
   --chart-2: #86efac;
-  --chart-3: #94a3b8;
+  --chart-3: #71717a;
   --chart-4: #fecaca;
   --chart-5: #ef4444;
 
   --chart-line: #818cf8;
 
-  --elevation-panel:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.5);
-  --elevation-workspace: 0 30px 60px -20px rgb(0 0 0 / 0.7);
+  --elevation-panel: none;
 
-  --sidebar: #111013;
-  --sidebar-foreground: #f5f5f5;
-  --sidebar-primary: #ffffff;
-  --sidebar-primary-foreground: #000000;
-  --sidebar-accent: #232228;
-  --sidebar-accent-foreground: #f5f5f5;
-  --sidebar-border: #3a3944;
-  --sidebar-ring: #d4d4d8;
+  --sidebar: #111113;
+  --sidebar-foreground: #fafafa;
+  --sidebar-primary: #fafafa;
+  --sidebar-primary-foreground: #09090b;
+  --sidebar-accent: #1c1c1f;
+  --sidebar-accent-foreground: #fafafa;
+  --sidebar-border: #27272a;
+  --sidebar-ring: #818cf8;
 }
 
 @layer base {
@@ -602,22 +531,21 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  /*
-   * The ambient field. A fixed layer rather than `background-attachment:
-   * fixed`, which repaints the whole viewport on every scroll frame in
-   * WebKit. At z-index -1 in the root stacking context it paints above the
-   * canvas colour and below everything else.
-   */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background:
-      radial-gradient(55% 45% at 8% 0%, var(--ambient-1), transparent 70%),
-      radial-gradient(45% 40% at 92% 6%, var(--ambient-2), transparent 70%),
-      radial-gradient(60% 50% at 50% 104%, var(--ambient-3), transparent 70%);
+  /* Text selection and the caret are part of the design too: the accent,
+     softened, rather than the browser's default blue. */
+  ::selection {
+    background: color-mix(in oklab, var(--brand) 22%, transparent);
+  }
+  input,
+  textarea {
+    caret-color: var(--brand);
+  }
+
+  /* Thin neutral scrollbars, so a scrolling grid does not grow a grey
+     operating-system gutter beside the figures. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
   }
 
   /*
@@ -641,15 +569,14 @@
   /*
    * Everything that used to be "monospace" is really asking for two things:
    * figures that line up in a column, and letterforms that read literally.
-   * Both are features of Satoshi rather than a second typeface.
+   * Both are features of Geist rather than a second typeface.
    *
    *   tnum  -- fixed-width digits, so a column of prices aligns
    *   liga/calt off -- so a ticker like "MPSLTD" is never fused into a
    *                    ligature or contextually respaced
    *
-   * Slight positive tracking compensates for the loss of a true monospace's
-   * airiness; without it, tickers set in a geometric sans read as too tight
-   * against the rest of the row.
+   * No added tracking: Geist's figures are already spaced for columns, and
+   * positive tracking on top of them made tickers read as letter-spaced.
    */
   .font-mono,
   code,
@@ -658,7 +585,6 @@
   pre {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1, "liga" 0, "calt" 0;
-    letter-spacing: 0.01em;
   }
 
   /*
@@ -822,30 +748,15 @@
   }
 
   /*
-   * Display figures. The mock sets its big numerals in the sans face, not the
-   * mono one -- at 64px the mono's wide, low-contrast digits read as a code
-   * listing rather than a headline. Tabular figures are still required so a
-   * changing number does not reflow its own row.
-   */
-  /*
-   * Standalone display figures -- a KPI total, the score in the ring.
-   *
-   * Deliberately NOT tabular: General Sans ships no `tnum` feature and its
-   * digits are proportional by design ("1" advances 384 units against "0" at
-   * 630). Asking for tabular figures here would silently do nothing, so the
-   * declaration is omitted rather than left in as a lie. These are single
-   * figures rather than a column, so proportional spacing is also the better
-   * look -- it is what the reference design uses for its own large numbers.
-   *
-   * Anything that must align down a column uses `.tabular` on the mono face.
+   * Standalone display figures -- a KPI total, the score on a stock page.
+   * Proportional on purpose: a single large figure is better spaced with
+   * Geist's default digits, and it is not a column. Anything that must align
+   * uses `.tabular` instead.
    */
   .numeral {
     @apply font-sans;
-    /* Proportional on purpose: this is a single large figure, not a column,
-       and Satoshi's default (non-tnum) digits are better spaced at display
-       size. Anything that must align uses `.tabular` instead. */
     font-variant-numeric: proportional-nums;
-    letter-spacing: -0.03em;
+    letter-spacing: -0.035em;
   }
 
   /*
@@ -918,90 +829,39 @@
  * Declared with @utility rather than inside @layer utilities so they take
  * variants (`md:glass`, `data-open:glass-thick`) like any generated class.
  *
- * The rule these encode: glass is the *control* layer. Content -- panels, the
- * grid, charts -- stays on solid --card, and glass floats above it. Stacking
- * one light translucent surface on another is what makes glassmorphism
- * illegible, so nothing here is meant to sit inside another glass surface.
+ * The names are historical -- these were frosted glass -- and every surface
+ * they paint is now solid. `glass` is a recessed track: the muted ground a
+ * segmented control or tab group sits in. `glass-thick` is a floating
+ * surface: a menu, popover, sheet or dialog, opaque, with a hairline edge and
+ * the app's one drop shadow.
  */
 @utility glass {
   background-color: var(--glass);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  box-shadow: var(--glass-edge), var(--glass-shadow);
+  box-shadow: var(--glass-edge);
 }
 
 @utility glass-thick {
   background-color: var(--glass-thick);
-  -webkit-backdrop-filter: var(--glass-blur-thick);
-  backdrop-filter: var(--glass-blur-thick);
-  box-shadow: var(--glass-edge), var(--glass-shadow-lg);
+  box-shadow: var(--glass-shadow-lg);
 }
 
-/* The selected bead inside a glass track. */
+/* The selected segment inside a track. */
 @utility lens {
   background-color: var(--lens);
   box-shadow: var(--lens-shadow);
 }
 
-/* The outer sheet: translucent fill plus a lit rim, no blur (see --workspace). */
 @utility workspace-sheet {
   background-color: var(--workspace);
-  box-shadow: var(--workspace-edge), var(--elevation-workspace);
 }
 
-/*
- * Scroll edge effect for floating chrome. Instead of a 1px rule under a
- * sticky header, content passing beneath it softens: a blur that fades out
- * over the bottom of the bar, plus a tint of the ground so text beneath never
- * competes with the controls. Painted on ::before so the header's own
- * children are not inside the blur's backdrop root.
- */
-@utility scroll-edge {
-  &::before {
-    content: "";
-    position: absolute;
-    inset: 0 0 -1.25rem 0;
-    z-index: -1;
-    pointer-events: none;
-    background: linear-gradient(
-      to bottom,
-      color-mix(in oklab, var(--background) 70%, transparent) 0%,
-      transparent 100%
-    );
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
-    mask-image: linear-gradient(to bottom, #000 45%, transparent);
-  }
-}
-
-/*
- * Reduce Transparency: frost everything solid. The glass tokens are
- * overridden rather than every call site, so the whole control layer follows
- * one switch.
- */
-@media (prefers-reduced-transparency: reduce) {
-  :root,
-  .dark {
-    --glass: var(--popover);
-    --glass-thick: var(--popover);
-    --glass-blur: none;
-    --glass-blur-thick: none;
-    --workspace: var(--card);
-  }
-  body::before {
-    display: none;
-  }
-}
-
-/* Increase Contrast: near-solid surfaces with a defined edge. */
+/* Increase Contrast: a defined edge on every control surface. */
 @media (prefers-contrast: more) {
   :root,
   .dark {
-    --glass: var(--popover);
-    --glass-thick: var(--popover);
-    --panel-edge: var(--border);
-    --glass-edge: 0 0 0 1px var(--foreground);
-    --control: var(--muted);
+    --border: var(--muted-foreground);
+    --panel-edge: var(--muted-foreground);
+    --glass-edge: inset 0 0 0 1px var(--foreground);
   }
 }
 
