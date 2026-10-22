@@ -344,20 +344,20 @@ export function PriceChart({
         {/* Right-aligned only when it shares the row; a wrapped legend pinned
             right reads as detached from the buttons above it. */}
         <span className="flex w-full items-center gap-3 pt-1 text-[11px] text-muted-foreground sm:ml-auto sm:w-auto sm:pt-0">
+          {/* The 200 DMA's colour follows the theme, as its line does. A fixed
+              swatch matched the line only in dark mode. */}
           <Swatch color={MA50_COLOR} label="50 DMA" />
-          <Swatch color="#94a3b8" label="200 DMA" />
+          <Swatch color={palette(resolvedTheme === "dark").ma200} label="200 DMA" />
         </span>
       </div>
 
       <div ref={container} style={{ height }} />
 
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Split-adjusted closes from this project&rsquo;s own NSE archive &mdash; the
-        same series the model is scored on. Untraded sessions are left as gaps,
-        not filled; the most recent points come from the daily run and are
-        restated at the next rebuild.
+        Split-adjusted closes, the series the model scores. Gaps are untraded
+        sessions.
         {livePrice !== null
-          ? " Today\u2019s point is the live price, refreshed every five minutes; the averages use completed sessions only."
+          ? " Today\u2019s point is live, every five minutes; averages use completed sessions."
           : null}
       </p>
     </div>

@@ -115,7 +115,7 @@ export function CallOutlook({
   return (
     <section className="panel p-5 sm:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-heading font-semibold">What management said</h2>
+        <h2 className="text-lead font-semibold tracking-[-0.011em]">What management said</h2>
         <p className="text-[11px] text-muted-foreground">
           {outlook.callDate ? `Call of ${formatDate(outlook.callDate)} · ` : ""}
           {pending ? (

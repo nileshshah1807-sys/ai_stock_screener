@@ -81,7 +81,7 @@ export function ExpectationsGap({
   return (
     <section className="panel p-5 sm:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-heading font-semibold">Market expectations</h2>
+        <h2 className="text-lead font-semibold tracking-[-0.011em]">Market expectations</h2>
         <p className="text-[11px] text-muted-foreground">
           Not scored — the model reads filed history only
         </p>

@@ -15,7 +15,7 @@ import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
-import { FactorBlocks } from "@/components/stock/factor-blocks";
+import { FactorBlocks, researchBasisNote } from "@/components/stock/factor-blocks";
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
 import { RankHistoryChart } from "@/components/stock/rank-history-chart";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
@@ -87,6 +87,12 @@ function numeric(payload: Record<string, unknown>, key: string): number | null {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+/** Gain or loss colour, and none for a return that was not reported. */
+function changeTone(value: number | null | undefined): string {
+  if (value === null || value === undefined || value === 0) return "";
+  return value > 0 ? "text-positive" : "text-negative";
 }
 
 function reasons(value: unknown): string[] {
@@ -382,7 +388,7 @@ export default async function StockPage({
     },
     {
       label: "Points removed",
-      value: capEnforced ? `-${formatNumber(pointsRemoved as number, 2)}` : "0.00",
+      value: capEnforced ? `-${formatNumber(pointsRemoved as number, 2)}` : "None",
       tone: capEnforced ? "negative" : "muted",
       hint:
         capFlagged && !capEnforced
@@ -540,8 +546,21 @@ export default async function StockPage({
     },
   ];
 
+  // Headline-first: each panel below shows its first few fields (`visible`)
+  // and keeps the rest behind "Show more", so these lists lead with what a
+  // reader scans for and the full set stays one tap away.
   const fundamentalFields: Field[] = [
-    { label: "Model", value: row.fundamental_model ?? MISSING },
+    { label: "PE", value: formatNumber(row.pe_ratio, 1) },
+    { label: "ROE", value: formatRatioAsPercent(row.roe) },
+    {
+      label: "Debt / equity",
+      value: row.debt_to_equity === null
+        ? MISSING
+        : `${formatNumber(row.debt_to_equity / 100, 2)}×`,
+      hint: `${text(payload, "Debt_to_Equity_Source") === MISSING ? "Provider value" : `Source: ${text(payload, "Debt_to_Equity_Source")}`}; normalized from percentage points to a debt/equity multiple.`,
+    },
+    { label: "Revenue growth", value: formatRatioAsPercent(row.revenue_growth, 1, true) },
+    { label: "Earnings growth", value: formatRatioAsPercent(row.earnings_growth, 1, true) },
     {
       label: "Coverage",
       value: formatRatioAsPercent(row.fundamental_coverage, 0),
@@ -559,26 +578,14 @@ export default async function StockPage({
         : `${row.fund_fields_present ?? MISSING} of ${row.fund_fields_expected ?? MISSING} fields the selected sector model expects. BUY needs 55%, STRONG BUY 75%.`,
     },
     { label: "Fundamental score", value: formatScore(row.fundamental_score) },
-    { label: "Valuation pts", value: text(payload, "Fund_Valuation_Points") },
-    { label: "Quality pts", value: text(payload, "Fund_Quality_Points") },
-    { label: "Growth pts", value: text(payload, "Fund_Growth_Points") },
-    { label: "Income pts", value: text(payload, "Fund_Income_Points") },
-    { label: "PE", value: formatNumber(row.pe_ratio, 1) },
+    { label: "Model", value: row.fundamental_model ?? MISSING },
     { label: "PB", value: formatNumber(row.pb_ratio, 2) },
-    { label: "ROE", value: formatRatioAsPercent(row.roe) },
     {
       label: "ROA",
       value: formatRatioAsPercent(numeric(payload, "ROA")),
       hint: text(payload, "ROA_Source") === MISSING
         ? undefined
         : `Source: ${text(payload, "ROA_Source")}.`,
-    },
-    {
-      label: "Debt / equity",
-      value: row.debt_to_equity === null
-        ? MISSING
-        : `${formatNumber(row.debt_to_equity / 100, 2)}×`,
-      hint: `${text(payload, "Debt_to_Equity_Source") === MISSING ? "Provider value" : `Source: ${text(payload, "Debt_to_Equity_Source")}`}; normalized from percentage points to a debt/equity multiple.`,
     },
     {
       label: "Current ratio",
@@ -594,8 +601,10 @@ export default async function StockPage({
         ? "Recomputed against the completed-session price."
         : undefined,
     },
-    { label: "Revenue growth", value: formatRatioAsPercent(row.revenue_growth, 1, true) },
-    { label: "Earnings growth", value: formatRatioAsPercent(row.earnings_growth, 1, true) },
+    { label: "Valuation pts", value: text(payload, "Fund_Valuation_Points") },
+    { label: "Quality pts", value: text(payload, "Fund_Quality_Points") },
+    { label: "Growth pts", value: text(payload, "Fund_Growth_Points") },
+    { label: "Income pts", value: text(payload, "Fund_Income_Points") },
     { label: "Market cap", value: formatMoneyCompact(row.market_cap, market) },
   ];
 
@@ -616,15 +625,6 @@ export default async function StockPage({
         : "The observed score is shrunk toward neutral by this factor when inputs are missing.",
     },
     {
-      label: "Observed score",
-      value: formatScore(numeric(payload, "Technical_Observed_Score")),
-      hint: "Before the coverage shrink above.",
-    },
-    { label: "RSI 14", value: formatNumber(row.rsi_14, 1) },
-    { label: "ADX 14", value: formatNumber(row.adx_14, 1) },
-    { label: "MA20", value: formatMoney(numeric(payload, "MA20"), market, 1) },
-    { label: "MA50", value: formatMoney(ma50, market, 1) },
-    {
       label: "Price vs MA50",
       value: formatPercent(priceVsMa50, 2, true),
       hint: "Current completed-session price relative to the MA50 level.",
@@ -634,6 +634,15 @@ export default async function StockPage({
       value: formatPercent(numeric(payload, "MA50_Slope_Pct"), 2, true),
       hint: "Change in the MA50 itself over 20 trading sessions; it is not price versus MA50.",
     },
+    { label: "RSI 14", value: formatNumber(row.rsi_14, 1) },
+    { label: "ADX 14", value: formatNumber(row.adx_14, 1) },
+    {
+      label: "Observed score",
+      value: formatScore(numeric(payload, "Technical_Observed_Score")),
+      hint: "Before the coverage shrink.",
+    },
+    { label: "MA20", value: formatMoney(numeric(payload, "MA20"), market, 1) },
+    { label: "MA50", value: formatMoney(ma50, market, 1) },
     { label: "1M change", value: formatPercent(row.pct_change_1m, 1, true) },
     { label: "3M change", value: formatPercent(row.pct_change_3m, 1, true) },
     { label: "6M change", value: formatPercent(row.pct_change_6m, 1, true) },
@@ -658,11 +667,11 @@ export default async function StockPage({
           ? undefined
           : "Neutral audit evidence: contributes zero to the score.",
     },
-    { label: "Valuation score", value: formatScore(row.dcf_valuation_score) },
     { label: "Base-case upside", value: formatRatioAsPercent(row.dcf_base_case_upside, 1, true) },
+    { label: "Implied 5Y FCF CAGR", value: formatRatioAsPercent(numeric(payload, "DCF_Implied_FCF_CAGR")) },
+    { label: "Valuation score", value: formatScore(row.dcf_valuation_score) },
     { label: "Assessment", value: row.dcf_assessment ?? MISSING },
     { label: "FCF yield", value: formatRatioAsPercent(numeric(payload, "DCF_FCF_Yield")) },
-    { label: "Implied 5Y FCF CAGR", value: formatRatioAsPercent(numeric(payload, "DCF_Implied_FCF_CAGR")) },
     { label: "Implied terminal growth", value: formatRatioAsPercent(numeric(payload, "DCF_Implied_Terminal_Growth")) },
     { label: "Discount rate", value: formatRatioAsPercent(numeric(payload, "DCF_Discount_Rate")) },
     { label: "Cash-flow basis", value: text(payload, "DCF_Cash_Flow_Basis") },
@@ -670,6 +679,9 @@ export default async function StockPage({
 
   const transcriptFields: Field[] = [
     { label: "Status", value: row.transcript_status ?? MISSING },
+    { label: "Call date", value: formatDate(text(payload, "Transcript_Call_Date")) },
+    { label: "Tone score", value: formatScore(row.transcript_score) },
+    { label: "Outlook score", value: formatScore(numeric(payload, "Transcript_Outlook_Score")) },
     {
       label: "Scoring eligible",
       value: row.transcript_scoring_eligible ? "Yes" : "No",
@@ -680,10 +692,7 @@ export default async function StockPage({
     },
     { label: "Evidence period", value: text(payload, "Transcript_Evidence_Period") },
     { label: "Expected period", value: text(payload, "Transcript_Expected_Period") },
-    { label: "Call date", value: formatDate(text(payload, "Transcript_Call_Date")) },
     { label: "Age (days)", value: row.transcript_age_days ?? MISSING },
-    { label: "Tone score", value: formatScore(row.transcript_score) },
-    { label: "Outlook score", value: formatScore(numeric(payload, "Transcript_Outlook_Score")) },
     { label: "Guidance", value: row.transcript_guidance ?? MISSING },
     { label: "Risk", value: text(payload, "Transcript_Risk") },
     { label: "Management confidence", value: text(payload, "Transcript_Management_Confidence") },
@@ -692,15 +701,23 @@ export default async function StockPage({
   const liquidityFields: Field[] = [
     { label: "Grade", value: row.liquidity_grade ?? MISSING },
     {
-      label: "Executable",
+      // Describes the stock's liquidity, not an instruction: research, not
+      // advice. "Executable" read as a go-ahead.
+      label: "Buildable at size",
       value: row.portfolio_actionable ? "Yes" : "No",
       tone: row.portfolio_actionable ? "positive" : "caution",
     },
     { label: "20D median turnover", value: formatMoneyCompact(row.median_turnover_20d_inr, market) },
-    { label: "NSE impact cost", value: formatPercent(row.nse_impact_cost_pct, 2) },
-    { label: "NSE group", value: text(payload, "NSE_Liquidity_Group") },
+    // Impact cost and the liquidity group are the exchange's own figures and
+    // are collected on NSE only; elsewhere the label would sit over a dash.
+    ...(market.nseEvidence
+      ? [
+          { label: "NSE impact cost", value: formatPercent(row.nse_impact_cost_pct, 2) },
+          { label: "NSE group", value: text(payload, "NSE_Liquidity_Group") },
+        ]
+      : []),
     { label: "Est. build days", value: formatNumber(row.portfolio_estimated_build_days, 1) },
-    { label: "Actionable rank", value: row.actionable_rank ?? MISSING },
+    { label: "Rank among buildable", value: row.actionable_rank ?? MISSING },
     { label: "Trading frequency 60D", value: formatPercent(numeric(payload, "Trading_Frequency_60D"), 1) },
   ];
 
@@ -729,7 +746,7 @@ export default async function StockPage({
     */
     <ZoomIn className="space-y-4 px-4 py-5 sm:px-6">
         {/*
-          Hero band. The headline figures -- price, 1M, 3M, market cap, rank --
+          Hero band. The headline figures -- rank, score, price, 1D, 1M, 3M --
           and the price chart are pulled up here rather than sitting in cards
           further down. The previous header used a full-width row for a ticker
           and a company name and nothing else, leaving most of the fold empty
@@ -754,10 +771,16 @@ export default async function StockPage({
               size="lg"
             />
             <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h1 className="font-mono text-[1.75rem] font-bold leading-tight tracking-tight">
-                {row.symbol}
+              {/* The company is part of the heading: a screen reader that
+                  lands here should hear which company, not a bare ticker. */}
+              <h1 className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className="font-mono text-[1.75rem] font-bold leading-tight tracking-tight">
+                  {row.symbol}
+                </span>
+                <span className="text-heading font-normal text-muted-foreground">
+                  {row.company}
+                </span>
               </h1>
-              <p className="text-heading text-muted-foreground">{row.company}</p>
               <EntryBadge row={row} size="md" />
             </div>
             {/* Right-aligned, beside the identity rather than down with the
@@ -774,13 +797,35 @@ export default async function StockPage({
 
           <p className="mt-1.5 text-xs text-muted-foreground">
             {row.sector ?? MISSING}
-            {row.industry ? ` · ${row.industry}` : ""} · Rank{" "}
-            {row.investment_rank ?? MISSING} of {run.row_count} · Bar{" "}
+            {row.industry ? ` · ${row.industry}` : ""} · Market cap{" "}
+            {formatMoneyCompact(row.market_cap, market)} · Prices as of{" "}
             {formatDate(row.price_bar_as_of ?? run.price_bar_as_of)}
           </p>
 
-          <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border sm:grid-cols-3 lg:grid-cols-5">
+          {/*
+            Rank and score lead: they are what the page exists to explain, and
+            every panel below is evidence for them. Six tiles also fill the 2-
+            and 3-column phone and tablet grids exactly; five left a hole.
+          */}
+          <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border sm:grid-cols-3 lg:grid-cols-6">
             {[
+              {
+                label: "Rank",
+                value: (
+                  <>
+                    {row.investment_rank ?? MISSING}
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">
+                      of {formatNumber(run.row_count, 0)}
+                    </span>
+                  </>
+                ),
+                tone: "",
+              },
+              {
+                label: "Score",
+                value: formatScore(row.final_score ?? row.evidence_score),
+                tone: "",
+              },
               {
                 label: "Price",
                 value: (
@@ -806,16 +851,13 @@ export default async function StockPage({
               {
                 label: "1M",
                 value: formatPercent(row.pct_change_1m, 1, true),
-                tone:
-                  (row.pct_change_1m ?? 0) >= 0 ? "text-positive" : "text-negative",
+                tone: changeTone(row.pct_change_1m),
               },
               {
                 label: "3M",
                 value: formatPercent(row.pct_change_3m, 1, true),
-                tone:
-                  (row.pct_change_3m ?? 0) >= 0 ? "text-positive" : "text-negative",
+                tone: changeTone(row.pct_change_3m),
               },
-              { label: "Market cap", value: formatMoneyCompact(row.market_cap, market), tone: "" },
             ].map((stat) => (
               <div key={stat.label} className="bg-muted/40 px-4 py-3">
                 <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -863,22 +905,108 @@ export default async function StockPage({
               label: "Overview",
               content: (
                 <>
+                  {/*
+                    Order is the argument: the score and how it was produced
+                    first, then its history, then the evidence that argues with
+                    it (expectations, the latest call), then the unscored stage
+                    read, then the detail behind each block. Opening on panels
+                    that say "not scored" made the page dispute its ranking
+                    before stating it.
 
-                  {/*
-                    Directly under the hero, above the score breakdown. The reader has
-                    just seen the score, the price and the chart; this is the first thing
-                    that argues with them, and burying it below the factor panels would
-                    make the disagreement something you have to go looking for.
+                    The score and what it is made of are one panel: the ring in
+                    a narrow column beside the blocks that produce it. As two
+                    panels the ring's column ran the height of the blocks plus
+                    a waterfall, and sat mostly empty. The waterfall itself
+                    repeated the blocks' total, a reverse-DCF step that is
+                    always zero under the factor model (it is inside Value),
+                    the transcript step (now a row of the blocks) and a policy
+                    ceiling that limits the rating, not this score -- that is
+                    the Audit tab's story. It stays for a pre-factor row, where
+                    it is the only breakdown there is.
                   */}
-                  {/*
-                    Directly under the chart it annotates: the chart's Stage 2 and S3/S4
-                    markers are these dates, and the returns here are measured on the
-                    same adjusted closes.
-                  */}
+                  <Panel
+                    title="Published score"
+                    info={
+                      <>
+                        <p>
+                          The research evidence on a 0-100 scale. Ticks on the
+                          ring mark the REDUCE / HOLD / BUY / STRONG BUY
+                          boundaries; policy gates limit the rating, not the
+                          score.
+                        </p>
+                        {factorModel ? (
+                          <>
+                            <p>
+                              Each economic concept is ranked separately, then
+                              blended at the weight beside its name. A block is
+                              marked when less than all of its evidence was
+                              observed. The transcript is added after the blend,
+                              measured against the median call of the run.
+                            </p>
+                            <p>{researchBasisNote(row)}</p>
+                          </>
+                        ) : null}
+                        {capFlagged && (gateWarning !== MISSING || row.rating_cap_reason) ? (
+                          <p>
+                            {gateWarning !== MISSING ? gateWarning : row.rating_cap_reason}
+                          </p>
+                        ) : null}
+                      </>
+                    }
+                  >
+                    <div className="grid items-start gap-6 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-8">
+                      {/* One line under the ring: what the gates do to the
+                          rating. Since Model 5.1 they hold the rating down and
+                          leave this score alone, so "capped" under an
+                          unchanged number read as a contradiction. */}
+                      <DecisionScore
+                        score={row.final_score ?? row.evidence_score}
+                        rating={row.rating}
+                        caption={
+                          !capFlagged
+                            ? undefined
+                            : row.policy_eligible_rating && row.policy_eligible_rating !== row.rating
+                              ? `${gate.label} would hold the rating at ${row.policy_eligible_rating}`
+                              : `Rating held at ${row.rating ?? row.policy_eligible_rating ?? MISSING} by ${gate.label.toLowerCase()}`
+                        }
+                      />
+                      {factorModel ? (
+                        <FactorBlocks row={row} />
+                      ) : (
+                        <ScoreWaterfall row={row} />
+                      )}
+                    </div>
+                  </Panel>
+
+                  <Panel
+                    title="Rank history"
+                    info={`Position in the ${market.label} universe on each run, #1 at the top.`}
+                  >
+                    <RankHistoryChart history={history} />
+                  </Panel>
+
+                  <ExpectationsGap data={expectations} market={market} />
+
+                  <CallOutlook {...callPanelSource(payload, latestCall)} />
+
                   {factorModel ? (
                     <Panel
                       title="Stage"
-                      description="Where the stock is in its cycle, from the 50/150/200-day averages, and what it has done since."
+                      tag="Not scored"
+                      info={
+                        <>
+                          <p>
+                            Where the stock is in its cycle, from the 50/150/200-day
+                            averages, and what it has done since. The chart&apos;s
+                            Stage 2 and S3/S4 markers are these dates.
+                          </p>
+                          <p>
+                            Shown, not scored: adding it to the ranking lowered
+                            returns in every validation window, so the rank and
+                            rating ignore it.
+                          </p>
+                        </>
+                      }
                     >
                       <StageSummary
                         row={row}
@@ -888,111 +1016,48 @@ export default async function StockPage({
                     </Panel>
                   ) : null}
 
-                  <ExpectationsGap data={expectations} market={market} />
-
-                  <CallOutlook {...callPanelSource(payload, latestCall)} />
-
-                  {/*
-                    The ring gets a fixed narrow column and the waterfall gets the rest.
-                    Previously they shared a 1.15:1 split, which left the ring floating in
-                    a tall panel of empty space while the waterfall -- the widest graphic
-                    on the page -- was squeezed.
-                  */}
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)]">
-                    <Panel
-                      title="Published score"
-                      description="The uncapped research evidence, against the 0-100 range. Ticks mark the REDUCE / HOLD / BUY / STRONG BUY boundaries; policy gates limit the rating, not the score."
-                    >
-                      <DecisionScore
-                        score={row.final_score ?? row.evidence_score}
-                        rating={row.rating}
-                        caption={
-                          capFlagged
-                            ? (gateWarning ??
-                              row.rating_cap_reason ??
-                              "Policy gates limit the rating below this score.")
-                            : undefined
-                        }
-                      />
-                    </Panel>
-
-                    <div className="space-y-4">
-                      {factorModel ? (
-                        <Panel
-                          title="Factor blocks"
-                          description="Model 5.0 ranks each economic concept separately, then blends them. Coverage says how much of a block was actually observed."
-                        >
-                          <FactorBlocks row={row} />
-                        </Panel>
-                      ) : null}
-
-                      <Panel
-                        title="How this score was produced"
-                        description={
-                          factorModel
-                            ? "The sequence starts with the published factor research score. Reverse DCF is already counted inside Value; later evidence and policy ceilings are then applied once."
-                            : "The finalizer runs this sequence once, after all evidence is present. A stage that is not eligible contributes exactly zero."
-                        }
-                      >
-                        <ScoreWaterfall row={row} />
-                      </Panel>
-                    </div>
-                  </div>
-
-                  <Panel
-                    title="Rank history"
-                    description={`Position in the ${market.label} universe on each run, #1 at the top. Today ${row.investment_rank ?? MISSING} of ${run.row_count}.`}
-                  >
-                    <RankHistoryChart history={history} />
-                  </Panel>
-
                   <div className="grid gap-4 lg:grid-cols-2">
                     <Panel
                       title="Fundamentals"
-                      description="Scored by the sector-specific model named below, not a single generic ratio set."
+                      info="Scored by the sector-specific model named below, not a single generic ratio set."
                     >
-                      <FieldList fields={fundamentalFields} columns={2} />
+                      <FieldList fields={fundamentalFields} columns={2} visible={6} />
                     </Panel>
 
                     <Panel
                       title="Technicals"
-                      description="All indicators computed on the same completed daily bar."
+                      info="All indicators computed on the same completed daily bar."
                     >
-                      <FieldList fields={technicalFields} columns={2} />
+                      <FieldList fields={technicalFields} columns={2} visible={6} />
                     </Panel>
 
                     <Panel
                       title="Reverse DCF"
-                      description="Solves the assumptions implied by today's market cap. Evidence, not a target price."
+                      info="Solves the assumptions implied by today's market cap. Evidence, not a target price."
+                      // Alone on its row on a US page, where there is no
+                      // transcript panel to pair with it.
+                      className={market.nseEvidence ? undefined : "lg:col-span-2"}
                     >
-                      <FieldList fields={dcfFields} columns={2} />
+                      <FieldList fields={dcfFields} columns={2} visible={4} />
                     </Panel>
 
-                    <Panel
-                      title="Management transcript"
-                      description="How the latest call sounded (tone) and what it said (outlook), each against the median call."
-                    >
-                      <FieldList fields={transcriptFields} columns={2} />
-                    </Panel>
-
-                    <Panel
-                      title="Red-flag evidence (shadow)"
-                      description="Counterfactual audit only. These never change the live score or rating."
-                    >
-                      <FieldList fields={redFlagFields} columns={2} />
-                    </Panel>
-
-                    <Panel
-                      title="Liquidity and execution"
-                      description={
-                        factorModel
-                          ? "Execution evidence. It never changes the research score, but it can cap BUY eligibility and therefore affect the rating and eligibility-class rank."
-                          : "An execution overlay. It never changes the score, rating, or investment rank."
-                      }
-                    >
-                      <FieldList fields={liquidityFields} columns={2} />
-                    </Panel>
+                    {market.nseEvidence ? (
+                      <Panel
+                        title="Management transcript"
+                        info="How the latest call sounded (tone) and what it said (outlook), each against the median call."
+                      >
+                        <FieldList fields={transcriptFields} columns={2} visible={5} />
+                      </Panel>
+                    ) : null}
                   </div>
+
+                  {market.nseEvidence ? null : (
+                    <p className="px-1 text-xs leading-relaxed text-muted-foreground">
+                      Call transcripts, the red-flag feed and impact cost are
+                      collected for NSE listings only, so they play no part in a{" "}
+                      {market.label} score.
+                    </p>
+                  )}
                 </>
               ),
             },
@@ -1002,7 +1067,7 @@ export default async function StockPage({
               content: (
                 <Panel
                   title="Financials"
-                  description="Quarterly results, profit and loss, balance sheet and cash flow as reported, with growth measured against the same period a quarter and a year earlier."
+                  info="Quarterly results, profit and loss, balance sheet and cash flow as reported, with growth measured against the same period a quarter and a year earlier."
                 >
                   <Financials
                     data={financials}
@@ -1022,7 +1087,7 @@ export default async function StockPage({
                     content: (
                       <Panel
                         title="Shareholding"
-                        description="Promoter, FII, DII and public stakes by quarter as filed with NSE, the named holders behind them, and bulk and block deals."
+                        info="Promoter, FII, DII and public stakes by quarter as filed with NSE, the named holders behind them, and bulk and block deals."
                       >
                         <Shareholding data={shareholding} market={market} symbol={row.symbol} />
                       </Panel>
@@ -1037,7 +1102,7 @@ export default async function StockPage({
                 <>
                   <Panel
                     title="Decision audit"
-                    description="Every explanation below comes from this row's exported evidence and policy fields; no company-specific rules are used."
+                    info="Every explanation below comes from this row's exported evidence and policy fields; no company-specific rules are used."
                   >
                     <Tabs defaultValue="policy" className="gap-4">
                       <TabsList variant="line" aria-label="Decision audit views">
@@ -1142,9 +1207,38 @@ export default async function StockPage({
                     </Tabs>
                   </Panel>
 
+                  {/*
+                    Execution and counterfactual evidence. Neither moves the
+                    research score, so they sit with the gate checks they feed
+                    rather than among the Overview's scored evidence.
+                  */}
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <Panel
+                      title="Liquidity and execution"
+                      info={
+                        factorModel
+                          ? "Execution evidence. It never changes the research score, but it can cap BUY eligibility and therefore affect the rating and eligibility-class rank."
+                          : "An execution overlay. It never changes the score, rating, or investment rank."
+                      }
+                      className={market.nseEvidence ? undefined : "lg:col-span-2"}
+                    >
+                      <FieldList fields={liquidityFields} columns={2} />
+                    </Panel>
+
+                    {market.nseEvidence ? (
+                      <Panel
+                        title="Red-flag evidence"
+                        tag="Not scored"
+                        info="Counterfactual audit only. These never change the live score or rating."
+                      >
+                        <FieldList fields={redFlagFields} columns={2} />
+                      </Panel>
+                    ) : null}
+                  </div>
+
                   <Panel
                     title="Complete source record"
-                    description="Every field the screener exported for this row, including audit columns not surfaced above."
+                    info="Every field the screener exported for this row, including audit columns not surfaced above."
                   >
                     <PayloadExplorer payload={payload} />
                   </Panel>

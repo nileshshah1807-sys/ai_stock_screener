@@ -66,6 +66,15 @@ export type Market = {
    * page reserves no space for them.
    */
   liveIndices: boolean;
+  /**
+   * Whether the exchange-only evidence is collected: impact cost, transcript
+   * sentiment and the red-flag feed. The US workflow switches all three off
+   * (`NSE_LIQUIDITY_ENABLED`, `TRANSCRIPT_SENTIMENT_ENABLED`,
+   * `RED_FLAG_ENRICHMENT_ENABLED`), so a US row's fields for them are empty
+   * by construction, not unreported -- a page says so once rather than
+   * printing a panel of dashes.
+   */
+  nseEvidence: boolean;
 };
 
 export const MARKETS: Record<MarketSlug, Market> = {
@@ -83,6 +92,7 @@ export const MARKETS: Record<MarketSlug, Market> = {
     timezone: "Asia/Kolkata",
     timezoneLabel: "IST",
     liveIndices: true,
+    nseEvidence: true,
   },
   us: {
     slug: "us",
@@ -98,6 +108,7 @@ export const MARKETS: Record<MarketSlug, Market> = {
     timezone: "America/New_York",
     timezoneLabel: "ET",
     liveIndices: true,
+    nseEvidence: false,
   },
 };
 

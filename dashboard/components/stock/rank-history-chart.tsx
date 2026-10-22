@@ -9,10 +9,26 @@ import type { HistoryRow } from "@/lib/types";
  * reader can act on. The axis is inverted -- #1 at the top -- so "up" still
  * means "better". The domain fits this stock's own range: a move from #40 to
  * #12 would be invisible on a 1-to-2,400 axis.
+ *
+ * Drawn twice, as the score waterfall is: the SVG scales its text with its
+ * box, and one 640-unit drawing set 9px axis labels at ~4.5px on a phone. The
+ * phone drawing is about as wide as the space it is shown in.
  */
-const WIDTH = 640;
-const HEIGHT = 150;
-const PAD = { top: 12, right: 52, bottom: 20, left: 40 };
+const WIDE = {
+  width: 640,
+  height: 150,
+  pad: { top: 12, right: 52, bottom: 20, left: 40 },
+  axis: 9,
+  label: 11,
+};
+const NARROW = {
+  width: 320,
+  height: 170,
+  pad: { top: 12, right: 50, bottom: 22, left: 44 },
+  axis: 11,
+  label: 12,
+};
+type Layout = typeof WIDE;
 
 const STEPS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000];
 
@@ -35,6 +51,47 @@ export function RankHistoryChart({ history }: { history: HistoryRow[] }) {
       </p>
     );
   }
+
+  return (
+    <figure className="m-0">
+      <RankDrawing points={points} layout={NARROW} className="sm:hidden" />
+      <RankDrawing points={points} layout={WIDE} className="hidden sm:block" />
+
+      <figcaption className="sr-only">
+        <table>
+          <caption>Investment rank by run date</caption>
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">Rank</th>
+              <th scope="col">Rating</th>
+            </tr>
+          </thead>
+          <tbody>
+            {points.map((row) => (
+              <tr key={row.observed_on}>
+                <td>{formatDate(row.observed_on)}</td>
+                <td>{rankLabel(row.investment_rank as number)}</td>
+                <td>{row.rating ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </figcaption>
+    </figure>
+  );
+}
+
+function RankDrawing({
+  points,
+  layout,
+  className,
+}: {
+  points: HistoryRow[];
+  layout: Layout;
+  className: string;
+}) {
+  const { width: WIDTH, height: HEIGHT, pad: PAD } = layout;
 
   const ranks = points.map((row) => row.investment_rank as number);
   const step = tickStep(Math.max(...ranks) - Math.min(...ranks));
@@ -68,99 +125,75 @@ export function RankHistoryChart({ history }: { history: HistoryRow[] }) {
   const lastRank = last.investment_rank as number;
 
   return (
-    <figure className="m-0">
-      <svg
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="w-full"
-        role="img"
-        aria-label={`Rank from ${rankLabel(firstRank)} on ${formatDate(first.observed_on)} to ${rankLabel(lastRank)} on ${formatDate(last.observed_on)}, across ${points.length} runs.`}
+    <svg
+      viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+      className={`w-full ${className}`}
+      role="img"
+      aria-label={`Rank from ${rankLabel(firstRank)} on ${formatDate(first.observed_on)} to ${rankLabel(lastRank)} on ${formatDate(last.observed_on)}, across ${points.length} runs.`}
+    >
+      {ticks.map((tick) => (
+        <g key={tick}>
+          <line
+            x1={PAD.left}
+            y1={y(tick)}
+            x2={WIDTH - PAD.right}
+            y2={y(tick)}
+            stroke="var(--border)"
+            strokeWidth={1}
+            strokeDasharray="2 3"
+          />
+          <text
+            x={PAD.left - 5}
+            y={y(tick) + 3}
+            textAnchor="end"
+            className="fill-muted-foreground"
+            style={{ fontSize: layout.axis, fontFamily: "var(--font-mono)" }}
+          >
+            {rankLabel(tick)}
+          </text>
+        </g>
+      ))}
+
+      <path
+        d={path}
+        fill="none"
+        stroke="var(--primary)"
+        strokeWidth={2}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+
+      {/* Only the endpoints get markers; a dot on every run would turn a
+          180-day history into noise. */}
+      <circle cx={x(0)} cy={y(firstRank)} r={3} fill="var(--primary)" />
+      <circle cx={x(points.length - 1)} cy={y(lastRank)} r={3.5} fill="var(--primary)" />
+
+      <text
+        x={x(points.length - 1) + 7}
+        y={y(lastRank) + 4}
+        className="fill-foreground"
+        style={{ fontSize: layout.label, fontFamily: "var(--font-mono)", fontWeight: 600 }}
       >
-        {ticks.map((tick) => (
-          <g key={tick}>
-            <line
-              x1={PAD.left}
-              y1={y(tick)}
-              x2={WIDTH - PAD.right}
-              y2={y(tick)}
-              stroke="var(--border)"
-              strokeWidth={1}
-              strokeDasharray="2 3"
-            />
-            <text
-              x={PAD.left - 5}
-              y={y(tick) + 3}
-              textAnchor="end"
-              className="fill-muted-foreground"
-              style={{ fontSize: 9, fontFamily: "var(--font-mono)" }}
-            >
-              {rankLabel(tick)}
-            </text>
-          </g>
-        ))}
+        {rankLabel(lastRank)}
+      </text>
 
-        <path
-          d={path}
-          fill="none"
-          stroke="var(--primary)"
-          strokeWidth={2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-
-        {/* Only the endpoints get markers; a dot on every run would turn a
-            180-day history into noise. */}
-        <circle cx={x(0)} cy={y(firstRank)} r={3} fill="var(--primary)" />
-        <circle cx={x(points.length - 1)} cy={y(lastRank)} r={3.5} fill="var(--primary)" />
-
-        <text
-          x={x(points.length - 1) + 7}
-          y={y(lastRank) + 4}
-          className="fill-foreground"
-          style={{ fontSize: 11, fontFamily: "var(--font-mono)", fontWeight: 600 }}
-        >
-          {rankLabel(lastRank)}
-        </text>
-
-        <text
-          x={PAD.left}
-          y={HEIGHT - 5}
-          className="fill-muted-foreground"
-          style={{ fontSize: 9 }}
-        >
-          {formatDate(first.observed_on)}
-        </text>
-        <text
-          x={WIDTH - PAD.right}
-          y={HEIGHT - 5}
-          textAnchor="end"
-          className="fill-muted-foreground"
-          style={{ fontSize: 9 }}
-        >
-          {formatDate(last.observed_on)}
-        </text>
-      </svg>
-
-      <figcaption className="sr-only">
-        <table>
-          <caption>Investment rank by run date</caption>
-          <thead>
-            <tr>
-              <th scope="col">Date</th>
-              <th scope="col">Rank</th>
-              <th scope="col">Rating</th>
-            </tr>
-          </thead>
-          <tbody>
-            {points.map((row) => (
-              <tr key={row.observed_on}>
-                <td>{formatDate(row.observed_on)}</td>
-                <td>{rankLabel(row.investment_rank as number)}</td>
-                <td>{row.rating ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </figcaption>
-    </figure>
+      <text
+        x={PAD.left}
+        y={HEIGHT - 5}
+        className="fill-muted-foreground"
+        style={{ fontSize: layout.axis }}
+      >
+        {formatDate(first.observed_on)}
+      </text>
+      <text
+        x={WIDTH - PAD.right}
+        y={HEIGHT - 5}
+        textAnchor="end"
+        className="fill-muted-foreground"
+        style={{ fontSize: layout.axis }}
+      >
+        {formatDate(last.observed_on)}
+      </text>
+    </svg>
   );
 }

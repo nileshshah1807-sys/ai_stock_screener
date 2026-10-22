@@ -7,6 +7,7 @@ import {
   researchScoreMode,
 } from "@/lib/model-display.mjs";
 import { FACTOR_BLOCKS, type SnapshotRowWithPayload } from "@/lib/types";
+import { buildStages } from "@/components/stock/score-waterfall";
 
 /**
  * Model 5.0 factor breakdown.
@@ -21,7 +22,9 @@ export function FactorBlocks({ row }: { row: SnapshotRowWithPayload }) {
   if (!row.factor_model_applied) return null;
 
   const payload = row.payload ?? {};
-  const scoreMode = researchScoreMode(row.research_score_basis);
+  const transcriptStage = buildStages(row).find((stage) => stage.key === "transcript");
+  const transcriptDelta = transcriptStage ? transcriptStage.to - transcriptStage.from : 0;
+  const transcriptEligible = row.transcript_scoring_eligible === true;
   const blocks = FACTOR_BLOCKS.map((block) => {
     const score = row[`${block.key}_score` as keyof SnapshotRowWithPayload] as
       | number
@@ -94,23 +97,54 @@ export function FactorBlocks({ row }: { row: SnapshotRowWithPayload }) {
                 />
               </div>
 
-              <p className="text-[11px] text-muted-foreground">
-                Contribution{" "}
+              {/* Coverage is named only when it is short of complete: at 100%
+                  on every block it was five repeats of a fact that changes
+                  nothing, and it hid the one block that is thin. */}
+              <p className={cn("text-xs", thin ? "text-caution" : "text-muted-foreground")}>
                 {block.contribution === null
                   ? MISSING
                   : `${block.contribution.toFixed(2)} pts`}
-                {" · "}Coverage{" "}
                 {block.coverage === null
-                  ? MISSING
-                  : `${Math.round(block.coverage * 100)}%`}
-                {thin
-                  ? " — too thin to be treated as evidence; the block is shrunk toward neutral 50."
-                  : ""}
+                  ? " · coverage unknown"
+                  : block.coverage < 0.995
+                    ? ` · ${Math.round(block.coverage * 100)}% covered`
+                    : ""}
+                {thin ? " · too thin to count, shrunk toward 50" : ""}
               </p>
             </li>
           );
         })}
       </ul>
+
+      {/*
+        The management call, read as an adjustment rather than a block: it is
+        added to the research score after the blend, not weighted into it, so
+        it gets points and a status instead of a bar against 0-100. This is
+        the transcript step of the score chain (`buildStages`), so the figure
+        is the one the finalizer applied.
+      */}
+      <div className="flex items-baseline justify-between gap-2 border-t pt-3 text-sm">
+        <span className="font-medium">
+          Transcript
+          <span className="ml-1.5 text-xs text-muted-foreground">
+            {transcriptEligible ? "vs median call" : "not scored"}
+          </span>
+        </span>
+        <span
+          className={cn(
+            "tabular font-mono text-xs",
+            !transcriptEligible || Math.abs(transcriptDelta) < 0.05
+              ? "text-muted-foreground"
+              : transcriptDelta > 0
+                ? "text-positive"
+                : "text-negative",
+          )}
+        >
+          {transcriptEligible
+            ? `${transcriptDelta > 0 ? "+" : ""}${transcriptDelta.toFixed(1)} pts`
+            : (row.transcript_status ?? "No transcript")}
+        </span>
+      </div>
 
       <dl className="grid grid-cols-2 gap-x-6 gap-y-2 border-t pt-3 text-sm">
         <div>
@@ -160,27 +194,22 @@ export function FactorBlocks({ row }: { row: SnapshotRowWithPayload }) {
         </p>
       ) : null}
 
-      {scoreMode === "percentile" ? (
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          The contributions sum to the raw blend shown above. The published
-          research score is that blend&apos;s percentile across this run&apos;s
-          universe, so it will not equal their sum. Ratings are relative to the
-          cross-section; trend, coverage, liquidity and regime gates provide
-          the absolute protections.
-        </p>
-      ) : scoreMode === "weighted" ? (
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          This run publishes the weighted block average directly, so the
-          contributions sum to the research score apart from display rounding.
-          The configured policy gates are applied after that research score.
-        </p>
-      ) : (
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          The contributions sum to the raw weighted blend. This row does not
-          identify whether the published research score is that blend or its
-          cross-sectional percentile, so no basis is inferred by the dashboard.
-        </p>
-      )}
     </div>
   );
+}
+
+/**
+ * How the contributions relate to the research score, for the panel's info
+ * toggle. It explains the method rather than this row's figures, so it is
+ * kept out of the block list a reader scans.
+ */
+export function researchBasisNote(row: SnapshotRowWithPayload): string {
+  const scoreMode = researchScoreMode(row.research_score_basis);
+  if (scoreMode === "percentile") {
+    return "The contributions sum to the raw blend. The published research score is that blend's percentile across this run's universe, so it will not equal their sum. Ratings are relative to the cross-section; trend, coverage, liquidity and regime gates provide the absolute protections.";
+  }
+  if (scoreMode === "weighted") {
+    return "This run publishes the weighted block average directly, so the contributions sum to the research score apart from display rounding. The configured policy gates are applied after that research score.";
+  }
+  return "The contributions sum to the raw weighted blend. This row does not identify whether the published research score is that blend or its cross-sectional percentile, so no basis is inferred by the dashboard.";
 }
