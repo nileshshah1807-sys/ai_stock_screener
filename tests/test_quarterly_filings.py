@@ -40,9 +40,17 @@ def filing(symbol, quarter, seq, *, consolidated=True, taxonomy="INDAS",
     }
 
 
-def document(revenue, profit):
+def document(revenue, profit, *, start=None, end="2026-09-30"):
+    """A results document; ``start`` gives its quarter context a period."""
+    period = (
+        f'<xbrli:context id="OneD"><xbrli:period><xbrli:startDate>{start}'
+        f"</xbrli:startDate><xbrli:endDate>{end}</xbrli:endDate></xbrli:period>"
+        "</xbrli:context>"
+        if start
+        else ""
+    )
     return (
-        "<xbrli:xbrl>"
+        f"<xbrli:xbrl>{period}"
         f'<in-capmkt:RevenueFromOperations contextRef="OneD">{revenue}'
         "</in-capmkt:RevenueFromOperations>"
         f'<in-capmkt:ProfitLossForPeriod contextRef="OneD">{profit}'
@@ -156,6 +164,46 @@ class StoreTests(FilingsRun):
     def test_the_companies_stored_for_are_redrawn_on_the_stock_page(self):
         _, repo, _, _ = self.run_worker(self.RECORDS, self.DOCUMENTS)
         self.assertEqual(repo.redrawn, ["AAA"])
+
+    def test_a_half_year_revision_keeps_the_quarter_it_revised(self):
+        # J&KBANK, Sep 2026: a minute after the quarter's filing, a revision
+        # carrying only the half year. Read as the quarter it doubled revenue.
+        records = [
+            filing("JKB", "30-SEP-2026", 5, broadcast="22-Oct-2026 15:11:12"),
+            filing("JKB", "30-SEP-2026", 6, broadcast=None, revised="22-OCT-2026 15:12:10"),
+        ]
+        documents = {
+            "5": document(1822, 553, start="2026-07-01"),
+            "6": document(3539, 982, start="2026-04-01"),
+        }
+        counts, repo, fetcher, _ = self.run_worker(records, documents)
+        (row,) = repo.upserted
+        self.assertEqual(row["lines"]["revenue"], 1822)
+        self.assertEqual(row["document_url"], records[0]["xbrl"])
+        # Stored under the revision's id, so the next run does not fetch it again.
+        self.assertEqual(row["seq_id"], "6")
+        self.assertEqual(fetcher.asked, ["6", "5"])
+        self.assertEqual(counts["failed"], 0)
+
+    def test_a_half_year_with_no_quarter_beside_it_is_stored_as_nothing(self):
+        # BETA, Sep 2025, filed as an SME: its half year showed as the quarter.
+        records = [filing("BETA", "30-SEP-2025", 7)]
+        _, repo, _, _ = self.run_worker(
+            records, {"7": document(204, 24, start="2025-04-01", end="2025-09-30")}
+        )
+        (row,) = repo.upserted
+        self.assertTrue(all(value is None for value in row["lines"].values()))
+
+    def test_an_unfetchable_earlier_filing_is_asked_for_again(self):
+        records = [
+            filing("JKB", "30-SEP-2026", 5, broadcast="22-Oct-2026 15:11:12"),
+            filing("JKB", "30-SEP-2026", 6, broadcast=None, revised="22-OCT-2026 15:12:10"),
+        ]
+        counts, repo, _, _ = self.run_worker(
+            records, {"6": document(3539, 982, start="2026-04-01")}
+        )
+        self.assertEqual(repo.upserted, [])
+        self.assertEqual(counts["failed"], 1)
 
     def test_a_taxonomy_that_is_not_read_is_never_fetched(self):
         records = [filing("XYZ", "30-SEP-2026", 9, taxonomy="UNKNOWN")]

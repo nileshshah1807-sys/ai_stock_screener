@@ -24,6 +24,7 @@ from screener.quarterly_results import (
     VENDOR_QUARTER_COLUMN,
     QuarterlyResultsCollector,
     facts_frame,
+    fetch_index_records,
     normalise_index,
     parse_filing,
     parse_quarter_facts,
@@ -176,6 +177,16 @@ class IndexTests(unittest.TestCase):
         no_symbol = _filing("", "30-SEP-2026", 3)
         self.assertTrue(normalise_index([no_quarter, no_document, no_symbol]).empty)
         self.assertTrue(normalise_index([]).empty)
+
+    def test_an_empty_page_before_the_last_fails_the_read(self):
+        pages = [{"data": [{}] * 2, "totalCount": 3}, {"data": [], "totalCount": 3}]
+        def get(*_args, **_kwargs):
+            page = pages.pop(0)
+            return SimpleNamespace(raise_for_status=lambda: None, json=lambda: page)
+
+        session = SimpleNamespace(get=get)
+        with self.assertRaisesRegex(ValueError, "page 2 empty at 2 of 3"):
+            fetch_index_records(date(2026, 1, 1), date(2026, 2, 1), session=session)
 
     def test_the_taxonomy_is_read_from_the_document_link(self):
         self.assertEqual(

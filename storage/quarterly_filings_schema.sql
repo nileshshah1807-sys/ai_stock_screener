@@ -41,7 +41,9 @@ create table if not exists quarterly_filings (
     symbol text not null,
     period_end date not null,
     is_consolidated boolean not null,
-    -- The exchange's id for the filing this row was parsed from.
+    -- The exchange's id for the quarter's latest filing. The row is parsed
+    -- from it, or, where it is a half year's statement, from the latest
+    -- earlier filing that is a quarter's.
     seq_id text not null,
     -- When this filing was made: the broadcast, or for a revision the time it
     -- was revised. The screener reads a filing from this date onward.

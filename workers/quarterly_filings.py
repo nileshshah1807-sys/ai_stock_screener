@@ -28,7 +28,9 @@ What counts as new, per (symbol, quarter, basis):
 
 A document that cannot be fetched is not stored and is asked for again on the
 next run. One that parses to nothing is stored as it is: asking again would
-read the same document.
+read the same document. One that is a half year's statement, not a quarter's,
+is read from the quarter's latest earlier filing instead, where there is one
+(`earlier_quarter_statement`).
 
 The index is read for the last ``--lookback-days`` (revisions appear in it on
 the day they are made); a run that finds the table empty, or is given
@@ -128,6 +130,24 @@ def filing_row(
     }
 
 
+def earlier_quarter_statement(
+    filings: list[dict[str, Any]], fetcher
+) -> tuple[dict[str, Any], str | None] | None:
+    """The newest of a quarter's earlier filings that is a quarter's statement.
+
+    A half-year statement filed as a revision of the quarter's filing (J&KBANK,
+    Sep 2026) does not restate the quarter: its figures are still the ones the
+    revised filing gave. Returns that filing and its text, the filing and None
+    where a document could not be fetched (asked for again next run), or None
+    where no earlier filing is a quarter's.
+    """
+    for candidate in filings:
+        text = fetcher.fetch_many([candidate["XBRL_URL"]])[0]
+        if text is None or quarterly_results.covers_a_quarter(text):
+            return candidate, text
+    return None
+
+
 def _batches(rows: list[Any], size: int) -> Iterable[list[Any]]:
     for start in range(0, len(rows), size):
         yield rows[start:start + size]
@@ -158,6 +178,10 @@ def run(
     loader = index_records_loader or quarterly_results.fetch_index_records
     records = loader(today - timedelta(days=lookback_days), today)
     index = quarterly_results.normalise_index(records)
+    earlier: dict[tuple[str, str, bool], list[dict[str, Any]]] = {}
+    for row in quarterly_results.normalise_index(records, latest_only=False).to_dict("records"):
+        key = (row["Symbol"], row["Period_End"].isoformat(), bool(row["Is_Consolidated"]))
+        earlier.setdefault(key, []).insert(0, row)  # newest first
     first = quarterly_results.first_filings(records)
     due = due_filings(index, stored)
     counts["due"] = len(due)
@@ -180,14 +204,23 @@ def run(
         parsed_at = datetime.now(UTC).isoformat(timespec="seconds")
         rows = []
         for row, text in zip(batch, texts, strict=True):
+            key = (row["Symbol"], row["Period_End"].isoformat(), bool(row["Is_Consolidated"]))
+            source = row
+            if text is not None and not quarterly_results.covers_a_quarter(text):
+                found = earlier_quarter_statement(
+                    [f for f in earlier.get(key, []) if f["Seq_Id"] != row["Seq_Id"]], fetcher
+                )
+                if found is not None:
+                    source, text = found
             if text is None:
                 counts["failed"] += 1
                 continue
-            key = (row["Symbol"], row["Period_End"].isoformat(), bool(row["Is_Consolidated"]))
             rows.append(
                 filing_row(
-                    row,
-                    quarterly_results.parse_filing(text, row["Taxonomy"]),
+                    # Stored under the latest filing's id, so it is not due
+                    # again until the exchange files something newer.
+                    {**source, "Seq_Id": row["Seq_Id"]},
+                    quarterly_results.parse_filing(text, source["Taxonomy"]),
                     broadcast=first.get((row["Symbol"], row["Period_End"])),
                     stored_broadcast=(stored.get(key) or {}).get("broadcast_at"),
                     timezone=profile.timezone,

@@ -46,7 +46,7 @@ import logging
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -216,7 +216,23 @@ GROWTH_COLUMNS = (
 # stored row gains a field. The filings worker then reads every stored filing
 # again, so a fix reaches the whole history rather than only what is filed
 # after it. 2: the company's name and the readable rendering of the filing.
-PARSER_VERSION = 2
+# 3: a document whose period is not a quarter (`covers_a_quarter`) is no
+# quarter's statement.
+PARSER_VERSION = 3
+
+# A document's own period is its quarter context. Most documents cover a
+# quarter; an SME files half-yearly, and some companies file the half year as
+# a revision of the quarter's filing. Read as a quarter, the six months showed
+# as one (J&KBANK, Sep 2026: revenue of 3,539 crore beside a quarter's 1,822).
+_QUARTER_CONTEXT_RE = re.compile(
+    rf'<(?:\w+:)?context\s+id="{QUARTER_CONTEXT}"\s*>(.*?)</(?:\w+:)?context>', re.DOTALL
+)
+_PERIOD_RE = re.compile(
+    r"<(?:\w+:)?startDate>\s*(\d{4}-\d{2}-\d{2})\s*<.*?"
+    r"<(?:\w+:)?endDate>\s*(\d{4}-\d{2}-\d{2})\s*<",
+    re.DOTALL,
+)
+MAX_QUARTER_DAYS = 100
 
 # Growth needs the latest quarter and the one a year before it; the store is
 # read that far back beyond the age a quarter may have to count as current.
@@ -262,12 +278,13 @@ def _link(value):
     return url
 
 
-def normalise_index(records):
+def normalise_index(records, *, latest_only=True):
     """One row per (symbol, quarter, basis): the latest filing of each.
 
     A revision is filed under a new id and replaces the original, as it does
     for anyone reading the exchange today. Rows that cannot be placed -- no
     symbol, no quarter end, no document, no filing time -- are dropped.
+    ``latest_only=False`` keeps every filing, oldest first within each key.
     """
     rows = []
     for record in records or ():
@@ -308,9 +325,10 @@ def normalise_index(records):
     frame = frame.sort_values(
         ["Symbol", "Period_End", "Is_Consolidated", "Filed_At", "_seq"]
     )
-    frame = frame.drop_duplicates(
-        subset=["Symbol", "Period_End", "Is_Consolidated"], keep="last"
-    )
+    if latest_only:
+        frame = frame.drop_duplicates(
+            subset=["Symbol", "Period_End", "Is_Consolidated"], keep="last"
+        )
     # pandas turns a missing name or link into NaN once any row has one, and
     # NaN is not JSON: the row it reaches cannot be written.
     text = ["Company", "Viewer_URL"]
@@ -373,8 +391,11 @@ def fetch_index_records(start, end, *, session=None, timeout=60):
         batch = payload.get("data") or []
         collected.extend(batch)
         total = int(payload.get("totalCount") or 0)
-        if not batch or len(collected) >= total:
+        if len(collected) >= total:
             break
+        if not batch:
+            # Served now and then mid-index; ending there dropped the oldest filings unnoticed.
+            raise ValueError(f"integrated-filing index page {page} empty at {len(collected)} of {total}")
         page += 1
     if not collected:
         # A year and a half of results is tens of thousands of filings; none
@@ -442,16 +463,30 @@ def parse_financial_statement(text, taxonomy):
     return lines
 
 
+def covers_a_quarter(text):
+    """Whether the document's own period is a quarter. One that does not state
+    its period is read as a quarter, as every document was before."""
+    context = _QUARTER_CONTEXT_RE.search(text or "")
+    period = _PERIOD_RE.search(context.group(1)) if context else None
+    if period is None:
+        return True
+    start, end = (date.fromisoformat(day) for day in period.groups())
+    return (end - start).days <= MAX_QUARTER_DAYS
+
+
 def parse_filing(text, taxonomy=""):
     """Everything stored from one results document.
 
     The income statement lines the stock page draws, plus ``pat``: profit as
     the growth arithmetic measures it (continuing operations first, see
     `FACT_TAGS`), which is not always the line the page calls net profit.
+    A document that is not a quarter's statement parses to nothing.
     """
     if taxonomy in FINANCIAL_TAGS:
-        return parse_financial_statement(text, taxonomy)
-    return {**parse_quarter_statement(text), "pat": parse_quarter_facts(text)["PAT"]}
+        lines = parse_financial_statement(text, taxonomy)
+    else:
+        lines = {**parse_quarter_statement(text), "pat": parse_quarter_facts(text)["PAT"]}
+    return lines if covers_a_quarter(text) else dict.fromkeys(lines)
 
 
 def facts_frame(rows, timezone):
