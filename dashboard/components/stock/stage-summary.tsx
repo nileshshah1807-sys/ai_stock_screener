@@ -169,21 +169,15 @@ export function StageSummary({
             Broke into {row.stage} on {formatDate(row.breakdown_date)}
             {row.breakdown_from ? ` from ${row.breakdown_from}` : ""}.{" "}
             <span className="text-muted-foreground">
-              This is the tested exit signal: in 2018-2026, selling a top-20 holding
-              the session after such a break cut the worst drawdown from −43% to
-              −30%, at a cost of a few points in steady bull years.
+              The tested exit signal: in the 2018-2026 backtest it cut the worst
+              drawdown from −43% to −30%, at a few points&rsquo; cost in steady
+              bull years.
             </span>
           </p>
         </div>
       ) : null}
 
       <FieldList fields={fields} columns={3} />
-
-      <p className="text-[11px] leading-snug text-muted-foreground">
-        Stage is shown, not scored: adding it to the ranking lowered returns in
-        every validation window, so the rank and rating above ignore it. Returns
-        are on the same adjusted closes the model scores.
-      </p>
     </div>
   );
 }

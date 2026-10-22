@@ -1,3 +1,5 @@
+import { ChevronDown } from "lucide-react";
+
 import { formatScore, ratingToken } from "@/lib/format";
 import { dcfStatus } from "@/lib/labels";
 import { researchScoreMode } from "@/lib/model-display.mjs";
@@ -174,13 +176,66 @@ export function buildStages(row: SnapshotRowWithPayload): Stage[] {
 
 const ROW_HEIGHT = 34;
 const BAR_HEIGHT = 18;
-const LABEL_WIDTH = 104;
-const VALUE_WIDTH = 92;
-const PLOT_WIDTH = 320;
 const AXIS_MAX = 100;
+
+/*
+ * Two drawings of one chart. The SVG scales to its box, text included, so a
+ * single 516-unit drawing put 11px labels at ~7px on a 390px phone. The phone
+ * drawing is ~300 units, close to the width it is shown at, so its text lands
+ * at roughly the size it is set in.
+ */
+const WIDE = { label: 104, plot: 320, value: 92, text: 11, axis: 9 };
+const NARROW = { label: 96, plot: 150, value: 50, text: 12, axis: 11 };
+type Layout = typeof WIDE;
 
 export function ScoreWaterfall({ row }: { row: SnapshotRowWithPayload }) {
   const stages = buildStages(row);
+
+  return (
+    <figure className="m-0">
+      <WaterfallDrawing row={row} stages={stages} layout={NARROW} className="sm:hidden" />
+      <WaterfallDrawing row={row} stages={stages} layout={WIDE} className="hidden sm:block" />
+
+      {/* The notes are the accessible equivalent of the graphic and also the
+          place the reasoning lives -- an SVG cannot carry why a stage was
+          skipped. Five sentences of method under every chart was most of the
+          panel, so they sit behind a native disclosure: one tap, keyboard
+          reachable, and announced as collapsed. */}
+      <figcaption className="mt-3">
+        <details className="group">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-full py-1 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+            <ChevronDown
+              className="size-3.5 transition-transform group-open:rotate-180"
+              aria-hidden
+            />
+            How each step was computed
+          </summary>
+          <div className="mt-2 space-y-1.5">
+            {stages.map((stage) => (
+              <div key={stage.key} className="flex gap-2 text-xs">
+                <span className="w-24 shrink-0 font-medium">{stage.label}</span>
+                <span className="text-muted-foreground">{stage.note}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      </figcaption>
+    </figure>
+  );
+}
+
+function WaterfallDrawing({
+  row,
+  stages,
+  layout,
+  className,
+}: {
+  row: SnapshotRowWithPayload;
+  stages: Stage[];
+  layout: Layout;
+  className: string;
+}) {
+  const { label: LABEL_WIDTH, plot: PLOT_WIDTH, value: VALUE_WIDTH } = layout;
   const height = stages.length * ROW_HEIGHT + 26;
   const width = LABEL_WIDTH + PLOT_WIDTH + VALUE_WIDTH;
 
@@ -197,139 +252,125 @@ export function ScoreWaterfall({ row }: { row: SnapshotRowWithPayload }) {
   ];
 
   return (
-    <figure className="m-0">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className="w-full"
-        style={{ maxHeight: height * 1.4 }}
-        role="img"
-        aria-label={`Score waterfall: starting score ${formatScore(stages[0].to)}, decision ${formatScore(stages[4].to)}.`}
-      >
-        {thresholds.map((threshold) => (
-          <g key={threshold.value}>
-            <line
-              x1={x(threshold.value)}
-              y1={4}
-              x2={x(threshold.value)}
-              y2={height - 22}
-              stroke="var(--border)"
-              strokeWidth={1}
-              strokeDasharray="2 3"
-            />
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className={`w-full ${className}`}
+      style={{ maxHeight: height * 1.4 }}
+      role="img"
+      aria-label={`Score waterfall: starting score ${formatScore(stages[0].to)}, decision ${formatScore(stages[4].to)}.`}
+    >
+      {thresholds.map((threshold) => (
+        <g key={threshold.value}>
+          <line
+            x1={x(threshold.value)}
+            y1={4}
+            x2={x(threshold.value)}
+            y2={height - 22}
+            stroke="var(--border)"
+            strokeWidth={1}
+            strokeDasharray="2 3"
+          />
+          <text
+            x={x(threshold.value)}
+            y={height - 8}
+            textAnchor="middle"
+            className="fill-muted-foreground"
+            style={{ fontSize: layout.axis, fontFamily: "var(--font-mono)" }}
+          >
+            {threshold.label}
+          </text>
+        </g>
+      ))}
+
+      {stages.map((stage, index) => {
+        const y = index * ROW_HEIGHT + 6;
+        const low = Math.min(stage.from, stage.to);
+        const high = Math.max(stage.from, stage.to);
+        const delta = stage.to - stage.from;
+        const isFlat = Math.abs(delta) < 0.05;
+
+        /*
+         * The starting bar is the neutral primary; the published total is
+         * filled with this row's own rating colour, so the bar the eye lands
+         * on is the same colour as the badge at the top of the page and the
+         * ring beside it. A fixed accent was wrong here -- with the chart
+         * ramp now drawn from the rating scale, any constant choice paints
+         * some rows' final score in another band's colour.
+         *
+         * Intermediate deltas keep the directional positive/negative pair
+         * rather than a rating hue: they are signed adjustments, not
+         * ratings, and borrowing the rating ramp would imply a
+         * classification the stage does not carry.
+         */
+        const fill =
+          stage.kind === "base"
+            ? "var(--primary)"
+            : stage.kind === "total"
+              ? `var(--rating-${ratingToken(row.rating)})`
+              : delta > 0
+                ? "var(--positive)"
+                : delta < 0
+                  ? "var(--negative)"
+                  : "var(--muted-foreground)";
+
+        const barX = x(low);
+        const barWidth = Math.max(x(high) - x(low), isFlat ? 2 : 3);
+
+        return (
+          <g key={stage.key}>
             <text
-              x={x(threshold.value)}
-              y={height - 8}
-              textAnchor="middle"
-              className="fill-muted-foreground"
-              style={{ fontSize: 9, fontFamily: "var(--font-mono)" }}
+              x={LABEL_WIDTH - 8}
+              y={y + BAR_HEIGHT / 2 + 4}
+              textAnchor="end"
+              className="fill-foreground"
+              style={{ fontSize: layout.text }}
             >
-              {threshold.label}
+              {stage.label}
+            </text>
+
+            {/* Connector from the previous running total, so the eye follows
+                the sequence rather than reading five separate bars. */}
+            {index > 0 && index < stages.length - 1 ? (
+              <line
+                x1={x(stage.from)}
+                y1={y - ROW_HEIGHT + BAR_HEIGHT + 6}
+                x2={x(stage.from)}
+                y2={y}
+                stroke="var(--border)"
+                strokeWidth={1}
+              />
+            ) : null}
+
+            {/* Each bar draws in 60ms after the one above it, so the eye
+                follows the sequence in the order the finalizer actually
+                applies it rather than meeting five finished bars at once. */}
+            <rect
+              x={barX}
+              y={y}
+              width={barWidth}
+              height={BAR_HEIGHT}
+              rx={3}
+              fill={fill}
+              opacity={isFlat ? 0.45 : 1}
+              className="bar-grow"
+              style={{ "--i": index } as React.CSSProperties}
+            />
+
+            <text
+              x={LABEL_WIDTH + PLOT_WIDTH + 8}
+              y={y + BAR_HEIGHT / 2 + 4}
+              className="fill-foreground"
+              style={{ fontSize: layout.text, fontFamily: "var(--font-mono)" }}
+            >
+              {stage.kind === "base" || stage.kind === "total"
+                ? formatScore(stage.to)
+                : isFlat
+                  ? "0.0"
+                  : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}`}
             </text>
           </g>
-        ))}
-
-        {stages.map((stage, index) => {
-          const y = index * ROW_HEIGHT + 6;
-          const low = Math.min(stage.from, stage.to);
-          const high = Math.max(stage.from, stage.to);
-          const delta = stage.to - stage.from;
-          const isFlat = Math.abs(delta) < 0.05;
-
-          /*
-           * The starting bar is the neutral primary; the published total is
-           * filled with this row's own rating colour, so the bar the eye lands
-           * on is the same colour as the badge at the top of the page and the
-           * ring beside it. A fixed accent was wrong here -- with the chart
-           * ramp now drawn from the rating scale, any constant choice paints
-           * some rows' final score in another band's colour.
-           *
-           * Intermediate deltas keep the directional positive/negative pair
-           * rather than a rating hue: they are signed adjustments, not
-           * ratings, and borrowing the rating ramp would imply a
-           * classification the stage does not carry.
-           */
-          const fill =
-            stage.kind === "base"
-              ? "var(--primary)"
-              : stage.kind === "total"
-                ? `var(--rating-${ratingToken(row.rating)})`
-                : delta > 0
-                  ? "var(--positive)"
-                  : delta < 0
-                    ? "var(--negative)"
-                    : "var(--muted-foreground)";
-
-          const barX = x(low);
-          const barWidth = Math.max(x(high) - x(low), isFlat ? 2 : 3);
-
-          return (
-            <g key={stage.key}>
-              <text
-                x={LABEL_WIDTH - 8}
-                y={y + BAR_HEIGHT / 2 + 4}
-                textAnchor="end"
-                className="fill-foreground"
-                style={{ fontSize: 11 }}
-              >
-                {stage.label}
-              </text>
-
-              {/* Connector from the previous running total, so the eye follows
-                  the sequence rather than reading five separate bars. */}
-              {index > 0 && index < stages.length - 1 ? (
-                <line
-                  x1={x(stage.from)}
-                  y1={y - ROW_HEIGHT + BAR_HEIGHT + 6}
-                  x2={x(stage.from)}
-                  y2={y}
-                  stroke="var(--border)"
-                  strokeWidth={1}
-                />
-              ) : null}
-
-              {/* Each bar draws in 60ms after the one above it, so the eye
-                  follows the sequence in the order the finalizer actually
-                  applies it rather than meeting five finished bars at once. */}
-              <rect
-                x={barX}
-                y={y}
-                width={barWidth}
-                height={BAR_HEIGHT}
-                rx={3}
-                fill={fill}
-                opacity={isFlat ? 0.45 : 1}
-                className="bar-grow"
-                style={{ "--i": index } as React.CSSProperties}
-              />
-
-              <text
-                x={LABEL_WIDTH + PLOT_WIDTH + 8}
-                y={y + BAR_HEIGHT / 2 + 4}
-                className="fill-foreground"
-                style={{ fontSize: 11, fontFamily: "var(--font-mono)" }}
-              >
-                {stage.kind === "base" || stage.kind === "total"
-                  ? formatScore(stage.to)
-                  : isFlat
-                    ? "0.0"
-                    : `${delta > 0 ? "+" : ""}${delta.toFixed(1)}`}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-
-      {/* The table view is the accessible equivalent of the graphic and also
-          the place the reasoning lives -- an SVG cannot carry why a stage was
-          skipped. */}
-      <figcaption className="mt-3 space-y-1.5">
-        {stages.map((stage) => (
-          <div key={stage.key} className="flex gap-2 text-xs">
-            <span className="w-24 shrink-0 font-medium">{stage.label}</span>
-            <span className="text-muted-foreground">{stage.note}</span>
-          </div>
-        ))}
-      </figcaption>
-    </figure>
+        );
+      })}
+    </svg>
   );
 }
