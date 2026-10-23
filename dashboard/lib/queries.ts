@@ -1167,17 +1167,21 @@ export async function getMovers(
  * round trip. Null when the table or function is not deployed, or nothing is
  * quoted yet -- the page then leaves the section out.
  */
-export async function getLiveMarket(market: MarketCode): Promise<LiveMarket | null> {
+export async function getLiveMarket(
+  market: MarketCode,
+): Promise<{ live: LiveMarket | null; failed: boolean }> {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("live_market", {
     p_market: market,
     p_limit: LIVE_MOVERS_LIMIT,
   });
+  // A failed read is told apart from an empty one, so the page can say the
+  // prices could not be read rather than that there are none.
   if (error) {
     console.error("getLiveMarket failed", error.message);
-    return null;
+    return { live: null, failed: true };
   }
-  return normalizeLiveMarket(data);
+  return { live: normalizeLiveMarket(data), failed: false };
 }
 
 
@@ -1282,13 +1286,19 @@ const BREADTH_COLUMNS = "scope, name, parent, members, position, last_session, s
  * Three reads, issued together. The group list selects no series, so it stays
  * a few KB however many industries there are; only the one group on screen
  * pays for its ~90 KB history. Returns empty results rather than throwing when
- * the table has not been deployed, so the page can explain itself instead of
- * erroring.
+ * a read fails, with `failed` set, so the page can explain itself instead of
+ * erroring -- and say the read failed rather than that nothing is published.
  */
 export async function getMarketBreadth(
   market: MarketCode,
   selected: { scope: BreadthScope; name: string },
-): Promise<{ groups: BreadthGroup[]; group: BreadthRow | null; indices: BreadthRow[] }> {
+): Promise<{
+  groups: BreadthGroup[];
+  group: BreadthRow | null;
+  indices: BreadthRow[];
+  /** A read failed: what is missing is unknown, not unpublished. */
+  failed: boolean;
+}> {
   const supabase = await createClient();
   const [groupsResult, groupResult, indicesResult] = await Promise.all([
     supabase
@@ -1312,10 +1322,15 @@ export async function getMarketBreadth(
       .order("position"),
   ]);
 
+  let failed = false;
   for (const result of [groupsResult, groupResult, indicesResult]) {
-    if (result.error) console.error("getMarketBreadth failed", result.error.message);
+    if (result.error) {
+      console.error("getMarketBreadth failed", result.error.message);
+      failed = true;
+    }
   }
   return {
+    failed,
     groups: (groupsResult.data as BreadthGroup[] | null) ?? [],
     group: (groupResult.data as BreadthRow | null) ?? null,
     indices: (indicesResult.data as BreadthRow[] | null) ?? [],

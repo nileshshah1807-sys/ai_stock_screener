@@ -5,9 +5,11 @@ import {
   LIVE_FOR_MS,
   MIN_POLL_MS,
   REFRESH_MS,
+  inSession,
   isLive,
   liveOverlay,
   nextPollDelay,
+  quoteFreshness,
   quoteTime,
   tickDirection,
 } from "./live-quotes.mjs";
@@ -64,4 +66,35 @@ test("a price that moved tints its way; the first read and a repeat do not", () 
   assert.equal(tickDirection(undefined, 100), null);
   assert.equal(tickDirection(null, 100), null);
   assert.equal(tickDirection(100, Number.NaN), null);
+});
+
+const NSE_CLOCK = {
+  timezone: "Asia/Kolkata",
+  timezoneLabel: "IST",
+  locale: "en-IN",
+  sessionOpen: "09:15",
+  sessionClose: "15:30",
+};
+
+test("the session is the exchange's weekday hours, in its own clock", () => {
+  // Friday 16 Oct 2026: 11:45 IST is in, 15:45 IST and 09:00 IST are out.
+  assert.equal(inSession(Date.parse("2026-10-16T06:15:00Z"), NSE_CLOCK), true);
+  assert.equal(inSession(Date.parse("2026-10-16T10:15:00Z"), NSE_CLOCK), false);
+  assert.equal(inSession(Date.parse("2026-10-16T03:30:00Z"), NSE_CLOCK), false);
+  // Saturday, in hours.
+  assert.equal(inSession(Date.parse("2026-10-17T06:15:00Z"), NSE_CLOCK), false);
+});
+
+test("a stopped quote reads closed outside the session and delayed inside it", () => {
+  const live = quoteFreshness(WRITTEN, WRITTEN, NSE_CLOCK, at(5));
+  assert.equal(live.state, "live");
+  assert.match(live.label, /^Live 11:45 IST$/);
+
+  const delayed = quoteFreshness(WRITTEN, WRITTEN, NSE_CLOCK, at(60));
+  assert.equal(delayed.state, "delayed");
+  assert.match(delayed.label, /^Delayed · last trade 11:45 IST$/);
+
+  const closed = quoteFreshness(WRITTEN, WRITTEN, NSE_CLOCK, Date.parse("2026-10-17T06:15:00Z"));
+  assert.equal(closed.state, "closed");
+  assert.match(closed.label, /^Market closed · last trade 16 Oct, 11:45 IST$/);
 });

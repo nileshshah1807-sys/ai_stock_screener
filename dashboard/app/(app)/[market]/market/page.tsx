@@ -50,7 +50,7 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
   const listed = Array.isArray(query.list) ? query.list[0] : query.list;
   const metric = listed && LIST_METRICS.includes(listed) ? listed : null;
 
-  const [{ groups, group, indices }, list] = await Promise.all([
+  const [{ groups, group, indices, failed }, list] = await Promise.all([
     getMarketBreadth(market.code, selected),
     metric ? breadthList(market, metric, selected, query) : Promise.resolve(null),
   ]);
@@ -61,9 +61,11 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
       <div>
         <h1 className="text-title font-semibold">Market</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          How broadly {market.label} stocks are participating
+          {market.liveIndices ? "Today\u2019s movers, then how" : "How"} broadly {market.label} stocks
+          are participating
           {universe ? ` — ${universe.toLocaleString(market.locale)} stocks the screener rates` : ""},
-          session by session. Hover or drag across any chart to read every chart on that day.
+          session by session. Drag across any chart, or focus one and use the arrow keys, to read
+          every chart on that day.
         </p>
       </div>
 
@@ -86,6 +88,7 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
         indices={indices}
         selected={selected}
         list={list}
+        failed={failed}
       />
 
       {group ? (
@@ -104,7 +107,8 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
 
 /** Today's movers, read on the server and kept current in the browser. */
 async function LiveMoversSection({ market }: { market: Market }) {
-  return <LiveMovers market={market} initial={await getLiveMarket(market.code)} />;
+  const { live, failed } = await getLiveMarket(market.code);
+  return <LiveMovers market={market} initial={live} failed={failed} />;
 }
 
 /**
@@ -121,9 +125,24 @@ async function breadthList(
   metric: string,
   selected: GroupKey,
   query: Record<string, string | string[] | undefined>,
-): Promise<BreadthList | null> {
+): Promise<BreadthList> {
   const run = await getLatestRun(market.code);
-  if (!run) return null;
+  // Answer with a list either way: the sheet is already open on the press,
+  // and with nothing to show it would sit on its skeleton.
+  if (!run) {
+    return {
+      metric,
+      total: 0,
+      content: (
+        <div className="panel py-16 text-center">
+          <p className="text-sm font-medium">The latest screener run could not be read</p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+            The stocks behind this count come from it. Reload the page to try again.
+          </p>
+        </div>
+      ),
+    };
+  }
   const filters = parseFilters(query);
   const urlParams = toSearchParams(query);
   const { rows, total } = await getSnapshotPage(market.code, run.run_date, filters, {

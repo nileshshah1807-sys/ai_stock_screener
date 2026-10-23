@@ -139,7 +139,7 @@ export function GroupPicker({
 
 function Heading({ children }: { children: React.ReactNode }) {
   return (
-    <p className="sticky top-0 z-10 bg-(--glass-thick) px-3 pt-3 pb-1 text-[0.6875rem] font-semibold tracking-[0.04em] text-muted-foreground uppercase backdrop-blur">
+    <p className="sticky top-0 z-10 bg-popover px-3 pt-3 pb-1 text-xs font-semibold tracking-[0.04em] text-muted-foreground uppercase">
       {children}
     </p>
   );

@@ -42,6 +42,9 @@ type Scrub = { time: string | null; setTime: (time: string | null) => void };
 export const ScrubContext = createContext<Scrub>({ time: null, setTime: () => {} });
 
 const HEIGHT = 168;
+/** On a phone-width card: a dozen charts at full height make a very long page. */
+const COMPACT_HEIGHT = 128;
+const COMPACT_BELOW = 420;
 const PAD = { top: 10, right: 52, bottom: 22, left: 2 };
 
 const TONES = {
@@ -52,12 +55,23 @@ const TONES = {
 
 export type ChartTone = keyof typeof TONES;
 
-/** The chip in a card's corner: "View list", or a link onward. */
+/** The chip in a card's corner: "View list", which opens the stocks in a sheet. */
 const CHIP = cn(
-  "-mt-1 -mr-1 inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground",
+  "touch-target -mt-1 -mr-1 inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground",
   "transition-[background-color,color,transform] duration-(--duration-fast) ease-(--ease-standard)",
   "hover:bg-(--control-hover) hover:text-foreground",
   "active:scale-[0.95] active:duration-(--duration-press)",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+);
+
+/**
+ * A link onward, to another page. Drawn as text rather than a chip, so it
+ * cannot be mistaken for "View list", which stays on this page.
+ */
+const ONWARD = cn(
+  "touch-target -mt-0.5 inline-flex shrink-0 items-center gap-0.5 rounded text-xs font-medium text-muted-foreground underline-offset-4",
+  "transition-colors duration-(--duration-fast) ease-(--ease-standard)",
+  "hover:text-foreground hover:underline",
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 );
 
@@ -82,6 +96,7 @@ export function BreadthChart({
   unit,
   locale,
   tone = "accent",
+  period,
   onExpand,
   link,
   live,
@@ -94,6 +109,11 @@ export function BreadthChart({
   unit: ChartUnit;
   locale: string;
   tone?: ChartTone;
+  /**
+   * What the change at rest covers -- the range's label, "1Y". Without it,
+   * and while scrubbing, the change says the date it runs from.
+   */
+  period?: string;
   /** Opens the stocks behind the latest value; the button is absent without it. */
   onExpand?: () => void;
   /** A page that goes further than the chart -- an index's constituents. */
@@ -106,9 +126,11 @@ export function BreadthChart({
   // useId can contain characters that are not valid in a url(#id) reference.
   const gradientId = `fill-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const color = TONES[tone];
+  // Until measured, the full height, which is what the skeleton reserves.
+  const height = width && width < COMPACT_BELOW ? COMPACT_HEIGHT : HEIGHT;
 
   const plotW = Math.max(0, width - PAD.left - PAD.right);
-  const plotH = HEIGHT - PAD.top - PAD.bottom;
+  const plotH = height - PAD.top - PAD.bottom;
 
   const format = useMemo(() => formatter(unit, locale), [unit, locale]);
 
@@ -172,6 +194,28 @@ export function BreadthChart({
     setTime(candidate.time);
   };
 
+  // The keyboard's scrub: arrows step a session (with Shift, about a month),
+  // Home and End jump to the ends, Escape lets go. It moves the same shared
+  // date the pointer does, so every chart on the page follows.
+  const [focused, setFocused] = useState(false);
+  const onKeyDown = (event: React.KeyboardEvent<SVGSVGElement>) => {
+    if (!points.length) return;
+    if (event.key === "Escape") {
+      setTime(null);
+      return;
+    }
+    const at = hoveredIndex(points, scrubTime);
+    const step = event.shiftKey ? 21 : 1;
+    let next: number | null = null;
+    if (event.key === "ArrowLeft") next = (at ?? points.length) - step;
+    else if (event.key === "ArrowRight") next = (at ?? points.length - 1) + step;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = points.length - 1;
+    if (next === null) return;
+    event.preventDefault();
+    setTime(points[Math.min(points.length - 1, Math.max(0, next))].time);
+  };
+
   const label = latest
     ? `${title}: ${format(latest.value)} on ${formatDay(latest.time)}${
         base && base !== latest ? `, from ${format(base.value)} on ${formatDay(base.time)}` : ""
@@ -194,7 +238,7 @@ export function BreadthChart({
               <ChevronRight className="size-3.5" aria-hidden />
             </button>
           ) : link ? (
-            <Link href={link.href} aria-label={link.title} className={CHIP}>
+            <Link href={link.href} aria-label={link.title} className={ONWARD}>
               {link.label}
               <ChevronRight className="size-3.5" aria-hidden />
             </Link>
@@ -211,7 +255,14 @@ export function BreadthChart({
                 )}
               </span>
               {base && shown !== base ? (
-                <Change from={base.value} to={shown.value} unit={unit} locale={locale} />
+                <>
+                  <Change from={base.value} to={shown.value} unit={unit} locale={locale} />
+                  {/* Without its span a change is easy to misread -- an
+                      index's -12.9% beside a live price reads as today's. */}
+                  <span className="text-xs text-muted-foreground">
+                    {period && !hovered ? period : `since ${formatMonth(base.time)}`}
+                  </span>
+                </>
               ) : null}
             </div>
             <p className="tabular mt-0.5 truncate text-xs text-muted-foreground">
@@ -235,14 +286,25 @@ export function BreadthChart({
         )}
       </header>
 
-      <div ref={container} className="relative mt-3 w-full" style={{ height: HEIGHT }}>
+      <div ref={container} className="relative mt-3 w-full" style={{ height }}>
+        {/* What the keyboard's scrub has reached, read out as it moves. */}
+        <p className="sr-only" aria-live="polite">
+          {focused && hovered ? `${format(hovered.value)} on ${formatDay(hovered.time)}` : ""}
+        </p>
         {geometry ? (
           <svg
             width={width}
-            height={HEIGHT}
+            height={height}
             role="img"
-            aria-label={label}
-            className="block overflow-visible select-none"
+            aria-label={`${label} Use the arrow keys to read it day by day.`}
+            tabIndex={0}
+            onKeyDown={onKeyDown}
+            onFocus={() => setFocused(true)}
+            onBlur={() => {
+              setFocused(false);
+              setTime(null);
+            }}
+            className="block overflow-visible rounded-sm select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-card"
           >
             <defs>
               <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
@@ -266,7 +328,7 @@ export function BreadthChart({
                   x={PAD.left + plotW + 8}
                   y={geometry.y(tick)}
                   dy="0.32em"
-                  className="fill-muted-foreground text-[0.6875rem] tabular"
+                  className="fill-muted-foreground text-xs tabular"
                 >
                   {axisFormat(tick, unit, locale)}
                 </text>
@@ -280,9 +342,9 @@ export function BreadthChart({
                 <text
                   key={tick.time}
                   x={at}
-                  y={HEIGHT - 4}
+                  y={height - 4}
                   textAnchor="middle"
-                  className="fill-muted-foreground text-[0.6875rem]"
+                  className="fill-muted-foreground text-xs"
                 >
                   {tick.label}
                 </text>
@@ -347,7 +409,7 @@ export function BreadthChart({
               x={PAD.left}
               y={0}
               width={plotW}
-              height={HEIGHT}
+              height={height}
               fill="transparent"
               style={{ touchAction: "pan-y" }}
               onPointerMove={onPointer}
@@ -419,7 +481,20 @@ function axisFormat(value: number, unit: ChartUnit, locale: string) {
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** "18 Sep 2026". Built by hand: en-GB now abbreviates September as "Sept". */
-function formatDay(time: string) {
+export function formatDay(time: string) {
   const [year, month, day] = time.split("-");
   return `${Number(day)} ${MONTHS[Number(month) - 1]} ${year}`;
+}
+
+/** "Sep 2026", for what a change runs from. */
+function formatMonth(time: string) {
+  const [year, month] = time.split("-");
+  return `${MONTHS[Number(month) - 1]} ${year}`;
+}
+
+/** Where the shared scrub date falls in this chart's points, or null at rest. */
+function hoveredIndex(points: ChartPoint[], time: string | null) {
+  if (!time) return null;
+  const point = pointAt(points, time);
+  return point ? points.indexOf(point) : null;
 }

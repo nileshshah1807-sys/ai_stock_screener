@@ -101,7 +101,7 @@ export function SegmentedControl<T extends string>({
             }}
             onClick={() => onChange(option.value)}
             className={cn(
-              "relative inline-flex items-center justify-center whitespace-nowrap rounded-md",
+              "touch-target inline-flex items-center justify-center whitespace-nowrap rounded-md",
               size === "md" ? "min-h-8 px-4 text-sm" : "min-h-7 min-w-10 px-3 text-[0.8125rem]",
               "transition-[color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
               "active:scale-[0.95] active:duration-(--duration-press) active:ease-out",
