@@ -248,7 +248,7 @@ def main(argv=None):
     from screener.markets import NSE
     from screener.markets import resolve as resolve_market
     from storage.dashboard_repository import DashboardRepository
-    from workers.market_breadth import build_breadth
+    from workers.market_breadth import build_breadth, live_levels
 
     profile = resolve_market(args.market)
 
@@ -337,7 +337,31 @@ def main(argv=None):
     if market_row:
         listed = repository.replace_breadth_members(members, market_row["last_session"])
         logger.info("Published %d list memberships for %s", listed, market_row["last_session"])
+        # The levels tomorrow's live prices are counted against, as of the
+        # same session the charts end on, so a live point continues them.
+        levels = live_levels(
+            observations,
+            [day for day in sessions if day.isoformat() <= market_row["last_session"]],
+            classification,
+            benchmark_points=indices.get(profile.benchmark_symbol) or None,
+            benchmark_label=benchmark_quote_label(profile),
+        )
+        written_levels = repository.replace_breadth_levels(levels)
+        logger.info("Published live-breadth levels for %d stocks", written_levels)
     return 1 if stale else 0
+
+
+def benchmark_quote_label(profile):
+    """The benchmark's name among the live quotes, or None if it is not quoted.
+
+    The live worker stores an index level under its label, so the label of the
+    live index whose ticker is the benchmark's is how the database finds the
+    benchmark's live level.
+    """
+    for index in profile.live_indices:
+        if index.quote_symbol == profile.benchmark_symbol:
+            return index.label
+    return None
 
 
 if __name__ == "__main__":

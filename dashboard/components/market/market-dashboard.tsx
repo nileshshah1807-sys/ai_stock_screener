@@ -26,9 +26,10 @@ import {
   sliceFrom,
 } from "@/lib/market-breadth.mjs";
 import { marketPath, type Market } from "@/lib/markets";
-import { liveOverlay } from "@/lib/live-quotes.mjs";
+import { liveOverlay, quoteFreshness } from "@/lib/live-quotes.mjs";
 import type { BreadthGroup, BreadthRow } from "@/lib/queries";
 import { useLiveQuotes, useNow } from "@/lib/use-live-quotes";
+import { LIVE_DENOMINATORS, useLiveBreadth, type LiveBreadth } from "@/lib/use-live-breadth";
 import { cn } from "@/lib/utils";
 
 type Unit = "share" | "count";
@@ -183,6 +184,21 @@ export function MarketDashboard({
     if (quote && quote.session > liveEnd) liveEnd = quote.session;
   }
 
+  // Today's breadth, counted from the same quotes against last night's
+  // levels. Like an index's quote, it is drawn only for a session after the
+  // published closes; once the evening run publishes that session, the
+  // published point stands instead.
+  const liveBreadth = useLiveBreadth(market.code, selected);
+  const lastBreadthDay = breadth?.dates.at(-1);
+  const breadthLive =
+    liveBreadth?.counts && lastBreadthDay && liveBreadth.session > lastBreadthDay
+      ? liveBreadth
+      : null;
+  if (breadthLive && breadthLive.session > liveEnd) liveEnd = breadthLive.session;
+  const breadthFreshness = breadthLive
+    ? quoteFreshness(breadthLive.fetched_at, breadthLive.traded_at, market, now)
+    : null;
+
   // One x-domain for every chart, so a date sits at the same x everywhere
   // and the synced crosshair lines up down the page. A live session extends
   // it by a day, so today's point is on the plot.
@@ -209,10 +225,21 @@ export function MarketDashboard({
     const out: Record<string, ChartPoint[]> = {};
     if (!breadth) return out;
     for (const spec of [...TREND, ...EXTREMES, ...LEADERSHIP]) {
-      out[spec.key] = sliceFrom(metricPoints(breadth, spec.key, spec.total, unit), from);
+      const points = sliceFrom(metricPoints(breadth, spec.key, spec.total, unit), from);
+      const today = livePoint(spec.key, breadthLive, unit);
+      out[spec.key] = today ? [...points, today] : points;
     }
     return out;
-  }, [breadth, unit, from]);
+  }, [breadth, unit, from, breadthLive]);
+  // The live label, pulse and flash, for a chart whose last point is today's.
+  const liveFor = (spec: MetricSpec) =>
+    breadthLive && breadthFreshness && metricSeries[spec.key]?.at(-1)?.time === breadthLive.session
+      ? {
+          label: breadthFreshness.label,
+          pulsing: breadthFreshness.state === "live",
+          tick: breadthLive.ticks[spec.key] ?? null,
+        }
+      : undefined;
   const indexSeries = useMemo(
     () =>
       decodedIndices.map(({ name, decoded }) => ({
@@ -352,6 +379,7 @@ export function MarketDashboard({
                   period={period}
                   unit={unit}
                   locale={market.locale}
+                  live={liveFor(spec)}
                   onExpand={() => openListFor(spec.key)}
                 />
               ))}
@@ -374,7 +402,8 @@ export function MarketDashboard({
                     period={period}
                     unit={unit}
                     locale={market.locale}
-                    onExpand={() => openListFor(spec.key)}
+                    live={liveFor(spec)}
+                  onExpand={() => openListFor(spec.key)}
                   />
                 </div>
               ))}
@@ -392,6 +421,7 @@ export function MarketDashboard({
                   unit={unit}
                   locale={market.locale}
                   tone={spec.tone}
+                  live={liveFor(spec)}
                   onExpand={() => openListFor(spec.key)}
                 />
               ))}
@@ -419,6 +449,24 @@ export function MarketDashboard({
       </BreadthListSheet>
     </ScrubContext.Provider>
   );
+}
+
+/**
+ * Today's point for one metric, in the charts' unit, from the live counts --
+ * or null for a metric with no live count (Stage 2, RS rating) or none
+ * measured yet.
+ */
+function livePoint(key: string, live: LiveBreadth | null, unit: Unit): ChartPoint | null {
+  const denominator = LIVE_DENOMINATORS[key];
+  const count = live?.counts?.[key];
+  const total = denominator ? live?.counts?.[denominator] : undefined;
+  if (!live || count === undefined || !total || total <= 0) return null;
+  return {
+    time: live.session,
+    value: unit === "share" ? (count / total) * 100 : count,
+    count,
+    total,
+  };
 }
 
 /**

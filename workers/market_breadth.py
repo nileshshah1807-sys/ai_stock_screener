@@ -390,3 +390,102 @@ def build_breadth(
             logger.warning("No history for index %s; its chart will be absent", label)
 
     return rows, latest_members(symbols, panels)
+
+
+# Metrics a live price can be counted on: each one's flag for the next
+# session turns only on that session's close and on levels fixed by the
+# closes before it. Stage 2 and RS rating are left out -- the stage is a
+# judgement on completed sessions, and the rating ranks the whole market --
+# so the page keeps their last close.
+LIVE_METRICS = ("e20", "e50", "e100", "e200", "hi", "lo", "bb")
+
+
+def _next_levels(closes: pd.Series) -> dict[str, float | None]:
+    """The levels the next session's close is compared with, for one stock.
+
+    Each reproduces :func:`symbol_signals` one observation ahead:
+
+    * **EMA.** With ``E' = a*p + (1-a)*E`` and ``0 < a < 1``, ``p > E'``
+      exactly when ``p > E``: a price is above today's EMA just when it is
+      above yesterday's. So the level is the last EMA, unmasked, and it is
+      defined once the next observation fills the window (``n + 1 >= span``).
+    * **52-week high and low.** The prior year's extreme as of the next
+      session: the last ``YEAR_SESSIONS - 1`` closes.
+    * **Benchmark.** The close ``BENCHMARK_SESSIONS`` observations before the
+      next one, which the six-month return runs from.
+
+    None where the window is not full, as the flag would be UNDEFINED.
+    """
+    values = closes.to_numpy(dtype=float)
+    count = len(values)
+    series = pd.Series(values)
+    out: dict[str, float | None] = {}
+    for span in EMA_SPANS:
+        ema = series.ewm(span=span, adjust=False).mean().iloc[-1]
+        out[f"e{span}"] = float(ema) if count + 1 >= span else None
+    window = YEAR_SESSIONS - 1
+    out["hi"] = float(values[-window:].max()) if count >= window else None
+    out["lo"] = float(values[-window:].min()) if count >= window else None
+    out["base"] = float(values[-BENCHMARK_SESSIONS]) if count >= BENCHMARK_SESSIONS else None
+    return out
+
+
+def live_levels(
+    observations,
+    sessions,
+    classification,
+    *,
+    benchmark_points=None,
+    benchmark_label=None,
+):
+    """Per-stock levels for counting breadth on a live price.
+
+    One row per classified stock with history: the session the levels are as
+    of (the last of ``sessions``), its sector and industry for the page's
+    filter, and the levels from :func:`_next_levels`. A live price from a
+    later session is then counted the way the next close will be
+    (``live_breadth`` in storage/market_breadth_schema.sql), so the chart's
+    live point and the evening's published point agree on any price.
+
+    ``benchmark_label`` names the benchmark's live quote row; with
+    ``benchmark_points`` it gives every row the benchmark's own base, so the
+    six-month comparison uses the index's live level.
+    """
+    if not len(sessions):
+        return []
+    as_of = sessions[-1].isoformat()
+    session_set = set(sessions)
+
+    bench_base = None
+    if benchmark_points and benchmark_label:
+        bench = pd.Series(
+            {
+                day: value[0] if isinstance(value, tuple) else value
+                for day, value in benchmark_points.items()
+            },
+            dtype=float,
+        ).sort_index()
+        bench = bench[bench > 0]
+        if len(bench) >= BENCHMARK_SESSIONS:
+            bench_base = float(bench.iloc[-BENCHMARK_SESSIONS])
+
+    rows = []
+    for symbol in sorted(observations):
+        if symbol not in classification:
+            continue
+        closes = _as_series(observations[symbol], session_set)
+        if closes is None:
+            continue
+        sector, industry = classification[symbol]
+        rows.append(
+            {
+                "symbol": symbol,
+                "as_of": as_of,
+                "sector": sector,
+                "industry": industry,
+                **_next_levels(closes),
+                "bench_label": benchmark_label if bench_base is not None else None,
+                "bench_base": bench_base,
+            }
+        )
+    return rows

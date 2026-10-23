@@ -119,3 +119,139 @@ as $$
 $$;
 
 grant execute on function breadth_snapshot(text, text) to authenticated;
+
+-- =====================================================================
+-- Live breadth: today's counts from the five-minute quotes
+-- =====================================================================
+--
+-- Per stock, the levels the next close is compared with: yesterday's EMAs
+-- (a price is above today's EMA exactly when it is above yesterday's), the
+-- prior year's high and low, and the close the six-month return runs from.
+-- Written by tools/publish_market_breadth.py after each publish, as of the
+-- session the charts end on (workers/market_breadth.live_levels).
+--
+-- Display only, like live_quotes: nothing scores on it. Stage 2 and RS rating
+-- have no levels -- they are judged on completed sessions -- so their charts
+-- stay on the last close.
+
+create table if not exists market_breadth_levels (
+    market text not null default 'NSE' check (market in ('NSE', 'US')),
+    symbol text not null,
+    -- The session these levels follow; a quote from a later one is counted.
+    as_of date not null,
+    sector text,
+    industry text,
+    -- Null where the stock's history is too short for the measure, as the
+    -- published count leaves it out of that denominator.
+    e20 double precision,
+    e50 double precision,
+    e100 double precision,
+    e200 double precision,
+    hi double precision,
+    lo double precision,
+    base double precision,
+    -- The benchmark's live quote row and its own base; the same on every row.
+    bench_label text,
+    bench_base double precision,
+    published_at timestamptz not null default now(),
+
+    primary key (market, symbol)
+);
+
+create index if not exists market_breadth_levels_published_idx
+    on market_breadth_levels (market, published_at);
+
+alter table market_breadth_levels enable row level security;
+
+drop policy if exists market_breadth_levels_read on market_breadth_levels;
+create policy market_breadth_levels_read
+    on market_breadth_levels for select
+    using (dashboard_has_access());
+
+-- Today's breadth counts for the market, a sector or an industry, in the
+-- same keys as market_breadth.series ("e50" of "e50d", "hi"/"lo" of "hld",
+-- "bb" of "bbd"), so the page appends them to its charts as one more point.
+--
+-- A stock counts only with a quote from the newest session, later than its
+-- levels, and with a day's change: a null change is a change of unit (a
+-- split on its ex-date), whose price cannot be compared with yesterday's
+-- levels. `counts` is null until a session after the levels has quotes.
+--
+-- Only the newest levels count, so a publish that failed between its upsert
+-- and its delete leaves no stale stock in the count.
+create or replace function live_breadth(
+    p_market text,
+    p_scope text default 'market',
+    p_name text default ''
+)
+returns jsonb
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+    with latest as (
+        select max(session) as session, max(fetched_at) as fetched_at, max(traded_at) as traded_at
+        from live_quotes
+        where market = p_market and kind = 'stock'
+    ),
+    levels as (
+        select l.*
+        from market_breadth_levels l
+        where l.market = p_market
+          and l.as_of = (select max(as_of) from market_breadth_levels where market = p_market)
+          and (
+              p_scope = 'market'
+              or (p_scope = 'sector' and l.sector = p_name)
+              or (p_scope = 'industry' and l.industry = p_name)
+          )
+    ),
+    bench as (
+        select q.price / b.bench_base as ratio
+        from (
+            select bench_label, bench_base
+            from levels
+            where bench_label is not null and bench_base > 0
+            limit 1
+        ) b
+        join live_quotes q
+            on q.market = p_market and q.kind = 'index' and q.symbol = b.bench_label
+        where q.session = (select session from latest)
+    ),
+    traded as (
+        select l.*, q.price::double precision as price
+        from levels l
+        join live_quotes q
+            on q.market = l.market and q.symbol = l.symbol and q.kind = 'stock'
+        where q.session = (select session from latest)
+          and q.session > l.as_of
+          and q.change_pct is not null
+    )
+    select jsonb_build_object(
+        'session', (select session from latest),
+        'fetched_at', (select fetched_at from latest),
+        'traded_at', (select traded_at from latest),
+        'as_of', (select max(as_of) from levels),
+        'counts', (
+            select case when count(*) = 0 then null else jsonb_build_object(
+                'n', count(*),
+                'e20', count(*) filter (where price > e20), 'e20d', count(e20),
+                'e50', count(*) filter (where price > e50), 'e50d', count(e50),
+                'e100', count(*) filter (where price > e100), 'e100d', count(e100),
+                'e200', count(*) filter (where price > e200), 'e200d', count(e200),
+                'hi', count(*) filter (where price > hi),
+                'lo', count(*) filter (where price < lo),
+                'hld', count(hi),
+                -- price / base - 1 > benchmark / bench_base - 1, rearranged.
+                'bb', count(*) filter (where price / base > (select ratio from bench)),
+                'bbd', case
+                    when (select ratio from bench) is null then 0
+                    else count(base)
+                end
+            ) end
+            from traded
+        )
+    )
+$$;
+
+grant execute on function live_breadth(text, text, text) to authenticated;
