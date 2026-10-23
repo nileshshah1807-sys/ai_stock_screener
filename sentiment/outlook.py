@@ -602,7 +602,9 @@ def request_body(
         return body if thinking else body | {"thinking": {"type": "disabled"}}
     return body | {
         "usage": {"include": True},
-        "reasoning": {"enabled": thinking},
+        # GLM 5.3 Flash refuses `enabled: false` with a 400 ("Reasoning is
+        # mandatory"), so "off" is the least reasoning the endpoint allows.
+        "reasoning": {"enabled": True} if thinking else {"effort": "minimal"},
         "provider": {
             "sort": "price",
             "max_price": {

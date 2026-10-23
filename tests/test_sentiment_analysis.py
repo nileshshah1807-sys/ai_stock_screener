@@ -377,7 +377,7 @@ class OutlookStanceTests(unittest.TestCase):
         from sentiment.llm_provider import Provider
         from sentiment.outlook import request_body
 
-        self.assertEqual(request_body(Provider("openrouter", "u", "k", "m"), [])["reasoning"], {"enabled": False})
+        self.assertEqual(request_body(Provider("openrouter", "u", "k", "m"), [])["reasoning"], {"effort": "minimal"})
         self.assertEqual(request_body(Provider("tokenharbor", "u", "k", "m"), [])["thinking"], {"type": "disabled"})
 
     def test_a_stance_left_in_an_old_reading_is_not_carried_into_a_new_one(self):
@@ -651,6 +651,7 @@ class OutlookRunTests(unittest.TestCase):
     def test_latest_only_keeps_each_companys_newest_call(self):
         class Repository:
             def outlook_transcript_ids(self, model, version):
+                assert model is None  # a reading by any model counts as done
                 return {"b2"}
 
             def transcripts_for_outlook(self):
@@ -662,8 +663,8 @@ class OutlookRunTests(unittest.TestCase):
                     {"id": "b1", "symbol": "BBB", "call_date": "2026-05-08"},
                 ]
 
-        everything = self.tool.pending_transcripts(Repository(), "m")
-        latest = self.tool.pending_transcripts(Repository(), "m", latest_only=True)
+        everything = self.tool.pending_transcripts(Repository())
+        latest = self.tool.pending_transcripts(Repository(), latest_only=True)
 
         self.assertEqual([row["id"] for row in everything], ["a2", "a1", "b1"])
         # BBB's newest call is done; its older one is not picked up in its place.

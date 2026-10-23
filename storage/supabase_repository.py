@@ -398,8 +398,8 @@ class SupabaseRepository:
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
         )
 
-    def outlook_transcript_ids(self, model_name: str, analysis_version: str) -> set[str]:
-        """Transcripts that already have an outlook from this model and version."""
+    def outlook_transcript_ids(self, model_name: str | None, analysis_version: str) -> set[str]:
+        """Transcripts that already have an outlook from this model (any model if None) and version."""
         ids: set[str] = set()
         offset = 0
         while True:
@@ -408,7 +408,7 @@ class SupabaseRepository:
                 "transcript_outlooks",
                 params={
                     "select": "transcript_id",
-                    "model_name": f"eq.{model_name}",
+                    **({"model_name": f"eq.{model_name}"} if model_name else {}),
                     "analysis_version": f"eq.{analysis_version}",
                     "order": "transcript_id.asc",
                     "limit": "1000",
