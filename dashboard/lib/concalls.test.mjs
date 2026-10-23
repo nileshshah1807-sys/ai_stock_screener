@@ -117,6 +117,14 @@ test("the panel is the run's own once the run has the call, or when there is not
   assert.deepEqual(callPanelSource(RUN, { ...NEWER, call_date: "soon" }), same);
 });
 
+test("the call the run scored without an outlook is filled from the feed", () => {
+  const toneOnly = { Transcript_Call_Date: "2026-10-12", Transcript_Outlook_Neutral_Score: 66 };
+  const { payload, pending } = callPanelSource(toneOnly, NEWER);
+  assert.equal(payload.Transcript_Outlook_Score, 67);
+  assert.equal(payload.Transcript_Outlook_Applied, false);
+  assert.equal(pending.stance.label, "Optimistic");
+});
+
 test("a run that scored no call is older than any call", () => {
   for (const date of ["", undefined, "\u2014"]) {
     assert.equal(callPanelSource({ Transcript_Call_Date: date }, NEWER).payload.Transcript_Outlook_Score, 67);
