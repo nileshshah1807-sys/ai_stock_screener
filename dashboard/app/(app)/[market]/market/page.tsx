@@ -54,20 +54,10 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
     getMarketBreadth(market.code, selected),
     metric ? breadthList(market, metric, selected, query) : Promise.resolve(null),
   ]);
-  const universe = groups.find((entry) => entry.scope === "market")?.members ?? null;
 
   return (
     <div className="space-y-6 px-4 py-5 sm:px-6">
-      <div>
-        <h1 className="text-title font-semibold">Market</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          {market.liveIndices ? "Today\u2019s movers, then how" : "How"} broadly {market.label} stocks
-          are participating
-          {universe ? ` — ${universe.toLocaleString(market.locale)} stocks the screener rates` : ""},
-          session by session. Drag across any chart, or focus one and use the arrow keys, to read
-          every chart on that day.
-        </p>
-      </div>
+      <h1 className="text-title font-semibold">Market</h1>
 
       {/* Today's prices first: what is moving now is the question a reader
           arrives with; breadth below is the slower, session-by-session view.
@@ -91,15 +81,19 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
         failed={failed}
       />
 
+      {/* The method in one closed line: the caveats stay a click away for
+          whoever wants them, out of the way of everyone else. */}
       {group ? (
-        <p className="max-w-3xl border-t pt-4 text-xs leading-relaxed text-muted-foreground">
-          Updated through {formatDate(group.last_session)}. Each day counts only the stocks that
-          traded that day, and each measure only the stocks with enough history for it — a stock
-          listed four months ago counts toward the 50-day EMA but not the 200-day. Highs and lows
-          use closing prices. Stage and RS rating use the screener&rsquo;s own rules, replayed
-          over each stock&rsquo;s history. History covers today&rsquo;s universe, so stocks that
-          have since delisted are not in earlier counts.
-        </p>
+        <details className="group max-w-3xl border-t pt-4 text-xs text-muted-foreground">
+          <summary className="cursor-pointer list-none hover:text-foreground [&::-webkit-details-marker]:hidden">
+            Breadth through {formatDate(group.last_session)} ·{" "}
+            <span className="underline underline-offset-2">How it&rsquo;s counted</span>
+          </summary>
+          <p className="mt-2 leading-relaxed">
+            Only stocks that traded that day, and only those with enough history for each measure.
+            Closing prices. Today&rsquo;s universe, so delisted stocks are not in past counts.
+          </p>
+        </details>
       ) : null}
     </div>
   );
@@ -135,10 +129,7 @@ async function breadthList(
       total: 0,
       content: (
         <div className="panel py-16 text-center">
-          <p className="text-sm font-medium">The latest screener run could not be read</p>
-          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            The stocks behind this count come from it. Reload the page to try again.
-          </p>
+          <p className="text-sm text-muted-foreground">Couldn&rsquo;t load this list. Reload to retry.</p>
         </div>
       ),
     };
@@ -165,10 +156,7 @@ async function breadthList(
           density={filters.density}
           emptyState={
             <div className="panel py-16 text-center">
-              <p className="text-sm font-medium">No stocks on this list today</p>
-              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-                None of the stocks behind this count were in the latest screener run.
-              </p>
+              <p className="text-sm text-muted-foreground">No stocks on this list today.</p>
             </div>
           }
         />

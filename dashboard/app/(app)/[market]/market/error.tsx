@@ -24,11 +24,7 @@ export default function MarketError({
     <div className="px-4 py-5 sm:px-6">
       <h1 className="text-title font-semibold">Market</h1>
       <div className="panel mt-6 px-5 py-12 text-center">
-        <p className="text-sm font-medium">The Market page could not be drawn</p>
-        <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-          The data may be fine; the page failed while laying it out. Try again, and if it keeps
-          failing, the screener and stock pages still work.
-        </p>
+        <p className="text-sm text-muted-foreground">Something went wrong loading this page.</p>
         <Button variant="outline" size="sm" className="mt-4" onClick={retry}>
           Try again
         </Button>

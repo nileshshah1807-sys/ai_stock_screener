@@ -67,15 +67,8 @@ export function LiveMovers({
     return (
       <section aria-labelledby="live-movers-title" className="space-y-3">
         <MoversHeading />
-        <div className="panel px-5 py-8 text-center">
-          <p className="text-sm font-medium">
-            {failed ? "Live prices could not be read" : "No live prices yet"}
-          </p>
-          <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-            {failed
-              ? "The page will try again on its own every few minutes. The breadth charts below are unaffected."
-              : "They arrive within minutes of the session opening and stay until the next one."}
-          </p>
+        <div className="panel px-5 py-8 text-center text-sm text-muted-foreground">
+          {failed ? "Couldn\u2019t load live prices. Retrying." : "No live prices yet today."}
         </div>
       </section>
     );
@@ -183,10 +176,7 @@ export function LiveMovers({
 export function LiveMoversSkeleton() {
   return (
     <div className="space-y-3" aria-busy="true">
-      <div className="space-y-1.5">
-        <Skeleton className="h-5 w-40" />
-        <Skeleton className="h-4 w-full max-w-md" />
-      </div>
+      <Skeleton className="h-5 w-40" />
       <Skeleton className="h-8 w-full max-w-xl rounded-lg" />
       <div className="panel overflow-hidden">
         <div className="border-b px-4 py-3">
@@ -215,16 +205,10 @@ export function LiveMoversSkeleton() {
 /** The section's heading, with the quotes' freshness beside it once there are any. */
 function MoversHeading({ children }: { children?: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
-      <div>
-        <h2 id="live-movers-title" className="text-lead font-semibold tracking-[-0.011em]">
-          Today&rsquo;s movers
-        </h2>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          The biggest gains and falls within each index, refreshed every five minutes during the
-          session.
-        </p>
-      </div>
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+      <h2 id="live-movers-title" className="text-lead font-semibold tracking-[-0.011em]">
+        Today&rsquo;s movers
+      </h2>
       {children}
     </div>
   );

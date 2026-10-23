@@ -1,5 +1,4 @@
 import { LiveMoversSkeleton } from "@/components/market/live-movers";
-import { PageHeadingSkeleton } from "@/components/skeletons";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -11,7 +10,7 @@ export default function MarketLoading() {
   return (
     <div className="space-y-6 px-4 py-5 sm:px-6" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading the market…</span>
-      <PageHeadingSkeleton />
+      <Skeleton className="h-9 w-40" />
       <LiveMoversSkeleton />
       <div className="flex flex-wrap gap-3 py-2">
         <Skeleton className="h-9 w-36 rounded-md" />

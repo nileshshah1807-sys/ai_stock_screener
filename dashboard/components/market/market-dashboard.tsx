@@ -313,7 +313,6 @@ export function MarketDashboard({
         {decodedIndices.length ? (
           <Section
             title="Benchmark indices"
-            description="Where the headline indices are trading."
             action={
               <Link
                 href={marketPath(market.slug, "/indices")}
@@ -342,10 +341,7 @@ export function MarketDashboard({
 
         {breadth ? (
           <>
-            <Section
-              title="Trend participation"
-              description={`${subject(selected, market)} closing above each exponential moving average.`}
-            >
+            <Section title="Trend participation">
               {TREND.map((spec) => (
                 <BreadthChart
                   key={spec.key}
@@ -361,14 +357,7 @@ export function MarketDashboard({
               ))}
             </Section>
 
-            <Section
-              title="Leadership"
-              description={
-                filtered
-                  ? `Stage 2 uptrends, stocks outpacing the ${market.benchmark}, and stocks the whole market ranks in its top quarter for relative strength.`
-                  : `Stocks in a Stage 2 uptrend, and stocks outpacing the ${market.benchmark} over six months.`
-              }
-            >
+            <Section title="Leadership">
               {leadership.map((spec, index) => (
                 <div
                   key={spec.key}
@@ -391,7 +380,7 @@ export function MarketDashboard({
               ))}
             </Section>
 
-            <Section title="52-week extremes" description="Stocks closing at a new one-year high or low.">
+            <Section title="52-week extremes">
               {EXTREMES.map((spec) => (
                 <BreadthChart
                   key={spec.key}
@@ -409,21 +398,12 @@ export function MarketDashboard({
             </Section>
           </>
         ) : (
-          <div className="panel px-5 py-12 text-center">
-            <p className="text-sm font-medium">
-              {failed
-                ? "Market breadth could not be read just now."
-                : filtered
-                  ? `No breadth history is published for ${selected.name}.`
-                  : `Market breadth has not been published for ${market.label} yet.`}
-            </p>
-            <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-              {failed
-                ? "The history is stored; the read failed. Reload the page to try again."
-                : filtered
-                  ? "It may have too few stocks to chart, or have left the universe. Choose another group."
-                  : "It is rebuilt every trading day after the close."}
-            </p>
+          <div className="panel px-5 py-12 text-center text-sm text-muted-foreground">
+            {failed
+              ? "Couldn\u2019t load breadth. Reload to retry."
+              : filtered
+                ? `No breadth for ${selected.name}. Try another group.`
+                : "Breadth is published after the close."}
           </div>
         )}
       </div>
@@ -452,29 +432,20 @@ function leadershipSpecs(filtered: boolean, benchmark: string): MetricSpec[] {
   );
 }
 
-function subject(selected: GroupKey, market: Market) {
-  return selected.scope === "market" ? `${market.label} stocks` : `${selected.name} stocks`;
-}
-
 function Section({
   title,
-  description,
   action,
   children,
 }: {
   title: string;
-  description: string;
   /** A link beside the heading, e.g. to every index. */
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section>
-      <div className="mb-3 flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-lead font-semibold tracking-[-0.011em]">{title}</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
-        </div>
+      <div className="mb-3 flex items-center justify-between gap-4">
+        <h2 className="text-lead font-semibold tracking-[-0.011em]">{title}</h2>
         {action}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">{children}</div>
