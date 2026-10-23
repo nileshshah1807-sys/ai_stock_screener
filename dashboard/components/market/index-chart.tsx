@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import { BreadthChart, type ChartPoint } from "@/components/market/breadth-chart";
 import { indexSlug } from "@/lib/indices.mjs";
-import { isLive, quoteTime } from "@/lib/live-quotes.mjs";
+import { quoteFreshness } from "@/lib/live-quotes.mjs";
 import { marketPath, type Market } from "@/lib/markets";
 import type { LiveQuote } from "@/lib/use-live-quotes";
 
@@ -23,6 +23,7 @@ export function IndexChart({
   now,
   from,
   to,
+  period,
   linked = true,
 }: {
   name: string;
@@ -32,6 +33,8 @@ export function IndexChart({
   now: number;
   from: string;
   to: string;
+  /** The range the change covers, "1Y"; see BreadthChart. */
+  period?: string;
   linked?: boolean;
 }) {
   // The quote object is replaced only when a new read lands, so scrubbing
@@ -42,18 +45,11 @@ export function IndexChart({
     return [...points, { time: quote.session, value: quote.price }];
   }, [points, quote]);
   const drawn = withLive !== points && quote !== null;
-  const live = drawn
-    ? {
-        pulsing: isLive(quote.fetched_at, now),
-        label: `${isLive(quote.fetched_at, now) ? "Live" : "As of"} ${quoteTime(
-          quote.traded_at,
-          market.timezone,
-          market.locale,
-          now,
-        )} ${market.timezoneLabel}`,
-        tick: quote.tick,
-      }
-    : undefined;
+  const freshness = drawn ? quoteFreshness(quote.fetched_at, quote.traded_at, market, now) : null;
+  const live =
+    drawn && freshness
+      ? { pulsing: freshness.state === "live", label: freshness.label, tick: quote.tick }
+      : undefined;
   return (
     <BreadthChart
       title={name}
@@ -62,6 +58,7 @@ export function IndexChart({
       to={to}
       unit="level"
       locale={market.locale}
+      period={period}
       tone={
         withLive.length > 1 && withLive[withLive.length - 1].value < withLive[0].value
           ? "negative"
@@ -72,7 +69,7 @@ export function IndexChart({
         linked
           ? {
               href: marketPath(market.slug, `/indices/${indexSlug(name)}`),
-              label: "Open",
+              label: "Index page",
               title: `Open the ${name} page`,
             }
           : undefined

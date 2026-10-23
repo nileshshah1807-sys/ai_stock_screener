@@ -40,6 +40,9 @@ export function CompanyLogo({
       aria-hidden="true"
       className={cn(
         "relative inline-flex shrink-0 items-center justify-center overflow-hidden font-mono font-bold uppercase text-muted-foreground",
+        // The letter stands in a tile the size of a logo, so a missing logo
+        // reads as one rather than as a stray character beside the name.
+        !(logoUrl && !failed) && "bg-muted",
         dimensions.className,
         className,
       )}

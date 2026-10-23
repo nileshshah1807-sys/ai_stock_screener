@@ -5,7 +5,14 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 
-import { BreadthChart, ScrubContext, type ChartPoint, type ChartTone } from "@/components/market/breadth-chart";
+import {
+  BreadthChart,
+  ScrubContext,
+  formatDay,
+  type ChartPoint,
+  type ChartTone,
+} from "@/components/market/breadth-chart";
+import { ScrollFade } from "@/components/scroll-fade";
 import { BreadthListSheet } from "@/components/market/breadth-list-sheet";
 import { IndexChart } from "@/components/market/index-chart";
 import { GroupPicker, type GroupKey } from "@/components/market/group-picker";
@@ -47,6 +54,7 @@ const LEADERSHIP: MetricSpec[] = [
 ];
 
 const DEFAULT_RANGE = "1Y";
+const UNITS: readonly Unit[] = ["share", "count"];
 
 /** URL keys that belong to the list view, cleared when it opens or closes. */
 const LIST_KEYS = ["list", "sort", "dir", "page"];
@@ -62,9 +70,11 @@ export type BreadthList = {
  * The Market page: benchmark indices, then breadth for the selected group.
  *
  * Range, unit and the scrubbed date are client state -- changing them costs
- * no round trip, so they respond on the press. Only the group is in the URL,
- * because it selects which ~90 KB row the server sends; the charts dim while
- * that loads rather than blanking, so the page never jumps.
+ * no round trip, so they respond on the press. Range and unit are written to
+ * the URL in place (`?range=3Y&unit=count`), so a reload or a shared link
+ * keeps them, without asking the server for anything. The group is in the URL
+ * as a navigation, because it selects which ~90 KB row the server sends; the
+ * charts dim while that loads rather than blanking, so the page never jumps.
  */
 export function MarketDashboard({
   market,
@@ -73,6 +83,7 @@ export function MarketDashboard({
   indices,
   selected,
   list,
+  failed = false,
 }: {
   market: Market;
   groups: BreadthGroup[];
@@ -80,6 +91,8 @@ export function MarketDashboard({
   indices: BreadthRow[];
   selected: GroupKey;
   list: BreadthList | null;
+  /** A read failed, so what is missing is unknown rather than unpublished. */
+  failed?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -117,9 +130,33 @@ export function MarketDashboard({
     setOpenList(null);
     startListTransition(() => router.push(listUrl(null), { scroll: false }));
   };
-  const [range, setRange] = useState(DEFAULT_RANGE);
-  const [unit, setUnit] = useState<Unit>("share");
+  const [range, setRangeState] = useState(() => {
+    const asked = searchParams.get("range");
+    return RANGES.some((entry) => entry.label === asked) ? asked! : DEFAULT_RANGE;
+  });
+  const [unit, setUnitState] = useState<Unit>(() => {
+    const asked = searchParams.get("unit") as Unit | null;
+    return asked && UNITS.includes(asked) ? asked : "share";
+  });
   const [scrub, setScrub] = useState<string | null>(null);
+
+  // In place, not a navigation: the server has nothing to add for a range or
+  // a unit, and the history should not fill with every press.
+  const remember = (key: "range" | "unit", value: string, fallback: string) => {
+    const next = new URLSearchParams(window.location.search);
+    if (value === fallback) next.delete(key);
+    else next.set(key, value);
+    const query = next.toString();
+    window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
+  };
+  const setRange = (next: string) => {
+    setRangeState(next);
+    remember("range", next, DEFAULT_RANGE);
+  };
+  const setUnit = (next: Unit) => {
+    setUnitState(next);
+    remember("unit", next, "share");
+  };
 
   const breadth = useMemo(() => decodeRow(group), [group]);
   const decodedIndices = useMemo(
@@ -185,10 +222,16 @@ export function MarketDashboard({
     [decodedIndices, from],
   );
   const series = (spec: MetricSpec) => metricSeries[spec.key] ?? [];
+  // What each chart's change covers. "Max" is no span, so those charts name
+  // the date they run from instead.
+  const period = range === "Max" ? undefined : range;
 
   const select = (next: GroupKey) => {
     const params = new URLSearchParams();
     if (next.scope !== "market") params.set(next.scope, next.name);
+    // A new group keeps the reader's range and unit.
+    if (range !== DEFAULT_RANGE) params.set("range", range);
+    if (unit !== "share") params.set("unit", unit);
     const query = params.toString();
     startTransition(() => {
       router.push(query ? `${pathname}?${query}` : pathname, { scroll: false });
@@ -198,13 +241,7 @@ export function MarketDashboard({
   const filtered = selected.scope !== "market";
   const marketTotal = groups.find((entry) => entry.scope === "market")?.members ?? null;
 
-  // RS rating is a percentile of the whole market, so ~25% of all stocks
-  // clear 75 on every day by construction. Only a slice of the market can
-  // move against that, which is why the chart appears only when one is
-  // selected.
-  const leadership = LEADERSHIP.filter((spec) => filtered || spec.key !== "rs").map((spec) =>
-    spec.key === "bb" ? { ...spec, title: `Beating the ${market.benchmark} over 6 months` } : spec,
-  );
+  const leadership = leadershipSpecs(filtered, market.benchmark);
 
   // What the sheet shows. While a list loads, the count comes from the chart
   // itself -- the same number the reader just pressed on.
@@ -224,7 +261,7 @@ export function MarketDashboard({
     detail: [
       sheetCount !== null ? `${sheetCount.toLocaleString(market.locale)} stocks` : null,
       filtered ? selected.name : `All ${market.label} stocks`,
-      lastDay ? `as of ${formatListDay(lastDay)}` : null,
+      lastDay ? `as of ${formatDay(lastDay)}` : null,
     ]
       .filter(Boolean)
       .join(" · "),
@@ -234,7 +271,11 @@ export function MarketDashboard({
 
   return (
     <ScrubContext.Provider value={{ time: scrub, setTime: setScrub }}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      {/* The controls change every chart below them, so from md they stay in
+          reach: pinned under the top bar, which is two rows tall from md to
+          xl and one from xl (components/app-shell.tsx). On a phone the bar
+          would wrap to three lines and eat the screen, so it scrolls away. */}
+      <div className="z-20 -mx-4 flex flex-wrap items-center gap-x-3 gap-y-2 bg-background px-4 py-2 sm:-mx-6 sm:px-6 md:sticky md:top-[6.3125rem] xl:top-[3.5625rem]">
         <GroupPicker
           groups={groups}
           selected={selected}
@@ -251,20 +292,20 @@ export function MarketDashboard({
           ]}
         />
         <div className="w-full sm:ml-auto sm:w-auto">
-          <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <ScrollFade>
             <SegmentedControl
               label="Time range"
               value={range}
               onChange={setRange}
               options={RANGES.map((entry) => ({ value: entry.label, label: entry.label }))}
             />
-          </div>
+          </ScrollFade>
         </div>
       </div>
 
       <div
         className={cn(
-          "mt-6 space-y-10 transition-opacity duration-(--duration-base) ease-(--ease-standard)",
+          "mt-4 space-y-10 transition-opacity duration-(--duration-base) ease-(--ease-standard)",
           pending && "pointer-events-none opacity-55",
         )}
         aria-busy={pending}
@@ -272,11 +313,10 @@ export function MarketDashboard({
         {decodedIndices.length ? (
           <Section
             title="Benchmark indices"
-            description="Where the headline indices are trading."
             action={
               <Link
                 href={marketPath(market.slug, "/indices")}
-                className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard) hover:bg-(--control-hover) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="touch-target inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard) hover:bg-(--control-hover) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 All indices
                 <ChevronRight className="size-3.5" aria-hidden />
@@ -293,6 +333,7 @@ export function MarketDashboard({
                 now={now}
                 from={from}
                 to={to}
+                period={period}
               />
             ))}
           </Section>
@@ -300,10 +341,7 @@ export function MarketDashboard({
 
         {breadth ? (
           <>
-            <Section
-              title="Trend participation"
-              description={`${subject(selected, market)} closing above each exponential moving average.`}
-            >
+            <Section title="Trend participation">
               {TREND.map((spec) => (
                 <BreadthChart
                   key={spec.key}
@@ -311,6 +349,7 @@ export function MarketDashboard({
                   points={series(spec)}
                   from={from}
                   to={to}
+                  period={period}
                   unit={unit}
                   locale={market.locale}
                   onExpand={() => openListFor(spec.key)}
@@ -318,14 +357,7 @@ export function MarketDashboard({
               ))}
             </Section>
 
-            <Section
-              title="Leadership"
-              description={
-                filtered
-                  ? `Stage 2 uptrends, stocks outpacing the ${market.benchmark}, and stocks the whole market ranks in its top quarter for relative strength.`
-                  : `Stocks in a Stage 2 uptrend, and stocks outpacing the ${market.benchmark} over six months.`
-              }
-            >
+            <Section title="Leadership">
               {leadership.map((spec, index) => (
                 <div
                   key={spec.key}
@@ -339,6 +371,7 @@ export function MarketDashboard({
                     points={series(spec)}
                     from={from}
                     to={to}
+                    period={period}
                     unit={unit}
                     locale={market.locale}
                     onExpand={() => openListFor(spec.key)}
@@ -347,7 +380,7 @@ export function MarketDashboard({
               ))}
             </Section>
 
-            <Section title="52-week extremes" description="Stocks closing at a new one-year high or low.">
+            <Section title="52-week extremes">
               {EXTREMES.map((spec) => (
                 <BreadthChart
                   key={spec.key}
@@ -355,6 +388,7 @@ export function MarketDashboard({
                   points={series(spec)}
                   from={from}
                   to={to}
+                  period={period}
                   unit={unit}
                   locale={market.locale}
                   tone={spec.tone}
@@ -364,17 +398,12 @@ export function MarketDashboard({
             </Section>
           </>
         ) : (
-          <div className="panel px-5 py-12 text-center">
-            <p className="text-sm font-medium">
-              {filtered
-                ? `No breadth history is published for ${selected.name}.`
-                : `Market breadth has not been published for ${market.label} yet.`}
-            </p>
-            <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-              {filtered
-                ? "It may have too few stocks to chart, or have left the universe. Choose another group."
-                : "It is rebuilt every trading day after the close."}
-            </p>
+          <div className="panel px-5 py-12 text-center text-sm text-muted-foreground">
+            {failed
+              ? "Couldn\u2019t load breadth. Reload to retry."
+              : filtered
+                ? `No breadth for ${selected.name}. Try another group.`
+                : "Breadth is published after the close."}
           </div>
         )}
       </div>
@@ -392,36 +421,31 @@ export function MarketDashboard({
   );
 }
 
-const LIST_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function formatListDay(time: string) {
-  const [year, month, day] = time.split("-");
-  return `${Number(day)} ${LIST_MONTHS[Number(month) - 1]} ${year}`;
-}
-
-function subject(selected: GroupKey, market: Market) {
-  return selected.scope === "market" ? `${market.label} stocks` : `${selected.name} stocks`;
+/**
+ * RS rating is a percentile of the whole market, so ~25% of all stocks clear
+ * 75 on every day by construction. Only a slice of the market can move
+ * against that, which is why its measure appears only when one is selected.
+ */
+function leadershipSpecs(filtered: boolean, benchmark: string): MetricSpec[] {
+  return LEADERSHIP.filter((spec) => filtered || spec.key !== "rs").map((spec) =>
+    spec.key === "bb" ? { ...spec, title: `Beating the ${benchmark} over 6 months` } : spec,
+  );
 }
 
 function Section({
   title,
-  description,
   action,
   children,
 }: {
   title: string;
-  description: string;
   /** A link beside the heading, e.g. to every index. */
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section>
-      <div className="mb-3 flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-lead font-semibold tracking-[-0.011em]">{title}</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
-        </div>
+      <div className="mb-3 flex items-center justify-between gap-4">
+        <h2 className="text-lead font-semibold tracking-[-0.011em]">{title}</h2>
         {action}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">{children}</div>

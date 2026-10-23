@@ -6,12 +6,13 @@ import { ChevronDown, ChevronRight, Loader2, TrendingDown, TrendingUp } from "lu
 
 import { Expand } from "@/components/motion";
 import { RatingBadge } from "@/components/rating-badge";
+import { ScrollFade } from "@/components/scroll-fade";
 import { SegmentedControl } from "@/components/segmented-control";
 import { StockListRow } from "@/components/stock-identity";
 import { TickFlash } from "@/components/tick-flash";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatMoney, formatPercent } from "@/lib/format";
-import { REFRESH_MS, isLive, nextPollDelay, quoteTime } from "@/lib/live-quotes.mjs";
+import { REFRESH_MS, nextPollDelay, quoteFreshness } from "@/lib/live-quotes.mjs";
 import {
   LIVE_MOVERS_LIMIT,
   normalizeLiveMarket,
@@ -42,11 +43,36 @@ import { cn } from "@/lib/utils";
  */
 const EXPANDED_LIMIT = 25;
 
-export function LiveMovers({ market, initial }: { market: Market; initial: LiveMarket | null }) {
+type Side = "gainers" | "losers";
+
+export function LiveMovers({
+  market,
+  initial,
+  failed = false,
+}: {
+  market: Market;
+  initial: LiveMarket | null;
+  /** The server's read failed, as opposed to finding no quotes. */
+  failed?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const { data, limit } = useLiveMarket(market, initial, expanded ? EXPANDED_LIMIT : LIVE_MOVERS_LIMIT);
   const [chosen, setChosen] = useState<string | null>(null);
-  if (!data) return null;
+  // Below lg the columns stack; one at a time, picked here, keeps the
+  // section to a screen rather than twenty rows.
+  const [side, setSide] = useState<Side>("gainers");
+
+  // The poll keeps trying, so either message clears itself when a read lands.
+  if (!data) {
+    return (
+      <section aria-labelledby="live-movers-title" className="space-y-3">
+        <MoversHeading />
+        <div className="panel px-5 py-8 text-center text-sm text-muted-foreground">
+          {failed ? "Couldn\u2019t load live prices. Retrying." : "No live prices yet today."}
+        </div>
+      </section>
+    );
+  }
 
   const index = data.indices.find((entry) => entry.name === chosen) ?? data.indices[0];
   // Open only once the longer list is here, so the rows grow in with their
@@ -57,20 +83,11 @@ export function LiveMovers({ market, initial }: { market: Market; initial: LiveM
 
   return (
     <section aria-labelledby="live-movers-title" className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
-        <div>
-          <h2 id="live-movers-title" className="text-lead font-semibold tracking-[-0.011em]">
-            Today&rsquo;s movers
-          </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            The biggest gains and falls within each index, refreshed every five minutes during
-            the session.
-          </p>
-        </div>
+      <MoversHeading>
         <Freshness market={market} data={data} />
-      </div>
+      </MoversHeading>
 
-      <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <ScrollFade>
         <SegmentedControl
           label="Index"
           kind="tabs"
@@ -79,7 +96,7 @@ export function LiveMovers({ market, initial }: { market: Market; initial: LiveM
           onChange={setChosen}
           options={data.indices.map((entry) => ({ value: entry.name, label: shortName(entry.name) }))}
         />
-      </div>
+      </ScrollFade>
 
       <div
         role="tabpanel"
@@ -88,7 +105,18 @@ export function LiveMovers({ market, initial }: { market: Market; initial: LiveM
         className="panel overflow-hidden"
       >
         <IndexSummary market={market} index={index} />
-        <div className="grid divide-y lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+        <div className="border-b px-4 py-2.5 lg:hidden">
+          <SegmentedControl<Side>
+            label="Show"
+            value={side}
+            onChange={setSide}
+            options={[
+              { value: "gainers", label: "Top gainers" },
+              { value: "losers", label: "Top losers" },
+            ]}
+          />
+        </div>
+        <div className="grid lg:grid-cols-2 lg:divide-x">
           <MoverColumn
             market={market}
             title="Top gainers"
@@ -96,6 +124,7 @@ export function LiveMovers({ market, initial }: { market: Market; initial: LiveM
             rows={index.gainers}
             more={showMore}
             empty="No stock in this index is up today."
+            className={side === "gainers" ? undefined : "max-lg:hidden"}
           />
           <MoverColumn
             market={market}
@@ -104,6 +133,7 @@ export function LiveMovers({ market, initial }: { market: Market; initial: LiveM
             rows={index.losers}
             more={showMore}
             empty="No stock in this index is down today."
+            className={side === "losers" ? undefined : "max-lg:hidden"}
           />
         </div>
         {/* The expand bar. Offered while there may be more to show: a full
@@ -146,18 +176,18 @@ export function LiveMovers({ market, initial }: { market: Market; initial: LiveM
 export function LiveMoversSkeleton() {
   return (
     <div className="space-y-3" aria-busy="true">
-      <div className="space-y-1.5">
-        <Skeleton className="h-5 w-40" />
-        <Skeleton className="h-4 w-full max-w-md" />
-      </div>
-      <Skeleton className="h-10 w-full max-w-xl rounded-md" />
+      <Skeleton className="h-5 w-40" />
+      <Skeleton className="h-8 w-full max-w-xl rounded-lg" />
       <div className="panel overflow-hidden">
         <div className="border-b px-4 py-3">
           <Skeleton className="h-9 w-56" />
         </div>
-        <div className="grid divide-y lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+        <div className="border-b px-4 py-2.5 lg:hidden">
+          <Skeleton className="h-8 w-52 rounded-lg" />
+        </div>
+        <div className="grid lg:grid-cols-2 lg:divide-x">
           {[0, 1].map((column) => (
-            <div key={column} className="pt-3">
+            <div key={column} className={cn("pt-3", column === 1 && "max-lg:hidden")}>
               <Skeleton className="mx-4 mb-2 h-3 w-24" />
               {Array.from({ length: LIVE_MOVERS_LIMIT }).map((_, row) => (
                 <div key={row} className="px-4 py-2">
@@ -168,6 +198,18 @@ export function LiveMoversSkeleton() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The section's heading, with the quotes' freshness beside it once there are any. */
+function MoversHeading({ children }: { children?: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+      <h2 id="live-movers-title" className="text-lead font-semibold tracking-[-0.011em]">
+        Today&rsquo;s movers
+      </h2>
+      {children}
     </div>
   );
 }
@@ -254,18 +296,25 @@ function useLiveMarket(
 
 function Freshness({ market, data }: { market: Market; data: LiveMarket }) {
   const now = useNow();
-  const live = isLive(data.fetched_at, now);
-  const time = quoteTime(data.traded_at, market.timezone, market.locale, now);
+  const { state, label } = quoteFreshness(data.fetched_at, data.traded_at, market, now);
   return (
     // The server and the browser read the clock a moment apart.
     <p suppressHydrationWarning className="flex items-center gap-1.5 text-xs text-muted-foreground">
-      {live ? (
+      {state === "live" ? (
         <span className="relative flex size-2" aria-hidden>
           <span className="absolute inline-flex size-full rounded-full bg-positive opacity-60 motion-safe:animate-ping" />
           <span className="relative inline-flex size-2 rounded-full bg-positive" />
         </span>
-      ) : null}
-      {live ? "Live" : "As of"} {time} {market.timezoneLabel}
+      ) : (
+        <span
+          className={cn(
+            "size-2 rounded-full border",
+            state === "delayed" ? "border-muted-foreground" : "border-border",
+          )}
+          aria-hidden
+        />
+      )}
+      {label}
     </p>
   );
 }
@@ -295,7 +344,10 @@ function IndexSummary({ market, index }: { market: Market; index: LiveIndexMover
               )}
             >
               {formatPercent(index.change_pct, 2, true)}
-            </span>
+            </span>{" "}
+            {/* The index cards below show the change over the chosen range;
+                this one is the session's, and says so. */}
+            <span className="font-sans text-muted-foreground">today</span>
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">{index.members} stocks</p>
@@ -312,7 +364,7 @@ function IndexSummary({ market, index }: { market: Market; index: LiveIndexMover
             <span className="bg-positive" style={{ width: `${share(index.advances)}%` }} />
             <span className="ml-auto bg-negative" style={{ width: `${share(index.declines)}%` }} />
           </div>
-          <p className="tabular mt-1 flex justify-between font-mono text-[11px] text-muted-foreground">
+          <p className="tabular mt-1 flex justify-between font-mono text-xs text-muted-foreground">
             <span>
               <span className="text-positive">{index.advances}</span> advancing
             </span>
@@ -326,7 +378,7 @@ function IndexSummary({ market, index }: { market: Market; index: LiveIndexMover
       <Link
         href={marketPath(market.slug, `/indices/${indexSlug(index.name)}`)}
         className={cn(
-          "inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground sm:ml-auto",
+          "touch-target inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground sm:ml-auto",
           "transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard)",
           "hover:bg-(--control-hover) hover:text-foreground",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -346,6 +398,7 @@ function MoverColumn({
   rows,
   more,
   empty,
+  className,
 }: {
   market: Market;
   title: string;
@@ -354,12 +407,15 @@ function MoverColumn({
   /** Show the rows past the first page, grown open under it. */
   more: boolean;
   empty: string;
+  className?: string;
 }) {
   const first = rows.slice(0, LIVE_MOVERS_LIMIT);
   const rest = rows.slice(LIVE_MOVERS_LIMIT);
   return (
-    <div className="min-w-0">
-      <h3 className="flex items-center gap-2 px-4 pb-1 pt-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+    <div className={cn("min-w-0", className)}>
+      {/* Below lg the toggle above names the column, so the heading is
+          left to screen readers there. */}
+      <h3 className="flex items-center gap-2 px-4 pb-1 pt-3 text-xs font-medium uppercase tracking-wider text-muted-foreground max-lg:sr-only">
         <Icon className="size-3.5" aria-hidden />
         {title}
       </h3>
@@ -400,7 +456,7 @@ function MoverRow({ market, row }: { market: Market; row: LiveMover }) {
     >
       <TickFlash
         tick={row.tick}
-        className="tabular hidden font-mono text-[11px] text-muted-foreground sm:inline"
+        className="tabular hidden font-mono text-xs text-muted-foreground sm:inline"
       >
         {formatMoney(row.price, market, market.listPriceDigits)}
       </TickFlash>
@@ -412,7 +468,9 @@ function MoverRow({ market, row }: { market: Market; row: LiveMover }) {
       >
         {formatPercent(row.change_pct, 2, true)}
       </span>
-      <span className="hidden w-20 shrink-0 justify-end sm:flex">
+      {/* The rating stays on a phone: it is the screener's verdict, and the
+          reason a mover is worth opening. */}
+      <span className="flex w-[4.5rem] shrink-0 justify-end sm:w-20">
         {row.rating ? <RatingBadge rating={row.rating} /> : null}
       </span>
     </StockListRow>

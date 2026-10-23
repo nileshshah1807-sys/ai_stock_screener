@@ -50,22 +50,14 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
   const listed = Array.isArray(query.list) ? query.list[0] : query.list;
   const metric = listed && LIST_METRICS.includes(listed) ? listed : null;
 
-  const [{ groups, group, indices }, list] = await Promise.all([
+  const [{ groups, group, indices, failed }, list] = await Promise.all([
     getMarketBreadth(market.code, selected),
     metric ? breadthList(market, metric, selected, query) : Promise.resolve(null),
   ]);
-  const universe = groups.find((entry) => entry.scope === "market")?.members ?? null;
 
   return (
     <div className="space-y-6 px-4 py-5 sm:px-6">
-      <div>
-        <h1 className="text-title font-semibold">Market</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          How broadly {market.label} stocks are participating
-          {universe ? ` — ${universe.toLocaleString(market.locale)} stocks the screener rates` : ""},
-          session by session. Hover or drag across any chart to read every chart on that day.
-        </p>
-      </div>
+      <h1 className="text-title font-semibold">Market</h1>
 
       {/* Today's prices first: what is moving now is the question a reader
           arrives with; breadth below is the slower, session-by-session view.
@@ -86,17 +78,22 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
         indices={indices}
         selected={selected}
         list={list}
+        failed={failed}
       />
 
+      {/* The method in one closed line: the caveats stay a click away for
+          whoever wants them, out of the way of everyone else. */}
       {group ? (
-        <p className="max-w-3xl border-t pt-4 text-xs leading-relaxed text-muted-foreground">
-          Updated through {formatDate(group.last_session)}. Each day counts only the stocks that
-          traded that day, and each measure only the stocks with enough history for it — a stock
-          listed four months ago counts toward the 50-day EMA but not the 200-day. Highs and lows
-          use closing prices. Stage and RS rating use the screener&rsquo;s own rules, replayed
-          over each stock&rsquo;s history. History covers today&rsquo;s universe, so stocks that
-          have since delisted are not in earlier counts.
-        </p>
+        <details className="group max-w-3xl border-t pt-4 text-xs text-muted-foreground">
+          <summary className="cursor-pointer list-none hover:text-foreground [&::-webkit-details-marker]:hidden">
+            Breadth through {formatDate(group.last_session)} ·{" "}
+            <span className="underline underline-offset-2">How it&rsquo;s counted</span>
+          </summary>
+          <p className="mt-2 leading-relaxed">
+            Only stocks that traded that day, and only those with enough history for each measure.
+            Closing prices. Today&rsquo;s universe, so delisted stocks are not in past counts.
+          </p>
+        </details>
       ) : null}
     </div>
   );
@@ -104,7 +101,8 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
 
 /** Today's movers, read on the server and kept current in the browser. */
 async function LiveMoversSection({ market }: { market: Market }) {
-  return <LiveMovers market={market} initial={await getLiveMarket(market.code)} />;
+  const { live, failed } = await getLiveMarket(market.code);
+  return <LiveMovers market={market} initial={live} failed={failed} />;
 }
 
 /**
@@ -121,9 +119,21 @@ async function breadthList(
   metric: string,
   selected: GroupKey,
   query: Record<string, string | string[] | undefined>,
-): Promise<BreadthList | null> {
+): Promise<BreadthList> {
   const run = await getLatestRun(market.code);
-  if (!run) return null;
+  // Answer with a list either way: the sheet is already open on the press,
+  // and with nothing to show it would sit on its skeleton.
+  if (!run) {
+    return {
+      metric,
+      total: 0,
+      content: (
+        <div className="panel py-16 text-center">
+          <p className="text-sm text-muted-foreground">Couldn&rsquo;t load this list. Reload to retry.</p>
+        </div>
+      ),
+    };
+  }
   const filters = parseFilters(query);
   const urlParams = toSearchParams(query);
   const { rows, total } = await getSnapshotPage(market.code, run.run_date, filters, {
@@ -146,10 +156,7 @@ async function breadthList(
           density={filters.density}
           emptyState={
             <div className="panel py-16 text-center">
-              <p className="text-sm font-medium">No stocks on this list today</p>
-              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-                None of the stocks behind this count were in the latest screener run.
-              </p>
+              <p className="text-sm text-muted-foreground">No stocks on this list today.</p>
             </div>
           }
         />

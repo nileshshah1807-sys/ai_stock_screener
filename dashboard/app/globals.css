@@ -855,6 +855,22 @@
   background-color: var(--workspace);
 }
 
+/*
+ * A compact control that a finger can still hit: under a coarse pointer an
+ * invisible box extends it 8px above and below, so a 28px chip or segment
+ * takes a 44px tap without being drawn any larger.
+ */
+@utility touch-target {
+  position: relative;
+  @media (pointer: coarse) {
+    &::after {
+      content: "";
+      position: absolute;
+      inset: -8px 0;
+    }
+  }
+}
+
 /* Increase Contrast: a defined edge on every control surface. */
 @media (prefers-contrast: more) {
   :root,

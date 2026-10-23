@@ -61,6 +61,13 @@ export type Market = {
   /** How that clock is labelled beside a time: "11:45 IST". */
   timezoneLabel: string;
   /**
+   * The regular session in that clock, "HH:MM". Mirrors `session_open` and
+   * `session_close` in `screener/markets.py`; a live quote that has stopped
+   * outside these hours is a closed market, inside them a delayed one.
+   */
+  sessionOpen: string;
+  sessionClose: string;
+  /**
    * Whether the Market page lists today's movers by index. Mirrors a
    * non-empty `live_indices` in `screener/markets.py`; where it is false the
    * page reserves no space for them.
@@ -91,6 +98,8 @@ export const MARKETS: Record<MarketSlug, Market> = {
     benchmark: "Nifty 500",
     timezone: "Asia/Kolkata",
     timezoneLabel: "IST",
+    sessionOpen: "09:15",
+    sessionClose: "15:30",
     liveIndices: true,
     nseEvidence: true,
   },
@@ -107,6 +116,8 @@ export const MARKETS: Record<MarketSlug, Market> = {
     benchmark: "S&P 500",
     timezone: "America/New_York",
     timezoneLabel: "ET",
+    sessionOpen: "09:30",
+    sessionClose: "16:00",
     liveIndices: true,
     nseEvidence: false,
   },

@@ -152,8 +152,19 @@ export function StockListRow({
 
   const content = (
     <>
-      <span className="tabular w-8 shrink-0 font-mono text-xs text-muted-foreground">
-        {shownRank ?? MISSING}
+      {/* "#" so the figure reads as the screener's rank, not a code. */}
+      <span
+        className="tabular w-10 shrink-0 font-mono text-xs text-muted-foreground"
+        title={shownRank !== null ? "Screener rank" : "Not rated by the screener"}
+      >
+        {shownRank !== null ? (
+          <>
+            <span aria-hidden>#{shownRank}</span>
+            <span className="sr-only">Rank {shownRank}</span>
+          </>
+        ) : (
+          MISSING
+        )}
       </span>
       <StockIdentity
         symbol={symbol}

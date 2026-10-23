@@ -101,6 +101,49 @@ export function quoteTime(iso, timeZone, locale, now) {
   return `${date}, ${time}`;
 }
 
+/**
+ * Whether `now` falls in the regular session, Monday to Friday, in the
+ * exchange's clock. Holidays are not known here: on one, an in-hours quote
+ * that has stopped reads as delayed rather than closed.
+ *
+ * @param {number} now epoch ms
+ * @param {{ timezone: string, sessionOpen: string, sessionClose: string }} market
+ */
+export function inSession(now, market) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: market.timezone,
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    })
+      .formatToParts(new Date(now))
+      .map((part) => [part.type, part.value]),
+  );
+  if (parts.weekday === "Sat" || parts.weekday === "Sun") return false;
+  const clock = `${parts.hour}:${parts.minute}`;
+  return clock >= market.sessionOpen && clock < market.sessionClose;
+}
+
+/**
+ * What a quote's time is said to be: live while the worker is still writing,
+ * otherwise closed or delayed by the clock, so a reader can tell a shut
+ * market from one whose prices have stopped coming.
+ *
+ * @param {string | null | undefined} fetchedAt
+ * @param {string | null | undefined} tradedAt
+ * @param {{ timezone: string, timezoneLabel: string, locale: string, sessionOpen: string, sessionClose: string }} market
+ * @param {number} now epoch ms
+ * @returns {{ state: "live" | "closed" | "delayed", label: string }}
+ */
+export function quoteFreshness(fetchedAt, tradedAt, market, now) {
+  const time = `${quoteTime(tradedAt, market.timezone, market.locale, now)} ${market.timezoneLabel}`;
+  if (isLive(fetchedAt, now)) return { state: "live", label: `Live ${time}` };
+  if (inSession(now, market)) return { state: "delayed", label: `Delayed · last trade ${time}` };
+  return { state: "closed", label: `Market closed · last trade ${time}` };
+}
+
 /** How long a price that just moved stays tinted, fading out over the end. */
 export const TICK_FLASH_MS = 3_000;
 
