@@ -177,8 +177,9 @@ create policy market_breadth_levels_read
 -- split on its ex-date), whose price cannot be compared with yesterday's
 -- levels. `counts` is null until a session after the levels has quotes.
 --
--- Only the newest levels count, so a publish that failed between its upsert
--- and its delete leaves no stale stock in the count.
+-- Only levels as of the session the charts end on count, so neither a
+-- publish that failed between its upsert and its delete nor one that wrote
+-- the charts without the levels can count today against the wrong day.
 create or replace function live_breadth(
     p_market text,
     p_scope text default 'market',
@@ -195,11 +196,19 @@ as $$
         from live_quotes
         where market = p_market and kind = 'stock'
     ),
+    -- The session the published charts end on. Levels from any other session
+    -- would count today against the wrong day -- a publish that wrote the
+    -- rows but not the levels -- so then there are no live counts at all.
+    charted as (
+        select last_session
+        from market_breadth
+        where market = p_market and scope = 'market' and name = ''
+    ),
     levels as (
         select l.*
         from market_breadth_levels l
         where l.market = p_market
-          and l.as_of = (select max(as_of) from market_breadth_levels where market = p_market)
+          and l.as_of = (select last_session from charted)
           and (
               p_scope = 'market'
               or (p_scope = 'sector' and l.sector = p_name)
