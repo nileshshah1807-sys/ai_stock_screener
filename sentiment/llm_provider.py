@@ -1,9 +1,8 @@
 """Where the outlook request is sent: OpenRouter in production, Token Harbor in development.
 
-Both serve the same DeepSeek model through an OpenAI-shaped chat-completion
-endpoint. OpenRouter is paid and is what the scheduled workflows use; Token
-Harbor serves the model free and is for trying a prompt locally without
-spending. The choice is never left to a missing key: a run inside GitHub
+Both are OpenAI-shaped chat-completion endpoints. OpenRouter is paid, serves
+GLM 5.3 Flash and is what the scheduled workflows use; Token Harbor serves a
+free DeepSeek model and is for trying a prompt locally without spending. The choice is never left to a missing key: a run inside GitHub
 Actions is production and only ever uses OpenRouter, and a local run uses
 Token Harbor unless OpenRouter is asked for by name.
 
@@ -27,11 +26,13 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 TOKENHARBOR_URL = "https://tokenharbor.ai/v1/chat/completions"
 TOKENHARBOR_MODELS_URL = "https://tokenharbor.ai/v1/models"
 
-OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash"
-# Production's model, from the free tier: Token Harbor names its models without
-# a vendor prefix, and the same name without ":free" is billed. Its catalogue
-# is only listed to a key holder: `python -m tools.extract_transcript_outlook
-# --list-models` prints it, and TOKENHARBOR_MODEL overrides this.
+OPENROUTER_MODEL = "z-ai/glm-5.3-flash"
+# Token Harbor's free tier has no GLM model, so a development trial runs the
+# DeepSeek model production used before GLM: close, not identical. Its models
+# are named without a vendor prefix, and the same name without ":free" is
+# billed. Its catalogue is only listed to a key holder:
+# `python -m tools.extract_transcript_outlook --list-models` prints it, and
+# TOKENHARBOR_MODEL overrides this.
 TOKENHARBOR_MODEL = "deepseek-v4.1-flash:free"
 
 _KEY_VARIABLES = {OPENROUTER: "OPENROUTER_API_KEY", TOKENHARBOR: "TOKENHARBOR_API_KEY"}
