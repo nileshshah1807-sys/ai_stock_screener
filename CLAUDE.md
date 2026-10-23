@@ -237,7 +237,15 @@ the scheduled workflows set the same flag.
   quote shows only when it is from a later
   session than the row's bar. A change past `max_open_gap` is withheld as a
   unit change, not a move. The tables are in
-  `storage/live_quotes_schema.sql` and must be applied by hand.
+  `storage/live_quotes_schema.sql` and must be applied by hand. The Market
+  page's breadth charts take a live point from the same quotes:
+  `tools/publish_market_breadth.py` also writes each stock's next-session
+  levels (`market_breadth_levels`: yesterday's EMAs -- a price is above
+  today's EMA exactly when it is above yesterday's -- the prior year's high
+  and low, the six-month base), and `live_breadth()` counts the live prices
+  against them, so the live point equals the close the evening run will
+  publish at that price. Stage 2 and RS rating stay on the last close. Both
+  are in `storage/market_breadth_schema.sql`, applied by hand.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and

@@ -724,6 +724,34 @@ class DashboardRepository:
         )
         return written
 
+    def replace_breadth_levels(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
+        """Make this market's live-breadth levels exactly ``rows``.
+
+        As ``replace_breadth_members``: every row is stamped with this call's
+        time and one DELETE removes anything older, so a stock that left the
+        universe goes with it, and a failure between the steps leaves
+        yesterday's levels -- which ``live_breadth`` ignores once they are
+        not the newest -- rather than none.
+        """
+        stamp = datetime.now(UTC).isoformat(timespec="seconds")
+        written = 0
+        for chunk in chunked([{**row, "published_at": stamp} for row in rows], chunk_size):
+            self._request(
+                "POST",
+                "market_breadth_levels?on_conflict=market,symbol",
+                retries=3,
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        self._request(
+            "DELETE",
+            "market_breadth_levels",
+            params=self._scoped({"published_at": f"lt.{stamp}"}),
+            headers={"Prefer": "return=minimal"},
+        )
+        return written
+
     # -- new listings -----------------------------------------------------
 
     def new_listing_symbols(self) -> list[str]:

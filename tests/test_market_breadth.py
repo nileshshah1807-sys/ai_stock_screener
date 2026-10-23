@@ -13,6 +13,7 @@ from screener.markets import resolve
 from screener.stage import STAGE_2, classify_stages
 from tests.test_dashboard_repository import RecordingDashboardRepository
 from tools.publish_market_breadth import (
+    benchmark_quote_label,
     completed_session_cap,
     fetch_fresh_indices,
     fetch_index_points,
@@ -348,6 +349,95 @@ class ToolTests(unittest.TestCase):
             self.assertEqual(len(resolve(code).headline_indices), 4)
 
 
+class LiveLevelTests(unittest.TestCase):
+    """A live price counted against last night's levels is the close's own flag."""
+
+    def flags_by_levels(self, levels, price, bench=None):
+        out = {}
+        for span in mb.EMA_SPANS:
+            level = levels[f"e{span}"]
+            out[f"ema{span}"] = mb.UNDEFINED if level is None else int(price > level)
+        out["high52"] = mb.UNDEFINED if levels["hi"] is None else int(price > levels["hi"])
+        out["low52"] = mb.UNDEFINED if levels["lo"] is None else int(price < levels["lo"])
+        if bench is not None:
+            live, base = bench
+            out["beat_benchmark"] = (
+                mb.UNDEFINED
+                if levels["base"] is None or base is None
+                else int(price / levels["base"] - 1 > live / base - 1)
+            )
+        return out
+
+    def test_the_levels_reproduce_the_next_closes_flags_at_every_window_edge(self):
+        # Lengths either side of each window: the 20/50/100/200 EMAs, the
+        # 126-session benchmark return and the 251-session prior year.
+        lengths = [19, 20, 21, 49, 50, 99, 100, 125, 126, 127, 199, 200, 250, 251, 252, 398]
+        bench_closes = pd.Series(walk(11, drift=0.001), index=SESSIONS)
+        for length in lengths:
+            for seed in range(4):
+                closes = walk(100 + seed + length, length=length)
+                # The live price: up or down 3% on the last close.
+                for move in (1.03, 0.97):
+                    full = np.append(closes, closes[-1] * move)
+                    days = SESSIONS[: len(full)]
+                    bench = bench_closes.iloc[: len(full)]
+                    bench_return = (bench / bench.shift(mb.BENCHMARK_SESSIONS) - 1.0).dropna()
+                    expected = mb.symbol_signals(pd.Series(full, index=days), bench_return)
+
+                    levels = mb._next_levels(pd.Series(closes, index=days[:-1]))
+                    prior = bench.iloc[:-1]
+                    base = (
+                        float(prior.iloc[-mb.BENCHMARK_SESSIONS])
+                        if len(prior) >= mb.BENCHMARK_SESSIONS
+                        else None
+                    )
+                    got = self.flags_by_levels(levels, full[-1], (float(bench.iloc[-1]), base))
+                    for name, flag in got.items():
+                        self.assertEqual(
+                            flag, int(expected[name][-1]), f"{name} at length {length}, move {move}"
+                        )
+
+    def test_rows_carry_the_session_group_and_benchmark(self):
+        observations_ = {
+            "OLD": observations(walk(1)),
+            "YOUNG": observations(walk(2, length=30), start=370),
+            "OUT": observations(walk(3)),
+        }
+        classification = {"OLD": ("Energy", "Oil"), "YOUNG": ("Technology", "Software")}
+        benchmark = {day: 100.0 + index for index, day in enumerate(SESSIONS)}
+        rows = mb.live_levels(
+            observations_,
+            SESSIONS,
+            classification,
+            benchmark_points=benchmark,
+            benchmark_label="Nifty 500",
+        )
+
+        self.assertEqual([row["symbol"] for row in rows], ["OLD", "YOUNG"])
+        old, young = rows
+        self.assertEqual(old["as_of"], SESSIONS[-1].isoformat())
+        self.assertEqual((old["sector"], old["industry"]), ("Energy", "Oil"))
+        self.assertIsNotNone(old["e200"])
+        self.assertIsNotNone(old["hi"])
+        # Thirty sessions: a 20-day EMA, but no 50-day, no year and no base.
+        self.assertIsNotNone(young["e20"])
+        self.assertIsNone(young["e50"])
+        self.assertIsNone(young["hi"])
+        self.assertIsNone(young["base"])
+        self.assertEqual(old["bench_label"], "Nifty 500")
+        self.assertEqual(old["bench_base"], 100.0 + len(SESSIONS) - mb.BENCHMARK_SESSIONS)
+
+    def test_each_markets_benchmark_has_a_live_quote(self):
+        # Without one, "Beating the benchmark" could never be counted live.
+        self.assertEqual(benchmark_quote_label(resolve("NSE")), "Nifty 500")
+        self.assertEqual(benchmark_quote_label(resolve("US")), "S&P 500")
+
+    def test_no_benchmark_leaves_the_comparison_out(self):
+        rows = mb.live_levels({"A": observations(walk(1))}, SESSIONS, {"A": ("S", "I")})
+        self.assertIsNone(rows[0]["bench_label"])
+        self.assertIsNone(rows[0]["bench_base"])
+
+
 class RepositoryTests(unittest.TestCase):
     def test_replace_upserts_then_removes_groups_no_longer_published(self):
         repository = RecordingDashboardRepository(
@@ -383,6 +473,25 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual((method, path), ("DELETE", "market_breadth_members"))
         self.assertEqual(kwargs["params"]["published_at"], f"lt.{stamps.pop()}")
         self.assertEqual(kwargs["params"]["market"], "eq.US")
+
+    def test_levels_are_upserted_then_everything_older_is_deleted(self):
+        repository = RecordingDashboardRepository()
+        written = repository.replace_breadth_levels(
+            [{"symbol": "AAA", "as_of": "2026-10-22", "e20": 101.5}, {"symbol": "BBB", "as_of": "2026-10-22"}]
+        )
+
+        self.assertEqual(written, 2)
+        method, path, kwargs = repository.calls[0]
+        self.assertEqual(method, "POST")
+        self.assertIn("on_conflict=market,symbol", path)
+        stamps = {row["published_at"] for row in kwargs["json"]}
+        self.assertEqual(len(stamps), 1)
+        self.assertTrue(all(row["market"] == "NSE" for row in kwargs["json"]))
+
+        method, path, kwargs = repository.calls[-1]
+        self.assertEqual((method, path), ("DELETE", "market_breadth_levels"))
+        self.assertEqual(kwargs["params"]["published_at"], f"lt.{stamps.pop()}")
+        self.assertEqual(kwargs["params"]["market"], "eq.NSE")
 
 
 if __name__ == "__main__":
