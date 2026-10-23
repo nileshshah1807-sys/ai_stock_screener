@@ -1,6 +1,6 @@
 """Extract the outlook from stored earnings-call transcripts with a language model.
 
-Reads every transcript that has no outlook yet for the chosen model and
+Reads every transcript that has no outlook yet from any model for
 `sentiment.outlook.OUTLOOK_VERSION`, sends each to the model, keeps only the
 items whose quoted sentence is found in the transcript, scores them and writes
 one row to ``transcript_outlooks``. The daily screener reads that table: the
@@ -92,7 +92,7 @@ def estimate_cost(transcripts, model, provider=None):
     return (prompt * prices[0] + output * prices[1]) / 1_000_000
 
 
-def pending_transcripts(repository, model, latest_only=False, refresh_since=None):
+def pending_transcripts(repository, latest_only=False, refresh_since=None):
     """Transcripts with no outlook yet, newest call first.
 
     ``latest_only`` keeps each company's most recent call, which is the only
@@ -104,7 +104,9 @@ def pending_transcripts(repository, model, latest_only=False, refresh_since=None
     added to the extraction reaches calls read before it was asked. A second
     reading can differ from the first, so their outlook scores can move.
     """
-    done = repository.outlook_transcript_ids(model, OUTLOOK_VERSION)
+    # Any model's reading counts: the screener reads the latest of any model,
+    # so changing the model must not queue every call for a paid re-read.
+    done = repository.outlook_transcript_ids(None, OUTLOOK_VERSION)
     transcripts = repository.transcripts_for_outlook()
     if refresh_since:
         done = {
@@ -280,7 +282,7 @@ def main(argv=None):
     repository = SupabaseRepository.from_environment(args.market)
     try:
         pending = pending_transcripts(
-            repository, provider.stored_model_name,
+            repository,
             latest_only=args.latest_only, refresh_since=args.refresh_since,
         )
     except requests.HTTPError as exc:

@@ -106,7 +106,8 @@ export function groupByCallDate(calls) {
  * the panel would describe last quarter's call. When the feed has a call held
  * after the one the run scored, with an outlook to show, the panel reads that
  * call instead and says it is not in the score yet. Once a run scores it the
- * dates match and the panel is the run's again -- one panel throughout.
+ * dates match and the panel is the run's again -- one panel throughout. The
+ * same holds for the call the run scored when the run has no outlook for it.
  *
  * The feed's detail carries the same field names a run publishes, so it is
  * laid over the run's. Two things stay the run's: the median it compares
@@ -124,7 +125,11 @@ export function callPanelSource(payload, call) {
   };
   const held = isoDate(call?.call_date);
   const detail = call?.outlook_detail;
-  if (!held || held <= isoDate(run.Transcript_Call_Date)) return fromRun;
+  const scored = isoDate(run.Transcript_Call_Date);
+  // A run can score a call's tone before its outlook is read; the feed's
+  // outlook of that same call fills the panel until a run carries one.
+  const runHasOutlook = number(run.Transcript_Outlook_Score) !== null;
+  if (!held || held < scored || (held === scored && runHasOutlook)) return fromRun;
   if (!detail || typeof detail !== "object" || number(detail.Transcript_Outlook_Score) === null) return fromRun;
   return {
     payload: {

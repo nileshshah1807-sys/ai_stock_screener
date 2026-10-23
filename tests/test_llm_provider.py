@@ -58,10 +58,10 @@ class ProviderChoiceTests(unittest.TestCase):
 class RequestBodyTests(unittest.TestCase):
     MESSAGES = [{"role": "user", "content": "call"}]
 
-    def test_openrouter_is_held_to_the_cheapest_provider_with_reasoning_off(self):
+    def test_openrouter_is_held_to_the_cheapest_provider_with_minimal_reasoning(self):
         body = request_body(Provider("openrouter", OPENROUTER_URL, "k", OPENROUTER_MODEL), self.MESSAGES)
         self.assertEqual(body["provider"]["sort"], "price")
-        self.assertEqual(body["reasoning"], {"enabled": False})
+        self.assertEqual(body["reasoning"], {"effort": "minimal"})
         self.assertIs(body["response_format"]["json_schema"]["schema"], SCHEMA)
 
     def test_token_harbor_is_sent_the_standard_fields_with_thinking_off(self):
