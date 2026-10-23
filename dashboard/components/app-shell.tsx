@@ -55,6 +55,26 @@ const NAV: readonly { path: string; label: string; icon: typeof LayoutGrid; also
   { path: "/movers", label: "Movers", icon: ArrowLeftRight },
 ];
 
+function PrimaryNav({ market, className }: { market: Market; className: string }) {
+  return (
+    <GlassTrack label="Primary" variant="tabs" className={className}>
+      {NAV.map(({ path, label, icon: Icon, also }) => (
+        <NavLink
+          key={path}
+          href={marketPath(market.slug, path)}
+          also={also?.map((other) => marketPath(market.slug, other))}
+          // The screener is the market root, so it must match exactly or
+          // it reads as active on every page in the market.
+          exact={path === ""}
+        >
+          <Icon className="size-4 shrink-0" aria-hidden />
+          <span className="whitespace-nowrap">{label}</span>
+        </NavLink>
+      ))}
+    </GlassTrack>
+  );
+}
+
 function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
   return (
     <Link
@@ -183,30 +203,13 @@ export function AppShell({
             shrink-0 there: the nav is the one element that must never
             compress, because its labels are the app's primary destinations.
           */}
-          <GlassTrack
-            label="Primary"
-            variant="tabs"
+          <PrimaryNav
+            market={market}
             className={cn(
-              "max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40",
-              "max-md:border-t max-md:bg-card max-md:px-1 max-md:pb-[env(safe-area-inset-bottom)]",
-              "md:order-last md:-mx-3 md:h-11 md:w-[calc(100%+1.5rem)]",
+              "max-md:hidden md:order-last md:-mx-3 md:h-11 md:w-[calc(100%+1.5rem)]",
               "xl:order-none xl:mx-0 xl:h-14 xl:w-auto xl:shrink-0",
             )}
-          >
-            {NAV.map(({ path, label, icon: Icon, also }) => (
-              <NavLink
-                key={path}
-                href={marketPath(market.slug, path)}
-                also={also?.map((other) => marketPath(market.slug, other))}
-                // The screener is the market root, so it must match exactly or
-                // it reads as active on every page in the market.
-                exact={path === ""}
-              >
-                <Icon className="size-4 shrink-0" aria-hidden />
-                <span className="whitespace-nowrap">{label}</span>
-              </NavLink>
-            ))}
-          </GlassTrack>
+          />
 
           {/*
             Account. flex-1 only from xl, where the tabs sit between the two
@@ -274,6 +277,17 @@ export function AppShell({
           </Link>
         </footer>
       </div>
+
+      {/*
+        The phone's tab bar, outside the header on purpose: a fixed element
+        inside the sticky header is painted wrongly by iOS Safari while
+        scrolling -- all but the current tab vanished. Only one of the two
+        PrimaryNavs is displayed at a time.
+      */}
+      <PrimaryNav
+        market={market}
+        className="fixed inset-x-0 bottom-0 z-40 border-t bg-card px-1 pb-[env(safe-area-inset-bottom)] md:hidden"
+      />
     </div>
   );
 }
