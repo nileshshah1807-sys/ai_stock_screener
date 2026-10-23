@@ -28,6 +28,12 @@ test("the pattern reads latest last, with QoQ and YoY in points", () => {
   assert.equal(rows.find((row) => row.key === "shareholders").qoq, -815);
 });
 
+test("a falling public stake or shareholder count is the good direction", () => {
+  const { rows } = buildPattern(ONWARD);
+  const better = rows.filter((row) => row.lowerIsBetter).map((row) => row.key);
+  assert.deepEqual(better, ["public", "shareholders"]);
+});
+
 test("a missing quarter leaves QoQ blank rather than comparing the wrong one", () => {
   const { rows } = buildPattern(ONWARD.filter((row) => row.period_end !== "2026-06-30"));
   const promoter = rows.find((row) => row.key === "promoter");
