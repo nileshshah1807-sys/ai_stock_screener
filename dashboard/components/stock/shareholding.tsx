@@ -18,6 +18,7 @@ type TableRow = {
   qoq?: number | null;
   yoy?: number | null;
   group?: string;
+  lowerIsBetter?: boolean;
 };
 
 type View = "pattern" | "deals";
@@ -43,9 +44,10 @@ function formatChange(value: number | null | undefined, percent: boolean, locale
   return `${sign}${formatValue(Math.abs(value), percent, locale)}`;
 }
 
-function changeTone(value: number | null | undefined) {
+// A falling public stake or shareholder count is the good direction, so those rows flip.
+function changeTone(value: number | null | undefined, lowerIsBetter?: boolean) {
   if (!value) return "text-muted-foreground";
-  return value > 0 ? "text-positive" : "text-negative";
+  return value > 0 !== !lowerIsBetter ? "text-negative" : "text-positive";
 }
 
 function QuarterTable({
@@ -117,8 +119,8 @@ function QuarterTable({
                 ))}
                 {changes ? (
                   <>
-                    <td className={cn(CELL, "text-xs", changeTone(row.qoq))}>{formatChange(row.qoq, percent, market.locale)}</td>
-                    <td className={cn(CELL, "text-xs", changeTone(row.yoy))}>{formatChange(row.yoy, percent, market.locale)}</td>
+                    <td className={cn(CELL, "text-xs", changeTone(row.qoq, row.lowerIsBetter))}>{formatChange(row.qoq, percent, market.locale)}</td>
+                    <td className={cn(CELL, "text-xs", changeTone(row.yoy, row.lowerIsBetter))}>{formatChange(row.yoy, percent, market.locale)}</td>
                   </>
                 ) : null}
               </tr>

@@ -51,11 +51,13 @@ export function buildPattern(patterns) {
         cells: shown.map((row) => numberOrNull(row[key])),
         qoq: delta(key, quarterAgo),
         yoy: delta(key, yearAgo),
+        lowerIsBetter: key === "public",
       })),
       {
         key: "shareholders",
         label: "No. of shareholders",
         percent: false,
+        lowerIsBetter: true,
         cells: shown.map((row) => numberOrNull(row.shareholders)),
         qoq: delta("shareholders", quarterAgo),
         yoy: delta("shareholders", yearAgo),
