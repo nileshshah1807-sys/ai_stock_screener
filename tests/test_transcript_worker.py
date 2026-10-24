@@ -22,6 +22,10 @@ class FakeRepository:
         self.upserted_transcripts = []
         self.links = []
         self.updates = []
+        self.read_only = False
+        # Filed transcripts already stored for the call being processed.
+        self.stored_call = []
+        self.deleted = []
 
     def upsert_filing(self, filing):
         return {"id": "filing-1", "status": "discovered", "attempt_count": 2}
@@ -39,6 +43,15 @@ class FakeRepository:
     def upsert_transcript(self, transcript):
         self.upserted_transcripts.append(transcript)
         return transcript
+
+    def call_transcripts(self, symbol, call_date):
+        return self.stored_call
+
+    def delete_transcript(self, transcript_id):
+        self.deleted.append(transcript_id)
+
+    def delete_speech_transcripts(self, symbol, quarter):
+        return 0
 
     def link_filing_document(self, filing_id, document_id):
         self.links.append((filing_id, document_id))
@@ -75,6 +88,38 @@ class TranscriptWorkerTests(unittest.TestCase):
         self.assertEqual(repository.upserted_transcripts[0]["document_id"], "existing-document")
         self.assertEqual(repository.upserted_transcripts[0]["quarter"], "2026-06-30")
         self.assertEqual(repository.links, [("filing-1", "existing-document")])
+        self.assertEqual(repository.updates[-1][1]["status"], "document_ready")
+
+    def process_call(self, repository):
+        worker = TranscriptWorker(repository, self.settings)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            pdf_path = Path(temporary_directory) / "call.pdf"
+            pdf_path.write_bytes(b"%PDF- call")
+            worker._download_pdf = lambda url, directory: pdf_path
+            with patch(
+                "workers.transcript_worker.extract_pdf_text",
+                return_value=SimpleNamespace(text=CALL_TEXT, method="pymupdf"),
+            ):
+                return worker._process_filing(self.record, Path(temporary_directory))
+
+    def test_a_call_filed_twice_keeps_one_transcript(self):
+        # IDFCFIRSTB, Jul 2026: the call filed again, a few words apart.
+        tokens = (len(CALL_TEXT) + 3) // 4
+        repository = FakeRepository()
+        repository.stored_call = [{"id": "earlier-copy", "token_count": tokens - 23}]
+        self.assertTrue(self.process_call(repository))
+        self.assertEqual(repository.deleted, ["earlier-copy"])
+        self.assertEqual(len(repository.upserted_transcripts), 1)
+
+    def test_a_shorter_copy_of_a_stored_call_is_not_stored(self):
+        # ICICIBANK, Jul 2026: a scan read by OCR beside the full text.
+        tokens = (len(CALL_TEXT) + 3) // 4
+        repository = FakeRepository()
+        repository.stored_call = [{"id": "full-text", "token_count": tokens * 2}]
+        self.assertTrue(self.process_call(repository))
+        self.assertEqual(repository.upserted_transcripts, [])
+        self.assertEqual(repository.deleted, [])
+        # The filing is done: it is not fetched again.
         self.assertEqual(repository.updates[-1][1]["status"], "document_ready")
 
     def process_cover_letter(self, linked, repository=None):

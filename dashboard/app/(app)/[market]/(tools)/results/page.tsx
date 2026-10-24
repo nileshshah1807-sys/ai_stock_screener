@@ -12,7 +12,7 @@ import { monthsBefore } from "@/lib/financials.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
 import { formatDate, formatInteger } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
-import { getCompanyFacts } from "@/lib/queries";
+import { getCompanyFacts, getLatestRun } from "@/lib/queries";
 import {
   getCompanyNames,
   getLatestResultQuarter,
@@ -82,10 +82,11 @@ export default async function ResultsPage({
 
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(new Date());
   const offered = quarterEnds(today);
-  const [latest, feed, facts] = await Promise.all([
+  const [latest, feed, facts, run] = await Promise.all([
     getLatestResultQuarter(market.code, offered),
     loadFeedFilters(market.code, query, { defaultScope: "all" }),
     getCompanyFacts(market.code),
+    getLatestRun(market.code),
   ]);
   // The newest quarter anyone has filed for: in the first days after a
   // quarter ends nobody has, and an empty page would hide last season.
@@ -132,6 +133,7 @@ export default async function ResultsPage({
         company: entry.company ?? names.get(entry.symbol) ?? null,
         marketCap: fact?.market_cap ?? null,
         pe: fact?.pe_ratio ?? null,
+        barDate: run?.price_bar_as_of ?? null,
         logoDomain: fact?.logo_domain ?? null,
       };
     })

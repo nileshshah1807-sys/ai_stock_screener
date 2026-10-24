@@ -53,9 +53,16 @@ import pandas as pd
 
 from backtest.xbrl import QUARTER_CONTEXT, extract_fact
 
+from .valuation_basis import (
+    BASIS_PERIOD_COLUMN,
+    FILINGS_SOURCE,
+    apply_trailing_year,
+    trailing_year,
+)
+
 logger = logging.getLogger(__name__)
 
-SOURCE_LABEL = "NSE integrated filings"
+SOURCE_LABEL = FILINGS_SOURCE
 
 INDEX_URL = "https://www.nseindia.com/api/integrated-filing-results"
 INDEX_FILING_TYPE = "Integrated Filing- Financials"
@@ -203,6 +210,11 @@ FACT_COLUMNS = (
     "Taxonomy",
     "Revenue",
     "PAT",
+    "Net_Profit",
+    "EBITDA",
+    "PBT",
+    "Interest",
+    "Other_Income",
 )
 GROWTH_COLUMNS = (
     "Symbol",
@@ -512,6 +524,11 @@ def facts_frame(rows, timezone):
                 "Taxonomy": str(row.get("taxonomy") or ""),
                 "Revenue": row.get("revenue"),
                 "PAT": row.get("pat"),
+                "Net_Profit": row.get("net_profit"),
+                "EBITDA": row.get("operating_profit"),
+                "PBT": row.get("pbt"),
+                "Interest": row.get("interest"),
+                "Other_Income": row.get("other_income"),
             }
         )
     return pd.DataFrame(records, columns=list(FACT_COLUMNS))
@@ -686,11 +703,15 @@ class QuarterlyResultsCollector:
         )
         return facts
 
-    def collect(self, symbols):
-        """Filing-derived growth for ``symbols`` (a priority-ordered list)."""
-        wanted = list(
+    @staticmethod
+    def _wanted(symbols):
+        return list(
             dict.fromkeys(str(s).strip().upper() for s in symbols if str(s).strip())
         )
+
+    def collect(self, symbols):
+        """Filing-derived growth for ``symbols`` (a priority-ordered list)."""
+        wanted = self._wanted(symbols)
         if not self.enabled or not wanted:
             return pd.DataFrame(columns=list(GROWTH_COLUMNS))
         today = self._today()
@@ -699,31 +720,38 @@ class QuarterlyResultsCollector:
         )
 
     def enrich(self, frame):
-        """Replace the vendor's quarter growth where filings supply a pair."""
+        """Replace the vendor's quarter growth where filings supply a pair, and
+        its trailing-year figures where filings supply four quarters."""
         if frame is None or frame.empty or "Symbol" not in frame:
             return frame
         if not self.enabled:
             return self._without_vendor_quarter(frame)
         from .statements import FinancialStatementCollector
 
-        growth = self.collect(FinancialStatementCollector._priority_order(frame))
+        wanted = self._wanted(FinancialStatementCollector._priority_order(frame))
+        today = self._today()
+        facts = self._facts(today) if wanted else None
+        max_age = self._max_age_days()
+        growth = quarter_growth(facts, wanted, today=today, max_age_days=max_age)
         keys = frame["Symbol"].astype(str).str.strip().str.upper()
-        by_symbol = growth.set_index("Symbol")
-        filed_quarter = keys.map(by_symbol["Quarter_Period_End"])
         vendor_quarter = pd.to_datetime(
             frame.get(VENDOR_QUARTER_COLUMN, pd.Series(pd.NaT, index=frame.index)),
             errors="coerce",
         )
-        # ISO dates on both sides. An unknown vendor quarter (a row cached
-        # before it was recorded, a vendor that omits it) defers to the filing.
-        behind = vendor_quarter.notna() & (pd.to_datetime(filed_quarter) < vendor_quarter)
-        served = filed_quarter.notna() & ~behind
+
+        def ahead_of_vendor(filed_quarter):
+            # ISO dates on both sides. An unknown vendor quarter (a row cached
+            # before it was recorded, a vendor that omits it) defers to the filing.
+            behind = vendor_quarter.notna() & (pd.to_datetime(filed_quarter) < vendor_quarter)
+            return filed_quarter.notna() & ~behind, filed_quarter.notna() & behind
+
+        by_symbol = growth.set_index("Symbol")
+        filed_quarter = keys.map(by_symbol["Quarter_Period_End"])
+        served, behind = ahead_of_vendor(filed_quarter)
 
         counts = filed_quarter[served].value_counts().sort_index()
         self.diagnostics["quarter_results_filing_symbols"] = sorted(keys[served])
-        self.diagnostics["quarter_results_vendor_newer_symbols"] = sorted(
-            keys[filed_quarter.notna() & behind]
-        )
+        self.diagnostics["quarter_results_vendor_newer_symbols"] = sorted(keys[behind])
         self.diagnostics["quarter_results_latest_quarter_counts"] = {
             str(period): int(count) for period, count in counts.items()
         }
@@ -735,20 +763,40 @@ class QuarterlyResultsCollector:
             len(frame),
             self.diagnostics["quarter_results_latest_quarter_counts"] or "none",
         )
-        if not served.any():
-            return self._without_vendor_quarter(frame)
         enriched = frame.copy()
-        for column in ("Revenue_Growth", "Earnings_Growth"):
-            vendor = pd.to_numeric(
-                enriched.get(column, pd.Series(np.nan, index=enriched.index)),
-                errors="coerce",
-            )
-            filed = keys.map(by_symbol[column]).astype(float)
-            enriched[column] = filed.where(served, vendor)
+        if served.any():
+            for column in ("Revenue_Growth", "Earnings_Growth"):
+                vendor = pd.to_numeric(
+                    enriched.get(column, pd.Series(np.nan, index=enriched.index)),
+                    errors="coerce",
+                )
+                filed = keys.map(by_symbol[column]).astype(float)
+                enriched[column] = filed.where(served, vendor)
+
+        # The vendor's trailing EPS, EBITDA and margins trail a result by days
+        # or weeks, and P/E and EV/EBITDA are worked out from them.
+        trailing = trailing_year(facts, wanted, today=today, max_age_days=max_age)
+        trailing = trailing.set_index("Symbol")
+        ttm_served, _ = ahead_of_vendor(keys.map(trailing["TTM_Period_End"]))
+        self.diagnostics["quarter_results_ttm_symbols"] = sorted(keys[ttm_served])
+        logger.info(
+            "Trailing-year EPS, EBITDA, margins and ROE from %s for %d/%d symbol(s)",
+            SOURCE_LABEL,
+            int(ttm_served.sum()),
+            len(frame),
+        )
+        if ttm_served.any():
+            enriched = apply_trailing_year(enriched, keys, trailing, ttm_served)
         return self._without_vendor_quarter(enriched)
 
     @staticmethod
     def _without_vendor_quarter(frame):
-        if VENDOR_QUARTER_COLUMN in frame:
-            return frame.drop(columns=VENDOR_QUARTER_COLUMN)
-        return frame
+        if VENDOR_QUARTER_COLUMN not in frame:
+            return frame
+        # The quarter the vendor's trailing figures run to, where the filings
+        # did not replace them: the filings worker replaces a stored basis
+        # only with a year that runs at least as far.
+        frame = frame.copy()
+        filed = frame.get(BASIS_PERIOD_COLUMN, pd.Series(np.nan, index=frame.index))
+        frame[BASIS_PERIOD_COLUMN] = filed.where(filed.notna(), frame[VENDOR_QUARTER_COLUMN])
+        return frame.drop(columns=VENDOR_QUARTER_COLUMN)

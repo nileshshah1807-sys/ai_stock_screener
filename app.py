@@ -47,6 +47,7 @@ from screener.statements import (
     apply_statement_fallbacks,
 )
 from screener.valuation import ReverseDCFModel
+from screener.valuation_basis import attach_basis
 from validation.reproducibility import (
     build_run_manifest,
     canonical_config_hash,
@@ -338,6 +339,16 @@ def run_daily_analysis():
             "zero coverage so the decision policy can fail closed",
             missing_fundamentals,
         )
+    # Quote metadata trails the exchange through every results season: a
+    # company files its quarter within minutes and the vendor republishes it
+    # days or weeks later. Where the market has an index of results filings,
+    # the two latest-quarter growth inputs and the trailing-year EPS, EBITDA,
+    # margins and ROE are measured from the filings before anything scores
+    # them, and before P/E and EV/EBITDA are recomputed from them below; the
+    # vendor's figures stand for the rest.
+    quarterly_results = QuarterlyResultsCollector(config)
+    merged_df = quarterly_results.enrich(merged_df)
+
     # Quote metadata can be cached for days while the completed close changes
     # every session. Recompute price-dependent valuation ratios from the same
     # completed close used by every technical indicator whenever the required
@@ -346,14 +357,6 @@ def run_daily_analysis():
     logger.info(f"Merged: {len(merged_df)} stocks")
     if merged_df.empty:
         raise RuntimeError("No symbols remain after merging technical and fundamental data")
-
-    # Quote metadata trails the exchange through every results season: a
-    # company files its quarter within minutes and the vendor republishes it
-    # days or weeks later. Where the market has an index of results filings,
-    # the two latest-quarter growth inputs are measured from the filings
-    # before anything scores them; the vendor's figures stand for the rest.
-    quarterly_results = QuarterlyResultsCollector(config)
-    merged_df = quarterly_results.enrich(merged_df)
 
     # Annual statements supply every input Yahoo's quote metadata cannot: total
     # assets, EBIT, gross profit, cash-flow history and multi-year series. They
@@ -587,6 +590,9 @@ def run_daily_analysis():
     scored_df["Run_Git_Dirty"] = manifest["git_dirty"]
     scored_df["Run_Manifest_Schema_Version"] = manifest["schema_version"]
 
+    # The company's side of every price ratio, for the dashboard's live ratios
+    # (screener/valuation_basis.py); the publisher writes it from the export.
+    scored_df = attach_basis(scored_df)
     csv_path = config.OUTPUT_DIR / f"advanced_analysis_{analysis_now.strftime('%Y%m%d')}.csv"
     scored_df.to_csv(csv_path, index=False)
     logger.info(f"Results saved: {csv_path}")

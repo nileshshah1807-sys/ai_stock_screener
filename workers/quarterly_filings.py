@@ -11,7 +11,10 @@ table and fetches nothing:
   on the page within one run of being filed;
 * the screener's latest-quarter growth (`screener.quarterly_results`);
 * the notification bell's "results filed" events (`workers.market_events`),
-  which therefore never announce a result the page cannot show.
+  which therefore never announce a result the page cannot show;
+* the trailing-year lines of ``valuation_basis`` (`refresh_valuation_basis`),
+  so the dashboard's P/E moves minutes after a company files rather than at
+  the next evening run.
 
 A run is cheap when nothing is new: one page of the index for the last few
 days, compared with what is stored, and no document fetched. The Quarterly
@@ -51,8 +54,9 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from screener import quarterly_results
+from screener import quarterly_results, valuation_basis
 from screener.markets import resolve as resolve_market
+from screener.numeric import safe_float
 from workers.financial_statements import recompose_quarters
 
 logger = logging.getLogger(__name__)
@@ -65,6 +69,9 @@ FULL_LOOKBACK_DAYS = 600
 # everything it parsed before the stop.
 BATCH_SIZE = 60
 FETCH_WORKERS = 6
+# The screener's QUARTERLY_RESULTS_MAX_AGE_DAYS default: the newest quarter a
+# trailing year may end on, the evening run's rule.
+TRAILING_MAX_AGE_DAYS = 200
 
 
 def due_filings(
@@ -166,7 +173,7 @@ def run(
     dry_run: bool = False,
 ) -> dict[str, int]:
     profile = resolve_market(repo.market)
-    counts = {"due": 0, "stored": 0, "failed": 0, "deferred": 0, "redrawn": 0}
+    counts = {"due": 0, "stored": 0, "failed": 0, "deferred": 0, "redrawn": 0, "basis": 0}
     if not profile.quarterly_results_provider:
         logger.info("%s has no results filing index; nothing to store", profile.code)
         return counts
@@ -242,11 +249,72 @@ def run(
             counts["redrawn"] = recompose_quarters(repo, touched)
         except Exception as exc:  # stored filings stand; the next run redraws
             logger.warning("Quarterly results not redrawn on the stock page: %s", exc)
+    if not index.empty and not dry_run:
+        try:
+            counts["basis"] = refresh_valuation_basis(
+                repo, index["Symbol"], today, profile.timezone
+            )
+        except Exception as exc:  # stored filings stand; the evening run writes the basis
+            logger.warning(
+                "Valuation basis not refreshed (apply storage/valuation_basis_schema.sql "
+                "if the table is missing): %s",
+                exc,
+            )
     logger.info(
         "%s results filings done: %s%s",
         profile.code, counts, " (dry run, nothing written)" if dry_run else "",
     )
     return counts
+
+
+def refresh_valuation_basis(repo, symbols: Iterable[str], today: date, timezone: str) -> int:
+    """Replace the trailing-year lines of each symbol's valuation basis.
+
+    The arithmetic is the evening run's (`valuation_basis.trailing_year`). A
+    stored basis that runs to a later quarter -- the vendor's, where its
+    filings are behind -- is left alone, and a line the filings cannot
+    support is not written, so the stored figure stands. Every run covers the
+    whole lookback window, which also restores a year the evening publisher
+    wrote from filings read before a company filed.
+    """
+    symbols = list(dict.fromkeys(symbols))
+    if not symbols:
+        return 0
+    rows = [
+        {**row, **(row.get("lines") or {})}
+        for filings in repo.quarterly_filings(symbols).values()
+        for row in filings
+    ]
+    facts = quarterly_results.facts_frame(rows, timezone)
+    trailing = valuation_basis.trailing_year(
+        facts, symbols, today=today, max_age_days=TRAILING_MAX_AGE_DAYS
+    )
+    held = repo.valuation_basis_periods(trailing["Symbol"])
+    updated_at = datetime.now(UTC).isoformat(timespec="seconds")
+    # PostgREST takes one set of keys per request, so rows are grouped by the
+    # lines they carry.
+    groups: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+    for record in trailing.to_dict("records"):
+        period = record["TTM_Period_End"]
+        if (held.get(record["Symbol"]) or "") > period:
+            continue
+        row = {
+            "symbol": record["Symbol"],
+            "period_end": period,
+            "statement_basis": record["TTM_Basis"],
+            "source": valuation_basis.FILINGS_SOURCE,
+            "updated_at": updated_at,
+        }
+        for column, line in (
+            ("net_profit_ttm", "TTM_Net_Profit"),
+            ("ebitda_ttm", "TTM_EBITDA"),
+            ("revenue_ttm", "TTM_Revenue"),
+        ):
+            value = safe_float(record[line])
+            if value is not None:
+                row[column] = value
+        groups.setdefault(tuple(sorted(row)), []).append(row)
+    return sum(repo.upsert_valuation_basis(group) for group in groups.values())
 
 
 def main(argv: list[str] | None = None) -> int:

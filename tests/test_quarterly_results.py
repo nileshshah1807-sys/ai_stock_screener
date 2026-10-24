@@ -32,6 +32,7 @@ from screener.quarterly_results import (
     taxonomy_of,
     vendor_quarter_end,
 )
+from screener.valuation_basis import trailing_year
 from tests.test_markets import config_with_env_cleared
 
 TODAY = date(2026, 10, 12)
@@ -506,6 +507,106 @@ class StoreTests(CollectorCase):
         self.assertEqual(
             collector.diagnostics["quarter_results_source_status"], STATUS_UNAVAILABLE
         )
+
+
+def _quarter_row(period_end, *, consolidated=True, revenue=1000.0, net_profit=100.0):
+    """A stored filing with the income-statement lines the trailing year sums."""
+    return {
+        "symbol": "AAA",
+        "period_end": period_end,
+        "is_consolidated": consolidated,
+        "seq_id": period_end,
+        "filed_at": "2026-10-08T18:00:00+05:30",
+        "taxonomy": "INDAS",
+        "revenue": revenue,
+        "pat": net_profit,
+        "net_profit": net_profit,
+        "operating_profit": 200.0,
+        "pbt": 130.0,
+        "interest": 10.0,
+        "other_income": 20.0,
+    }
+
+
+class TrailingYearTests(unittest.TestCase):
+    """STLTECH, Sep 2026: the filed quarter was in the store that evening while
+    the vendor's trailing EPS still summed the year to June, so P/E stood at
+    179 on a year whose profit had more than doubled."""
+
+    QUARTERS = ("2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30")
+
+    def overlay(self, rows, frame):
+        collector = QuarterlyResultsCollector(
+            SimpleNamespace(QUARTERLY_RESULTS_FILINGS_ENABLED=True),
+            provider="nse_integrated_filings",
+            filings_loader=lambda _since: rows,
+            clock=lambda: datetime(2026, 10, 12, 18, 30),
+        )
+        return collector, collector.enrich(frame)
+
+    @staticmethod
+    def frame(**extra):
+        return pd.DataFrame(
+            {
+                "Symbol": ["AAA"],
+                "EPS": [1.0],
+                "EBITDA": [1.0],
+                "Profit_Margin": [0.01],
+                "ROE": [0.01],
+                "Shares_Outstanding": [40.0],
+                "Book_Value": [20.0],
+                **extra,
+            }
+        )
+
+    def test_four_filed_quarters_replace_the_vendors_trailing_figures(self):
+        rows = [_quarter_row(q) for q in self.QUARTERS]
+        rows[-1]["net_profit"] = 500.0  # the quarter the vendor has not seen
+        collector, enriched = self.overlay(rows, self.frame())
+        row = enriched.loc[0]
+        self.assertAlmostEqual(row["EPS"], 800.0 / 40.0)
+        self.assertAlmostEqual(row["EBITDA"], 800.0)
+        self.assertAlmostEqual(row["Total_Revenue"], 4000.0)
+        self.assertAlmostEqual(row["Profit_Margin"], 0.2)
+        self.assertAlmostEqual(row["Operating_Margin"], 480.0 / 4000.0)
+        self.assertAlmostEqual(row["ROE"], 800.0 / (20.0 * 40.0))
+        self.assertEqual(collector.diagnostics["quarter_results_ttm_symbols"], ["AAA"])
+        self.assertEqual(row["Basis_Source"], "NSE integrated filings")
+        self.assertEqual(row["Basis_Period_End"], "2026-09-30")
+        self.assertEqual(row["Basis_Statement"], "consolidated")
+
+    def test_a_gap_in_the_four_quarters_leaves_the_vendors_figures(self):
+        rows = [_quarter_row(q) for q in self.QUARTERS if q != "2026-03-31"]
+        _, enriched = self.overlay(rows, self.frame())
+        self.assertAlmostEqual(enriched.loc[0, "EPS"], 1.0)
+
+    def test_a_line_missing_from_one_quarter_is_not_a_three_quarter_sum(self):
+        rows = [_quarter_row(q) for q in self.QUARTERS]
+        rows[0]["operating_profit"] = None
+        _, enriched = self.overlay(rows, self.frame())
+        self.assertAlmostEqual(enriched.loc[0, "EBITDA"], 1.0)
+        self.assertAlmostEqual(enriched.loc[0, "EPS"], 400.0 / 40.0)
+
+    def test_the_vendor_on_a_later_quarter_keeps_its_figures(self):
+        rows = [_quarter_row(q) for q in self.QUARTERS[:-1] + ("2025-09-30",)]
+        frame = self.frame(**{VENDOR_QUARTER_COLUMN: ["2026-09-30"]})
+        _, enriched = self.overlay(rows, frame)
+        self.assertAlmostEqual(enriched.loc[0, "EPS"], 1.0)
+        # The vendor's quarter is kept as the basis's, so the filings worker
+        # does not replace it with an older year.
+        self.assertEqual(enriched.loc[0, "Basis_Period_End"], "2026-09-30")
+
+    def test_consolidated_wins_a_tie_and_a_later_standalone_year_wins_otherwise(self):
+        consolidated = [_quarter_row(q, net_profit=100.0) for q in self.QUARTERS]
+        standalone = [
+            _quarter_row(q, consolidated=False, net_profit=50.0) for q in self.QUARTERS
+        ]
+        facts = facts_frame(consolidated + standalone, "Asia/Kolkata")
+        ttm = trailing_year(facts, ["AAA"], today=TODAY, max_age_days=200)
+        self.assertEqual(ttm.loc[0, "TTM_Basis"], "consolidated")
+        facts = facts_frame(consolidated[:-1] + standalone, "Asia/Kolkata")
+        ttm = trailing_year(facts, ["AAA"], today=TODAY, max_age_days=200)
+        self.assertEqual(ttm.loc[0, "TTM_Basis"], "standalone")
 
 
 class WiringTests(CollectorCase):

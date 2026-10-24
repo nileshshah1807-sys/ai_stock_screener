@@ -29,7 +29,7 @@ import {
   ratingToken,
   MISSING,
 } from "@/lib/format";
-import { liveOverlay, quoteTime } from "@/lib/live-quotes.mjs";
+import { liveOverlay, quoteTime, ratioOverlay } from "@/lib/live-quotes.mjs";
 import type { Market } from "@/lib/markets";
 import { stageAge } from "@/lib/stage-age.mjs";
 import { STAGES, type SnapshotRow } from "@/lib/types";
@@ -422,11 +422,18 @@ function liveTitle(quote: LiveQuote, market: Market, now: number): string {
 }
 
 /** What the Price and 1D cells need beyond the row. */
-type LiveContext = { quote: LiveQuote | null; market: Market; now: number };
+type LiveContext = {
+  quote: LiveQuote | null;
+  /** The quote whose P/E and market cap to show (see `ratioOverlay`). */
+  ratios: LiveQuote | null;
+  market: Market;
+  now: number;
+};
 
 /**
  * Every cell's renderer. `live.quote` is today's quote when one is newer than
- * the row's bar (see `liveOverlay`); only Price and 1D read it.
+ * the row's bar (see `liveOverlay`); only Price and 1D read it. Market cap
+ * and P/E read `live.ratios`.
  */
 const CELLS: Record<ColumnId, (row: SnapshotRow, live: LiveContext) => ReactNode> = {
   rank: (row) => row.investment_rank ?? MISSING,
@@ -483,10 +490,12 @@ const CELLS: Record<ColumnId, (row: SnapshotRow, live: LiveContext) => ReactNode
       <ChangeCell value={row.pct_change_1d} decimals={2} />
     ),
   change1m: (row) => <ChangeCell value={row.pct_change_1m} />,
-  marketCap: (row) => <Money value={row.market_cap} compact />,
-  pe: (row) => formatNumber(row.pe_ratio, 1),
+  marketCap: (row, { ratios }) => <Money value={ratios?.market_cap ?? row.market_cap} compact />,
+  pe: (row, { ratios }) => formatNumber(ratios?.pe_ratio ?? row.pe_ratio, 1),
   liq: (row) => <LiquidityCell row={row} />,
 };
+
+const LIVE_COLUMNS = new Set<ColumnId>(["price", "change1d", "marketCap", "pe"]);
 
 /** The body of the grid: one row per stock, cells from `CELLS`. */
 export function ScreenerRows({
@@ -503,9 +512,9 @@ export function ScreenerRows({
 }) {
   const columns = visibleColumns(hiddenColumns, factorModel);
   const market = useMarket();
-  // Only when a live column is on screen: a grid with Price and 1D hidden
-  // asks for nothing.
-  const wantsLive = columns.some((column) => column.id === "price" || column.id === "change1d");
+  // Only when a live column is on screen: a grid with Price, 1D, market cap
+  // and P/E hidden asks for nothing. Sorting stays on the close's figures.
+  const wantsLive = columns.some((column) => LIVE_COLUMNS.has(column.id));
   const liveQuote = useLiveQuotes(
     wantsLive ? market.code : null,
     rows.map((row) => row.symbol),
@@ -520,6 +529,7 @@ export function ScreenerRows({
       {rows.map((row) => {
         const live = {
           quote: liveOverlay(liveQuote(row.symbol), row.price_bar_as_of),
+          ratios: ratioOverlay(liveQuote(row.symbol), row.price_bar_as_of),
           market,
           now,
         };

@@ -5,7 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { AddToWatchlist } from "@/components/watchlist/add-to-watchlist";
 import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
-import { LiveChange, LivePrice } from "@/components/live-quote";
+import { LiveChange, LivePrice, LiveRatio } from "@/components/live-quote";
 import { CallOutlook } from "@/components/stock/call-outlook";
 import { getLatestConcall } from "@/lib/concalls";
 import { callPanelSource } from "@/lib/concalls.mjs";
@@ -549,8 +549,11 @@ export default async function StockPage({
   // Headline-first: each panel below shows its first few fields (`visible`)
   // and keeps the rest behind "Show more", so these lists lead with what a
   // reader scans for and the full set stays one tap away.
+  // The price ratios follow the live quote during the session; the run
+  // scored the close's.
+  const live = { symbol: row.symbol, barDate: row.price_bar_as_of };
   const fundamentalFields: Field[] = [
-    { label: "PE", value: formatNumber(row.pe_ratio, 1) },
+    { label: "PE", value: <LiveRatio {...live} metric="pe_ratio" close={row.pe_ratio} format="number1" /> },
     { label: "ROE", value: formatRatioAsPercent(row.roe) },
     {
       label: "Debt / equity",
@@ -579,7 +582,7 @@ export default async function StockPage({
     },
     { label: "Fundamental score", value: formatScore(row.fundamental_score) },
     { label: "Model", value: row.fundamental_model ?? MISSING },
-    { label: "PB", value: formatNumber(row.pb_ratio, 2) },
+    { label: "PB", value: <LiveRatio {...live} metric="pb_ratio" close={row.pb_ratio} format="number2" /> },
     {
       label: "ROA",
       value: formatRatioAsPercent(numeric(payload, "ROA")),
@@ -596,7 +599,9 @@ export default async function StockPage({
     },
     {
       label: "EV / EBITDA",
-      value: formatNumber(numeric(payload, "EV_EBITDA"), 2),
+      value: (
+        <LiveRatio {...live} metric="ev_ebitda" close={numeric(payload, "EV_EBITDA")} format="number2" />
+      ),
       hint: pick(payload, "EV_EBITDA_Price_Aligned") === true
         ? "Recomputed against the completed-session price."
         : undefined,
@@ -605,7 +610,10 @@ export default async function StockPage({
     { label: "Quality pts", value: text(payload, "Fund_Quality_Points") },
     { label: "Growth pts", value: text(payload, "Fund_Growth_Points") },
     { label: "Income pts", value: text(payload, "Fund_Income_Points") },
-    { label: "Market cap", value: formatMoneyCompact(row.market_cap, market) },
+    {
+      label: "Market cap",
+      value: <LiveRatio {...live} metric="market_cap" close={row.market_cap} format="money" />,
+    },
   ];
 
   const technicalFields: Field[] = [

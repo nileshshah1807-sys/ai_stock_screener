@@ -39,6 +39,7 @@ from .price_probe import probe_expected_session
 from .quarterly_results import VENDOR_QUARTER_COLUMN, vendor_quarter_end
 from .session_bars import SessionBarSource, patch_expected_session_bar
 from .stage import stage_features
+from .valuation_basis import price_ratios
 
 logger = logging.getLogger(__name__)
 
@@ -189,17 +190,6 @@ def align_valuation_to_completed_price_bar(merged_df):
         fetched_dividend_ratio.notna(), numeric("Dividend_Yield_As_Fetched") / 100.0
     )
 
-    pe_valid = price.gt(0) & eps.notna() & eps.ne(0)
-    pb_valid = price.gt(0) & book_value.notna() & book_value.ne(0)
-    market_cap_valid = price.gt(0) & shares.gt(0)
-    recomputed_market_cap = price * shares
-    ev_valid = (
-        market_cap_valid
-        & debt.notna()
-        & cash.notna()
-        & ebitda.notna()
-        & ebitda.ne(0)
-    )
     fetched_price = numeric("Market_Cap_As_Fetched") / shares
     derived_dividend_rate = fetched_dividend_ratio * fetched_price
     dividend_rate_used = dividend_rate.where(
@@ -207,14 +197,14 @@ def align_valuation_to_completed_price_bar(merged_df):
     )
     dividend_valid = price.gt(0) & dividend_rate_used.notna() & dividend_rate_used.ge(0)
 
-    frame["PE_Ratio"] = (price / eps).where(pe_valid, numeric("PE_Ratio"))
-    frame["PB_Ratio"] = (price / book_value).where(pb_valid, numeric("PB_Ratio"))
-    frame["Market_Cap"] = recomputed_market_cap.where(
-        market_cap_valid, numeric("Market_Cap")
+    ratios = price_ratios(
+        price, eps=eps, book_value=book_value, shares=shares, ebitda=ebitda,
+        debt=debt, cash=cash,
     )
-    enterprise_value = recomputed_market_cap + debt - cash
-    frame["EV_EBITDA"] = (enterprise_value / ebitda).where(
-        ev_valid, numeric("EV_EBITDA")
+    for metric, value in ratios.items():
+        frame[metric] = value.where(value.notna(), numeric(metric))
+    pe_valid, pb_valid, market_cap_valid, ev_valid = (
+        ratios[metric].notna() for metric in ("PE_Ratio", "PB_Ratio", "Market_Cap", "EV_EBITDA")
     )
     aligned_dividend_ratio = dividend_rate_used / price
     # An unaligned cached yield is excluded from scoring; its fetched value is

@@ -77,6 +77,25 @@ export function liveOverlay(quote, barDate) {
 }
 
 /**
+ * The quote whose ratios to show in place of the close's, or null.
+ *
+ * Unlike the price, the ratios also come from a quote of the row's own
+ * session: its price is then the close, but its basis can be newer than the
+ * run's -- a result filed after the evening run moves P/E at once rather
+ * than at the next session's first quote. An older quote never does.
+ *
+ * @template {{ session: string }} Q
+ * @param {Q | null | undefined} quote
+ * @param {string | null | undefined} barDate
+ * @returns {Q | null}
+ */
+export function ratioOverlay(quote, barDate) {
+  if (!quote) return null;
+  if (!barDate) return quote;
+  return quote.session >= barDate ? quote : null;
+}
+
+/**
  * "11:45" in the exchange's own clock, with the day in front when it is not
  * today there.
  *

@@ -574,7 +574,7 @@ class DashboardRepository:
             for row in self._paged(
                 "quarterly_filings",
                 {
-                    "select": "symbol,period_end,is_consolidated,filed_at,lines",
+                    "select": "symbol,period_end,is_consolidated,filed_at,taxonomy,lines",
                     "symbol": f"in.({symbols_csv})",
                     "order": "symbol.asc,period_end.asc,is_consolidated.asc",
                 },
@@ -1126,6 +1126,41 @@ class DashboardRepository:
                 "universe_index?on_conflict=market,observed_on",
                 json=self._stamped(chunk),
                 headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            )
+            written += len(chunk)
+        return written
+
+    def valuation_basis_periods(
+        self, symbols: Iterable[str], chunk_size: int = 100
+    ) -> dict[str, str | None]:
+        """Symbol -> the quarter its stored basis runs to (None: unknown)."""
+        found: dict[str, str | None] = {}
+        for chunk in chunked(list(dict.fromkeys(symbols)), chunk_size):
+            symbols_csv = ",".join(f'"{symbol}"' for symbol in chunk)
+            for row in self._paged(
+                "valuation_basis",
+                {"select": "symbol,period_end", "symbol": f"in.({symbols_csv})"},
+            ):
+                found[str(row["symbol"])] = row.get("period_end")
+        return found
+
+    def upsert_valuation_basis(
+        self,
+        rows: list[dict[str, Any]],
+        chunk_size: int = 1000,
+    ) -> int:
+        """Each symbol's valuation basis, replacing the one it had.
+
+        One row per symbol; see storage/valuation_basis_schema.sql.
+        """
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "valuation_basis?on_conflict=market,symbol",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                retries=2,
             )
             written += len(chunk)
         return written

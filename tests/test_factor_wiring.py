@@ -86,6 +86,12 @@ class StageOrderTests(unittest.TestCase):
             self.index_of("quarterly_results.enrich(merged_df)"),
             self.index_of("FinancialStatementCollector"),
         )
+        # The filed trailing EPS and EBITDA are what P/E and EV/EBITDA are
+        # recomputed from against the day's close.
+        self.assertLess(
+            self.index_of("quarterly_results.enrich(merged_df)"),
+            self.index_of("align_valuation_to_completed_price_bar(merged_df)"),
+        )
 
     def test_factor_model_runs_after_dcf_and_before_finalize(self):
         # The Value block consumes DCF_Valuation_Score, and the finalizer
