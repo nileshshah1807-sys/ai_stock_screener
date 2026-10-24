@@ -356,7 +356,7 @@ class RecommendationPolicyTests(unittest.TestCase):
         self.assertEqual(result.loc["NO_CALL", "Evidence_Score"], 60.0)
         self.assertEqual(result.loc["NO_CALL", "Transcript_Evidence_Contribution"], 0.0)
 
-    def factor_ranking(self, rows):
+    def factor_ranking(self, rows, basis="weighted_block_average"):
         settings = self.two_sided_config()
         settings.FACTOR_MODEL_ENABLED = True
         frame = pd.DataFrame(
@@ -366,6 +366,7 @@ class RecommendationPolicyTests(unittest.TestCase):
                     score,
                     Factor_Model_Applied=True,
                     Research_Score=score,
+                    Research_Score_Basis=basis,
                     **(
                         {
                             "Transcript_Blend_Eligible": True,
@@ -409,6 +410,32 @@ class RecommendationPolicyTests(unittest.TestCase):
         self.assertEqual(result.loc["ZZZ", "Investment_Rank"], 1)
         self.assertEqual(result.loc["AAA", "Investment_Rank"], 2)
 
+    def test_a_percentile_run_publishes_the_percentile_of_the_whole_evidence(self):
+        # Median call 65, so both calls add 3.0: raw 101.5 and 102.5, which
+        # clipping would have tied at 100.
+        result = self.factor_ranking(
+            [("AAA", 98.5, 95.0), ("ZZZ", 99.5, 95.0)]
+            + [(f"MID{n}", 50.0 - n, 65.0) for n in range(3)],
+            basis="cross_sectional_percentile",
+        )
+
+        self.assertEqual(result.loc["ZZZ", "Evidence_Score_Raw"], 102.5)
+        self.assertEqual(result.loc["AAA", "Transcript_Evidence_Contribution"], 3.0)
+        self.assertEqual(result.loc["ZZZ", "Evidence_Score"], 100.0)
+        self.assertEqual(result.loc["AAA", "Evidence_Score"], 75.0)
+        self.assertEqual(result.loc["MID2", "Evidence_Score"], 0.0)
+        self.assertEqual(result["Final_Score"].eq(100.0).sum(), 1)
+
+    def test_a_percentile_run_without_calls_publishes_the_research_score(self):
+        # The backtest's case: no calls, and a percentile ranks to itself.
+        scores = [0.0, 25.0, 50.0, 75.0, 100.0]
+        result = self.factor_ranking(
+            [(f"S{n}", score, None) for n, score in enumerate(scores)],
+            basis="cross_sectional_percentile",
+        )
+
+        self.assertEqual(result.sort_index()["Evidence_Score"].tolist(), scores)
+
     def test_two_sided_transcript_falls_back_to_fifty_on_a_thin_run(self):
         result = finalize_recommendations(
             self.two_sided_frame(), self.two_sided_config(minimum=30)
@@ -450,20 +477,33 @@ class RecommendationPolicyTests(unittest.TestCase):
             self.outlook_frame(), self.outlook_config()
         ).set_index("Symbol")
 
-        # 0.10 * (0.5 * (tone - 65) + 0.5 * (outlook - 60))
-        self.assertEqual(result.loc["WEAK_TONE_GOOD_OUTLOOK", "Evidence_Score"], 60.0)
-        self.assertEqual(result.loc["BOTH_WEAK", "Evidence_Score"], 59.25)
-        self.assertEqual(result.loc["STRONG_TONE", "Evidence_Score"], 60.75)
+        # 0.10 * (0.5 * (tone - 60) + 0.5 * (outlook - 60)); TONE_ONLY awaits
+        # its outlook, so tone's median is of 55, 60 and 80.
+        self.assertEqual(result.loc["WEAK_TONE_GOOD_OUTLOOK", "Evidence_Score"], 60.25)
+        self.assertEqual(result.loc["BOTH_WEAK", "Evidence_Score"], 59.5)
+        self.assertEqual(result.loc["STRONG_TONE", "Evidence_Score"], 61.0)
         self.assertEqual(result.loc["STRONG_TONE", "Transcript_Outlook_Neutral_Score"], 60.0)
         self.assertEqual(result.loc["BOTH_WEAK", "Transcript_Outlook_Score_Used"], 50.0)
         self.assertEqual(result.loc["BOTH_WEAK", "Transcript_Outlook_Share_Applied"], 0.5)
 
-    def test_a_call_without_an_outlook_keeps_the_whole_weight_on_tone(self):
+    def test_a_call_awaiting_its_outlook_is_not_yet_evidence(self):
         result = finalize_recommendations(
             self.outlook_frame(), self.outlook_config()
         ).set_index("Symbol")
 
-        self.assertFalse(result.loc["TONE_ONLY", "Transcript_Outlook_Applied"])
+        self.assertTrue(result.loc["TONE_ONLY", "Transcript_Awaiting_Outlook"])
+        self.assertFalse(result.loc["TONE_ONLY", "Transcript_Blend_Applied"])
+        self.assertEqual(result.loc["TONE_ONLY", "Evidence_Score"], 60.0)
+        self.assertFalse(result.loc["BOTH_WEAK", "Transcript_Awaiting_Outlook"])
+        # Tone's median is of the three calls that count (55, 60, 80).
+        self.assertEqual(result.loc["BOTH_WEAK", "Transcript_Neutral_Score"], 60.0)
+
+    def test_a_switched_off_outlook_scores_every_call_on_tone(self):
+        settings = self.outlook_config()
+        settings.TRANSCRIPT_OUTLOOK_ENABLED = False
+        result = finalize_recommendations(self.outlook_frame(), settings).set_index("Symbol")
+
+        self.assertFalse(result["Transcript_Awaiting_Outlook"].any())
         self.assertEqual(result.loc["TONE_ONLY", "Evidence_Score"], 60.5)
 
     def test_an_outlook_without_an_eligible_call_changes_nothing(self):
@@ -493,10 +533,11 @@ class RecommendationPolicyTests(unittest.TestCase):
         settings.TRANSCRIPT_NEUTRAL_MIN_CALLS = 4
         result = finalize_recommendations(self.outlook_frame(), settings).set_index("Symbol")
 
-        # Four tone scores keep the tone median; three outlooks are too few.
-        self.assertEqual(result.loc["BOTH_WEAK", "Transcript_Neutral_Score"], 65.0)
+        # Three calls count -- TONE_ONLY awaits its outlook -- so both centres
+        # fall back to 50.
+        self.assertEqual(result.loc["BOTH_WEAK", "Transcript_Neutral_Score"], 50.0)
         self.assertEqual(result.loc["BOTH_WEAK", "Transcript_Outlook_Neutral_Score"], 50.0)
-        self.assertEqual(result.loc["BOTH_WEAK", "Evidence_Score"], 59.75)
+        self.assertEqual(result.loc["BOTH_WEAK", "Evidence_Score"], 60.5)
 
     def test_downside_policy_overrides_promotional_evidence(self):
         source = pd.DataFrame(

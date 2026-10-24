@@ -358,7 +358,8 @@ class Config:
     # The language-model outlook of a call (sentiment/outlook.py: guidance,
     # order book, capacity, demand, margins) takes this share of the transcript
     # weight where the call has one, and tone keeps the rest; a call without an
-    # outlook is scored on tone alone. 0 restores tone-only. Half each, on two
+    # outlook is not evidence until it has one (policy 5.5.0). 0 restores
+    # tone-only. Half each, on two
     # results seasons (2,105 calls): over the following month a share of 50-75%
     # ranked returns best in both (rank correlation 0.12-0.13 against 0.06 for
     # tone alone); over three months, measurable only for April-June calls,
