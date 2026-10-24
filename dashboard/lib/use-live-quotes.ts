@@ -18,11 +18,31 @@ export type LiveQuote = {
   traded_at: string;
   session: string;
   fetched_at: string;
+  /**
+   * The price ratios at this quote (`live_valuation`, storage/
+   * valuation_basis_schema.sql); null for an index, a stock with no stored
+   * basis, or a quote withheld as a change of unit.
+   */
+  market_cap: number | null;
+  pe_ratio: number | null;
+  pb_ratio: number | null;
+  ev_ebitda: number | null;
   /** The last move this tab saw, kept until the next one replaces it. */
   tick: Tick | null;
 };
 
-const COLUMNS = "symbol,price,change_pct,volume,traded_at,session,fetched_at";
+/** The ratios a quote carries, for components that show one. */
+export type LiveRatioKey = "market_cap" | "pe_ratio" | "pb_ratio" | "ev_ebitda";
+const RATIOS: readonly LiveRatioKey[] = ["market_cap", "pe_ratio", "pb_ratio", "ev_ebitda"];
+
+const QUOTE_COLUMNS = "symbol,price,change_pct,volume,traded_at,session,fetched_at";
+// Stocks are read from the view, which is live_quotes with the ratios beside.
+const SOURCES = {
+  stock: { table: "live_valuation", columns: `${QUOTE_COLUMNS},${RATIOS.join(",")}` },
+  index: { table: "live_quotes", columns: QUOTE_COLUMNS },
+} as const;
+
+const num = (value: unknown) => (value === null || value === undefined ? null : Number(value));
 
 /*
  * One store for the whole tab, outside React.
@@ -50,24 +70,23 @@ function publish() {
   for (const listener of listeners) listener();
 }
 
-async function load(
-  market: MarketCode,
-  symbols: readonly string[],
-  kind: QuoteKind,
-): Promise<void> {
-  const now = Date.now();
-  const due = symbols.filter(
-    (symbol) => now - (askedAt.get(keyOf(market, symbol, kind)) ?? 0) >= MIN_POLL_MS,
-  );
-  if (!due.length) return;
-  for (const symbol of due) askedAt.set(keyOf(market, symbol, kind), now);
+/*
+ * Every component that asks in the same tick shares one request: a page of
+ * result cards, each asking for its own stock, makes one read, not one per
+ * card.
+ */
+type Batch = { symbols: Set<string>; done: Promise<void> };
+const batches = new Map<string, Batch>();
 
-  const { data, error } = await createClient()
-    .from("live_quotes")
-    .select(COLUMNS)
+async function read(market: MarketCode, kind: QuoteKind, symbols: string[]): Promise<void> {
+  const source = SOURCES[kind];
+  let request = createClient()
+    .from(source.table)
+    .select(source.columns)
     .eq("market", market)
-    .eq("kind", kind)
-    .in("symbol", due);
+    .in("symbol", symbols);
+  if (kind === "index") request = request.eq("kind", kind);
+  const { data, error } = await request;
   // A failed read leaves the close on screen; the next poll tries again.
   if (error || !data) return;
   const readAt = Date.now();
@@ -79,12 +98,43 @@ async function load(
     quotes.set(key, {
       ...row,
       price,
-      change_pct: row.change_pct === null ? null : Number(row.change_pct),
-      volume: row.volume === null ? null : Number(row.volume),
+      change_pct: num(row.change_pct),
+      volume: num(row.volume),
+      market_cap: num(row.market_cap),
+      pe_ratio: num(row.pe_ratio),
+      pb_ratio: num(row.pb_ratio),
+      ev_ebitda: num(row.ev_ebitda),
       tick: direction ? { direction, at: readAt } : (before?.tick ?? null),
     });
   }
   publish();
+}
+
+function load(
+  market: MarketCode,
+  symbols: readonly string[],
+  kind: QuoteKind,
+): Promise<void> {
+  const now = Date.now();
+  const due = symbols.filter(
+    (symbol) => now - (askedAt.get(keyOf(market, symbol, kind)) ?? 0) >= MIN_POLL_MS,
+  );
+  if (!due.length) return Promise.resolve();
+  for (const symbol of due) askedAt.set(keyOf(market, symbol, kind), now);
+
+  const batchKey = `${market}:${kind}`;
+  const open = batches.get(batchKey);
+  if (open) {
+    for (const symbol of due) open.symbols.add(symbol);
+    return open.done;
+  }
+  const batch: Batch = { symbols: new Set(due), done: Promise.resolve() };
+  batch.done = Promise.resolve().then(() => {
+    batches.delete(batchKey);
+    return read(market, kind, [...batch.symbols]);
+  });
+  batches.set(batchKey, batch);
+  return batch.done;
 }
 
 function newestFetch(

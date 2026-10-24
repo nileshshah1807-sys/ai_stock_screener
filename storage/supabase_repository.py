@@ -182,6 +182,20 @@ class SupabaseRepository:
             self.delete_transcript(row["id"])
         return len(rows or [])
 
+    def call_transcripts(self, symbol: str, call_date: str) -> list[dict[str, Any]]:
+        """This market's filed (not recorded) transcripts of one company's call."""
+        return self._request(
+            "GET",
+            "transcripts",
+            params={
+                "select": "id,token_count,transcript_documents!inner(extraction_method)",
+                "market": f"eq.{self.market}",
+                "symbol": f"eq.{symbol}",
+                "call_date": f"eq.{call_date}",
+                "transcript_documents.extraction_method": "not.like.speech:*",
+            },
+        ) or []
+
     # -- cover letters stored as transcripts -----------------------------------
     #
     # A filing that only says where the transcript can be found was, until
@@ -627,7 +641,7 @@ class SupabaseRepository:
     def quarterly_filing_facts(self, since: date, page: int = 1000) -> list[dict[str, Any]]:
         """This market's stored results filings for quarters ending on or after ``since``.
 
-        Only what the growth arithmetic reads: written by
+        Only what the growth and trailing-year arithmetic reads: written by
         ``workers.quarterly_filings``, see storage/quarterly_filings_schema.sql.
         """
         rows: list[dict[str, Any]] = []
@@ -641,7 +655,9 @@ class SupabaseRepository:
                     "period_end": f"gte.{since.isoformat()}",
                     "select": (
                         "symbol,period_end,is_consolidated,seq_id,filed_at,taxonomy,"
-                        "revenue:lines->revenue,pat:lines->pat"
+                        "revenue:lines->revenue,pat:lines->pat,net_profit:lines->net_profit,"
+                        "operating_profit:lines->operating_profit,pbt:lines->pbt,"
+                        "interest:lines->interest,other_income:lines->other_income"
                     ),
                     "order": "symbol.asc,period_end.asc,is_consolidated.asc",
                     "limit": str(page),

@@ -289,6 +289,24 @@ ESTIMATE_COLUMNS: list[tuple[str, str, str]] = [
 ]
 ESTIMATE_FIELDS = ("forward_eps", "forward_pe", "analyst_count", "target_mean_price")
 
+# The company's side of every price ratio (screener.valuation_basis), for
+# valuation_basis. A row is written only when there is something to divide by.
+BASIS_COLUMNS: list[tuple[str, str, str]] = [
+    ("symbol", "Symbol", "text"),
+    ("shares_outstanding", "Shares_Outstanding", "num:24,2"),
+    ("net_profit_ttm", "Basis_Net_Profit_TTM", "num:24,2"),
+    ("book_equity", "Basis_Book_Equity", "num:24,2"),
+    ("ebitda_ttm", "EBITDA", "num:24,2"),
+    ("revenue_ttm", "Total_Revenue", "num:24,2"),
+    ("total_debt", "Total_Debt", "num:24,2"),
+    ("total_cash", "Total_Cash", "num:24,2"),
+    ("dividend_per_share", "Basis_Dividend_Per_Share", "num:18,4"),
+    ("period_end", "Basis_Period_End", "date"),
+    ("statement_basis", "Basis_Statement", "text"),
+    ("source", "Basis_Source", "text"),
+]
+BASIS_FIELDS = ("shares_outstanding", "net_profit_ttm", "book_equity", "ebitda_ttm")
+
 
 
 class CoercionReport:
@@ -537,6 +555,16 @@ def estimate_row(record: dict[str, Any], run_date: str, report: CoercionReport) 
     if not row["fetched_at"] or all(row[field] is None for field in ESTIMATE_FIELDS):
         return None
     row["observed_on"] = run_date
+    return row
+
+
+def basis_row(record: dict[str, Any], run_date: str, report: CoercionReport) -> dict[str, Any] | None:
+    """One symbol's valuation basis, or None when it has nothing to divide by."""
+    row = map_row(record, BASIS_COLUMNS, report)
+    if all(row[field] is None for field in BASIS_FIELDS):
+        return None
+    row["run_date"] = run_date
+    row["updated_at"] = datetime.now(UTC).isoformat()
     return row
 
 
@@ -803,6 +831,7 @@ def publish(
     snapshot_rows: list[dict[str, Any]] = []
     history_rows: list[dict[str, Any]] = []
     estimate_rows: list[dict[str, Any]] = []
+    basis_rows: list[dict[str, Any]] = []
     seen_symbols: set[str] = set()
     duplicate_symbols: list[str] = []
 
@@ -831,6 +860,10 @@ def publish(
         if estimate is not None:
             estimate_rows.append(estimate)
 
+        basis = basis_row(record, run_date, report)
+        if basis is not None:
+            basis_rows.append(basis)
+
     summary: dict[str, Any] = {
         "csv": str(csv_path),
         "run_date": run_date,
@@ -845,6 +878,7 @@ def publish(
         ),
         "payload_columns": len(df.columns),
         "estimate_rows": len(estimate_rows),
+        "basis_rows": len(basis_rows),
         "dry_run": dry_run,
         "market": market,
     }
@@ -961,6 +995,20 @@ def publish(
             exc,
         )
 
+    # Same footing again: the live ratios fall back to the close's until the
+    # next run writes the basis.
+    basis_error = None
+    try:
+        basis_written = repository.upsert_valuation_basis(basis_rows)
+    except Exception as exc:  # noqa: BLE001 - optional display data must not invalidate a publish
+        basis_written = 0
+        basis_error = str(exc)
+        logger.warning(
+            "Valuation basis write failed after publish (apply "
+            "storage/valuation_basis_schema.sql if the table is missing): %s",
+            exc,
+        )
+
     summary.update(
         {
             "snapshot_rows_written": written,
@@ -971,6 +1019,8 @@ def publish(
             "estimate_error": estimate_error,
             "universe_index_written": universe_written,
             "universe_index_error": universe_error,
+            "basis_rows_written": basis_written,
+            "basis_error": basis_error,
         }
     )
     return summary

@@ -170,15 +170,18 @@ class TranscriptWorker:
                         "size_bytes": pdf_path.stat().st_size,
                         "extraction_method": extraction_method,
                     })
-                self.repository.upsert_transcript({
-                    "document_id": document["id"],
-                    "symbol": filing["symbol"],
-                    "quarter": _results_period(filing.get("announcement_date")),
-                    "call_date": _announcement_date(filing.get("announcement_date")),
-                    "cleaned_text": cleaned_text,
-                    "token_count": (len(cleaned_text) + 3) // 4,
-                    "text_hash": hashlib.sha256(cleaned_text.encode("utf-8")).hexdigest(),
-                })
+                call_date = _announcement_date(filing.get("announcement_date"))
+                token_count = (len(cleaned_text) + 3) // 4
+                if self._one_transcript_per_call(filing["symbol"], call_date, token_count):
+                    self.repository.upsert_transcript({
+                        "document_id": document["id"],
+                        "symbol": filing["symbol"],
+                        "quarter": _results_period(filing.get("announcement_date")),
+                        "call_date": call_date,
+                        "cleaned_text": cleaned_text,
+                        "token_count": token_count,
+                        "text_hash": hashlib.sha256(cleaned_text.encode("utf-8")).hexdigest(),
+                    })
             self.repository.link_filing_document(stored_filing["id"], document["id"])
             self.repository.update_filing(stored_filing["id"], status="document_ready", last_error=None)
             self._supersede_recording(filing["symbol"], _results_period(filing.get("announcement_date")))
@@ -191,6 +194,32 @@ class TranscriptWorker:
                 last_error=str(exc)[:1000],
             )
             raise
+
+    def _one_transcript_per_call(self, symbol: str, call_date: str | None, token_count: int) -> bool:
+        """Whether to store this document as the call's transcript.
+
+        A company sometimes files one call twice -- a re-filed copy, a scan
+        beside the text. Both stored, the second would be the first's
+        "previous quarter" in `latest_transcript_sentiment` and the call would
+        be scored twice. The longer text is kept, as the more complete; a
+        stored copy no longer than this one is removed with its scores.
+        Recording transcripts are `_supersede_recording`'s. A store that
+        cannot be read stores the document, as before this rule.
+        """
+        if not call_date:
+            return True
+        try:
+            stored = self.repository.call_transcripts(symbol, call_date)
+            if any(int(row.get("token_count") or 0) > token_count for row in stored):
+                logger.info("A longer transcript of %s's %s call is stored; keeping it", symbol, call_date)
+                return False
+            if stored and not self.repository.read_only:
+                for row in stored:
+                    self.repository.delete_transcript(row["id"])
+                logger.info("Transcript of %s's %s call replaces %d stored copy(ies)", symbol, call_date, len(stored))
+        except Exception as exc:  # noqa: BLE001 - must not fail the filing
+            logger.warning("Could not check %s's %s call for a stored copy: %s", symbol, call_date, exc)
+        return True
 
     def _supersede_recording(self, symbol: str, quarter: str | None) -> None:
         """Remove the same call's transcript made from its recording, if any.

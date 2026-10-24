@@ -17,6 +17,7 @@ from screener.quarterly_results import PARSER_VERSION
 from workers.quarterly_filings import (
     DEFAULT_LOOKBACK_DAYS,
     FULL_LOOKBACK_DAYS,
+    refresh_valuation_basis,
     run,
 )
 
@@ -78,7 +79,10 @@ class FakeRepository:
         self.market = market
         self.stored = dict(stored or {})
         self.upserted = []
-        self.redrawn = []
+        self.filing_reads = []
+        self.filings = {}
+        self.basis = {}
+        self.basis_writes = []
 
     def quarterly_filing_state(self):
         return self.stored
@@ -87,10 +91,22 @@ class FakeRepository:
         self.upserted += rows
         return len(rows)
 
-    # What `recompose_quarters` reads and writes.
+    # What `recompose_quarters` reads and writes; the valuation basis reads
+    # the same filings after it.
     def quarterly_filings(self, symbols):
-        self.redrawn += list(symbols)
-        return {}
+        self.filing_reads.append(list(symbols))
+        return {s: self.filings[s] for s in symbols if s in self.filings}
+
+    @property
+    def redrawn(self):
+        return self.filing_reads[0] if self.filing_reads else []
+
+    def valuation_basis_periods(self, symbols):
+        return {s: self.basis[s] for s in symbols if s in self.basis}
+
+    def upsert_valuation_basis(self, rows):
+        self.basis_writes.append(rows)
+        return len(rows)
 
     def financial_statement_rows(self, symbols):
         return []
@@ -324,6 +340,59 @@ class WorkflowTests(unittest.TestCase):
     def test_the_screener_reads_the_store_and_keeps_no_filings_cache(self):
         text = self.text("daily-stock-screener.yml")
         self.assertNotIn("quarterly_results_cache", text)
+
+
+def stored_quarter(symbol, period_end, net_profit, *, operating_profit=200.0):
+    """A stored filing as `quarterly_filings` returns it."""
+    return {
+        "symbol": symbol,
+        "period_end": period_end,
+        "is_consolidated": True,
+        "filed_at": "2026-10-08T18:00:00+05:30",
+        "taxonomy": "INDAS",
+        "lines": {
+            "revenue": 1000.0, "pat": net_profit, "net_profit": net_profit,
+            "operating_profit": operating_profit, "pbt": 130.0, "interest": 10.0,
+            "other_income": 20.0,
+        },
+    }
+
+
+class ValuationBasisRefresh(unittest.TestCase):
+    QUARTERS = ("2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30")
+
+    def refresh(self, filings, basis=None):
+        repo = FakeRepository()
+        repo.filings = filings
+        repo.basis = basis or {}
+        refresh_valuation_basis(repo, list(filings), TODAY, "Asia/Kolkata")
+        return [row for rows in repo.basis_writes for row in rows]
+
+    def test_a_filed_quarter_moves_the_trailing_year_the_same_evening(self):
+        filings = {"AAA": [stored_quarter("AAA", q, 100.0) for q in self.QUARTERS]}
+        filings["AAA"][-1]["lines"]["net_profit"] = 500.0
+        [row] = self.refresh(filings, {"AAA": "2026-06-30"})
+        self.assertEqual(row["net_profit_ttm"], 800.0)
+        self.assertEqual(row["ebitda_ttm"], 800.0)
+        self.assertEqual(row["period_end"], "2026-09-30")
+        self.assertEqual(row["statement_basis"], "consolidated")
+        # Never the evening run's columns: shares and equity stand.
+        self.assertNotIn("shares_outstanding", row)
+
+    def test_a_vendor_year_running_later_is_left_alone(self):
+        filings = {"AAA": [stored_quarter("AAA", q, 100.0) for q in self.QUARTERS]}
+        self.assertEqual(self.refresh(filings, {"AAA": "2026-12-31"}), [])
+
+    def test_a_line_the_filings_cannot_support_is_not_written(self):
+        filings = {
+            "AAA": [stored_quarter("AAA", q, 100.0) for q in self.QUARTERS],
+            "BBB": [stored_quarter("BBB", q, 50.0) for q in self.QUARTERS],
+        }
+        filings["AAA"][0]["lines"]["operating_profit"] = None
+        rows = {row["symbol"]: row for row in self.refresh(filings)}
+        self.assertNotIn("ebitda_ttm", rows["AAA"])
+        self.assertEqual(rows["AAA"]["net_profit_ttm"], 400.0)
+        self.assertEqual(rows["BBB"]["ebitda_ttm"], 800.0)
 
 
 if __name__ == "__main__":

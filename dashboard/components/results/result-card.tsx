@@ -7,7 +7,8 @@ import { useExpand } from "@/components/motion";
 import { StockIdentity } from "@/components/stock-identity";
 import { useMarket } from "@/components/market-provider";
 import { SegmentedControl } from "@/components/segmented-control";
-import { MISSING, formatDateTimeIST, formatMoneyCompact } from "@/lib/format";
+import { LiveRatio } from "@/components/live-quote";
+import { MISSING, formatDateTimeIST } from "@/lib/format";
 import type { Market } from "@/lib/markets";
 import { amountDigits, formatChange } from "@/lib/results.mjs";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,8 @@ export type ResultCardData = {
   bases: BasisTable[];
   marketCap: number | null;
   pe: number | null;
+  /** The close the two figures above were worked out at. */
+  barDate: string | null;
   /** The company's web domain from the latest run, for its logo. */
   logoDomain: string | null;
 };
@@ -317,12 +320,14 @@ export function ResultCard({ card }: { card: ResultCardData }) {
         <dl className="tabular flex items-center gap-3 text-muted-foreground">
           <div className="flex gap-1">
             <dt>MCap</dt>
-            <dd className="font-medium text-foreground">{formatMoneyCompact(card.marketCap, market)}</dd>
+            <dd className="font-medium text-foreground">
+              <LiveRatio symbol={card.symbol} barDate={card.barDate} metric="market_cap" close={card.marketCap} format="money" />
+            </dd>
           </div>
           <div className="flex gap-1 border-l pl-3">
             <dt>P/E</dt>
             <dd className="font-medium text-foreground">
-              {card.pe == null || card.pe <= 0 ? MISSING : card.pe.toFixed(1)}
+              <LiveRatio symbol={card.symbol} barDate={card.barDate} metric="pe_ratio" close={card.pe} format="positive1" />
             </dd>
           </div>
         </dl>

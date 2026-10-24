@@ -8,6 +8,7 @@ import {
   inSession,
   isLive,
   liveOverlay,
+  ratioOverlay,
   nextPollDelay,
   quoteFreshness,
   quoteTime,
@@ -39,6 +40,15 @@ test("live means written on one of the last few runs", () => {
   assert.equal(isLive(WRITTEN, at(19)), true);
   assert.equal(isLive(WRITTEN, at(21)), false);
   assert.equal(isLive(null, at(0)), false);
+});
+
+test("a quote's ratios replace the close's from the row's own session on", () => {
+  const quote = { session: "2026-10-16", pe_ratio: 56.2 };
+  assert.equal(ratioOverlay(quote, "2026-10-15"), quote);
+  // A result filed after the evening run: same session, newer basis.
+  assert.equal(ratioOverlay(quote, "2026-10-16"), quote);
+  assert.equal(ratioOverlay(quote, "2026-10-17"), null);
+  assert.equal(ratioOverlay(null, "2026-10-15"), null);
 });
 
 test("a quote replaces the close only when it is from a later session", () => {

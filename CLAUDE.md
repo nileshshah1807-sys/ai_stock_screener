@@ -246,6 +246,22 @@ the scheduled workflows set the same flag.
   against them, so the live point equals the close the evening run will
   publish at that price. Stage 2 and RS rating stay on the last close. Both
   are in `storage/market_breadth_schema.sql`, applied by hand.
+- **A price ratio is the price over a stored basis, worked out where the
+  price is.** `valuation_basis` holds each symbol's company side -- trailing
+  profit, book equity, trailing EBITDA, debt, cash, shares, dividend -- as
+  totals (`screener/valuation_basis.py`). The trailing year is the latest
+  four filed quarters on one basis where NSE filings have them
+  (`trailing_year`), else Yahoo's; the vendor's quarter is kept as the
+  basis's `period_end` so a filed year never replaces a later one. Two
+  writers: the dashboard publisher, every symbol of the evening run; and
+  `workers/quarterly_filings.refresh_valuation_basis`, the trailing lines
+  alone, minutes after a company files. Scoring works the ratios out at the
+  close (`price_ratios`); the dashboard reads them at the live quote from the
+  `live_valuation` view (grid, stock page, results card, through
+  `LiveRatio`). The view's arithmetic is held equal to `price_ratios` by
+  `tests/test_valuation_basis.py`, which runs the view's SQL on SQLite. Both
+  are in `storage/valuation_basis_schema.sql`, applied by hand; apply it
+  before deploying the dashboard, whose stock quotes are read through the view.
 - **NSE-only evidence degrades, it does not fail.** The impact-cost overlay
   (`screener/liquidity.py`), transcript sentiment and the VIGIL red-flag feed
   have no US counterpart. They are switched off by env in the US workflow and
