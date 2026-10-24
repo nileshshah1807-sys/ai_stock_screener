@@ -14,7 +14,9 @@ import type { SnapshotRowWithPayload } from "@/lib/types";
  *
  *   Starting score = v4 core OR Model 5.0 research score
  *   After DCF     = Core + w_dcf * (DCF_Valuation_Score - 50)
- *   Evidence      = After DCF + w_tx * (Transcript_Effective - median scored call)
+ *   Raw evidence  = After DCF + w_tx * (call signal against the median call)
+ *   Evidence      = run percentile of raw evidence (policy 5.5.0, percentile
+ *                   research score), else raw evidence clipped to 0-100
  *   Decision      = min(Evidence, applicable policy ceiling)
  *
  * Since Model 5.1 a *policy* gate no longer lowers the ceiling -- it is reported
@@ -106,6 +108,8 @@ export function buildStages(row: SnapshotRowWithPayload): Stage[] {
     row.research_score_raw ?? num(payload.Research_Score_Raw);
   const afterDcf = row.score_after_dcf ?? num(payload.Score_After_DCF) ?? core;
   const evidence = row.evidence_score ?? num(payload.Evidence_Score) ?? afterDcf;
+  // Runs before policy 5.5.0 published no raw evidence; their ranking stage is flat.
+  const rawEvidence = num(payload.Evidence_Score_Raw) ?? evidence;
   const decision =
     row.decision_score ?? num(payload.Decision_Score) ?? row.final_score ?? evidence;
 
@@ -147,11 +151,22 @@ export function buildStages(row: SnapshotRowWithPayload): Stage[] {
       key: "transcript",
       label: "Transcript",
       from: afterDcf,
-      to: evidence,
+      to: rawEvidence,
       kind: "delta",
       note: transcriptEligible
         ? `${row.transcript_status}: measured against the median scored call of the run, so this stage can add or subtract.`
         : `${row.transcript_status ?? "No transcript"}. Contributes zero and does not cap the rating.`,
+    },
+    {
+      key: "ranked",
+      label: "Run rank",
+      from: rawEvidence,
+      to: evidence,
+      kind: "delta",
+      note:
+        num(payload.Evidence_Score_Raw) !== null && scoreMode === "percentile"
+          ? `Raw evidence ${formatScore(rawEvidence)} ranked against every stock in the run, so only the strongest reads 100.`
+          : "Not ranked again: the score above is published as it stands.",
     },
     {
       key: "ceiling",
@@ -257,7 +272,7 @@ function WaterfallDrawing({
       className={`w-full ${className}`}
       style={{ maxHeight: height * 1.4 }}
       role="img"
-      aria-label={`Score waterfall: starting score ${formatScore(stages[0].to)}, decision ${formatScore(stages[4].to)}.`}
+      aria-label={`Score waterfall: starting score ${formatScore(stages[0].to)}, decision ${formatScore(stages[stages.length - 1].to)}.`}
     >
       {thresholds.map((threshold) => (
         <g key={threshold.value}>

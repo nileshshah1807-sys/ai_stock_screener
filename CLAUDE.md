@@ -28,6 +28,15 @@ the scheduled workflows set the same flag.
   version-stable.
 - **Missing vendor values go through `safe_float`** (`screener.numeric`), which
   treats `None`, `NaN` and stray text alike as "not reported".
+- **Design: SOLID and DRY, at the codebase's own grain.** One owner per
+  decision: the enricher gathers evidence, `screener/recommendation.py`
+  weighs it, the publisher ships it. A rule lives in exactly one function
+  and every caller asks it, never a copy of its arithmetic (e.g.
+  `RecommendationPolicy._outlook_share`). Extend through config and the
+  existing seams (`MarketProfile`, a scoring component, a policy method)
+  rather than a branch in a caller. Small, single-purpose functions; no
+  abstraction for one caller. Before adding a rule, grep for the place that
+  already decides it.
 - **Absent evidence is not a zero.** Scores are coverage-normalised: a component
   whose input was never reported leaves both the numerator and the denominator,
   and the result is shrunk toward neutral. Never let an unreported metric score

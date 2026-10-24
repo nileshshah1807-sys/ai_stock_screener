@@ -13,6 +13,7 @@ from collections.abc import Iterable
 import numpy as np
 import pandas as pd
 
+from .factors import cross_sectional_percentile
 from .numeric import round_half_up, round_series_half_up
 from .numeric import safe_float as _safe_float
 
@@ -456,6 +457,16 @@ class RecommendationPolicy:
             & transcript_score.notna()
             & transcript_weight.gt(0)
         )
+        outlook_score = _numeric_series(frame, "Transcript_Outlook_Score").clip(0, 100)
+        outlook_share = self._outlook_share()
+        # Where the outlook carries the call, a call is evidence once its
+        # outlook is extracted, hours after the transcript lands. Read on tone
+        # alone in between, a cut guidance scored upbeat: HINDZINC, 23 Oct 2026,
+        # tone 78.6 against an outlook of 41, rank 131 lifted to 18. Until then
+        # the call is unreported, not neutral, and the next run reads it.
+        awaiting_outlook = transcript_applied & outlook_score.isna() & (outlook_share > 0)
+        transcript_applied &= ~awaiting_outlook
+        frame["Transcript_Awaiting_Outlook"] = awaiting_outlook
         score_used = transcript_score.copy()
         two_sided = _as_bool(
             getattr(self.config, "TRANSCRIPT_TWO_SIDED", False), False
@@ -475,15 +486,8 @@ class RecommendationPolicy:
         signal = score_used - neutral
 
         # The tone score measures how a call sounds; the outlook score what it
-        # said (sentiment/outlook.py). Where a call has both, they share the
-        # one transcript weight. A call with no outlook keeps the whole weight
-        # on tone -- the missing component leaves the average, it is not read
-        # as a neutral 50 -- so a run before any extraction is unchanged.
-        outlook_score = _numeric_series(frame, "Transcript_Outlook_Score").clip(0, 100)
-        outlook_share = max(
-            0.0,
-            min(1.0, float(getattr(self.config, "TRANSCRIPT_OUTLOOK_SHARE", 0.0))),
-        )
+        # said (sentiment/outlook.py). They share the one transcript weight;
+        # with a zero share the call is scored on tone alone.
         outlook_applied = (
             transcript_applied & outlook_score.notna() & (outlook_share > 0)
         )
@@ -520,7 +524,10 @@ class RecommendationPolicy:
         evidence.loc[transcript_applied] = (
             after_dcf.loc[transcript_applied]
             + transcript_delta.loc[transcript_applied]
-        ).clip(0.0, 100.0)
+        )
+        ranked = self._research_is_percentile(frame)
+        if not ranked:
+            evidence = evidence.clip(0.0, 100.0)
         evidence = round_series_half_up(evidence, 4)
         frame["Transcript_Blend_Applied"] = transcript_applied
         frame["Transcript_Blend_Weight_Applied"] = transcript_weight.where(
@@ -546,8 +553,36 @@ class RecommendationPolicy:
         frame["Transcript_Pre_Blend_Rating_Ceiling"] = after_dcf.map(
             _rating_ceiling
         )
-        frame["Evidence_Score"] = round_series_half_up(evidence, 2)
+        # On a percentile research score the published score is the run's
+        # percentile of the whole evidence, the call included. Clipped at 100
+        # instead, every name a call lifted past the top tied there: 35 on
+        # 23 Oct 2026. Ranking keeps the call's reach in research points, the
+        # scale its weight was measured on; the backtest, with no calls, is
+        # unchanged, since a percentile ranks to itself.
+        frame["Evidence_Score_Raw"] = evidence
+        frame["Evidence_Score"] = round_series_half_up(
+            cross_sectional_percentile(evidence) if ranked else evidence, 2
+        )
         return frame
+
+    @staticmethod
+    def _research_is_percentile(frame):
+        """Whether the research score is a run percentile, as Model 5 publishes it."""
+        basis = frame.get("Research_Score_Basis")
+        return basis is not None and bool(basis.eq("cross_sectional_percentile").all())
+
+    def _outlook_share(self):
+        """The outlook's share of the transcript weight; 0 is the tone-only policy.
+
+        Switching the outlook off is a zero share, so a run that never fetched
+        outlooks is not one where every call awaits one.
+        """
+        if not _as_bool(getattr(self.config, "TRANSCRIPT_OUTLOOK_ENABLED", True), True):
+            return 0.0
+        return max(
+            0.0,
+            min(1.0, float(getattr(self.config, "TRANSCRIPT_OUTLOOK_SHARE", 0.0))),
+        )
 
     @staticmethod
     def _coverage_failure(row, column, reason):

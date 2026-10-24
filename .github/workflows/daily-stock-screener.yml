@@ -68,7 +68,7 @@ jobs:
       # 5.2.0: the latest reported quarter enters the growth block
       # (FACTOR_GROWTH_QUARTER_SHARE); see docs/model_methodology.md.
       MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.2.0' || '4.0.0-candidate' }}
-      RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.4.0' || '4.0.0-candidate' }}
+      RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.5.0' || '4.0.0-candidate' }}
       OUTPUT_SCHEMA_VERSION: "4.2.0"
       MODEL_VALIDATION_STATUS: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && 'Production active; point-in-time validated over four windows incl. 2018-2020 drawdown; weights fitted in-sample, forward validation pending' || 'Research model; point-in-time out-of-sample validation pending' }}
       # A factor cross-section is not representative while statement coverage

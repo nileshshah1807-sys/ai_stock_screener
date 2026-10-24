@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-10-07
 Scheduled production model: 5.2.0
-Scheduled recommendation policy: 5.4.0
+Scheduled recommendation policy: 5.5.0
 Output schema: 4.2.0
 Local/manual-daily model: 4.0.0-candidate (`FACTOR_MODEL_ENABLED=false`)
 
@@ -199,7 +199,8 @@ sentence it was taken from is found in the transcript. Its 0-100
 ```text
 signal         = (1 - s) * (tone - median tone)
                  + s * (outlook - median outlook)      call has an outlook
-signal         = tone - median tone                    call has none
+                 (none yet: the call is not evidence)  s > 0
+signal         = tone - median tone                    s = 0
 Evidence_Score = Score_After_DCF + w_tx * signal
 ```
 
@@ -209,9 +210,15 @@ since 15 October 2026). `w_tx` is `TRANSCRIPT_SENTIMENT_WEIGHT`, raised from
 a call could then move a score by about five points at most. Each reading is
 centred on its own median over the calls of the run, falling back to 50 below
 `TRANSCRIPT_NEUTRAL_MIN_CALLS`. An outlook counts only for the call the tone
-score came from and only when at least one extracted item was verified; a
-call without one is scored on tone at the full weight, not as a neutral
-outlook. A company with no eligible call is still not adjusted.
+score came from and only when at least one extracted item was verified.
+Since policy 5.5.0 a call without one is not evidence yet
+(`Transcript_Awaiting_Outlook`): the run that first sees a call usually
+precedes its extraction by hours, and tone alone read HINDZINC's cut guidance
+of 23 October 2026 as upbeat (78.6 against an outlook of 41), lifting it from
+rank 131 to 18. Fifteen of that run's calls were read that way. The call
+counts from the first run after its outlook is stored; until then the
+company is scored as if it held no call. A company with no eligible call is
+still not adjusted.
 
 Evidence, from the 2,105 usable calls of April to September 2026, each entered
 two sessions after the call and measured against the equal-weight universe:
@@ -234,13 +241,36 @@ The point weights inside `outlook_score` remain judgments. The backtest has no
 calls and is unaffected. `TRANSCRIPT_OUTLOOK_SHARE=0` restores the tone-only
 score and `TRANSCRIPT_SENTIMENT_WEIGHT=0.15` the old reach.
 
+### Policy 5.5.0: the published score is the percentile of the whole evidence
+
+The research score is already a run percentile, so the strongest names sit
+at 97-100 before a call is read. Added to it and clipped at 100, the call
+tied every name it lifted past the top: 35 at 100 on 23 October 2026, ordered
+among themselves by the research score alone. Where the research score is a
+percentile (`Research_Score_Basis = cross_sectional_percentile`):
+
+```text
+Evidence_Score_Raw = Score_After_DCF + w_tx * signal     (not clipped)
+Evidence_Score     = run percentile of Evidence_Score_Raw
+```
+
+The call keeps its reach in research points -- the scale its weight was
+measured on -- and then the whole evidence is ranked once, with the same
+`cross_sectional_percentile` the research score uses. Only the strongest
+name reads 100, and ">= 70 is the top 30%" keeps its meaning. Replayed on the
+23 October run: one name at 100 instead of 35, 696 at 70 or more instead of
+695, 35 ratings changed of 2,319. A run without calls -- the backtest -- is
+unchanged, since a percentile ranks to itself; the 4.x core score, which is
+not a percentile, is still clipped. The stock page's waterfall shows the step
+as "Run rank".
+
 ### Transcript weight: the outlook 0.15 to 0.85 (15 October 2026)
 
 `TRANSCRIPT_SENTIMENT_WEIGHT` 0.30 to 1.0 and `TRANSCRIPT_OUTLOOK_SHARE` 0.5
 to 0.85: a point of outlook above the run's median call now adds 0.85 of a
 point to the evidence score instead of 0.15, and tone keeps its 0.15. Both
 are still decayed by the call's age and applied only to eligible calls, and
-the evidence score is still clipped to 0-100 and capped by the gates; the
+the evidence score is still bounded to 0-100 (ranked since policy 5.5.0) and capped by the gates; the
 rating follows it as before.
 
 Evidence. Published rankings from 11 August to 8 October carry no outlook,

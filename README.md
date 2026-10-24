@@ -200,6 +200,18 @@ NSE run this moves 11 of 2,321 names from BUY to STRONG BUY; the US run was
 RISK_ON and is unchanged. `MODEL_VERSION` and ranks are untouched.
 `REGIME_RISK_OFF_DISABLES_STRONG_BUY=true` restores the veto.
 
+**Recommendation policy 5.5.0 waits for a call's outlook.** A call used to
+count on its word-list tone until the language-model outlook was extracted,
+hours later; on 23 October 2026 that read HINDZINC's cut guidance as upbeat
+and lifted it from rank 131 to 18, one of 15 calls so read that run. A call
+now enters the score with its outlook (`Transcript_Awaiting_Outlook` marks
+the wait). `TRANSCRIPT_OUTLOOK_SHARE=0` keeps the tone-only policy.
+The published score is now the run percentile of the whole evidence --
+research score plus the call -- instead of their sum clipped at 100, which
+tied 35 names at 100 on 23 October 2026. Replayed on that run: one name at
+100, the share at 70+ unchanged, 35 of 2,319 ratings moved. The backtest,
+with no calls, is unaffected.
+
 So a row can read **99.8 / BUY**, and that is not a contradiction: the score
 says how strong the evidence is, the rating says whether policy will act on it.
 `Decision_Score` (the ceiling), `Decision_Score_Ceiling`,

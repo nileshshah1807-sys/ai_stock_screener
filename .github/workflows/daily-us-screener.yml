@@ -85,7 +85,7 @@ jobs:
 
       FACTOR_MODEL_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && 'True' || 'False' }}
       MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.2.0' || '4.0.0-candidate' }}
-      RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.4.0' || '4.0.0-candidate' }}
+      RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.5.0' || '4.0.0-candidate' }}
       OUTPUT_SCHEMA_VERSION: "4.2.0"
       # Deliberately not the NSE line. The model's point-in-time validation was
       # run on NSE data; nothing has yet been validated out of sample on US
