@@ -108,6 +108,9 @@ jobs:
       # Liquidity is an execution overlay; it must not select the research
       # universe used by Investment_Rank.
       PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY: "False"
+      # NSE's list plus mainboard companies listed on BSE alone (~1,700), screened
+      # as SYMBOL.BO from Yahoo (screener/universe.py nse_with_bse_only).
+      NSE_UNIVERSE_SOURCE: "nse_with_bse_only"
       ALLOW_PROVISIONAL_MARKET_BARS: "False"
       MARKET_BAR_COMPLETE_AFTER_IST: "16:15"
       # When Yahoo has not served the session's bar for a symbol, take that one

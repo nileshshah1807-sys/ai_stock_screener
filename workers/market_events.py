@@ -17,7 +17,7 @@ Two kinds so far:
     never announces a result the stock page cannot show yet. A revision is
     not an event: it restates a quarter, it does not announce one.
 
-    Where it has none (US), the event is the stored statements gaining a later
+    Where it has none (US, and a company listed on BSE alone), the event is the stored statements gaining a later
     quarter, which is when the vendor published it. That needs to know what
     was there before, so the first time a company is seen its current quarter
     is recorded as a hidden *baseline* rather than announced -- otherwise the
@@ -38,6 +38,7 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+from screener.markets import is_bse_only
 from screener.markets import resolve as resolve_market
 
 logger = logging.getLogger(__name__)
@@ -224,6 +225,14 @@ def run(
         events += filed_results_events(
             filed, _universe(repo, companies), companies, since=since
         )
+        # A company listed on BSE alone files nowhere the index reaches, so its
+        # result is the vendor's statements gaining a quarter, as in the US.
+        bse_only = {
+            symbol: row
+            for symbol, row in repo.financial_statement_state().items()
+            if is_bse_only(symbol)
+        }
+        events += statement_results_events(bse_only, recorded, companies)
     else:
         events += statement_results_events(
             repo.financial_statement_state(), recorded, companies

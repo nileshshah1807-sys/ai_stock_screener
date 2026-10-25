@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 
 import { CompanyLogo } from "@/components/company-logo";
 import { useMarket } from "@/components/market-provider";
+import { SymbolText } from "@/components/symbol-text";
 import { MISSING } from "@/lib/format";
 import { marketPath } from "@/lib/markets";
 import { useStockEntry } from "@/lib/stock-directory";
@@ -75,7 +76,7 @@ export function StockIdentity({
         <span className="block truncate text-base font-semibold tracking-[-0.011em] underline-offset-2 group-hover:underline">
           {name ?? symbol}
         </span>
-        {name ? <span className="block font-mono text-xs text-muted-foreground">{symbol}</span> : null}
+        {name ? <span className="block font-mono text-xs text-muted-foreground"><SymbolText symbol={symbol} /></span> : null}
       </span>
     ) : (
       <span className={cn("min-w-0", textClassName)}>
@@ -87,7 +88,7 @@ export function StockIdentity({
             sizes.symbol,
           )}
         >
-          {symbol}
+          <SymbolText symbol={symbol} />
         </span>
         <span className={cn("block truncate text-muted-foreground", sizes.line)}>
           {subtitle ?? name ?? MISSING}

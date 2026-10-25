@@ -24,6 +24,10 @@ US = "US"
 
 DEFAULT_MARKET = NSE
 
+# Yahoo's suffix for a BSE listing, looked up by the exchange's symbol (the
+# numeric scrip code serves a tenth as many names).
+BSE_SUFFIX = ".BO"
+
 
 @dataclass(frozen=True)
 class LiveIndex:
@@ -245,8 +249,20 @@ def active_profile(config=None) -> MarketProfile:
 
 
 def ticker_for(symbol, profile: MarketProfile) -> str:
-    """Return the vendor ticker for a bare symbol on this market."""
-    return f"{str(symbol).strip().upper()}{profile.ticker_suffix}"
+    """Return the vendor ticker for a bare symbol on this market.
+
+    A company listed on BSE alone is carried in the NSE run under its vendor
+    ticker (``screener.universe.nse_with_bse_only``), so it is already whole.
+    """
+    text = str(symbol).strip().upper()
+    if is_bse_only(text):
+        return text
+    return f"{text}{profile.ticker_suffix}"
+
+
+def is_bse_only(symbol) -> bool:
+    """True for a company carried in the NSE run because it is listed on BSE alone."""
+    return str(symbol).strip().upper().endswith(BSE_SUFFIX)
 
 
 def bare_symbol(ticker, profile: MarketProfile) -> str:

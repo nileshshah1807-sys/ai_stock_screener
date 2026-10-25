@@ -26,6 +26,7 @@ DEFAULT_REPRODUCIBILITY_CONFIG_KEYS = (
     # the previous hash did not record a fact that distinguishes the runs.
     "MARKET",
     "US_UNIVERSE_SOURCE",
+    "NSE_UNIVERSE_SOURCE",
     "MODEL_VERSION",
     "RECOMMENDATION_POLICY_VERSION",
     "OUTPUT_SCHEMA_VERSION",

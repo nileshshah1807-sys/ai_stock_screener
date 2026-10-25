@@ -5,6 +5,7 @@ import { ArrowLeft } from "lucide-react";
 import { AddToWatchlist } from "@/components/watchlist/add-to-watchlist";
 import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
+import { SymbolText } from "@/components/symbol-text";
 import { LiveChange, LivePrice, LiveRatio } from "@/components/live-quote";
 import { CallOutlook } from "@/components/stock/call-outlook";
 import { getLatestConcall } from "@/lib/concalls";
@@ -783,7 +784,7 @@ export default async function StockPage({
                   lands here should hear which company, not a bare ticker. */}
               <h1 className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
                 <span className="font-mono text-[1.75rem] font-bold leading-tight tracking-tight">
-                  {row.symbol}
+                  <SymbolText symbol={row.symbol} />
                 </span>
                 <span className="text-heading font-normal text-muted-foreground">
                   {row.company}

@@ -97,6 +97,67 @@ class NseUniverseTests(unittest.TestCase):
         self.assertEqual(result.symbols, ())
 
 
+BSE_BHAVCOPY = (
+    "TradDt,FinInstrmTp,FinInstrmId,ISIN,TckrSymb,SctySrs,TtlTrfVal\n"
+    "2026-10-23,STK,500325,INE002A01018,RELIANCE,A,1\n"  # also on NSE
+    "2026-10-23,STK,506854,INE379A01028,TANFACIND,B,1\n"  # BSE only
+    "2026-10-23,STK,544310,INE0SME01010,YASHHV,M,1\n"  # SME
+    "2026-10-23,STK,977093,INE0DEBT0101,0MSFL27,F,1\n"  # debt
+    "2026-10-23,STK,590145,INF204KB18R4,08AGG,B,1\n"  # fund units
+)
+NSE_CSV_WITH_ISIN = (
+    "SYMBOL,NAME OF COMPANY, ISIN NUMBER\n"
+    "RELIANCE,Reliance Industries Limited,INE002A01018\n"
+    "TCS,Tata Consultancy Services,INE467B01029\n"
+)
+
+
+class BseOnlyUniverseTests(unittest.TestCase):
+    def _fetch(self, bhavcopy):
+        with mock.patch.object(universe, "_get", return_value=_response(NSE_CSV_WITH_ISIN)), \
+                mock.patch.object(universe, "_recent_bse_bhavcopies", return_value=bhavcopy):
+            return universe.nse_with_bse_only()
+
+    def test_adds_mainboard_bse_only_listings_as_vendor_tickers(self):
+        import io
+
+        import pandas as pd
+
+        result = self._fetch(pd.read_csv(io.StringIO(BSE_BHAVCOPY)))
+        self.assertEqual(result.symbols, ("RELIANCE", "TCS", "TANFACIND.BO"))
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.notes, ("nse:2", "bse_only:1"))
+
+    def test_missing_bhavcopy_degrades_to_nse_alone(self):
+        result = self._fetch(None)
+        self.assertEqual(result.symbols, ("RELIANCE", "TCS"))
+        self.assertEqual(result.status, "ok:partial")
+
+    def test_bhavcopies_skip_weekends_and_non_files_and_stop_at_five(self):
+        from datetime import date
+
+        asked = []
+
+        def get(url, **_):
+            asked.append(url)
+            # Thursday 22 Oct is a holiday: BSE answers 200 with an HTML page.
+            return _response("<html>no file</html>" if "20261022" in url else BSE_BHAVCOPY)
+
+        with mock.patch.object(universe, "_get", side_effect=get):
+            frame = universe._recent_bse_bhavcopies(today=date(2026, 10, 25))  # a Sunday
+
+        days = [url.split("_0_0_0_")[1][:8] for url in asked]
+        self.assertEqual(days, ["20261023", "20261022", "20261021", "20261020", "20261019", "20261016"])
+        self.assertEqual(len(frame), 5 * (BSE_BHAVCOPY.count("\n") - 1))
+
+    def test_bse_only_ticker_passes_through_ticker_for(self):
+        from screener.markets import bare_symbol, ticker_for
+
+        profile = resolve("NSE")
+        self.assertEqual(ticker_for("TANFACIND.BO", profile), "TANFACIND.BO")
+        self.assertEqual(bare_symbol("TANFACIND.BO", profile), "TANFACIND.BO")
+
+
 class SpIndexUniverseTests(unittest.TestCase):
     def test_constituents_are_parsed_from_wikitext(self):
         with mock.patch.object(universe, "_get", return_value=_response(WIKITEXT)):
@@ -247,6 +308,11 @@ class SourceResolutionTests(unittest.TestCase):
         config = SimpleNamespace(US_UNIVERSE_SOURCE="russell3000")
         with self.assertRaises(ValueError):
             universe.resolve_source(profile, config)
+
+    def test_nse_universe_source_is_overridable(self):
+        profile = resolve("NSE")
+        config = SimpleNamespace(NSE_UNIVERSE_SOURCE="nse_with_bse_only")
+        self.assertEqual(universe.resolve_source(profile, config), "nse_with_bse_only")
 
     def test_the_override_does_not_leak_into_other_markets(self):
         """US_UNIVERSE_SOURCE must never redirect the NSE universe."""

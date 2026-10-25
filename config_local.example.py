@@ -44,6 +44,8 @@ BUY_MIN_3M_RETURN = 0.0
 MARKET = "NSE"
 # US only: "sp1500" (default), "sp500" or "all_listed". Ignored for NSE.
 US_UNIVERSE_SOURCE = ""
+# NSE only: "nse_equity_l" (default) or "nse_with_bse_only" (adds BSE-only listings).
+NSE_UNIVERSE_SOURCE = ""
 
 SCAN_ALL_NSE = False
 CUSTOM_WATCHLIST = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK"]

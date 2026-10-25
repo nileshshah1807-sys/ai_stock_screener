@@ -131,6 +131,8 @@ class Config:
     # all_listed. A setting rather than a literal so the universe can be
     # widened once a real run has been measured against the job timeout.
     US_UNIVERSE_SOURCE = os.getenv("US_UNIVERSE_SOURCE", "").strip().lower()
+    # nse_equity_l (default) or nse_with_bse_only, which adds BSE-only listings.
+    NSE_UNIVERSE_SOURCE = os.getenv("NSE_UNIVERSE_SOURCE", "").strip().lower()
     SCAN_ALL_NSE = _env_bool("SCAN_ALL_NSE", True)  # Set to True for full NSE scan, False for custom watchlist (faster for testing)
     CUSTOM_WATCHLIST = _env_list("CUSTOM_WATCHLIST", list(_PROFILE.fallback_symbols))
     TOP_STOCKS_COUNT = _env_int("TOP_STOCKS_COUNT", 20)

@@ -322,7 +322,8 @@ def normalise_index(records, *, latest_only=True):
                 "Is_Consolidated": basis == "consolidated",
                 "Seq_Id": seq_id,
                 "Filed_At": filed,
-                "Taxonomy": taxonomy_of(url),
+                # NSE names it in the document's file name; another source says it.
+                "Taxonomy": str(record.get("taxonomy") or "").upper() or taxonomy_of(url),
                 "XBRL_URL": url,
                 "Company": str(record.get("cmName") or "").strip() or None,
                 # The exchange's rendering of the filing for a reader; the

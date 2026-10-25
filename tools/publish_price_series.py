@@ -136,6 +136,31 @@ class _UniverseConfig:
 
     def __init__(self, args):
         self.US_UNIVERSE_SOURCE = os.getenv("US_UNIVERSE_SOURCE", "")
+        self.NSE_UNIVERSE_SOURCE = os.getenv("NSE_UNIVERSE_SOURCE", "")
+
+
+def bse_only_rows(args, profile, sessions, *, fetch_universe=None, collect=None):
+    """Charts for companies listed on BSE alone, which the NSE archive never sees.
+
+    Yahoo's history drawn on the NSE calendar (BSE trades the same sessions),
+    split-adjusted like the US charts; a demerger is not restated here.
+    """
+    from screener.markets import is_bse_only
+    from screener.universe import fetch
+    from workers.price_series_market import collect_observations, identity_symbols
+    from workers.price_series_publisher import build_rows
+
+    universe = (fetch_universe or fetch)(profile, _UniverseConfig(args))
+    symbols = [symbol for symbol in universe.symbols if is_bse_only(symbol)]
+    if not symbols:
+        return []
+    observations = (collect or collect_observations)(
+        symbols, profile, start=sessions[0].isoformat(), end=args.end
+    )
+    logger.info("BSE-only: price history for %d/%d symbols", len(observations), len(symbols))
+    return build_rows(
+        sessions, observations, identity_symbols(observations), min_points=args.min_points
+    )
 
 
 def load_archive(root, *, start=None, end=None):
@@ -277,6 +302,9 @@ def main(argv=None):
     )
 
     rows = build_rows(sessions, observations, symbols, min_points=args.min_points)
+    if not args.since:
+        # Yahoo keeps no action ledger, so a targeted rebuild has nothing to target.
+        rows += bse_only_rows(args, profile, sessions)
 
     if args.since:
         # A back-adjustment restates a symbol's whole history, so only symbols
