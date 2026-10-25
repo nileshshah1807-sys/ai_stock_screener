@@ -346,8 +346,12 @@ export function PriceChart({
         <span className="flex w-full items-center gap-3 pt-1 text-[11px] text-muted-foreground sm:ml-auto sm:w-auto sm:pt-0">
           {/* The 200 DMA's colour follows the theme, as its line does. A fixed
               swatch matched the line only in dark mode. */}
-          <Swatch color={MA50_COLOR} label="50 DMA" />
-          <Swatch color={palette(resolvedTheme === "dark").ma200} label="200 DMA" />
+          {/* An average needs a full window; with fewer sessions there is no line,
+              so no key for it. Judged on the whole series, not the zoomed view. */}
+          {points.length >= 50 ? <Swatch color={MA50_COLOR} label="50 DMA" /> : null}
+          {points.length >= 200 ? (
+            <Swatch color={palette(resolvedTheme === "dark").ma200} label="200 DMA" />
+          ) : null}
         </span>
       </div>
 

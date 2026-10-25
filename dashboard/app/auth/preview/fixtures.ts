@@ -4,7 +4,7 @@ import type {
   SnapshotRowWithPayload,
 } from "@/lib/types";
 import type { BellState } from "@/lib/notifications";
-import type { FinancialStatementsRow, NewListingRow } from "@/lib/queries";
+import type { FinancialStatementsRow, NewListingRow, PriceSeriesRow } from "@/lib/queries";
 
 /**
  * Fixture data for the development-only design preview.
@@ -659,4 +659,24 @@ export const previewNotifications: BellState = {
       detail: { period: "2026-06-30", source: "filing" },
     },
   ],
+};
+
+/** A listing's calendar and 32-session series, delta-encoded as the writer ships it. */
+export const previewListingSessions: string[] = Array.from({ length: 32 }, (_, i) => {
+  const day = new Date(Date.UTC(2026, 7, 10 + i + Math.floor((i + 4) / 5) * 2));
+  return day.toISOString().slice(0, 10);
+});
+
+const listingCloses = Array.from({ length: 32 }, (_, i) =>
+  Math.round(2300 + i * 55 + Math.sin(i / 2) * 120), // paise
+);
+const deltas = (values: number[]) => values.map((v, i) => (i === 0 ? v : v - values[i - 1]));
+
+export const previewListingSeries: PriceSeriesRow = {
+  session_deltas: JSON.stringify(deltas(listingCloses.map((_, i) => i))),
+  closes: JSON.stringify(deltas(listingCloses)),
+  volumes: JSON.stringify(deltas(listingCloses.map((_, i) => 800000 + (i % 7) * 90000))),
+  points: 32,
+  first_session: previewListingSessions[0],
+  last_session: previewListingSessions[31],
 };

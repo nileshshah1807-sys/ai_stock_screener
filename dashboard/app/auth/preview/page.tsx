@@ -12,8 +12,7 @@ import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { Financials } from "@/components/stock/financials";
 import { StockTabs } from "@/components/stock/stock-tabs";
-import { NotRatedBadge } from "@/components/new-listing";
-import { NewListingsBrowser } from "@/components/new-listings-browser";
+import { NewListingView } from "@/components/stock/new-listing-view";
 import { Suspense } from "react";
 import { ActiveFilters } from "@/components/screener/active-filters";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
@@ -28,6 +27,8 @@ import { RATINGS } from "@/lib/types";
 import {
   previewDetailRow,
   previewFinancials,
+  previewListingSeries,
+  previewListingSessions,
   previewNewListings,
   previewNotifications,
   previewRows,
@@ -227,11 +228,27 @@ export default function PreviewPage() {
         </section>
 
         <section className="flex flex-col gap-3">
-          <h2 className="text-heading flex items-center gap-3">
-            New listings <NotRatedBadge size="md" />
-          </h2>
+          <h2 className="text-heading">New listing stock page</h2>
           <div className="panel overflow-hidden">
-            <NewListingsBrowser rows={previewNewListings} market={DEFAULT_MARKET} />
+            <NewListingView
+              listing={{
+                ...previewNewListings[3],
+                // The series starts on the listing date, as a real listing's does.
+                listed_on: previewListingSessions[0],
+                last_close: 44.5,
+                market_cap: 4475320500,
+              }}
+              market={DEFAULT_MARKET}
+              financials={previewFinancials}
+              shareholding={null}
+              watchlists={[]}
+              watchlistMembership={[]}
+              priceSeries={previewListingSeries}
+              sessions={previewListingSessions}
+              priceTail={[]}
+              asOf="2026-09-23"
+              tab="overview"
+            />
           </div>
         </section>
 
