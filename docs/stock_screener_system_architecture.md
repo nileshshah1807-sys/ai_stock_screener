@@ -144,7 +144,7 @@ The main design principles implemented in the code are:
 
 The scheduled GitHub workflow wraps this in an outer publication protocol:
 
-1. The workflow runs in several slots a day because GitHub starts scheduled jobs late. A same-UTC-day success check and the session guard suppress the later slots.
+1. The workflow runs in several slots a day because GitHub starts scheduled jobs late and sometimes drops one (NSE: four slots from 11:07 UTC; US: 21:37 and 23:37 UTC plus retries at 01:37, 03:37 and 05:37 UTC). A same-UTC-day success check and the session guard suppress the later slots.
 2. `scheduled_session_guard` suppresses weekend, configured-holiday, and already-published completed-session rebuilds even when no workflow succeeded on the current calendar day.
 3. The report artifact and both cache namespaces are saved before dashboard publication.
 4. `dashboard_publisher --if-exists skip` treats a race or replay of an already-published trading date as a successful no-op (section 15.5 explains the consequence).
@@ -926,7 +926,7 @@ The production composite cache keeps its original five-path declaration exactly:
 
 `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` is `2500` on scheduled runs, so one run can fetch a whole universe, but a cold first run may land below the 95% coverage floor (`FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE`). Scheduled production enforces that floor before scoring and publishes nothing from a partial cross-section.
 
-**Validation mode.** A `workflow_dispatch` of the daily workflow with `mode=validation` runs the 4.x contract in isolation: it writes to `.validation-output/<run_id>`, skips the production caches, backtest writes, red-flag store and the Supabase publish, and shares no concurrency group with production. A dispatch with `mode=production` behaves like a scheduled run. The NSE and US workflows work the same way; each has its own caches and schedule, eleven hours apart.
+**Validation mode.** A `workflow_dispatch` of the daily workflow with `mode=validation` runs the 4.x contract in isolation: it writes to `.validation-output/<run_id>`, skips the production caches, backtest writes, red-flag store and the Supabase publish, and shares no concurrency group with production. A dispatch with `mode=production` behaves like a scheduled run. The NSE and US workflows work the same way; each has its own caches and schedule, 10.5 hours apart (11:07 vs 21:37 UTC).
 
 ### 15.5 Supabase publication, scheduled jobs and private web dashboard
 
@@ -952,7 +952,7 @@ Every job is a GitHub Actions workflow. The two that cron-job.org calls are disp
 | Job | When | What it writes |
 |---|---|---|
 | Daily stock screener (NSE) | Four slots, 11:07-17:07 UTC, because GitHub starts scheduled jobs late. Once a session is published the rest stop at the dedupe step or the session guard. | Scores, then publishes the read model as its last step. |
-| Daily US screener | 21:37 and 23:37 UTC. `MARKET=US`, universe `all_listed`, annual statements from SEC EDGAR. | The same, for the US. |
+| Daily US screener | 21:37 and 23:37 UTC, with retry slots at 01:37, 03:37 and 05:37 UTC because GitHub sometimes drops a run. `MARKET=US`, universe `all_listed`, annual statements from SEC EDGAR. | The same, for the US. |
 | Financial statements | 03:00, 09:00, 15:00 UTC | `financial_statements` (Yahoo annual statements; EDGAR for the US); first refreshes `new_listings` (NSE only), then records `market_events`. |
 | Quarterly filings | Dispatch-only; cron-job.org every 15 minutes, and daily with `full=true`. NSE. | `quarterly_filings` (one row per symbol, quarter and basis, parsed once), `shareholding_patterns`, `bulk_block_deals`, BSE-only filings (`workers/bse_filings.py`), then `market_events` and the trailing lines of `valuation_basis`. |
 | Live quotes | Dispatch-only; cron-job.org every 5 minutes on weekdays. | `live_quotes` from Yahoo\'s batch endpoint, and once a day `index_members`. |
