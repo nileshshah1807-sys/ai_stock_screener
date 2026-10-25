@@ -66,7 +66,8 @@ jobs:
   store:
     name: NSE
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Step budgets 22 + 12 + 6 minutes, plus setup and the events step.
+    timeout-minutes: 50
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -111,6 +112,20 @@ jobs:
           python -m workers.shareholding \
             --market NSE \
             --time-budget-minutes 12 \
+            ${FULL} \
+            ${DRY_RUN}
+
+      # Results and shareholding of companies listed on BSE alone, through the
+      # two steps above's own code (workers/bse_filings.py). Stores nothing
+      # until workers/bse_source.py is written.
+      - name: Store BSE-only filings
+        if: ${{ !cancelled() }}
+        env:
+          FULL: ${{ inputs.full && '--full' || '' }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: |
+          python -m workers.bse_filings \
+            --time-budget-minutes 6 \
             ${FULL} \
             ${DRY_RUN}
 

@@ -112,6 +112,22 @@ the scheduled workflows set the same flag.
   `python -m tools.compare_quarter_growth_sources`. The index begins in
   April 2025; the older endpoint `backtest/filings.py` reads ends that
   January. Annual statements, valuation ratios and prices are still Yahoo's.
+- **A company listed on BSE alone is screened in the NSE run as `SYMBOL.BO`.**
+  `NSE_UNIVERSE_SOURCE=nse_with_bse_only` (set in the NSE screener and price
+  series workflows) adds every mainboard company whose ISIN NSE does not list,
+  read from the last five BSE bhavcopies (BSE's APIs refuse scripts and
+  headless browsers alike). The symbol is its Yahoo ticker, so it can never
+  equal an NSE symbol and `ticker_for` passes it through; `is_bse_only`
+  (`screener/markets.py`) is the one test for it. Prices, statements, live
+  quotes and charts are Yahoo's; NSE's filings, shareholding, impact cost and
+  transcripts have nothing for it and degrade. Its results and shareholding
+  filings come from `workers/bse_source.py` (written by the owner; the repo
+  itself never fetches from BSE): `workers/bse_filings.py`, a step of the
+  Quarterly filings workflow, turns them into NSE index records and stores
+  them through `workers.quarterly_filings` and `workers.shareholding`, so every
+  reader of those tables shows them. Until a filing is stored, its results
+  event is its stored statements gaining a quarter, as in the US. The dashboard shows it as
+  `SYMBOL` tagged BSE (`dashboard/lib/listing.mjs`).
 - **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
   `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
   `screener/session_bars.py` fill a symbol's missing expected-session bar from

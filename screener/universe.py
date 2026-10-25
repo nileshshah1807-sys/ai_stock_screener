@@ -23,10 +23,12 @@ import io
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pandas as pd
 import requests
+
+from screener.markets import BSE_SUFFIX
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,18 @@ _WIKI_USER_AGENT = os.getenv(
 )
 
 NSE_EQUITY_L_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+BSE_BHAVCOPY_URL = (
+    "https://www.bseindia.com/download/BhavCopy/Equity/"
+    "BhavCopy_BSE_CM_0_0_0_{day:%Y%m%d}_F_0000.CSV"
+)
+# A thinly traded company misses a session now and then; read a week of files
+# so a quiet day does not drop it from the universe. Two weeks finds them
+# across a holiday run.
+_BSE_SESSIONS = 5
+_BSE_LOOKBACK_DAYS = 14
+# BSE's groups for mainboard equity. SME (M, MT), debt (F, G), ETFs (E) and
+# trusts (IF) are left out, as EQUITY_L leaves out their NSE counterparts.
+_BSE_MAINBOARD_GROUPS = frozenset({"A", "B", "T", "X", "XT", "Z"})
 
 # Wikipedia's constituent tables are the only free, keyless, complete source for
 # the S&P 400 and 600. The MediaWiki API is used rather than the rendered page
@@ -120,31 +134,99 @@ def _digest_symbols(symbols) -> str:
 # NSE
 # ---------------------------------------------------------------------------
 
-def nse_equity_l(config=None) -> UniverseResult:
-    """The NSE equity master list. Behaviour is unchanged from v5.1."""
+def _nse_master():
+    """Return ``(frame, result)``; ``frame`` is None when the fetch failed."""
     url = NSE_EQUITY_L_URL
     try:
         resp = _get(url)
     except Exception as exc:
         logger.error("NSE Master fetch failed (%s) - falling back to built-in watchlist only!", exc)
-        return UniverseResult((), url, f"error:{type(exc).__name__}")
+        return None, UniverseResult((), url, f"error:{type(exc).__name__}")
 
     if resp.status_code != 200:
         logger.error(
             "NSE master list returned HTTP %s - falling back to built-in watchlist only!",
             resp.status_code,
         )
-        return UniverseResult((), url, f"http_{resp.status_code}")
+        return None, UniverseResult((), url, f"http_{resp.status_code}")
 
     frame = pd.read_csv(io.StringIO(resp.text))
+    frame.columns = [str(column).strip() for column in frame.columns]
     symbols = tuple(frame["SYMBOL"].dropna().str.strip().tolist())
     logger.info("NSE Master: %d symbols", len(symbols))
-    return UniverseResult(
+    return frame, UniverseResult(
         symbols=symbols,
         source_url=url,
         status="ok",
         source_sha256=hashlib.sha256(resp.content).hexdigest(),
         source_symbol_count=len(set(symbols)),
+    )
+
+
+def nse_equity_l(config=None) -> UniverseResult:
+    """The NSE equity master list. Behaviour is unchanged from v5.1."""
+    return _nse_master()[1]
+
+
+def _recent_bse_bhavcopies(today=None):
+    """The last ``_BSE_SESSIONS`` BSE equity bhavcopies as one frame, or None.
+
+    BSE's scrip-master API refuses a script (its CDN answers 403); the daily
+    bhavcopy is a plain file that names every traded security with its ISIN.
+    """
+    today = today or pd.Timestamp.now(tz="Asia/Kolkata").date()
+    frames = []
+    for back in range(_BSE_LOOKBACK_DAYS):
+        day = today - pd.Timedelta(days=back)
+        # No weekend file to find, and BSE stalls the request until it times out.
+        if len(frames) == _BSE_SESSIONS or day.weekday() >= 5:
+            continue
+        url = BSE_BHAVCOPY_URL.format(day=day)
+        try:
+            resp = _get(url)
+        except Exception as exc:
+            logger.warning("BSE bhavcopy fetch failed (%s): %s", url, exc)
+            continue
+        # A day with no session is served as an HTML error page, not a 404.
+        if resp.status_code == 200 and resp.content.startswith(b"TradDt"):
+            frames.append(pd.read_csv(io.BytesIO(resp.content)))
+    return pd.concat(frames, ignore_index=True) if frames else None
+
+
+def nse_with_bse_only(config=None) -> UniverseResult:
+    """NSE's list plus every mainboard equity listed on BSE alone.
+
+    A company on both exchanges is screened once, as NSE's (matched by ISIN).
+    The rest carry their Yahoo ticker, ``SYMBOL.BO``, as their symbol, which no
+    NSE symbol can equal, so the read-model key stays one company per row.
+    """
+    nse, result = _nse_master()
+    if nse is None:
+        return result
+    bse = _recent_bse_bhavcopies()
+    if bse is None:
+        logger.error("No BSE bhavcopy in the last %d days; NSE symbols only", _BSE_LOOKBACK_DAYS)
+        return replace(result, status="ok:partial", notes=("bse:unavailable",))
+
+    nse_isins = set(nse["ISIN NUMBER"].dropna().str.strip())
+    bse_only = bse[
+        bse["FinInstrmTp"].eq("STK")
+        & bse["SctySrs"].isin(_BSE_MAINBOARD_GROUPS)
+        # A company's ISIN; group B also holds fund units (INF...).
+        & bse["ISIN"].str.startswith("INE", na=False)
+        & ~bse["ISIN"].isin(nse_isins)
+    ]
+    added = sorted({f"{symbol.strip().upper()}{BSE_SUFFIX}" for symbol in bse_only["TckrSymb"].dropna()})
+    symbols = tuple(dict.fromkeys((*result.symbols, *added)))
+    logger.info("NSE + BSE-only universe: %d symbols (%d BSE-only)", len(symbols), len(added))
+    return replace(
+        result,
+        symbols=symbols,
+        # Both files change daily for reasons other than the listing, so the
+        # manifest records the derived list (as for the US sources).
+        source_sha256=_digest_symbols(symbols),
+        source_symbol_count=len(symbols),
+        notes=(f"nse:{len(result.symbols)}", f"bse_only:{len(added)}"),
     )
 
 
@@ -312,6 +394,7 @@ def all_listed(config=None) -> UniverseResult:
 
 SOURCES = {
     "nse_equity_l": nse_equity_l,
+    "nse_with_bse_only": nse_with_bse_only,
     "sp500": sp500,
     "sp1500": sp1500,
     "all_listed": all_listed,
@@ -322,6 +405,7 @@ SOURCES = {
 # successful request -- which is what a failed run needs to report.
 SOURCE_URLS = {
     "nse_equity_l": NSE_EQUITY_L_URL,
+    "nse_with_bse_only": NSE_EQUITY_L_URL,
     "sp500": _WIKI_API,
     "sp1500": _WIKI_API,
     "all_listed": _NASDAQ_LISTED_URL,
@@ -331,21 +415,18 @@ SOURCE_URLS = {
 def resolve_source(profile, config=None) -> str:
     """Return the universe source key for a run.
 
-    ``US_UNIVERSE_SOURCE`` lets the US universe be widened or narrowed without a
-    code change, which is why the size decision is a setting rather than a
-    literal. Other markets use their profile's source directly.
+    ``{MARKET}_UNIVERSE_SOURCE`` (``US_UNIVERSE_SOURCE``, ``NSE_UNIVERSE_SOURCE``)
+    lets a market's universe be widened or narrowed without a code change, which
+    is why the size decision is a setting rather than a literal. Each market
+    reads only its own.
     """
-    from screener.markets import US
-
-    if profile.code == US:
-        override = str(getattr(config, "US_UNIVERSE_SOURCE", "") or "").strip().lower()
-        if override:
-            if override not in SOURCES:
-                known = ", ".join(sorted(SOURCES))
-                raise ValueError(
-                    f"Unknown US_UNIVERSE_SOURCE {override!r}; expected one of: {known}"
-                )
-            return override
+    setting = f"{profile.code}_UNIVERSE_SOURCE"
+    override = str(getattr(config, setting, "") or "").strip().lower()
+    if override:
+        if override not in SOURCES:
+            known = ", ".join(sorted(SOURCES))
+            raise ValueError(f"Unknown {setting} {override!r}; expected one of: {known}")
+        return override
     return profile.universe_source
 
 

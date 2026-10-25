@@ -199,6 +199,18 @@ class RunTests(unittest.TestCase):
         self.assertEqual(counts["results"], 1)
         self.assertEqual(counts["baseline"], 1)
 
+    def test_a_bse_only_company_announces_from_its_stored_statements(self):
+        repo = FakeRepository("NSE", filings=self.filings)
+        repo.financial_statement_state = lambda: {
+            # An NSE company's statements are not an event; its filings are.
+            "AAA": {"latest_quarter": "2026-09-30", "fetched_at": "2026-10-10T00:00:00+00:00"},
+            "BSEONLY.BO": {"latest_quarter": "2026-09-30", "fetched_at": "2026-10-10T00:00:00+00:00"},
+        }
+        repo.recorded_event_keys = lambda kind: {"BSEONLY.BO": "2026-06-30"}
+        run(repo, now=NOW)
+        vendor = [e for e in repo.inserted if e["detail"].get("source") == "vendor"]
+        self.assertEqual([(e["symbol"], e["baseline"]) for e in vendor], [("BSEONLY.BO", False)])
+
     def test_unreadable_filings_still_record_the_other_kinds(self):
         repo = FakeRepository("NSE", filings_error=RuntimeError("relation does not exist"))
         with self.assertLogs("workers.market_events", level="WARNING") as logs:
