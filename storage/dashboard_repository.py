@@ -490,10 +490,10 @@ class DashboardRepository:
         return [str(row["symbol"]) for row in rows if row.get("symbol")]
 
     def financial_statement_state(self) -> dict[str, dict[str, Any]]:
-        """Per-symbol refresh state: when it was fetched and its latest quarter."""
+        """Per-symbol refresh state: when it was fetched, its latest quarter and whether it had data."""
         rows = self._paged(
             "financial_statements",
-            {"select": "symbol,fetched_at,latest_quarter", "order": "symbol.asc"},
+            {"select": "symbol,fetched_at,latest_quarter,has_data", "order": "symbol.asc"},
         )
         return {str(row["symbol"]): row for row in rows}
 

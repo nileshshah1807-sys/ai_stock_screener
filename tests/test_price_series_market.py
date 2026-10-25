@@ -196,6 +196,19 @@ class SharedPipelineTests(unittest.TestCase):
 
         self.assertEqual([point["date"] for point in decoded], ["2026-09-16", "2026-09-18"])
 
+    def test_a_new_listing_is_charted_from_two_points_and_others_are_not(self):
+        sessions = [date(2026, 9, 16), date(2026, 9, 17)]
+        observations = {
+            "NEWCO": {sessions[0]: (10.0, 1), sessions[1]: (11.0, 1)},
+            "OLDCO": {sessions[0]: (10.0, 1), sessions[1]: (11.0, 1)},
+            "ONE": {sessions[1]: (10.0, 1)},
+        }
+        rows = build_rows(
+            sessions, observations, psm.identity_symbols(observations),
+            new_listings={"NEWCO", "ONE"},
+        )
+        self.assertEqual([row["symbol"] for row in rows], ["NEWCO"])
+
     def test_identity_symbols_maps_each_symbol_to_itself(self):
         self.assertEqual(
             psm.identity_symbols({"AAPL": {}, "MSFT": {}}),

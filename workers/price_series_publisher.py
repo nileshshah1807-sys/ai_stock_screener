@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # Below this a chart is a couple of dots. Publishing it wastes a row and renders
 # something misleading.
 MIN_POINTS = 30
+# A recent listing has days of history, not a month. Two points draw a line;
+# one is a dot with no direction.
+MIN_POINTS_NEW_LISTING = 2
 
 
 def collect_raw_observations(store, sessions, master):
@@ -282,8 +285,14 @@ def reconcile_with_prices(bars, sessions, actions, adjustment_table, max_open_ga
     return report
 
 
-def build_rows(sessions, observations, symbols, *, min_points=MIN_POINTS):
-    """Encode one row per symbol, newest security winning a reused ticker."""
+def build_rows(
+    sessions, observations, symbols, *, min_points=MIN_POINTS, new_listings=frozenset()
+):
+    """Encode one row per symbol, newest security winning a reused ticker.
+
+    A symbol in ``new_listings`` needs only ``MIN_POINTS_NEW_LISTING`` points,
+    when that is below ``min_points``.
+    """
     by_symbol: dict[str, dict] = {}
     skipped_short = 0
 
@@ -292,7 +301,8 @@ def build_rows(sessions, observations, symbols, *, min_points=MIN_POINTS):
         if not symbol:
             continue
         row = build_series(sessions, points)
-        if row is None or row["points"] < min_points:
+        needed = MIN_POINTS_NEW_LISTING if symbol in new_listings else min_points
+        if row is None or row["points"] < min(needed, min_points):
             skipped_short += 1
             continue
         existing = by_symbol.get(symbol)
