@@ -902,46 +902,48 @@ export const getNewListings = cache(
   },
 );
 
-/** A `grid_not_rated` row: a listing the run has not rated, with no score, rank or rating. */
-export type NotRatedRow = Pick<
-  NewListingRow,
-  | "symbol"
-  | "company"
-  | "listed_on"
-  | "sessions"
-  | "sessions_required"
-  | "last_close"
-  | "change_since_first_pct"
-  | "market_cap"
->;
-
 /**
- * The listings shown after the ranked rows, newest first. Empty -- never an
- * error -- when the view is not deployed, so the grid renders as it always did.
- * `q` is the grid's own symbol/company search.
+ * The listings shown after the ranked rows, newest first: `new_listings` minus
+ * any symbol the given run already rates. The table refreshes after the
+ * evening publish, so for a short window a just-rated symbol is in both.
+ * `runDate` is the run `getLatestRun` returned, so a reserved, still-empty run
+ * cannot hide the overlap. Empty -- never an error -- on any failure, so the
+ * grid renders as it always did. `q` is the grid's own symbol/company search.
  */
 export async function getNotRatedRows(
   market: MarketCode,
+  runDate: string,
   q?: string,
-): Promise<NotRatedRow[]> {
+): Promise<NewListingRow[]> {
+  const listings = await getNewListings(market);
+  if (!listings.length) return [];
+
   const supabase = await createClient();
-  let query = supabase
-    .from("grid_not_rated")
-    .select(
-      "symbol,company,listed_on,sessions,sessions_required,last_close,change_since_first_pct,market_cap",
-    )
-    .eq("market", market);
-  const term = q?.trim().replace(/[%,()]/g, "");
-  if (term) query = query.or(`symbol.ilike.%${term}%,company.ilike.%${term}%`);
-  const { data, error } = await query
-    .order("listed_on", { ascending: false })
-    .order("symbol", { ascending: true })
-    .limit(1000);
-  if (error) {
-    console.error("getNotRatedRows failed", error.message);
-    return [];
+  const rated = new Set<string>();
+  // `in` rides in the URL, so ask in slices.
+  for (let i = 0; i < listings.length; i += 200) {
+    const { data, error } = await supabase
+      .from("screener_snapshot")
+      .select("symbol")
+      .eq("market", market)
+      .eq("run_date", runDate)
+      .in("symbol", listings.slice(i, i + 200).map((row) => row.symbol));
+    if (error) {
+      // Without the overlap check a rated symbol would show twice: show none.
+      console.error("getNotRatedRows failed", error.message);
+      return [];
+    }
+    for (const row of data ?? []) rated.add(row.symbol as string);
   }
-  return (data as unknown as NotRatedRow[]) ?? [];
+
+  const term = q?.trim().toLowerCase();
+  return listings.filter(
+    (row) =>
+      !rated.has(row.symbol) &&
+      (!term ||
+        row.symbol.toLowerCase().includes(term) ||
+        (row.company ?? "").toLowerCase().includes(term)),
+  );
 }
 
 /** How many of a run's rows are companies listed on BSE alone (`SYMBOL.BO`). */

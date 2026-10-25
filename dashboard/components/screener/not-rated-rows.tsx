@@ -2,7 +2,7 @@ import { HistoryBar, NotRatedBadge } from "@/components/new-listing";
 import { StockIdentity } from "@/components/stock-identity";
 import { formatDate, formatMoney, formatMoneyCompact, formatPercent } from "@/lib/format";
 import type { Market } from "@/lib/markets";
-import type { NotRatedRow } from "@/lib/queries";
+import type { NewListingRow } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 /**
@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
  * its own rather than rows of the grid: it has no score, rank or factor to
  * put under the grid's columns, and nothing here sorts or filters on one.
  */
-export function NotRatedRows({ rows, market }: { rows: NotRatedRow[]; market: Market }) {
+export function NotRatedRows({ rows, market }: { rows: NewListingRow[]; market: Market }) {
   if (!rows.length) return null;
   return (
     <section className="panel overflow-hidden" aria-labelledby="not-rated-heading">
@@ -39,7 +39,7 @@ export function NotRatedRows({ rows, market }: { rows: NotRatedRow[]; market: Ma
             {rows.map((row) => (
               <tr key={row.symbol} className="hover:bg-(--control)">
                 <td className="px-4 py-2.5">
-                  <StockIdentity symbol={row.symbol} company={row.company} textClassName="max-w-[16rem]" />
+                  <StockIdentity symbol={row.symbol} company={row.company} logoDomain={row.logo_domain} textClassName="max-w-[16rem]" />
                 </td>
                 <td className="px-4 py-2.5"><NotRatedBadge /></td>
                 <td className="tabular whitespace-nowrap px-4 py-2.5 text-muted-foreground">

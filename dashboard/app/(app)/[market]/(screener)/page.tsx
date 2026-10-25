@@ -67,7 +67,7 @@ export default async function ScreenerPage({
   const onLastPage = (filters.page ?? 1) >= Math.ceil(total / PAGE_SIZE);
   const notRated =
     market.code === "NSE" && onLastPage && showsNotRated(filters)
-      ? await getNotRatedRows(market.code, filters.q)
+      ? await getNotRatedRows(market.code, run.run_date, filters.q)
       : [];
 
   return (
