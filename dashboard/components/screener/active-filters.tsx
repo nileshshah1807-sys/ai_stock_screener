@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { X } from "lucide-react";
 
 import { PendingMarker } from "@/components/nav-pending";
+import { LISTINGS } from "@/components/screener/filter-bar";
 import { ELIGIBILITY_CLASSES } from "@/lib/types";
 
 /**
@@ -96,6 +97,10 @@ export function ActiveFilters() {
   }
   for (const stage of searchParams.getAll("stage")) {
     chips.push({ key: "stage", value: stage, label: stage });
+  }
+  for (const value of searchParams.getAll("listing")) {
+    const option = LISTINGS.find((item) => item.value === value);
+    if (option) chips.push({ key: "listing", value, label: option.label });
   }
   for (const [key, label] of Object.entries(TOGGLE_LABELS)) {
     if (searchParams.get(key) === "1") chips.push({ key, label });

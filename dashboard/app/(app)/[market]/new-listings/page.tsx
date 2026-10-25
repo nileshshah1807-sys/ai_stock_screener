@@ -41,7 +41,7 @@ export default async function NewListingsPage({ params }: PageProps<"/[market]/n
         </Link>
         <h1 className="mt-2 text-title font-semibold">New listings</h1>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          Companies listed on the {market.label} mainboard in the last twelve months that the
+          Companies listed on the NSE mainboard in the last twelve months that the
           screener has not rated yet. A stock needs 60 sessions of price history and enough
           daily turnover before the model can score it; each one moves into the screener
           automatically once it qualifies.

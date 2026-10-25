@@ -11,6 +11,7 @@ import {
 } from "@/lib/live-market";
 import { createClient } from "@/lib/supabase/server";
 import { indexSlug } from "@/lib/indices.mjs";
+import { BSE_SUFFIX } from "@/lib/listing.mjs";
 import type { MarketCode } from "@/lib/markets";
 import type {
   HistoryRow,
@@ -466,6 +467,13 @@ export async function getSnapshotPage(
   if (filters.stage?.length) {
     query = query.in("stage", filters.stage);
   }
+  // One exchange, not both: a row is either NSE-listed or BSE-only.
+  const listing = new Set(filters.listing ?? []);
+  if (listing.has("nse") !== listing.has("bse")) {
+    query = listing.has("bse")
+      ? query.like("symbol", `%${BSE_SUFFIX}`)
+      : query.not("symbol", "like", `%${BSE_SUFFIX}`);
+  }
   if (typeof filters.minRs === "number") {
     query = query.gte("rs_rating", filters.minRs);
   }
@@ -907,6 +915,24 @@ export const countNewListings = cache(async (market: MarketCode): Promise<number
   }
   return count ?? 0;
 });
+
+/** How many of a run's rows are companies listed on BSE alone (`SYMBOL.BO`). */
+export const countBseOnly = cache(
+  async (market: MarketCode, runDate: string): Promise<number> => {
+    const supabase = await createClient();
+    const { count, error } = await supabase
+      .from("screener_snapshot")
+      .select("symbol", { count: "exact", head: true })
+      .eq("market", market)
+      .eq("run_date", runDate)
+      .like("symbol", `%${BSE_SUFFIX}`);
+    if (error) {
+      console.error("countBseOnly failed", error.message);
+      return 0;
+    }
+    return count ?? 0;
+  },
+);
 
 export async function getNewListing(
   market: MarketCode,

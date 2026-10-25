@@ -46,6 +46,7 @@ export function parseFilters(params: RawParams): ScreenerFilters {
     eligibility: list(params.eligibility),
     aboveMa200: str(params.aboveMa200) === "1",
     stage: list(params.stage),
+    listing: list(params.listing),
     minRs: num(params.minRs),
     minCapCr: num(params.minCapCr),
     sort: str(params.sort) ?? "investment_rank",
