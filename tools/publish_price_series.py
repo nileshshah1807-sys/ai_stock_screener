@@ -301,7 +301,13 @@ def main(argv=None):
         Path(args.root), start=args.start, end=args.end
     )
 
-    rows = build_rows(sessions, observations, symbols, min_points=args.min_points)
+    # Unavailable in a dry run, which has no repository: such a run charts
+    # listings under the ordinary minimum.
+    new_listings = frozenset(repository.new_listing_symbols()) if repository else frozenset()
+    rows = build_rows(
+        sessions, observations, symbols,
+        min_points=args.min_points, new_listings=new_listings,
+    )
     if not args.since:
         # Yahoo keeps no action ledger, so a targeted rebuild has nothing to target.
         rows += bse_only_rows(args, profile, sessions)
