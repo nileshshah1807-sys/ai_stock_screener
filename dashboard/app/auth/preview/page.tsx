@@ -12,6 +12,7 @@ import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { Financials } from "@/components/stock/financials";
 import { StockTabs } from "@/components/stock/stock-tabs";
+import { NotRatedRows } from "@/components/screener/not-rated-rows";
 import { NewListingView } from "@/components/stock/new-listing-view";
 import { Suspense } from "react";
 import { ActiveFilters } from "@/components/screener/active-filters";
@@ -225,6 +226,30 @@ export default function PreviewPage() {
               </div>
             </div>
           </Suspense>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Grid tail: Not rated rows</h2>
+          <NotRatedRows rows={previewNewListings} market={DEFAULT_MARKET} />
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">New listing, first session (no statements)</h2>
+          <div className="panel overflow-hidden">
+            <NewListingView
+              listing={{ ...previewNewListings[0], symbol: "TONBO", company: "Tonbo Imaging Limited", sessions: 1, change_since_first_pct: null }}
+              market={DEFAULT_MARKET}
+              financials={{ ...previewFinancials, has_data: false, statements: {} as typeof previewFinancials.statements }}
+              shareholding={null}
+              watchlists={[]}
+              watchlistMembership={[]}
+              priceSeries={null}
+              sessions={[]}
+              priceTail={[]}
+              asOf="2026-09-23"
+              tab="financials"
+            />
+          </div>
         </section>
 
         <section className="flex flex-col gap-3">

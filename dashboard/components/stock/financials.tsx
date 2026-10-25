@@ -106,12 +106,12 @@ export function Financials({
       <div className="rounded-row border border-dashed border-border px-5 py-10 text-center">
         <p className="text-sm font-medium">
           {data
-            ? `The source reports no financial statements for ${symbol}.`
+            ? `No statements available yet for ${symbol}.`
             : `Financial statements for ${symbol} have not been collected yet.`}
         </p>
         <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
           {data
-            ? `Checked ${formatDate(data.fetched_at)}. Newly listed companies often have no history at the source until their first results are filed.`
+            ? `Checked ${formatDate(data.fetched_at)}.`
             : "Statements are collected in the background three times a day, highest-ranked companies first, then recent listings."}
         </p>
       </div>

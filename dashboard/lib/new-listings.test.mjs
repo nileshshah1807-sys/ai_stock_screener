@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { STATUS_LABEL, historyProgress, statusDetail } from "./new-listings.mjs";
+import { STATUS_LABEL, historyProgress, showsNotRated, statusDetail } from "./new-listings.mjs";
 
 const rupees = (value) => (value == null ? "—" : `₹${value / 1e5} L`);
 
@@ -39,4 +39,14 @@ test("history progress is clamped", () => {
   assert.equal(historyProgress({ ...base, sessions: 30 }), 0.5);
   assert.equal(historyProgress({ ...base, sessions: 90 }), 1);
   assert.equal(historyProgress({ ...base, sessions: null }), 0);
+});
+
+test("Not rated rows follow a name search but no other filter", () => {
+  const plain = { q: "tcs", rating: [], sector: [], actionableOnly: false, sort: "final_score", dir: "desc", page: 3, hiddenColumns: ["pe"], density: "compact" };
+  assert.equal(showsNotRated(plain), true);
+  assert.equal(showsNotRated({ ...plain, rating: ["BUY"] }), false);
+  assert.equal(showsNotRated({ ...plain, minScore: 60 }), false);
+  assert.equal(showsNotRated({ ...plain, minScore: 0 }), false);
+  assert.equal(showsNotRated({ ...plain, buyEligibleOnly: true }), false);
+  assert.equal(showsNotRated({ ...plain, sector: ["Banks"] }), false);
 });

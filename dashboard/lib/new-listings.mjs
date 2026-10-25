@@ -53,3 +53,21 @@ export function historyProgress(row) {
   if (!row.sessions_required) return 0;
   return Math.max(0, Math.min(1, (row.sessions ?? 0) / row.sessions_required));
 }
+
+// Settings that shape the view without narrowing which companies it holds.
+const NOT_A_FILTER = new Set(["q", "sort", "dir", "page", "hiddenColumns", "density"]);
+
+/**
+ * Whether the grid appends its Not rated rows. They have no score, rating,
+ * rank or sector to meet a filter on, so any narrowing other than the name
+ * search drops them; an unfiltered or name-searched grid keeps them.
+ *
+ * @param {Record<string, unknown>} filters parsed screener filters
+ */
+export function showsNotRated(filters) {
+  return Object.entries(filters).every(([key, value]) => {
+    if (NOT_A_FILTER.has(key)) return true;
+    return value === undefined || value === null || value === false ||
+      (Array.isArray(value) && value.length === 0);
+  });
+}

@@ -902,6 +902,48 @@ export const getNewListings = cache(
   },
 );
 
+/** A `grid_not_rated` row: a listing the run has not rated, with no score, rank or rating. */
+export type NotRatedRow = Pick<
+  NewListingRow,
+  | "symbol"
+  | "company"
+  | "listed_on"
+  | "sessions"
+  | "sessions_required"
+  | "last_close"
+  | "change_since_first_pct"
+  | "market_cap"
+>;
+
+/**
+ * The listings shown after the ranked rows, newest first. Empty -- never an
+ * error -- when the view is not deployed, so the grid renders as it always did.
+ * `q` is the grid's own symbol/company search.
+ */
+export async function getNotRatedRows(
+  market: MarketCode,
+  q?: string,
+): Promise<NotRatedRow[]> {
+  const supabase = await createClient();
+  let query = supabase
+    .from("grid_not_rated")
+    .select(
+      "symbol,company,listed_on,sessions,sessions_required,last_close,change_since_first_pct,market_cap",
+    )
+    .eq("market", market);
+  const term = q?.trim().replace(/[%,()]/g, "");
+  if (term) query = query.or(`symbol.ilike.%${term}%,company.ilike.%${term}%`);
+  const { data, error } = await query
+    .order("listed_on", { ascending: false })
+    .order("symbol", { ascending: true })
+    .limit(1000);
+  if (error) {
+    console.error("getNotRatedRows failed", error.message);
+    return [];
+  }
+  return (data as unknown as NotRatedRow[]) ?? [];
+}
+
 /** How many of a run's rows are companies listed on BSE alone (`SYMBOL.BO`). */
 export const countBseOnly = cache(
   async (market: MarketCode, runDate: string): Promise<number> => {
