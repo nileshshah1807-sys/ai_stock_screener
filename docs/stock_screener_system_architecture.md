@@ -1,45 +1,46 @@
 # AI Stock Screener — As-Built System Architecture Design
 
 - **Status:** implementation-derived design document
-- **Scope:** current `app.run_daily_analysis()` production path and its supporting modules
-- **Scheduled production contract:** model `5.0.0` / recommendation policy `5.0.0` / output schema `4.2.0`
+- **Scope:** the `app.run_daily_analysis()` production path, for both markets (NSE and US), and the scheduled jobs around it
+- **Scheduled production contract:** model `5.2.0` / recommendation policy `5.5.0` / output schema `4.2.0`, in both markets
 - **Local and manual-daily default:** `4.0.0-candidate`, with the factor switch off
-- **Last reviewed against code:** 2026-08-19 (`main` through PR #12, plus workflow retirement and repository cleanup)
-- **Live workflows:** `daily-stock-screener.yml`, `red-flag-shadow.yml`, `transcript-sentiment.yml` (see `development_guidelines.md`)
+- **Last reviewed against code:** 2026-10-25 (`origin/main` at `91a5e3a`)
+- **Live workflows:** `daily-stock-screener.yml` (NSE), `daily-us-screener.yml`, `financial-statements.yml`, `quarterly-filings.yml`, `live-quotes.yml`, `price-series.yml`, `market-breadth.yml`, `transcript-sentiment.yml`, `call-recordings.yml`, `red-flag-shadow.yml` and `ci.yml` (section 15.5 says what each does; branching rules are in `development_guidelines.md`)
 
-> **Two models live in this codebase.** Sections 1-19 describe the shared pipeline and the
-> legacy **4.x model**, which remains the local/runtime default (`FACTOR_MODEL_ENABLED=False`)
-> and the isolated manual-daily path. Section 20 describes the **Model 5.0 factor
-> architecture**, which replaces the 70/30 core score with five separable
-> factor blocks, MA200 trend gates, a market-regime overlay and eligibility-class ranking.
-> Scheduled production selects Model 5.0 explicitly in GitHub Actions. Its operational
-> promotion does not resolve the still-pending point-in-time, out-of-sample predictive
-> validation. Where Model 5.0 changes a rule in sections 1-19, section 20 says so explicitly.
+> **Two models live in this codebase.** Sections 1-19 describe the shared pipeline and
+> the legacy **4.x model**, which remains the local/runtime default (`FACTOR_MODEL_ENABLED=False`)
+> and the isolated validation path. Section 20 describes the **Model 5.x factor
+> architecture** that scheduled production runs: five separable factor blocks, MA200 trend gates,
+> a market-regime overlay and a run-percentile score. A scheduled run, or a dispatch with
+> `mode=production`, selects it explicitly in GitHub Actions. Where Model 5 changes a rule in
+> sections 1-19, the text says so, and section 20 holds the details.
 
-> **Research-model boundary.** This application produces deterministic research ranks and heuristic rating labels. `Rating`, `Decision_Score`, and `Final_Score` are not forecasts of return, fair value, or probability of profit. The configured `Model_Validation_Status` explicitly says point-in-time, out-of-sample validation is pending. The system's purpose is to make the screening logic auditable, reproducible, and reviewable—not to make an unvalidated investment-performance claim.
+> **Research-model boundary.** This application produces deterministic research ranks and heuristic rating labels. `Rating`, `Decision_Score`, and `Final_Score` are not forecasts of return, fair value, or probability of profit. The exported `Model_Validation_Status` says what has been tested and what has not: section 20.9 gives the evidence and its limits. The system's purpose is to make the screening logic auditable, reproducible, and reviewable.
 
 ## 1. Executive summary
 
-The application is an NSE equity research screener. It creates one row per successfully collected market-data symbol, derives a core score from fundamentals and technicals, applies independent DCF and transcript evidence, then applies hard policy gates before it ranks the result set. The primary rank is **not** a simple sort of raw score: it is ordered by the post-gate `Decision_Score` first, then uncapped evidence, then ticker symbol.
+The application is an equity research screener for two markets, India (NSE, plus companies listed on BSE alone) and the US. `MARKET` selects the market and everything else follows from it (section 2). A run creates one row per successfully collected market-data symbol, derives a research score from fundamentals and price history, adds independent DCF and earnings-call evidence, then applies hard policy gates that cap or label the rating. The published score (`Evidence_Score`) is a percentile of the whole evidence across that run, so a rating such as STRONG BUY means "top 30% of today's universe" and the gates are the absolute checks. The primary rank orders by that score, then the research score, then fewer gate failures, then ticker symbol (section 12).
 
 The main design principles implemented in the code are:
 
-1. **Research universe first, execution overlay later.** The default full-NSE run retains the broad successfully collected universe; liquidity normally affects `Actionable_Rank`, not `Rating`, `Final_Score`, or primary `Rank`.
-2. **Completed-bar consistency.** Each price-sensitive technical feature uses the same completed NSE daily bar. Raw `Current_Price` is retained for traded-value/valuation display; adjusted `Technical_Price` is used for returns, indicators, and chart gates.
+1. **Research universe first, execution overlay later.** The default full-NSE run retains the broad successfully collected universe; liquidity normally affects `Actionable_Rank`, not `Final_Score` or primary `Rank`. (Under Model 5 an illiquid name cannot be rated BUY: section 20.5.)
+2. **Completed-bar consistency.** Each price-sensitive technical feature uses the same completed daily bar of the market. Raw `Current_Price` is retained for traded-value/valuation display; adjusted `Technical_Price` is used for returns, indicators, and chart gates.
 3. **Score/evidence/policy separation.** Scoring, DCF, transcripts, liquidity, and red flags are evidence producers. Only `RecommendationPolicy` publishes canonical score, rating, eligibility, gate, and rank fields.
 4. **Fail-closed high conviction.** Missing coverage, stale fundamentals, invalid specialist-model evidence, multiple data anomalies, and weak trend structure cap a candidate below BUY or STRONG BUY even if its raw score is high.
 5. **Deterministic audit trail.** Stable sort order, decimal half-up rounding, collection diagnostics, output manifests, configuration hashing, and per-symbol gate reasons are exported.
-6. **Immutable completed-session publication.** Scheduled work is keyed to the expected completed NSE trading session, not the calendar day. An already-published session is reused on weekends, holidays, and recovery cron attempts instead of being rescored against revised vendor metadata.
+6. **Immutable completed-session publication.** Scheduled work is keyed to the expected completed trading session of its market, not the calendar day. An already-published session is reused on weekends, holidays, and recovery cron attempts instead of being rescored against revised vendor metadata.
 7. **Wide write model, narrow read model.** The CSV remains the complete research contract. Supabase stores indexed dashboard fields plus the entire source row in `payload`, while the authenticated Next.js application reads only the projections each surface needs.
 
 ## 2. Architecture overview
 
+**One pipeline, two markets.** `MARKET` (`NSE` by default, or `US`) picks a `MarketProfile` in `screener/markets.py`: ticker suffix, timezone, session cutoff, benchmark index, universe source, currency and live indices. A profile supplies defaults only; every environment variable keeps its name and precedence, so an unset `MARKET` gives exactly the NSE behaviour. The scoring layer (`screener/scoring/`, `factors.py`, `stage.py`) ranks within one run's frame and has no market branch. Environment variables named `*_INR` and `*_IST` are read as the market's currency and local time (`MIN_AVG_TURNOVER_INR` is dollars on a US run; the bar cutoff is 16:15 IST for NSE and 16:00 ET for the US). `market` is part of every stored key, because a symbol does not identify a company across exchanges.
+
 ```text
                                   External sources
           ┌──────────────────────────────────────────────────────────────┐
-          │ NSE equity master / monthly liquidity category & impact cost │
-          │ Yahoo Finance: 4.x 6mo/v6; Model 5.0 2y/v7 + fundamentals   │
-          │ Supabase: transcript/red flags + dashboard read model        │
+          │ NSE list + BSE-only companies / US list; NSE liquidity files │
+          │ Yahoo prices (4.x 6mo/v6; Model 5 2y/v7); SEC EDGAR (US)     │
+          │ Supabase: filings, transcripts, red flags, dashboard data    │
           │ Brandfetch CDN: browser-rendered issuer logos by domain      │
           │ Google News RSS: display-only headline sentiment             │
           └──────────────────────────────────────────────────────────────┘
@@ -55,8 +56,8 @@ The main design principles implemented in the code are:
                                        ▼
 ┌───────────────────────────────────────────────────────────────────────────────────┐
 │ 2. Core scoring (`StockScorer`)                                                     │
-│    generic or specialist fundamentals (0-100) + technicals (0-100)                 │
-│    Core_Score = 0.70 * Fundamental_Score + 0.30 * Technical_Score                  │
+│ 4.x: generic or specialist fundamentals + technicals (0-100 each)                  │
+│ 4.x core = 0.70 * Fundamental + 0.30 * Technical; Model 5: FactorModel             │
 │    exports coverage, anomalies, component points, provisional core diagnostics     │
 └───────────────────────────────────────────────────────────────────────────────────┘
                                        │
@@ -65,7 +66,7 @@ The main design principles implemented in the code are:
 ┌──────────────────────────────────────┐  ┌───────────────────────────────────────┐
 │ 3a. Reverse DCF evidence             │  │ 3b. Transcript evidence                │
 │ Base-case value / market-cap -> score │  │ Current-cycle cached call only         │
-│ reported positive FCF only for blend  │  │ age/cycle weighting; downside-only     │
+│ reported positive FCF only for blend  │  │ age weighting; two-sided; outlook-led  │
 └──────────────────────────────────────┘  └───────────────────────────────────────┘
                     └──────────────────┬──────────────────┘
                                        ▼
@@ -93,71 +94,84 @@ The main design principles implemented in the code are:
 
 | Layer | Main implementation | Responsibility | Can change canonical `Rating` / `Final_Score`? |
 |---|---|---|---|
-| Composition root | `app.py::run_daily_analysis` | Orders the daily job, handles output/reporting, assigns run provenance. | Indirectly, by calling finalizer once. |
+| Composition root | `app.py::run_daily_analysis` | Orders the daily job, handles output/reporting, assigns run provenance. `app.py` also re-exports names that callers and tests import, so its apparently unused imports are deliberate. | Indirectly, by calling finalizer once. |
 | Runtime configuration | `screener/runtime.py::Config` | Environment-backed defaults; optionally overridden by `config_local.py`. | Policy parameters only. |
-| Collection | `screener/data_collection.py::StockDataCollector` | NSE universe, model-specific Yahoo OHLCV (4.x `6mo`/v6; Model 5.0 `2y`/v7), cache reuse, Yahoo fundamentals, collection diagnostics. | No. |
+| Market profiles | `screener/markets.py::MarketProfile` | One profile per market: suffix, timezone, session cutoff, benchmark, universe source, currency, live indices. `is_bse_only` tells a `.BO` symbol apart. | No. |
+| Universe | `screener/universe.py` | Builds the symbol list for the market's source (NSE, NSE plus BSE-only, S&P 500, S&P 1500, all US listings). | No. |
+| Collection | `screener/data_collection.py::StockDataCollector` | Universe, model-specific Yahoo OHLCV (4.x `6mo`/v6; Model 5 `2y`/v7), cache reuse, Yahoo fundamentals, collection diagnostics. | No. |
+| Price bar repair | `screener/session_bars.py`, `screener/price_basis.py` | Fills one missing session bar from NSE's bhavcopy; restates price history across demergers, rights issues and part-adjusted splits and drops single-session bad prints. | No. |
 | Technical calculation | `screener/market_data.py::TechnicalEnhancer` | RSI, ADX/+DI/-DI, StochRSI, ATR, returns. | No. |
-| Liquidity source | `screener/liquidity.py::NSELiquidityProvider` | Joins NSE monthly Group I/II/III and Rs1 lakh mean impact cost. | No. |
-| Annual statements | `screener/statements.py::FinancialStatementCollector` | Caches annual Yahoo statements, derives factor inputs, and safely fills missing quote metadata with source markers. | No. |
-| Core model | `screener/scoring.py::StockScorer` | Fundamental/technical component scores, sector-relative comparison, coverage, specialist quality checks. | Exports only provisional `Core_*` diagnostics. |
-| Valuation evidence | `screener/valuation.py::ReverseDCFModel` | Reverse-DCF diagnostics and blend-eligible valuation score. | No. |
-| Transcript evidence | `scoring/transcript_enricher.py::TranscriptSentimentEnricher` | Loads cached sentiments and establishes recency/cycle eligibility. | No. |
+| Liquidity source | `screener/liquidity.py::NSELiquidityProvider` | Joins NSE monthly Group I/II/III and Rs1 lakh mean impact cost (NSE only). | No. |
+| Annual statements | `screener/statements.py::FinancialStatementCollector`, `screener/edgar.py` | Caches annual statements (SEC EDGAR first in the US, Yahoo otherwise), derives factor inputs, and safely fills missing quote metadata with source markers. | No. |
+| Quarterly results | `screener/quarterly_results.py::QuarterlyResultsCollector` | NSE: reads the stored results filings for the latest-quarter growth figures and the trailing-year line items. | No. |
+| Valuation basis | `screener/valuation_basis.py` | The company side of each price ratio, stored per symbol; `price_ratios` divides price by it. | No. |
+| Legacy core model | `screener/scoring/` (`engine.py::StockScorer`, `fundamental.py`, `technical.py`, `sector_models.py`, `points.py`, `constants.py`) | Fundamental/technical component scores, sector-relative comparison, coverage, specialist quality checks. Also supplies the coverage, anomaly and specialist-routing evidence the policy needs under Model 5. | Exports only provisional `Core_*` diagnostics. |
+| Factor model | `screener/factors.py::FactorModel`, `screener/benchmark.py`, `screener/stage.py` | Model 5 research score, regime, stage and relative-strength rating (display only). | No; emits `Research_Score` and block scores. |
+| Valuation evidence | `screener/valuation.py::ReverseDCFModel` | Reverse-DCF diagnostics and a valuation score. | No. |
+| Transcript evidence | `scoring/transcript_enricher.py::TranscriptSentimentEnricher` | Loads cached tone and outlook records and establishes recency/cycle eligibility. | No. |
 | Decision policy | `screener/recommendation.py::RecommendationPolicy` | Evidence blend, policy gates, ceilings, ratings, stability diagnostics, primary ranks. | **Yes; sole authority.** |
 | Execution overlay | `LiquidityQualityEnricher` and `rank_actionable_recommendations` | Position-size actionability and `Actionable_Rank`. | No. |
 | Risk shadow layer | `red_flags/enricher.py`, `red_flags/shadow.py` | Cached red flags and counterfactual outcomes if confirmed. | No. |
 | Outputs | `screener/reporting.py`, `validation/reproducibility.py` | Dashboard/report delivery, CSV, provenance manifest and hashes. | No. |
-| Schedule guard | `workers/scheduled_session_guard.py` | Compares the expected completed NSE session with the latest completed Supabase run before expensive scheduled work. | No. |
+| Schedule guard | `workers/scheduled_session_guard.py` | Compares the expected completed session with the latest completed Supabase run before expensive scheduled work. | No. |
 | Dashboard publisher | `workers/dashboard_publisher.py`, `storage/dashboard_repository.py` | Maps the CSV into run, snapshot, and slim-history tables using a reserve/write/complete protocol. | No; publishes existing decisions. |
-| Web read model | `dashboard/` | Authenticated Vercel/Next.js screener, movers, health, stock drill-down, decision audit, and logo rendering. | No; read-only for research data. |
+| Feature workers | `workers/` (`quarterly_filings`, `shareholding`, `market_events`, `live_quotes`, `new_listings`, `call_recordings`, ...) | Fill display tables the dashboard reads. Nothing in the score reads them, except the filings table that feeds growth (above). | No. |
+| Web read model | `dashboard/` | Authenticated Next.js application, one tree per market (section 15.5). | No; read-only for research data. |
 
 ## 4. End-to-end run sequence
 
-`app.run_daily_analysis()` executes the following order. This order matters because later evidence is allowed to modify evidence score but not bypass gates.
+`app.run_daily_analysis()` executes the following order. This order matters because later evidence is allowed to modify the evidence score but not bypass gates.
 
-1. Instantiate `Config`, determine `analysis_now` in `Asia/Kolkata` by default, and initialize cache folders.
-2. Build the universe through `StockDataCollector.get_comprehensive_stock_list()`.
-3. Download/reuse the model-specific OHLCV window (`6mo` for the default 4.x path, `2y` for Model 5.0); retain only symbols with a valid completed and aligned daily bar and enough usable history.
-4. Join NSE liquidity categories and impact-cost evidence once for the collected symbols.
-5. Apply the liquidity prefilter only when all of these are true: `LIQUIDITY_FILTER_ENABLED`, `SCAN_ALL_NSE`, and `PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY`. The default is **not** to prefilter.
+1. Instantiate `Config` (which resolves the `MarketProfile`), determine `analysis_now` in the market's timezone (`Asia/Kolkata` by default), and initialize cache folders.
+2. Build the universe through `StockDataCollector.get_comprehensive_stock_list()` (section 5.1).
+3. Download/reuse the model-specific OHLCV window (`6mo` for the default 4.x path, `2y` for Model 5); repair the price basis; retain only symbols with a valid completed and aligned daily bar and enough usable history (section 5.2).
+4. Join NSE liquidity categories and impact-cost evidence once for the collected symbols (NSE only).
+5. Apply the liquidity prefilter only when all of these are true: `LIQUIDITY_FILTER_ENABLED`, `SCAN_ALL_NSE`, and `PREFILTER_RESEARCH_UNIVERSE_BY_LIQUIDITY`. It is off in the NSE run and on in the US run (section 13.3).
 6. Fetch or reuse fundamentals and left-join them to the technical universe. A fundamental miss does not delete a technically collected symbol; it becomes missing/limited evidence and is later prevented from receiving BUY conviction.
-7. Recalculate price-dependent valuation ratios using the same completed close used for price technicals.
-8. When Model 5.0 is enabled, fetch/reuse annual statements, fill only absent quote fields from statement-derived equivalents, record a per-field source, and rerun completed-close valuation alignment. Enforce the run-wide statement-coverage floor before scoring.
-9. Run `StockScorer.score_all_stocks()` to create the 4.x core diagnostics, including exact missing fundamental and technical fields.
-10. If enabled, run `ReverseDCFModel.enrich()`.
-11. If enabled, load precomputed transcript evidence. A transcript failure is fatal by default (`TRANSCRIPT_FAIL_ON_ERROR=True`), but can be configured to log and skip.
-12. When Model 5.0 is selected, load benchmark context and run the factor model to create its block scores, applicability-aware coverage, per-input Value audit, and research score.
-13. Attach liquidity/actionability evidence before policy finalization so Model 5.0 can enforce its BUY liquidity gate without letting execution capacity prefilter the research universe.
-14. Run `finalize_recommendations()`: the sole writer of canonical decision fields and primary research ranks.
-15. Optionally attach red-flag records and generate a shadow-only counterfactual, then generate `Actionable_Rank` without changing the primary investment ordering.
-16. Add model/config/run provenance, fetch display-only news sentiment for the already-ranked top N rows, write CSV/manifest/diagnostics/dashboard, and optionally send reports.
-17. Optionally append the result to a model-version-separated backtest history.
+7. On NSE, `QuarterlyResultsCollector.enrich` replaces the vendor's latest-quarter growth and trailing-year figures with figures measured from stored results filings, where a company has them (section 5.4).
+8. Recalculate price-dependent valuation ratios using the same completed close used for price technicals.
+9. When Model 5 is enabled, fetch/reuse annual statements, fill only absent quote fields from statement-derived equivalents, record a per-field source, and rerun completed-close valuation alignment. Enforce the run-wide statement-coverage floor before scoring.
+10. Run `StockScorer.score_all_stocks()` to create the 4.x core diagnostics, including exact missing fundamental and technical fields.
+11. If enabled, run `ReverseDCFModel.enrich()`.
+12. If enabled, load precomputed transcript evidence (NSE; transcripts are off in the US run). A transcript failure is fatal by default (`TRANSCRIPT_FAIL_ON_ERROR=True`), but can be configured to log and skip.
+13. When Model 5 is selected, load benchmark context and run the factor model to create its block scores, applicability-aware coverage, per-input Value audit, and research score.
+14. Attach liquidity/actionability evidence before policy finalization so Model 5 can enforce its BUY liquidity gate without letting execution capacity prefilter the research universe.
+15. Run `finalize_recommendations()`: the sole writer of canonical decision fields and primary research ranks.
+16. Optionally attach red-flag records and generate a shadow-only counterfactual, then generate `Actionable_Rank` without changing the primary investment ordering.
+17. Attach the display-only expectations gap (forward P/E, market-implied growth, guidance transition) and the valuation basis. Neither can change a score, gate or rank.
+18. Add model/config/run provenance, fetch display-only news sentiment for the already-ranked top N rows, write CSV/manifest/diagnostics/dashboard, and optionally send reports.
+19. Optionally append the result to a model-version-separated monitoring log (section 15.3).
 
 The scheduled GitHub workflow wraps this in an outer publication protocol:
 
-1. A same-UTC-day success check suppresses the 18:30 IST recovery attempt when the 16:30 IST run already succeeded.
+1. The workflow runs in several slots a day because GitHub starts scheduled jobs late. A same-UTC-day success check and the session guard suppress the later slots.
 2. `scheduled_session_guard` suppresses weekend, configured-holiday, and already-published completed-session rebuilds even when no workflow succeeded on the current calendar day.
 3. The report artifact and both cache namespaces are saved before dashboard publication.
-4. `dashboard_publisher --if-exists skip` treats a race or replay of an already-published trading date as a successful no-op.
-5. Only a completed scheduled run updates the Supabase read model; manual dispatches remain isolated validation runs.
+4. `dashboard_publisher --if-exists skip` treats a race or replay of an already-published trading date as a successful no-op (section 15.5 explains the consequence).
+5. Only a scheduled run, or a dispatch with `mode=production`, updates the Supabase read model; a dispatch with `mode=validation` publishes nothing.
 
 ## 5. Research universe, data contracts, and collection controls
 
 ### 5.1 Universe selection
 
-- In full-scan mode (`SCAN_ALL_NSE=True`), the collector retrieves NSE's `EQUITY_L.csv`, adds a fixed liquid-name safety list, normalizes symbols, and sorts them.
-- If the master file fails, the built-in safety list remains available.
-- In watchlist mode (`SCAN_ALL_NSE=False`), the configured `CUSTOM_WATCHLIST` replaces the full universe.
+The market's profile names its universe source (`NSE_UNIVERSE_SOURCE` or `US_UNIVERSE_SOURCE`, `screener/universe.py`).
+
+- **NSE.** The collector retrieves NSE's `EQUITY_L.csv`. Production sets `nse_with_bse_only`, which adds every BSE mainboard company whose ISIN NSE does not list, read from the last five BSE bhavcopies (BSE's daily price files). Such a company is screened as `SYMBOL.BO`, its Yahoo ticker, so it can never equal an NSE symbol; a company listed on both exchanges is screened once, as NSE. If no bhavcopy can be found the run proceeds with NSE only and records `ok:partial` with the note `bse:unavailable`.
+- **US.** `sp500`, `sp1500` or `all_listed`; production uses `all_listed`.
+- **Safety net.** A small fixed list of liquid names (`MarketProfile.safety_net_symbols`) is added to the list, and kept if the master file fails. Symbols longer than 20 characters are dropped.
+- **Custom watchlist.** In watchlist mode (`SCAN_ALL_NSE=False`), `CUSTOM_WATCHLIST` replaces the whole universe.
+- **Young listings are not scored.** A symbol needs at least 60 sessions of price history (`MIN_PRICE_SESSIONS_REQUIRED`) and must pass the turnover floor. Those that do not are published separately as `new_listings` (section 13.4) and have no rank.
 - Collection diagnostics persist the selected, requested, collected, failed, and missing symbols. This prevents a different network-collected cross-section from appearing reproducible merely because code/config were unchanged.
 
 ### 5.2 Completed market-bar policy
 
 The history contract is selected with the model. With `FACTOR_MODEL_ENABLED=false`, the
 default 4.x path retains its established `6mo` download and technical-cache contract v6.
-Enabling Model 5.0 selects `2y` and technical-cache contract v7 because its 200-day average,
+Enabling Model 5 selects `2y` and technical-cache contract v7 because its 200-day average,
 12-1 momentum formation window and one-year drawdown cannot be expressed in six months.
 The distinct cache versions prevent either model from accepting incompatible technical rows.
 
-The longer Model 5.0 window does **not** redefine features that are *defined* on a six-month
+The longer Model 5 window does **not** redefine features that are *defined* on a six-month
 basis. `Avg_Turnover_INR`, `Pct_Change_6M`, `High_6M` and `Low_6M` are pinned to
 `LEGACY_HISTORY_WINDOW_SESSIONS` (126) so a liquidity floor or a "6M" return stays comparable
 with previously published runs. One related defect was fixed in the same change:
@@ -175,13 +189,16 @@ Daily data is collected from Yahoo Finance with `auto_adjust=False`; the collect
 A fresh bar is aligned only if it is the latest expected completed NSE session. A separately
 labelled prior-cache fallback may remain solely when a per-symbol provider request fails:
 
-- Default time zone: `Asia/Kolkata`.
-- Daily session completion cutoff: `16:15` IST.
+- Default time zone: `Asia/Kolkata` (NSE) or `America/New_York` (US).
+- Daily session completion cutoff: `16:15` IST for NSE, `16:00` ET for the US (`MARKET_BAR_COMPLETE_AFTER_IST`).
 - Before the cutoff, today's bar is excluded unless the explicit `ALLOW_PROVISIONAL_MARKET_BARS` escape hatch is enabled.
 - After the cutoff, a normal NSE session needs today's complete bar; weekends and configured NSE holidays use the prior expected session.
 - A fresh provider row is admitted only when its provenance is valid. If the provider fails for one symbol, a schema-valid prior cached row may be retained as `stale_cached_fallback`; it carries its real session lag, is never described as current, and cannot support BUY conviction.
+- **NSE bhavcopy fallback.** When Yahoo lacks the expected session's bar for a symbol, `screener/session_bars.py` takes that one bar from NSE's daily file (`PRICE_BAR_FALLBACK_ENABLED`, set in the NSE workflow). It fills only that bar, and only when the bar continues Yahoo's history. The patched symbols are listed in the run diagnostics as `technical_session_bar_patched_symbols`. There is no US counterpart, so a Yahoo gap there still fails the alignment guard.
 - A symbol with neither fresh evidence nor a usable prior row is unresolved and excluded. Diagnostics distinguish provider failures, stale fallbacks, and unresolved symbols instead of reporting all three as one failure class.
 - Completed daily bars are immutable. Cache validity is therefore keyed primarily to the recorded expected exchange session, schema, indicator version, completion state, and provenance rather than expiring a Friday snapshot merely because wall-clock hours passed over a weekend.
+
+**Change of price basis.** Neither NSE's corporate-action feed nor Yahoo's adjustment can be used as served: a demerger or rights issue leaves a cliff of 30-90% that no holder took, and some splits are back-adjusted only part of the way. With `PRICE_BASIS_RESTATEMENT_ENABLED` (NSE workflow), `screener/price_basis.py` restates Yahoo's adjusted close from the security's own bars and drops single-session bad prints. Two rules in `backtest/corporate_actions.py` size a change: `ex_date_price_factor` (previous close over the ex-date open, for an action the feed names) and `open_gap_factor` (an open beyond `MarketProfile.max_open_gap` was not traded to; NSE caps its opening auction at 20%, the US does not, so the rule is off there). The restated symbols appear in the diagnostics as `technical_price_basis_restated_symbols` and `technical_bad_print_symbols`. This is display-grade: the backtest still excludes a position that spans a demerger, rights issue or buyback.
 
 The system exports `Price_Bar_As_Of`, `Expected_Price_Bar_As_Of`, `Price_Bar_Session_Lag`, `Price_Bar_Aligned`, `Price_Bar_Complete`, `Price_Session_Status`, `Analysis_As_Of`, and `Price_Fetched_At`.
 
@@ -199,11 +216,13 @@ Dividend_Yield_Ratio = annual dividend per share / Current_Price
 Dividend_Yield = 100 * Dividend_Yield_Ratio
 ```
 
+The arithmetic is owned by `screener/valuation_basis.py::price_ratios`. A **valuation basis** is each symbol's company side of every ratio (trailing profit, book equity, trailing EBITDA, debt, cash, shares, dividend) stored as totals. The trailing year is the latest four filed quarters on one basis where NSE filings have them, else Yahoo's. The screener divides the close by the basis; the dashboard divides the live quote by the same stored basis (the `live_valuation` view), and `tests/test_valuation_basis.py` holds the two equal. The basis is written by the dashboard publisher for every symbol of the evening run, and by the Quarterly filings worker minutes after a company files.
+
 A ratio is recomputed only if all needed denominators are valid (and nonzero where required); otherwise the fetched value remains for audit. `*_Price_Aligned` flags and `Valuation_Price_Alignment_Status` report whether the metric was aligned.
 
 ### 5.4 Fundamental collection and failure behavior
 
-Fundamentals come from Yahoo quote metadata and use a seven-day cache by default. On NSE the two latest-quarter growth figures are then replaced, where a company's results filings support it, by figures measured from the filings (`screener/quarterly_results.py::QuarterlyResultsCollector`, enabled by `QUARTERLY_RESULTS_FILINGS_ENABLED`); the rest of the record is unchanged. The collector requires a cache schema containing company metadata, raw valuation denominators, sector/industry, and provenance. It fetches at a throttled rate and retains stale cached rows on a transient request failure. A fundamental record is left-joined to technical rows:
+Fundamentals come from Yahoo quote metadata and use a seven-day cache by default. On NSE, `screener/quarterly_results.py::QuarterlyResultsCollector` (enabled by `QUARTERLY_RESULTS_FILINGS_ENABLED`, read only where the run has Supabase credentials) then replaces, where a company's results filings support it, the latest-quarter `Revenue_Growth` and `Earnings_Growth` and the trailing-year EPS, EBITDA, margins and ROE with figures measured from the filings. The filings are read from the `quarterly_filings` table, which the Quarterly filings workflow fills every 15 minutes as companies file; the daily run fetches nothing from the exchange. The rule matches the backtest's (`backtest.fundamentals.QuarterPanel`): both quarters on one basis (consolidated preferred), profit not EPS, no rate on a non-positive base. Banks and insurers file a different statement; their filings are stored for display, but the screener keeps Yahoo's growth for them (`DISPLAY_ONLY_TAXONOMIES`), as it does for a company with no year-ago filing. In the US, and for any symbol without a filing, Yahoo's figures stand. The rest of the record is unchanged. The collector requires a cache schema containing company metadata, raw valuation denominators, sector/industry, and provenance. It fetches at a throttled rate and retains stale cached rows on a transient request failure. A fundamental record is left-joined to technical rows:
 
 ```text
 research universe = successfully collected technical symbols
@@ -214,7 +233,9 @@ Therefore, a fundamental failure does not shrink the ranked universe silently. I
 
 ### 5.4.1 Statement-derived recovery and field provenance
 
-Model 5.0 already downloads annual Yahoo income, balance-sheet, and cash-flow statements for its factor blocks. Quote metadata is convenient but sparse for many NSE issuers, so `apply_statement_fallbacks()` reuses that same issuer evidence for a deliberately small set of equivalent raw fields:
+In the US, `STATEMENT_SOURCE=edgar` makes the collector ask SEC EDGAR (`screener/edgar.py`) first and Yahoo only for what EDGAR cannot serve (filers reporting in another currency, a ticker SEC does not list). EDGAR's facts are rebuilt into Yahoo-shaped frames, so `derive_statement_factors` is shared and the scoring layer has no market branch. SEC rejects clients that name no contact: the address lives in the `SEC_USER_AGENT` repository variable, and without it the run warns and uses Yahoo throughout. Prices and quote metadata are still Yahoo's.
+
+Model 5 already downloads annual income, balance-sheet, and cash-flow statements (EDGAR or Yahoo) for its factor blocks. Quote metadata is convenient but sparse for many NSE issuers, so `apply_statement_fallbacks()` reuses that same issuer evidence for a deliberately small set of equivalent raw fields:
 
 | Quote field filled only when absent | Annual-statement source |
 |---|---|
@@ -231,18 +252,18 @@ After these fallbacks, `align_valuation_to_completed_price_bar()` runs a second 
 
 ### 5.5 Liquidity input calculations
 
-For raw close `C_t` and volume `V_t`, daily turnover is `T_t = C_t * V_t`. The collector exports:
+For raw close `C_t` and volume `V_t`, daily turnover is `T_t = C_t * V_t`. Rows with `Close <= 0` or `Volume < 0` are dropped first. The collector exports:
 
 ```text
-Avg_Turnover_INR       = mean(T_t over usable history)
-Median_Turnover_20D    = median(T_t over trailing 20 sessions)
-Turnover_P10_20D       = 10th percentile(T_t over trailing 20 sessions)
-Median_Turnover_60D    = median(T_t over trailing 60 sessions)
-Top5_Share_60D         = sum(largest five T_t in trailing 60) / sum(T_t in trailing 60)
-Trading_Frequency_60D  = count(V_t > 0 in trailing 60) / observed trailing-60 sessions
+Avg_Turnover_INR         = mean(T_t over the trailing LEGACY_HISTORY_WINDOW_SESSIONS = 126 sessions)
+Median_Turnover_20D_INR  = median(T_t over trailing 20 sessions)
+Turnover_P10_20D_INR     = 10th percentile(T_t over trailing 20 sessions)
+Median_Turnover_60D_INR  = median(T_t over trailing 60 sessions)
+Turnover_Top5_Share_60D  = sum(largest five T_t in trailing 60) / sum(T_t in trailing 60)   # 1.0 when the 60-day turnover is 0
+Trading_Frequency_60D    = count(V_t > 0 in trailing 60) / observed trailing-60 sessions
 ```
 
-Zero-volume sessions are retained so intermittent trading cannot look artificially liquid.
+Zero-volume sessions are retained so intermittent trading cannot look artificially liquid. The `_INR` suffix is a name kept for compatibility; the values are in the market's currency.
 
 The collection-stage price-volume confirmation uses a standard 21-session Chaikin Money Flow calculation on adjusted prices:
 
@@ -252,7 +273,7 @@ CMF_21 = sum(MFM_t * Volume_t) / sum(Volume_t), t in last 21 sessions
 Return_20D = 100 * (AdjustedClose_t / AdjustedClose_{t-20} - 1)
 ```
 
-`Demand_Proxy_Status` labels the result as accumulation proxy (`CMF_21 > 0` and return > 0), distribution proxy (both < 0), mixed, or unavailable. The label itself is not a separate score; the numeric technical `VOL` component below uses CMF, price return, and relative volume.
+`Demand_Proxy_Status` labels the result as accumulation proxy (`CMF_21 > 0` and return > 0), distribution proxy (both < 0), mixed, or unavailable (fewer than 21 sessions with High and Low). The label itself is not a separate score; the numeric technical `VOL` component below uses CMF, price return, and relative volume.
 
 ## 6. Numerical conventions
 
@@ -271,6 +292,8 @@ This avoids Python/pandas banker-rounding ambiguity. Examples: `69.545 -> 69.55`
 Every important ordering uses stable `mergesort` and ticker symbol as the final ascending tie-break. Ranking is deterministic for equal score rows.
 
 ## 7. Core score architecture
+
+This section describes the 4.x core score. Under Model 5 the number that is ranked is the factor model's research score (section 20); the 4.x scorer still runs because the policy needs its coverage, anomaly and specialist-model routing as evidence.
 
 For each row:
 
@@ -301,7 +324,7 @@ Financial Services and Real Estate are configured specialist sectors. A generic 
 
 ### 7.2 Generic fundamental score: point grid (maximum 100)
 
-Financial values expressed as ratios use `0.20 = 20%`; debt-to-equity is consumed in Yahoo's percentage-style unit. Missing/non-numeric values receive zero points. The generic grid is:
+Financial values expressed as ratios use `0.20 = 20%`; debt-to-equity is consumed in Yahoo's percentage-style unit. A missing or non-numeric input earns no points and also leaves the component's maximum, so the score is coverage-normalised and shrunk toward 50 (section 7.6): a missing input is unreported, not the worst value. The generic grid is:
 
 | Component | Max | Exact score function |
 |---|---:|---|
@@ -517,7 +540,7 @@ Financial Services and Real Estate are explicitly unsupported because a generic 
 
 Defaults: five forecast years `N=5`, discount rate `r=11%`, terminal growth `g_T=4%`, allowed implied growth range `[-30%, 60%]`, allowed terminal-growth range `[-5%, min(9%, r-0.1%)]`.
 
-Base expected growth uses a sector benchmark plus a size adjustment, clamped to 5%-25%. Sector benchmarks are Technology 18%, Communication Services/Healthcare 16%, Consumer Cyclical 15%, Industrials 14%, Financial Services 13%, Basic Materials/Real Estate 12%, Energy/Consumer Defensive 10%, Utilities 8%, and 15% fallback. Size adjustment is `-3%` for market cap >= 200,000 crore, `-1.5%` >= 20,000 crore, 0 >= 5,000 crore, else `+2%`.
+Base expected growth uses a sector benchmark plus a size adjustment, clamped to 5%-25%. Sector benchmarks are Technology 18%, Communication Services/Healthcare 16%, Consumer Cyclical 15%, Industrials 14%, Financial Services 13%, Basic Materials/Real Estate 12%, Energy/Consumer Defensive 10%, Utilities 8%, and 15% fallback. Size adjustment is `-3%` for market cap >= 200,000 crore, `-1.5%` >= 20,000 crore, 0 >= 5,000 crore, else `+2%`. These thresholds are in rupees (market cap divided by 10 million); a US run applies the same numbers to dollar market caps.
 
 For base FCF `FCF_0`, forecast growth `g`, terminal growth `g_T`, and discount rate `r`:
 
@@ -528,7 +551,7 @@ Terminal_Value_N = FCF_N * (1+g_T) / (r-g_T)
 DCF_Value = PV_forecast + Terminal_Value_N / (1+r)^N
 ```
 
-The model requires positive reported FCF for blending. Missing FCF with positive revenue can create an 8%-of-revenue estimated FCF audit scenario, but it is not blend-eligible. Reported nonpositive FCF is preserved as `negative_fcf`, review-required, and not silently replaced with the revenue-margin estimate.
+Under Model 5 the DCF score is an input to the Value block and the separate DCF blend stage has weight zero (section 20.2); the 4.x path blends it at `REVERSE_DCF_RANKING_WEIGHT=0.10`. The model requires positive reported FCF for blending. Missing FCF with positive revenue can create an 8%-of-revenue estimated FCF audit scenario, but it is not blend-eligible. Reported nonpositive FCF is preserved as `negative_fcf`, review-required, and not silently replaced with the revenue-margin estimate.
 
 ### 9.3 Reverse solves and value score
 
@@ -555,9 +578,13 @@ Default `scale=1.0`. A ratio of one is 50; reciprocal gaps produce symmetric sco
 
 ## 10. Transcript sentiment evidence
 
+Two scores describe an earnings call. The **tone** score measures how the call sounds (word lists, a language model for finance text). The **outlook** score measures what management said about the future (guidance, order book, demand, margins). Both are computed outside the daily run and stored; the daily screener only reads them. Transcripts are used on NSE; the US run switches them off (`TRANSCRIPT_SENTIMENT_ENABLED=False`).
+
 ### 10.1 Upstream transcript analysis
 
-A separate transcript worker discovers, extracts, cleans, segments, chunks, analyzes, and stores call sentiment. The daily screener only bulk-loads the latest cached record from Supabase; it does not download or re-analyze every transcript.
+Transcripts come from two sources: the company\'s filed transcript, which arrives days after the call, and a speech-to-text transcript of the call recording, made the evening of the call. The recording is fetched by the Earnings call recordings workflow (`workers/call_recordings.py`), transcribed in pieces with `faster-whisper`, and stored as an ordinary transcript whose document\'s `extraction_method` starts `speech:`. When the filed transcript arrives it deletes the recording\'s, so the recording never becomes the call\'s "previous quarter". The speech text has no speaker labels, so the tone score reads it as one voice. Everything below applies to both sources. A call filed twice keeps the longer text and the shorter copy and its scores are removed, so a duplicate is neither scored twice nor read as its own previous quarter.
+
+A separate transcript worker discovers, extracts, cleans, segments, chunks, analyzes, and stores call sentiment. The daily screener only bulk-loads the latest cached record from Supabase, scoped to the market; it does not download or re-analyze every transcript. FinBERT is required in the transcript and recording workflows and switched off in the daily screener, which only reads stored rows.
 
 Each chunk uses financial lexicons, TextBlob polarity, and optional FinBERT. If FinBERT is available:
 
@@ -588,7 +615,7 @@ answer_quality = clamp(45 + min(35, 3*sentence_count)
                        + 10 if management answer else 0, 0, 100)
 ```
 
-Weighted transcript aggregates use estimated token count as the weight. The stored overall score is:
+Weighted transcript aggregates use estimated token count as the weight. The stored overall (tone) score is:
 
 ```text
 Overall_Transcript_Score = 0.25 * optimism
@@ -600,7 +627,7 @@ Overall_Transcript_Score = 0.25 * optimism
 
 Explicit guidance is categorical and conservative: lowered guidance dominates raised guidance, which dominates maintained guidance when present in different chunks.
 
-### 10.2 Daily eligibility, decay, and blend
+### 10.2 Daily eligibility, decay, and weight
 
 A transcript is score-eligible only if it belongs to the current reporting cycle, is not older than `TRANSCRIPT_MAX_EVIDENCE_AGE_DAYS=180`, and has nonzero weight. The raw recency factor is:
 
@@ -613,10 +640,10 @@ It is tapered before the next reporting-cycle transition:
 ```text
 w_cycle = clamp(days_until_next_transcript_deadline / taper_days, 0, 1)
 w_evidence = w_age * w_cycle                             # default taper = 20 days
-Transcript_Blend_Weight = 0.15 * w_evidence
+Transcript_Blend_Weight = TRANSCRIPT_SENTIMENT_WEIGHT * w_evidence      # weight 1.0 in production
 ```
 
-The exported `Transcript_Weighted_Score = 50 + (Transcript_Score - 50) * w_evidence` is an audit feature. The central policy uses `Transcript_Effective_Score` (the current-cycle stored score) plus the already-decayed blend weight.
+The tone score and the outlook score share this one weight, split 15/85 (section 10.3 and 11.1). The exported `Transcript_Weighted_Score = 50 + (Transcript_Score - 50) * w_evidence` is an audit feature. The central policy uses `Transcript_Effective_Score` (the current-cycle stored score) plus the already-decayed blend weight.
 
 Quality eligibility is an audit/high-conviction check, not a second numerical score:
 
@@ -627,28 +654,61 @@ Transcript_Quality_Eligible = current-cycle eligible
                            AND guidance != "lowered"
 ```
 
-Missing, expired, prior-cycle, unconfigured, or unavailable transcripts are neutral; they do not receive a hidden rank tier. By default, a transcript is not required for STRONG BUY (`REQUIRE_TRANSCRIPT_FOR_STRONG_BUY=False`).
+Missing, expired, prior-cycle, unconfigured, or unavailable transcripts are neutral; they do not receive a hidden rank tier. A fresh call whose outlook has not been extracted yet is also unreported until it is (section 11.1). By default, a transcript is not required for STRONG BUY (`REQUIRE_TRANSCRIPT_FOR_STRONG_BUY=False`).
+
+### 10.3 Outlook
+
+`sentiment/outlook.py` asks a language model to extract the forward-looking statements of a call: guidance raised, lowered or maintained, growth ranges, order book, capacity, demand, margins, tailwinds and headwinds. An item counts only if the model also returns a quote and that quote is found in the transcript; unverified items are cleared. The score is:
+
+```text
+Outlook_Score = clamp(50 + sum(points of verified items), 0, 100)
+```
+
+Examples of the points: guidance raised +15, lowered -20, maintained +3; order book +/-8; demand +8/-10; margin +6/-8; tailwind +2; headwind -3. The score is attached only when it belongs to the same call date as the tone record and at least one item was verified; otherwise the column stays empty rather than 50. The extraction carries a version string (`outlook-v1`) and the name of the model that made it.
+
+In production the request goes to OpenRouter (model `z-ai/glm-5.3-flash`, temperature 0, strict JSON schema, minimal reasoning, price-capped routing); on a developer\'s machine it goes to Token Harbor\'s free model, and those readings are printed, never stored. Production refuses Token Harbor and a missing free key is an error, never a fallback to the paid provider. The scorer reads the latest outlook of any model unless `TRANSCRIPT_OUTLOOK_MODEL` names one. Extraction runs after the transcript worker and after each recording batch, with a spend cap per run, and is skipped with a warning when no key is set.
+
+The stance word on the dashboard\'s Concalls page is this outlook score read into a band (bullish from 78, optimistic 68, neutral 58, cautious 48, bearish below). It is display only.
 
 ## 11. Authoritative evidence blend and recommendation policy
 
+`screener/recommendation.py` is the only writer of canonical decisions (`Rating`, `Rank`, `Buy_Eligible`, `Final_Score`, and the rest). The scoring layer emits components and `Core_*` diagnostics only.
+
 ### 11.1 Stage equations
 
-The finalizer begins with `Combined_Score` and writes `Core_Score`. It applies DCF symmetrically around neutral 50:
+The finalizer begins with `Combined_Score` and writes `Core_Score`. Under Model 5 that is the research score, itself a run percentile of the five factor blocks (section 20.3). On the 4.x path it is the 70/30 blend. Each stage below is rounded to four decimals and the exported value is the next stage\'s input, so the CSV arithmetic reproduces exactly.
+
+**Stage 1, reverse DCF.** Applied symmetrically around neutral 50:
 
 ```text
 Score_After_DCF = clamp(Core_Score + w_dcf * (DCF_score - 50), 0, 100)
 ```
 
-Only `DCF_Blend_Eligible` rows with valid score and positive weight receive the adjustment. Default `w_dcf=0.10`.
+Only `DCF_Blend_Eligible` rows with valid score and positive weight receive the adjustment. On the 4.x path `w_dcf=0.10`. Under Model 5 the DCF score is already a Value input and `w_dcf` is 0, so `Score_After_DCF = Core_Score`.
 
-Transcript evidence is deliberately downside-only:
+**Stage 2, the earnings call.** A call moves the score both ways. Tone and outlook are each measured against the median call of the run: management is upbeat by default (94% of scored calls sat above 50 on 6 October 2026), so against 50 every covered company would gain simply for having held a call. Against the median, about half the covered companies gain and half lose, and a company with no usable call is untouched.
 
 ```text
-transcript_delta = min(w_tx * (Transcript_Effective_Score - 50), 0)
-Evidence_Score = clamp(Score_After_DCF + transcript_delta, 0, 100)
+tone_signal    = Transcript_Effective_Score - tone_median
+outlook_signal = Outlook_Score - outlook_median
+signal         = 0.15 * tone_signal + 0.85 * outlook_signal       call has an outlook
+signal         = tone_signal                                      outlook switched off or share = 0
+transcript_delta = Transcript_Blend_Weight * signal               weight 1.0 x age/cycle factor (section 10.2)
 ```
 
-A positive transcript is visible in the data but cannot promote a post-DCF rating. The finalizer exports exact contributions and whether positive evidence was intentionally not promoted.
+The 15/85 split is `TRANSCRIPT_OUTLOOK_SHARE=0.85`, decided in one place, `RecommendationPolicy._outlook_share`. Each median is taken over the calls scored in the run; with fewer than `TRANSCRIPT_NEUTRAL_MIN_CALLS=30` the centre is 50. A point of outlook above the median call therefore adds about 0.85 of a point to the score. `TRANSCRIPT_TWO_SIDED=false` restores the older rule that applied only the negative half of the signal.
+
+**A call waits for its outlook.** The outlook is extracted hours after the transcript lands. While it is missing, and the outlook share is above zero, the call is not evidence: `Transcript_Awaiting_Outlook=True` and the company is scored as if it held no call until the first run after the outlook is stored. Read on tone alone in between, a cut in guidance scored as upbeat (HINDZINC, 23 October 2026: tone 78.6, outlook 41, rank 131 lifted to 18).
+
+**Stage 3, the published score.**
+
+```text
+Evidence_Score_Raw = Score_After_DCF + transcript_delta                    (not clipped)
+Evidence_Score     = run percentile of Evidence_Score_Raw                  Model 5
+Evidence_Score     = clamp(Evidence_Score_Raw, 0, 100)                     4.x path
+```
+
+On a Model 5 run `Evidence_Score` is therefore the percentile, across that day\'s universe, of the research score plus the DCF and call adjustments. The call is part of that percentile, while the five block percentiles (`Quality_Percentile` and the rest) and `Research_Score` are computed before the call and do not include it. Ranking the sum once, instead of clipping it at 100, keeps names the call lifted past the top from tying at 100 (35 names did on 23 October 2026): only the strongest name reads 100 and `>= 70` stays the top 30%. The call keeps its reach in research points, the scale its weight was measured on.
 
 ### 11.2 Rating bands
 
@@ -661,36 +721,36 @@ A positive transcript is visible in the data but cannot promote a post-DCF ratin
 | < 40 | SELL |
 | missing | UNRATED |
 
+Under Model 5 the score is a percentile, so the bands are relative: STRONG BUY is the top 30% of the run, BUY the next 10%, and about 40% of rows read REDUCE or SELL whatever the market does. What stops "the top 30% of a collapsing market" from being published as STRONG BUY is the set of absolute gates below.
+
 ### 11.3 BUY gates
 
-Any BUY failure sets the decision ceiling to `59.99`, which guarantees the published label cannot be BUY even if `Evidence_Score` is higher. Failures include:
+Any BUY failure sets the policy ceiling to `59.99`. The gates are of two kinds.
+
+**Evidence-quality gates (both models).** Bad evidence is not a research view, so these always cap:
 
 1. Core score unavailable.
 2. Any present coverage flag (`Coverage_Eligible`, fundamental coverage eligibility, technical coverage eligibility) is false.
 3. `Data_Quality == LOW`.
 4. Specialist model required but unavailable/data-limited.
 5. Stale fundamental fallback.
-6. At least two fundamental anomalies.
-7. A dedicated financial model's specialized regulatory/quality evidence is ineligible.
-8. When `REQUIRE_UPTREND_FOR_BUY=True` (default):
-   - adjusted price or MA50 unavailable;
-   - `Technical_Price <= MA50`;
-   - MA50 slope unavailable or `< 0.0`;
-   - three-month return unavailable or `<= 0.0`.
+6. The price bar is behind the expected session (`REQUIRE_ALIGNED_PRICE_BAR_FOR_BUY`).
+7. At least two fundamental anomalies.
+8. A dedicated financial model\'s specialized regulatory/quality evidence is ineligible.
+
+**Policy gates.** Model 5 (production) applies the trend, relative-strength, factor-percentile, coverage, liquidity and regime gates of section 20.5. The 4.x path applies the uptrend test instead: when `REQUIRE_UPTREND_FOR_BUY=True` it fails on adjusted price or MA50 unavailable, `Technical_Price <= MA50`, MA50 slope unavailable or `< 0.0`, or three-month return unavailable or `<= 0.0`.
 
 ### 11.4 STRONG BUY gates
 
-STRONG BUY inherits all BUY failures. Any remaining STRONG BUY failure sets the ceiling to `69.99`. Additional requirements are:
+STRONG BUY inherits all BUY failures. Any remaining failure sets the ceiling to `69.99`. Both models require:
 
-1. Revenue growth or earnings growth is at least 5%.
-2. ADX is available and >= 20.
-3. `+DI > -DI`.
-4. `Technical_Score >= 55`.
-5. Fundamental coverage >= 0.75 and technical coverage >= 0.90 when numeric coverage is present.
-6. Specialized quality is eligible.
-7. No fundamental anomaly at all.
-8. By default, `DCF_Status != negative_fcf`.
-9. If configured, a fresh quality transcript is required.
+1. Fundamental coverage >= 0.75 and technical coverage >= 0.90 when numeric coverage is present.
+2. Specialized quality is eligible.
+3. No fundamental anomaly at all.
+4. By default, `DCF_Status != negative_fcf`.
+5. If configured, a fresh quality transcript (`REQUIRE_TRANSCRIPT_FOR_STRONG_BUY`, off in production).
+
+The 4.x path adds growth of at least 5%, ADX >= 20, `+DI > -DI` and `Technical_Score >= 55`. Model 5 adds the percentile and moving-average conditions of section 20.5 instead, because counting both would double-count the trend requirement.
 
 The policy collects every simultaneous failure, de-duplicates it, and exports JSON arrays, semicolon text, and counts. This makes a rating cap explainable rather than simply showing one first failure.
 
@@ -701,12 +761,15 @@ Decision_Score_Ceiling = 59.99  if any BUY failure
                        = 69.99  if no BUY failure but any STRONG BUY failure
                        = 100.00 otherwise
 
-Decision_Score = round_half_up(min(Evidence_Score, Decision_Score_Ceiling), 2)
-Final_Score    = Decision_Score
-Rating         = rating_from_score(Decision_Score)
+Policy_Capped_Score = round_half_up(min(Evidence_Score, Decision_Score_Ceiling), 2)
+Decision_Score      = round_half_up(min(Evidence_Score, enforced ceiling), 2)
+Final_Score         = Decision_Score
+Rating              = rating_from_score(Decision_Score)
 ```
 
-`Evidence_Rating` is also exported to show the uncapped evidence band. A DCF or transcript contribution can lift `Evidence_Score`, but it cannot resurrect a candidate that failed an independent gate.
+By default (`APPLY_RATING_CAP=True`) the enforced ceiling is the policy ceiling, so `Decision_Score = Policy_Capped_Score` and `Policy_Eligible_Rating` equals `Rating`. With `APPLY_RATING_CAP=False` on a factor-model run only the evidence-quality gates of section 11.3 cap the published rating; `Policy_Eligible_Rating` and `Decision_Score_Ceiling` still show what the policy gates alone would have done.
+
+`Evidence_Rating` (also `Research_Rating`) is the band of the uncapped `Evidence_Score`. A DCF or call contribution can lift `Evidence_Score`, but it cannot resurrect a candidate that failed an independent gate.
 
 ### 11.6 Stability diagnostics
 
@@ -742,11 +805,12 @@ The application exposes several intentionally distinct answers rather than treat
 | `Core_Score_Rank` | `Combined_Score DESC`, `Symbol ASC` | Pre-evidence diagnostic order. |
 | `Score_Rank` | `Evidence_Score DESC`, `Symbol ASC` | Uncapped research-evidence order. |
 | `Recommendation_Rank` | rating class (STRONG BUY → BUY → HOLD → REDUCE → SELL → UNRATED), `Decision_Score DESC`, `Evidence_Score DESC`, symbol | Published recommendation-class ordering. |
-| `Investment_Rank` | `Decision_Score DESC`, `Evidence_Score DESC`, `Symbol ASC` | **Primary investment/research rank.** |
+| `Investment_Rank` | Model 5: `Evidence_Score DESC`, `Research_Score DESC`, `Gate_Severity ASC`, `Symbol ASC`. 4.x: `Decision_Score DESC`, `Evidence_Score DESC`, `Symbol ASC` | **Primary investment/research rank.** |
 | `Rank` | alias of `Investment_Rank` | Backward-compatible main rank. |
+| `Action_Rank` | `Action_Score DESC` | Published only when `TIMING_WEIGHT` is above zero (it is 0 in production, so the column is absent); stage and relative-strength rating are shown as display evidence. |
 | `Actionable_Rank` | `Portfolio_Actionable DESC`, `Investment_Rank ASC` | Execution-oriented presentation rank. |
 
-The top stocks shown by the main CSV/report are `Rank=1...TOP_STOCKS_COUNT` in primary investment order. A stock with raw evidence 80 that fails a BUY gate is capped at 59.99 and will rank below a candidate with a higher decision score, even when the former has `Score_Rank=1`. This is intentional: raw evidence and decision eligibility are separate concepts.
+The top stocks shown by the main CSV/report are `Rank=1...TOP_STOCKS_COUNT` in primary investment order. Under Model 5 the gates label and rate a stock but do not rank it: ranking by `Decision_Score` would sort a column that is constant for every capped name (they share one ceiling) and fall through to the ticker, which is alphabetical order presented as investment merit, and ranking by eligibility class first cost 5-16 CAGR points in every point-in-time window where the gates bound. `Gate_Severity` only breaks ties between equal scores. A stock with high evidence that fails a BUY gate therefore keeps its place by merit and carries a capped rating and its gate reasons; `RANK_BY_ELIGIBILITY_CLASS=true` would sort eligibility first.
 
 The final execution overlay preserves investment rank inside the actionable/non-actionable buckets. It never uses transcript availability or liquidity as a hidden tie-break for primary rank.
 
@@ -756,12 +820,14 @@ The final execution overlay preserves investment rank inside the actionable/non-
 
 The provider downloads/caches NSE's monthly CM security category/mean-impact-cost file for EQ symbols. It recognizes Groups I, II, and III. Group I is treated as the liquid category and the official impact-cost reference order is Rs1 lakh.
 
+The category file is cached (`NSE_LIQUIDITY_CACHE_MAX_AGE_DAYS`, 35 days). A failed refresh falls back to the stale cache and says so ("Stale cache"), a file with fewer than 500 EQ records is rejected, and `NSE_LIQUIDITY_ENABLED` switches the provider off. A BSE-only symbol (`.BO`) never matches an NSE row, so it reads "No EQ category" and is judged on the turnover proxy. The US has no provider, so its liquidity columns rely on the proxy alone.
+
 ### 13.2 Position-capacity calculation
 
 For configured position target `P` (default Rs100,000) and participation rate `p` (default 1%):
 
 ```text
-Max_One_Day_Order = Median_Turnover_20D * p
+Max_One_Day_Order = Median_Turnover_20D_INR * p
 Turnover_Proxy_Build_Days = ceil(P / Max_One_Day_Order)
 ```
 
@@ -785,13 +851,17 @@ fallback_actionable = no official category AND turnover data present
 Portfolio_Actionable = official_actionable OR fallback_actionable
 ```
 
-For a Group I candidate with direct Rs1 lakh impact-cost evidence and a target no larger than Rs1 lakh, effective build days are set to one rather than applying the conservative 1% turnover proxy. Group II/III are restricted. If official evidence is absent, turnover-based actionability is explicitly identified as a proxy.
+For a Group I candidate with direct Rs1 lakh impact-cost evidence and a target no larger than Rs1 lakh, effective build days are set to one rather than applying the conservative 1% turnover proxy. Group II/III are restricted and never receive the turnover fallback, which applies only when there is no official category. If official evidence is absent, turnover-based actionability is explicitly identified as a proxy. Configured participation is clamped to 0.0001-1 and the frequency and concentration thresholds to 0-1.
 
-No liquidity result can cap `Final_Score`, modify `Rating`, or change `Investment_Rank`; it only determines actionability and `Actionable_Rank`.
+Actionability does not enter the score or the rank: it determines `Portfolio_Actionable` and `Actionable_Rank`. Under Model 5 it also feeds one BUY gate (`REQUIRE_LIQUIDITY_FOR_BUY`, section 20.5), and the research view (`Research_Rating`) stays uncapped.
 
-### 13.3 Emergency prefilter
+### 13.3 Liquidity prefilter
 
-The normally-disabled prefilter requires either Group I or, when official category is unavailable, both average and 20-day median turnover >= Rs50 lakh/day. It also requires raw current price >= configured minimum (default zero). This prefilter is an operational escape hatch and makes the evaluated research universe smaller; the run manifest records whether it was used.
+The prefilter requires either Group I or, when official category is unavailable, both average and 20-day median turnover at or above the floor (`MIN_AVG_TURNOVER_INR`; Rs50 lakh/day by default). It also requires raw current price >= configured minimum (default zero). It is off in the NSE run, so liquidity does not choose the research universe there. It is on in the US run, where the floor is 1,000,000 dollars a day, because the US has no official liquidity category. Where it is on, the evaluated research universe is smaller; the run manifest records whether it was used.
+
+### 13.4 Recently listed stocks
+
+A listing is unscored until it has 60 sessions of history and clears the liquidity floor. `workers/new_listings.py` (a step of the Financial statements workflow, NSE only, since the US has no listing date) writes one row per such mainboard listing to `new_listings`, replaced on every run, with the reason (`insufficient_history`, `below_liquidity_floor`, `no_price_data`, `pending_run`). It never scores: these names are not in `screener_snapshot`, so no rank, tile or export includes them. The dashboard shows them as "Not rated".
 
 ## 14. Optional non-scoring overlays
 
@@ -802,6 +872,8 @@ When enabled, `RedFlagEnricher` joins cached data such as issuer/trading severit
 - severity 2 issuer/trading can cap a hypothetical rating at BUY;
 - severity >= 3 can cap a hypothetical rating at HOLD;
 - issuer severity >= 3 clips hypothetical score to at most 59.99.
+
+The rules apply only where `Red_Flag_Status == "Available"`, that is, when the stored snapshot is fresh (stale after 7 days); stale or partial rows get only the action text "Stale/partial evidence; refresh before review". The simulator also exports `Shadow_Red_Flag_Review_Required` (severity >= 2) with an action and a "would change" flag. Enrichment is off by default, on in the NSE run and off in the US run; the feed is built by `workers/red_flag_worker.py` from `red_flags/vigil.py`.
 
 These are `Shadow_*` fields only. Live `Rating`, `Final_Score`, and ranks remain unchanged because the feed is discovery evidence requiring primary-source verification.
 
@@ -815,27 +887,27 @@ FII/DII is presently an explicit placeholder and is logged, not scored. Earnings
 
 ### 15.1 Files and delivery
 
-The standard run produces:
+The standard run produces the files below, for either market (the US workflow writes the same files with `MARKET=US`). The workflow uploads the CSV, manifest, HTML and PDF as the run artifact for 7 days; the diagnostics JSON stays on the runner.
 
 | Artifact | Purpose |
 |---|---|
 | `advanced_analysis_YYYYMMDD.csv` | Full ranked research universe with audit fields. |
 | `advanced_analysis_YYYYMMDD.manifest.json` | Reproducibility manifest for the CSV. |
 | `collection_diagnostics_YYYYMMDD.json` | Selected/collected/missing symbol sets, source state, calendar, and collection metadata. |
-| Static dashboard output | Standalone HTML report generated by `InteractiveDashboard` and retained in the workflow artifact. |
-| Supabase dashboard read model | `screener_runs`, current full `screener_snapshot` rows, and narrow long-lived `screener_history` rows consumed by the private web application. |
-| Optional HTML/PDF/email/WhatsApp | Delivery layers; disabled by default for email/WhatsApp. |
+| `dashboard_*.html`, `stock_report_*.pdf` | Standalone HTML report from `InteractiveDashboard` and the PDF report, retained in the workflow artifact. |
+| Supabase dashboard read model | Written by the publisher: `screener_runs`, current full `screener_snapshot` rows, narrow long-lived `screener_history` rows, `estimate_history`, `universe_index` and `valuation_basis`, consumed by the private web application. |
+| Optional email/WhatsApp | Delivery layers; disabled by default. Only a scheduled run emails. |
 | Production market-data cache | The original five paths: `price_cache.csv`, `fundamental_cache.csv`, `nse_liquidity_categories.csv`, `backtest_history.csv`, and `yfinance_cache/`. |
-| `statement_cache.csv` | Annual-statement input, stored in a separate production or candidate cache namespace rather than the market-data composite. |
-| Backtest history | Model-version-separated snapshot/outcome monitor when writes are enabled; it remains one of the five production composite-cache paths. |
+| `statement_cache.csv` | Annual-statement input, stored in a separate production cache namespace rather than the market-data composite. |
+| Backtest history | Model-version-separated monitoring log when writes are enabled; it remains one of the five production composite-cache paths. |
 
 ### 15.2 Run manifest
 
 `validation/reproducibility.py` builds a canonical secret-free manifest containing:
 
 - schema version, UTC timestamp, Git SHA, dirty-worktree/status/diff hashes;
-- model/policy/schema versions;
-- SHA-256 of an allow-listed effective configuration;
+- the model version (the policy and schema versions are part of the hashed configuration);
+- SHA-256 of an allow-listed effective configuration, which includes the market and its universe source, so runs on different exchanges never share a hash;
 - hashes/sizes of cache inputs and outputs;
 - Python/platform/package versions;
 - collection diagnostics and exact collection counts.
@@ -844,145 +916,115 @@ The CSV also carries run-level fields such as model/config hash, Git SHA, univer
 
 ### 15.3 Backtest boundary
 
-`BacktestEngine` logs snapshots and later calculates realized returns only within the same `MODEL_VERSION`; it does not mix different model versions. This is necessary monitoring infrastructure but is not a complete point-in-time out-of-sample backtest: it does not itself solve survivorship bias, benchmark comparison, transaction costs, delistings, or look-ahead-control requirements.
+`BacktestEngine` (in `screener/market_data.py`) is a monitoring log, not a backtest. It records each run\'s ratings and later realized returns within one `MODEL_VERSION`, entering at the close that produced the score, which a real trade could not do. It does not solve survivorship bias, benchmark comparison, transaction costs or delistings.
 
-### 15.4 GitHub Actions cache and candidate-isolation contract
+Point-in-time testing lives in the separate `backtest/` package, run with `python -m tools.run_p0_backtest`. A signal forms on the close of day t and fills at the open of t+1; returns are adjusted for corporate actions and net of Indian charges; delisted securities stay in; and the package replays production\'s own `FactorModel`. It must never read anything the model could not have seen on the simulated day. It reads two local archives that are not in git: `reports_advanced/backtest` (NSE filings, ending at the FY2024 annual and December 2024 quarterly filings, because NSE\'s results endpoint thins out after early 2025) and `reports_advanced/backtest_ext` (the same plus later periods taken from stored vendor statements, written by `python -m tools.extend_fundamental_panel`). Pass `--root reports_advanced/backtest_ext` for any window past mid-2025. Section 20.9 gives the results and their limits.
 
-The production composite cache keeps its original five-path declaration exactly:
-`price_cache.csv`, `fundamental_cache.csv`, `nse_liquidity_categories.csv`,
-`backtest_history.csv`, and `yfinance_cache/`. GitHub incorporates the declared path list into
-an internal cache version, so adding `statement_cache.csv` there would make otherwise valid
-production entries unreachable. The daily workflow therefore restores and saves statements
-under a separate production-only statement-cache key.
+### 15.4 GitHub Actions cache and validation isolation
 
-That namespace was originally initialized by the one-shot `seed-production-statement-cache.yml`
-workflow, which extracted and validated `candidate/statement_cache.csv` from the artifact of an
-already successful candidate validation and saved it under the production statement-cache prefix.
-The initial promotion used green run `31685056109` at
-`fa9d3094129b9540717a67fda040449340d7dec1`; that seed was cache bootstrap, not a second model
-validation or evidence of predictive performance.
+The production composite cache keeps its original five-path declaration exactly: `price_cache.csv`, `fundamental_cache.csv`, `nse_liquidity_categories.csv`, `backtest_history.csv`, and `yfinance_cache/`. GitHub incorporates the declared path list into an internal cache version, so adding `statement_cache.csv` there would make otherwise valid production entries unreachable. The workflow therefore restores and saves statements under a separate key. The data cache key is `stock-screener-data-v2-<os>-<run_id>` with a `v1` fallback; the statement cache key is `stock-screener-statements-v1-<os>-<run_id>-<attempt>`. The statement cache is saved under `always()`, so a coverage-guard failure keeps the records already fetched for the next attempt. Pip is deliberately not cached: three entries of about 3 GB each (torch) evicted the price and statement caches on 29 September 2026.
 
-**Retired 2026-08-19.** The seeding workflow has been removed now that the scheduled run sustains
-its own statement cache: it restores under the `stock-screener-statements-v1-` prefix and saves
-the refreshed file on every scheduled run, keeping the entry inside GitHub's seven-day eviction
-window. A cold rebuild remains possible without it — `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` is
-`2500` on scheduled runs so a single run can fetch the whole NSE universe — but a cold first run
-may land below the 95% coverage floor and produce degraded factor output until coverage recovers.
-The workflow remains in git history and can be restored with
-`git checkout <sha> -- .github/workflows/seed-production-statement-cache.yml`.
+`STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` is `2500` on scheduled runs, so one run can fetch a whole universe, but a cold first run may land below the 95% coverage floor (`FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE`). Scheduled production enforces that floor before scoring and publishes nothing from a partial cross-section.
 
-Scheduled production independently enforces at least 95% statement coverage before scoring. If
-that guard fails, its `always()` cache checkpoint preserves successfully fetched records for the
-next attempt without publishing a partial cross-section.
+**Validation mode.** A `workflow_dispatch` of the daily workflow with `mode=validation` runs the 4.x contract in isolation: it writes to `.validation-output/<run_id>`, skips the production caches, backtest writes, red-flag store and the Supabase publish, and shares no concurrency group with production. A dispatch with `mode=production` behaves like a scheduled run. The NSE and US workflows work the same way; each has its own caches and schedule, eleven hours apart.
 
-**`candidate-model-validation.yml` retired 2026-08-19,** having served its purpose once Model 5.0
-reached scheduled production. Its isolation contract is recorded here because the same guarantees
-apply to any future candidate workflow, and because the manual-dispatch path of
-`daily-stock-screener.yml` still relies on the same isolation reasoning.
+### 15.5 Supabase publication, scheduled jobs and private web dashboard
 
-The candidate workflow could read production vendor inputs but could not update either production
-cache namespace. When `baseline_run_id` was supplied, it validated the baseline report artifact
-before dependency installation and expensive screening, restored the exact five-path production
-cache saved by that run, and verified that the baseline and candidate used the same completed
-price session. Without a baseline ID it could use the latest production cache only as a read-only
-seed.
-
-Candidate statements had their own branch-scoped cache. A run could restore its accumulated
-tranches or explicitly seed from the statement artifact of an earlier candidate run, and it
-saved a successful statement backfill immediately after screening even if comparison later
-failed. Candidate transcript parity did require the Supabase URL and service-role secret, but
-`SUPABASE_READ_ONLY=True` rejected non-GET requests. The job did not publish to Supabase,
-append production backtests, send notifications, or include secrets in caches or artifacts.
-A factor-model comparison was refused until statement coverage reached at least 95% of the
-full candidate universe.
-
-### 15.5 Supabase publication and private web dashboard
-
-The production web path is intentionally downstream of the research CSV:
+The production web path is downstream of the research CSV, and a set of smaller scheduled jobs fills the display tables around it.
 
 ```text
-scheduled GitHub Actions
+scheduled GitHub Actions (one daily workflow per market)
   -> advanced_analysis_YYYYMMDD.csv + manifest + diagnostics
-  -> DashboardPublisher (service role; scheduled runs only)
+  -> DashboardPublisher (service role; scheduled runs and mode=production dispatches)
   -> Supabase/Postgres read model
-       screener_runs       one row per completed trading session
+       screener_runs       one row per completed trading session and market
        screener_snapshot   typed query columns + complete source row in payload jsonb
-       screener_history    narrow daily series retained for movers/history
+       screener_history    narrow daily series retained for movers, rank history and returns
+       + per-feature tables, each written by one scheduled job (below)
   -> Next.js 16 application on Vercel
        authenticated server reads under Supabase RLS
-       screener / movers / run health / stock detail / decision audit
 ```
 
-The publisher resolves `run_date` from `Price_Bar_As_Of`, then `Analysis_As_Of`, and only then
-the filename. This keeps renamed or replayed files from inventing a calendar date. It reports
-duplicate symbols and coercion drift, maps the fields needed for filtering/indexing into typed
-columns, and stores every original CSV field in `payload`. A new audit-only export therefore
-appears in drill-down without a database migration; only a field that must be filtered or
-indexed needs a typed-column migration.
+#### Scheduled jobs
 
-Publication uses a recoverable reserve/write/complete protocol because PostgREST cannot wrap
-several chunked requests in one client transaction:
+Every job is a GitHub Actions workflow. The two that cron-job.org calls are dispatch-only; do not add a `schedule:` to them or every run doubles.
 
-1. Refuse replacement of a completed same-date run by default. Scheduled publication passes
-   `--if-exists skip`, which returns success and leaves the immutable snapshot unchanged.
-2. Reclaim a prior zero-row reservation after cleaning orphan history and cascade-deleting
-   partial snapshot chunks.
-3. Insert a zero-row parent reservation, upsert snapshot chunks, remove stale same-date symbols,
-   upsert slim history, and only then write the complete run metadata with a nonzero row count.
-4. On a write failure, compensate by removing partial history/reservation state and fail loudly.
-5. Prune old full snapshots only after completion. Prune failure is logged as housekeeping and
-   does not invalidate the already-visible new run. The default retains two full snapshots;
-   narrow history remains available for the movers view.
+| Job | When | What it writes |
+|---|---|---|
+| Daily stock screener (NSE) | Four slots, 11:07-17:07 UTC, because GitHub starts scheduled jobs late. Once a session is published the rest stop at the dedupe step or the session guard. | Scores, then publishes the read model as its last step. |
+| Daily US screener | 21:37 and 23:37 UTC. `MARKET=US`, universe `all_listed`, annual statements from SEC EDGAR. | The same, for the US. |
+| Financial statements | 03:00, 09:00, 15:00 UTC | `financial_statements` (Yahoo annual statements; EDGAR for the US); first refreshes `new_listings` (NSE only), then records `market_events`. |
+| Quarterly filings | Dispatch-only; cron-job.org every 15 minutes, and daily with `full=true`. NSE. | `quarterly_filings` (one row per symbol, quarter and basis, parsed once), `shareholding_patterns`, `bulk_block_deals`, BSE-only filings (`workers/bse_filings.py`), then `market_events` and the trailing lines of `valuation_basis`. |
+| Live quotes | Dispatch-only; cron-job.org every 5 minutes on weekdays. | `live_quotes` from Yahoo\'s batch endpoint, and once a day `index_members`. |
+| Price series | Tuesdays and Saturdays, 22:00 UTC | Chart series in Storage under `price-series/{MARKET}/`. |
+| Market breadth | 14:30 and 22:45 UTC on weekdays | `market_breadth` tables, including each stock\'s next-session levels. |
+| Transcript sentiment | 04:30, 11:30, 15:30 UTC | Tone and outlook records (section 10). |
+| Earnings call recordings | Every 30 minutes through the working day, plus one night run | Speech transcripts (section 10.1). |
+| Red-flag shadow | 02:45 UTC | The red-flag snapshot (section 14.1). |
 
-`latest_completed_run()` excludes zero-row reservations, so the site and schedule guard never
-mistake an interrupted publish for a valid run. If Supabase is unavailable, publication is the
-last workflow step: the CSV artifact and warmed caches already exist, and the site continues to
-serve the previous completed run behind its freshness warning.
+Nothing in this list except the filings feeding growth (section 5.4) is read by the score. Their tables are display evidence, and their schemas are in `storage/*.sql`, applied by hand.
 
-Access is invite-only. Supabase Auth establishes the browser session, `dashboard_allowlist` and
-server-side `requireAccess()` enforce membership, and row-level security is the final data gate.
-The public anon key is expected in the browser; the service-role key exists only in GitHub
-Actions. RLS helper calls are wrapped as scalar subqueries so Postgres evaluates access once per
-statement rather than once per returned row.
+#### Publication protocol
 
-Company logos are identifiers, not stored image blobs. The collector publishes the normalized
-issuer website as `logo_domain`. Missing domains on an existing snapshot were filled through Yahoo
-website metadata by the resumable `backfill-logo-domains.yml` workflow, **retired 2026-08-19** once
-the backfill completed; its worker `workers/logo_domain_backfill.py` remains in the tree and can
-still be run directly. It patches only `logo_domain` and carries the existing non-null `payload`,
-so drill-down evidence is preserved.
-The browser requests the image from Brandfetch's CDN using the public
-`NEXT_PUBLIC_BRANDFETCH_CLIENT_ID`. Missing domains, absent client configuration, and CDN/image
-errors all fall back to the ticker initial. No Brandfetch secret key or company image is stored
-in Supabase.
+The publisher resolves `run_date` from the most common `Price_Bar_As_Of` in the file, then `Analysis_As_Of`, and only then the filename. This keeps renamed or replayed files from inventing a calendar date. It reports duplicate symbols and coercion drift, maps the fields needed for filtering/indexing into typed columns, and stores every original CSV field in `payload`. A new audit-only export therefore appears in drill-down without a database migration; only a field that must be filtered or indexed needs a typed-column migration. Everything is per market: `DashboardRepository` is scoped to one market at construction and `market` is part of every key.
 
-The stock detail page treats the published row as authoritative. Its Decision audit exposes the
-policy ceiling and exact gate reasons, missing fundamental/technical fields, factor coverage,
-and the serialized Value input sources. Technical display distinguishes `Price vs MA50` from
-`MA50 slope (20 sessions)`, while debt/equity is normalized from Yahoo percentage points to the
-human-readable ratio multiple. The application tab icon reuses the same gauge-and-bars
-`BrandMark` as the shell rather than the framework's default favicon.
+Publication uses a recoverable reserve/write/complete protocol because PostgREST cannot wrap several chunked requests in one client transaction:
+
+1. Refuse replacement of a completed same-date run by default. Scheduled publication passes `--if-exists skip`, which returns success and leaves the immutable snapshot unchanged. The consequence: a rescore of an already-published session is a silent no-op, and the dashboard keeps the earlier ranking (25 October 2026: a policy 5.5.0 run logged "already published; leaving its snapshot unchanged" and the site kept the 23 October ranking). Re-publishing a session needs a deliberate delete of that date first.
+2. Shrink guard: refuse a run with fewer than half the previous run\'s rows, so a failed universe download cannot replace a full snapshot.
+3. Date guard: if the bars are from an older session than the one the file was built for (`Expected_Price_Bar_As_Of`), raise instead of skipping as "already published".
+4. Reclaim a prior zero-row reservation after cleaning orphan history and cascade-deleting partial snapshot chunks.
+5. Insert a zero-row parent reservation, upsert snapshot chunks, remove stale same-date symbols, upsert slim history, and only then write the complete run metadata with a nonzero row count.
+6. On a write failure, compensate by removing partial history/reservation state and fail loudly.
+7. After completion, write `estimate_history`, `universe_index` and `valuation_basis`, and prune old full snapshots. A failure in any of these is logged as housekeeping and does not invalidate the already-visible new run. The publisher keeps one full snapshot per market (about 90 MB each; the free database stops writing at 500 MB); `screener_history` keeps every day and feeds Movers, rank history, the chart tail and Returns.
+
+`latest_completed_run()` excludes zero-row reservations, so the site and schedule guard never mistake an interrupted publish for a valid run. If Supabase is unavailable, publication is the last workflow step: the CSV artifact and warmed caches already exist, and the site continues to serve the previous completed run behind its freshness warning.
+
+#### The web application
+
+The app is Next.js 16 on Vercel. Every page lives under `/nse` or `/us` (`/` redirects to `/nse`); India is the NSE market and includes the BSE-only companies, shown as `SYMBOL` tagged BSE. Pages: the screener grid, the stock page, the Market page (breadth with a live point, movers by index), index pages, Movers, Watchlists, the notification bell, the Tools tab (Concalls, Results, Returns), run health, search, and CSV export. Concalls and Results are NSE only.
+
+- **Stock page.** Four tabs: Overview, Financials, Shareholding (NSE only) and Audit. The Audit tab exposes the policy ceiling and exact gate reasons, missing fundamental/technical fields, factor coverage, and the serialized Value input sources. It treats the published row as authoritative. Technical display distinguishes `Price vs MA50` from `MA50 slope (20 sessions)`, while debt/equity is normalized from Yahoo percentage points to the human-readable ratio multiple. A listing with no published row gets the ordinary page marked "Not rated", built from `new_listings`, with a reason and a chart from the second session.
+- **Not rated rows.** After the last ranked page of the India grid, a table lists `new_listings` minus the symbols the latest run rated, only when no filter other than the name search is set. They carry no score, rank or sort, and appear in neither the tiles, the universe count nor the CSV export. Search shows them tagged NEW.
+- **Live prices.** Display only. The browser reads `live_quotes` after render and polls aligned to the worker\'s next run. A quote shows only when it is from a later session than the row\'s bar, and a change past `MarketProfile.max_open_gap` is withheld as a unit change, not a move. The grid\'s Price and 1D, the stock page\'s tiles and ratios (the `live_valuation` view: price over the stored basis), the Market page\'s movers and breadth, and index pages use them. Nothing scores or sorts on a live price; Stage 2 and RS rating stay on the last close.
+- **Notifications.** `workers/market_events.py` writes `market_events`, one row per `(market, kind, symbol, event_key)`, from data other jobs already collect: a `results` event from the stored NSE filings (in the US, from the stored statements gaining a quarter) and a `transcript` event. The bell counts events newer than the viewer\'s `notification_reads.seen_at`, scoped to their watchlists when they have any.
+- **Results, Concalls, Shareholding.** Results reads `quarterly_result_feed` as the signed-in viewer and refreshes every few minutes; Concalls reads `concall_feed` (one row per call, no text); Shareholding reads `shareholding_patterns` and `bulk_block_deals`. FII and DII are the filing\'s own institution subtotals and public is the rest.
+
+Access is invite-only. Supabase Auth establishes the browser session; `proxy.ts` only refreshes that session, ends over-age sessions and redirects the signed-out. Membership is `requireAccess()` against `dashboard_allowlist`, and row-level security is the final data gate. The public anon key is expected in the browser; the service-role key exists only in GitHub Actions. RLS helper calls are wrapped as scalar subqueries so Postgres evaluates access once per statement rather than once per returned row.
+
+Company logos are identifiers, not stored image blobs. The collector publishes the normalized issuer website as `logo_domain`; the browser requests the image from Brandfetch\'s CDN using the public `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID`. Missing domains, absent client configuration, and CDN/image errors all fall back to the ticker initial. `workers/logo_domain_backfill.py` can still be run directly to patch missing domains. No Brandfetch secret key or company image is stored in Supabase.
 
 ## 16. Configuration defaults that materially change decisions
 
-| Parameter | Default | Decision impact |
+The first table is what scheduled production runs (Model 5.2 / policy 5.5.0). The second lists the 4.x settings, which apply to local and validation runs only. Section 20.10 lists the factor-model settings in full.
+
+| Parameter | Production default | Decision impact |
 |---|---:|---|
-| Fundamental/technical blend | 70% / 30% | Core score construction. |
-| `FUNDAMENTAL_MIN_COVERAGE_FOR_BUY` | 0.55 | Below it prevents BUY. |
-| `TECHNICAL_MIN_COVERAGE_FOR_BUY` | 0.75 | Below it prevents BUY. |
+| `MODEL_VERSION` / `RECOMMENDATION_POLICY_VERSION` / `OUTPUT_SCHEMA_VERSION` | 5.2.0 / 5.5.0 / 4.2.0 | Set by the workflows; the runtime default is `4.0.0-candidate`. |
+| `FACTOR_FUNDAMENTAL_MIN_COVERAGE_FOR_BUY` / `FACTOR_TECHNICAL_MIN_COVERAGE_FOR_BUY` | 0.70 / 0.90 | Below them prevents BUY. |
 | Strong coverage floors | 0.75 fundamental / 0.90 technical | Below them prevents STRONG BUY. |
-| `REQUIRE_UPTREND_FOR_BUY` | true | Requires price > MA50, nonfalling MA50, positive 3M return. |
-| `STRONG_BUY_MIN_GROWTH` | 0.05 | Revenue or earnings growth floor. |
-| `STRONG_BUY_MIN_TECH_SCORE` | 55 | Technical score floor. |
-| `STRONG_BUY_MIN_ADX` | 20 | ADX floor; `+DI > -DI` also required. |
-| Sector relative enabled / weight / peers | true / 0.5 / 5 | Blends generic absolute points with peer percentiles. |
-| DCF enabled / blend weight | true / 0.10 | Symmetric centered DCF evidence stage. |
-| DCF discount/terminal growth | 11% / 4% | DCF scenario valuation. |
-| Transcript enabled / base weight | true / 0.15 | Decayed downside-only transcript evidence stage. |
+| `REQUIRE_LIQUIDITY_FOR_BUY` | true | An actionable position size is a BUY requirement. |
+| `APPLY_RATING_CAP` | true | Policy gates cap the published rating (section 11.5). |
+| `RANK_BY_ELIGIBILITY_CLASS` | false | Gates label and rate; they do not rank (section 12). |
+| Sector relative enabled / weight / peers | true / 0.5 / 5 | Blends generic absolute points with peer percentiles (4.x scorer). |
+| `TRANSCRIPT_SENTIMENT_WEIGHT` | 1.0 | Weight of the call, before the age/cycle factor. |
+| `TRANSCRIPT_OUTLOOK_SHARE` / `TRANSCRIPT_OUTLOOK_ENABLED` | 0.85 / true | Outlook\'s share of the call; tone keeps the rest. Zero is tone-only, and no call waits for an outlook. |
+| `TRANSCRIPT_TWO_SIDED` / `TRANSCRIPT_NEUTRAL_MIN_CALLS` | true / 30 | Call moves the score both ways around the run\'s median call; below 30 calls the centre is 50. |
+| Outlook model | OpenRouter `z-ai/glm-5.3-flash` | `TRANSCRIPT_OUTLOOK_MODEL` empty reads any model\'s extraction of the current outlook version. |
 | Transcript max age / half life | 180d / 90d | Current-cycle transcript eligibility and weight. |
 | Transcript required for STRONG BUY | false | Optional additional high-conviction gate. |
-| Target position / participation | Rs100,000 / 1% | Liquidity actionability only. |
-| Liquidity prefilter | false | If enabled in full scan, reduces the research universe before scoring. |
+| DCF discount/terminal growth | 11% / 4% | DCF scenario valuation (an input to the Value block). |
+| `PRICE_BAR_FALLBACK_ENABLED` / `PRICE_BASIS_RESTATEMENT_ENABLED` | true (NSE) | Price-bar repair (section 5.2). |
+| Target position / participation | Rs100,000 / 1% | Liquidity actionability. |
+| Liquidity prefilter | false (NSE), true (US) | Where on, reduces the research universe before scoring. |
+
+| 4.x-only parameter | Default | Decision impact |
+|---|---:|---|
+| Fundamental/technical blend | 70% / 30% | Core score construction. |
+| `FUNDAMENTAL_MIN_COVERAGE_FOR_BUY` / `TECHNICAL_MIN_COVERAGE_FOR_BUY` | 0.55 / 0.75 | Below them prevents BUY. |
+| `REQUIRE_UPTREND_FOR_BUY` | true | Requires price > MA50, nonfalling MA50, positive 3M return. |
+| `STRONG_BUY_MIN_GROWTH` / `STRONG_BUY_MIN_TECH_SCORE` / `STRONG_BUY_MIN_ADX` | 0.05 / 55 / 20 | Growth, technical-score and ADX floors; `+DI > -DI` also required. |
+| DCF blend weight | 0.10 | Symmetric centered DCF evidence stage (zero under Model 5). |
 
 ## 17. Failure behavior and design invariants
 
@@ -1001,9 +1043,9 @@ human-readable ratio multiple. The application tab icon reuses the same gauge-an
 | Missing technical component | It reduces coverage; it does not create hidden neutral component points. |
 | Empty technical evidence | Score is neutral 50, coverage zero, so BUY eligibility fails. |
 | DCF unavailable / unsupported / estimated | Audit fields may exist, but the applied DCF weight is zero. |
-| No transcript / prior cycle / expired transcript | Neutral evidence; no implicit rank penalty or priority. |
-| Positive transcript | Exported but cannot numerically promote score. |
-| High raw score fails trend/coverage gate | Published decision score is ceiling-capped to 59.99 or 69.99. |
+| No transcript / prior cycle / expired transcript | Unreported: the company is untouched, with no implicit rank penalty or priority. |
+| Call with no extracted outlook yet | Treated as no call until the next run reads the outlook (`Transcript_Awaiting_Outlook`). |
+| High score fails a trend/coverage/quality gate | Published decision score is ceiling-capped to 59.99 or 69.99 (rank is by merit; section 12). |
 | Liquidity fails | Primary rank/rating remains; actionability is false and execution rank moves it behind actionable names. |
 | Red-flag feed shows severity | Shadow-only review/counterfactual; no live rating change. |
 
@@ -1013,26 +1055,27 @@ This document describes current implementation behavior. The authoritative files
 
 1. `app.py` — composition root and execution order.
 2. `screener/runtime.py` — environment-backed defaults and feature flags.
-2b. `screener/statements.py`, `screener/benchmark.py`, `screener/factors.py` — Model 5.0
-   statement collection, benchmark/regime, and factor blocks (see section 20).
-3. `screener/data_collection.py` — collection, completed-bar policy, valuation alignment, liquidity metrics, and fundamentals cache.
+2a. `screener/markets.py`, `screener/universe.py` — one `MarketProfile` per market, and the universe sources.
+2b. `screener/statements.py`, `screener/edgar.py`, `screener/benchmark.py`, `screener/factors.py`, `screener/stage.py` — annual statement collection, benchmark/regime, factor blocks, and the display-only stage and relative-strength rating (see section 20).
+3. `screener/data_collection.py` — collection, completed-bar policy, valuation alignment, liquidity metrics, and fundamentals cache; `screener/session_bars.py` and `screener/price_basis.py` — price-bar repair.
+3b. `screener/quarterly_results.py`, `screener/valuation_basis.py`, `screener/expectations.py` — filing-derived growth, the stored basis of price ratios, and the display-only expectations gap.
 4. `screener/market_data.py` — technical indicator algorithms and cache validation.
-5. `screener/scoring.py` — fundamental/technical point functions, coverage, specialist models, and peer-relative scoring.
+5. `screener/scoring/` — fundamental/technical point functions (`points.py`), coverage and specialist quality (`fundamental.py`, `sector_models.py`), technical scoring (`technical.py`), and the `StockScorer` engine (`engine.py`).
 6. `screener/valuation.py` — reverse-DCF scenario and evidence contract.
-7. `scoring/transcript_enricher.py`, `sentiment/*.py`, and `transcripts/periods.py` — transcript feature creation, eligibility, and execution overlay rank.
+7. `scoring/transcript_enricher.py`, `sentiment/*.py` (including `outlook.py` and `llm_provider.py`), `transcripts/*.py` and `workers/call_recordings.py` — transcript and outlook feature creation, eligibility, and execution overlay rank.
 8. `screener/recommendation.py` — final decision mathematics, gates, ceiling rules, stability diagnostics, and primary rank implementation.
 9. `screener/liquidity.py` — NSE evidence and actionability math.
 10. `red_flags/*.py` — non-live risk shadow behavior.
 11. `validation/reproducibility.py` — run manifest and canonical configuration hashing.
 11b. `workers/scheduled_session_guard.py` — completed-session publication guard for scheduled work.
 11c. `workers/dashboard_publisher.py` and `storage/dashboard_repository.py` — Supabase read-model mapping, reservation protocol, immutable-date policy, retention, and logo-domain patching.
-11d. `storage/dashboard_schema.sql` — typed/read payload schema, RLS, movers view, allowlist functions, and snapshot pruning.
+11d. `storage/dashboard_schema.sql` and the other `storage/*.sql` files — typed/read payload schema, RLS, movers view, allowlist functions, snapshot pruning, and each feature table. They are applied by hand.
 11e. `dashboard/app`, `dashboard/components`, and `dashboard/lib` — authenticated Next.js read paths, visual semantics, queries, and formatting.
-11f. `workers/logo_domain_backfill.py` — resumable Yahoo website-domain resolution for Brandfetch identifiers, run directly since `backfill-logo-domains.yml` was retired.
+11f. `workers/quarterly_filings.py`, `workers/shareholding.py`, `workers/market_events.py`, `workers/live_quotes.py`, `workers/new_listings.py`, `workers/concall_feed.py` — the feature jobs of section 15.5.
+11g. `workers/logo_domain_backfill.py` — resumable Yahoo website-domain resolution for Brandfetch identifiers, run directly.
 12. `tests/test_technical_scoring.py`, `tests/test_recommendation.py`, `tests/test_liquidity.py`, and `tests/test_valuation.py` — executable behavioral specifications.
-13. `tests/test_statements.py`, `tests/test_benchmark.py`, `tests/test_factors.py`,
-    `tests/test_factor_policy.py`, `tests/test_trend_risk_features.py`,
-    `tests/test_factor_wiring.py` — executable specifications for Model 5.0.
+13. `tests/test_statements.py`, `tests/test_benchmark.py`, `tests/test_factors.py`, `tests/test_factor_policy.py`, `tests/test_trend_risk_features.py`, `tests/test_factor_wiring.py` — executable specifications for Model 5.
+14. `tests/test_markets.py`, `tests/test_valuation_basis.py` — the market-default property and the equality of the screener\'s and dashboard\'s ratio arithmetic.
 
 ## 19. Recommended interpretation workflow
 
@@ -1050,13 +1093,9 @@ For a reviewer examining an exported top-ranked row:
 
 ---
 
-## 20. Model 5.0 factor architecture (scheduled production)
+## 20. Model 5 factor architecture (scheduled production)
 
-**Status:** scheduled production uses model `5.0.0`, recommendation policy `5.0.0`, and
-additive output schema `4.2.0`. The daily workflow enables the factor switch only for scheduled
-runs; local execution and a manual dispatch of that workflow retain the 4.x default. Candidate
-run `31685056109` supplied operational full-universe evidence, while point-in-time,
-out-of-sample predictive validation remains pending.
+**Status:** scheduled production, and any dispatch with `mode=production`, runs model `5.2.0`, recommendation policy `5.5.0` and additive output schema `4.2.0` in both markets. Other runs keep `4.0.0-candidate`. The model number moves with a semantic change to the ranking (5.1: value/quality reweighting and research-first ranking; 5.2: the latest quarter in the growth block and the 0.25/0.25/0.15/0.30/0.05 weights); the policy number moves with the gates and the evidence blend (5.2: momentum percentile floors off; 5.3: tolerance band on the MA50 test; 5.4: a risk-off market no longer disables STRONG BUY; 5.5: a call waits for its outlook and the published score is one run percentile). `docs/model_methodology.md` records the reasoning and evidence for each change. Section 20.9 says what has and has not been validated.
 
 ### 20.1 Why the 4.x core score was replaced
 
@@ -1073,16 +1112,16 @@ Three defects motivated the redesign, all visible in sections 7 and 8 above:
    sessions. Momentum research is centred on 3-to-12-month formation windows, which the
    previous six-month download could not even express.
 
-Model 5.0 keeps the 70/30 *philosophy* — 70% accounting evidence, 30% market evidence — but
+Model 5 keeps the idea of separating accounting evidence from market evidence, but
 makes each block economically separable.
 
 ### 20.2 Blocks and weights
 
 ```text
-Research_Score_Raw = 0.35 * Quality
-                   + 0.20 * Growth
+Research_Score_Raw = 0.25 * Quality
+                   + 0.25 * Growth
                    + 0.15 * Value
-                   + 0.25 * Momentum
+                   + 0.30 * Momentum
                    + 0.05 * Risk
 ```
 
@@ -1104,15 +1143,16 @@ biasing every inverted (lower-is-better) metric.
 
 | Block | Weight | Inputs (weight, direction) |
 |---|---:|---|
-| Quality (generic) | 0.35 | ROIC .20 up, gross profit/assets .15 up, OCF/assets .13 up, FCF/assets .09 up, accruals/assets .10 down, interest coverage .05 up, net debt/EBITDA .05 down, operating-margin stability .08 down, earnings stability .08 down, asset growth .04 down, 3Y dilution .03 down |
-| Quality (financial) | 0.35 | ROE .28 up, ROA .22 up, equity/assets .20 up, earnings stability .15 down, profit margin .15 up |
-| Growth | 0.20 | Revenue CAGR 3Y .25 up, EPS CAGR 3Y .20 up, revenue acceleration .15 up, EPS acceleration .15 up, margin direction .15 up, cash conversion .10 up |
+| Quality (generic) | 0.25 | ROIC .20 up, gross profit/assets .15 up, OCF/assets .13 up, FCF/assets .09 up, accruals/assets .10 down, interest coverage .05 up, net debt/EBITDA .05 down, operating-margin stability .08 down, earnings stability .08 down, asset growth .04 down, 3Y dilution .03 down |
+| Quality (financial) | 0.25 | ROE .28 up, ROA .22 up, equity/assets .20 up, earnings stability .15 down, profit margin .15 up |
+| Growth | 0.25 | 65% of the block: revenue CAGR 3Y .25 up, EPS CAGR 3Y .20 up, revenue acceleration .15 up, EPS acceleration .15 up, margin direction .15 up, cash conversion .10 up (shares of those six). 35% of the block (`FACTOR_GROWTH_QUARTER_SHARE`): latest-quarter earnings growth .20 up and revenue growth .15 up, against the same quarter a year earlier |
 | Value | 0.15 | Earnings yield .25 up, FCF yield .25 up, EBIT/EV .20 up, book yield .15 up, reverse-DCF score .15 up |
-| Momentum | 0.25 | Risk-adjusted 12-1 .30 up, risk-adjusted 6-1 .25 up, 6M sector-relative .20 up, 6M market-relative .15 up, signed trend quality .10 up |
+| Momentum | 0.30 | Risk-adjusted 12-1 .30 up, risk-adjusted 6-1 .25 up, 6M sector-relative .20 up, 6M market-relative .15 up, signed trend quality .10 up |
 | Risk | 0.05 | Annualised volatility .25 down, max 1Y drawdown .20 up, trading frequency .20 up, downside deviation .15 down, gap risk .10 down, return concentration .10 down |
 
 Notes on specific inputs:
 
+- **The latest quarter.** Every annual input is a year or more old, so a company whose business turned two quarters ago is still scored on the year before it turned. The two quarterly growth inputs are the only growth evidence that moves between annual filings. On NSE they are measured from stored results filings (section 5.4), and an earnings figure the source cannot compute (a loss in the base quarter) is missing for that row and costs it coverage. `FACTOR_GROWTH_QUARTER_SHARE=0` restores the annual-only block.
 - **Two quality templates.** Banks, NBFCs, insurers and capital-markets firms report no EBIT,
   gross profit or current assets, and Yahoo omits operating cash flow for most of them. Scoring
   them on the industrial-company template would mark them down for *absent* data rather than
@@ -1154,18 +1194,20 @@ bands — which were calibrated for the 4.x *absolute* score — exactly **one**
 70 and **none** was rated BUY. Ranking the blend restores the bands' meaning: `>= 70` is the top
 30% of the cross-section, `>= 60` the top 40%.
 
-**This makes Model 5.0 ratings explicitly relative,** which is a genuine semantic change from
+**This makes Model 5 ratings explicitly relative,** which is a genuine semantic change from
 4.x and has two consequences that remain part of the production contract:
 
 - In any universe, roughly 40% of rows score below 50 and are labelled REDUCE or SELL. On a
   40-name blue-chip watchlist that reads as absurdly bearish; on a full-NSE run it is closer to
-  the intended meaning. **Model 5.0 is designed for full-universe runs.**
+  the intended meaning. **Model 5 is designed for full-universe runs.**
 - "Top 30% of a collapsing market" would otherwise be published as STRONG BUY. What prevents
   that is not the score but the *absolute* protections: the market-regime overlay (20.6) and the
   hard trend, quality, coverage and liquidity gates (20.5), all of which fail closed.
 
+The published `Evidence_Score` is a second percentile: of the research score plus the DCF and earnings-call adjustments across the run (section 11.1). `Research_Score`, the block scores and the block percentiles do not include the call.
+
 Set `FACTOR_SCORE_AS_PERCENTILE=False` to publish the raw blend instead; the rating bands then
-need recalibrating.
+need recalibrating, and `Evidence_Score` is clipped at 100 instead of ranked.
 
 ### 20.4 New data inputs
 
@@ -1178,35 +1220,19 @@ need recalibrating.
 | EBIT | `Ticker.income_stmt` | 80% (absent for financials) |
 | Gross profit, current assets/liabilities | `Ticker.income_stmt` / `balance_sheet` | 73% (absent for financials) |
 | 4-5 years of annual history (3Y CAGR needs 4) | all three statements | 100% |
-| Benchmark index (`^CRSLDX`, fallback `^NSEI`) | `yf.download` | available, ~493 sessions |
+| Benchmark index (NSE: `^CRSLDX`, fallback `^NSEI`; the US profile names its own) | `yf.download` | available, ~493 sessions |
+| Latest-quarter revenue and earnings growth | NSE results filings (`quarterly_filings`); Yahoo for the rest | NSE companies with a filing |
 
 Yahoo's quote metadata supplies **none** of these: it has no total assets, no EBIT, no gross
 profit, no cash-flow history and no multi-year series, and it omits `returnOnEquity` and
 `returnOnAssets` outright for part of the universe (RELIANCE and HDFCBANK both returned `None`
 in the audit).
 
-**Collection cost.** In candidate run `31674195181`, a cold full-NSE screen spent about 59
-minutes fetching fundamentals for 2,310 symbols and about 15.5 minutes on the first bounded
-statement tranche (600 attempted, 594 usable); the complete screener step took about 80 minutes.
-The dominant cost was therefore the cold fundamental fetch, not the statement fetch. Statements
-restate quarterly at most, so `STATEMENT_CACHE_MAX_AGE_DAYS` defaults to 90 and
-`STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` bounds each run's backfill (2,500 by runtime default,
-400 for an isolated manual-daily run, and 600 by default in candidate validation). Candidate
-validation also accepts 2,500 for a deliberate one-time
-full-universe completion. Symbols not yet backfilled report no statement evidence and fail
-closed, while the comparison step refuses factor-model evidence below 95% universe coverage.
-
-Statements are deliberately **not** a sixth path in the production market-data composite.
-The failed validation run changed that path list, which changed GitHub's hidden cache version
-and forced the 59-minute cold fundamental refill. Production now keeps the original five-path
-composite and uses a separate production statement-cache namespace. Candidate runs use a
-different, branch-scoped statement namespace, may seed it from a prior candidate artifact, and
-checkpoint each successful tranche before any later comparison can fail. This preserves the
-bounded backfill without allowing a candidate to mutate production cache state.
+**Collection cost.** A cold full-NSE screen is dominated by the fundamental fetch (about an hour for 2,300 symbols), not by statements. Statements restate quarterly at most, so `STATEMENT_CACHE_MAX_AGE_DAYS` defaults to 90 and `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` bounds each run\'s backfill (2,500 on scheduled runs, 400 on a validation dispatch). Symbols not yet backfilled report no statement evidence and fail closed, and a scheduled run refuses to score below 95% usable statement coverage. Statements are deliberately not a sixth path in the production market-data cache composite (section 15.4).
 
 ### 20.5 Gates
 
-Model 5.0 keeps every shared data-integrity gate from section 11.3 (core score present, price
+Model 5 keeps every shared data-integrity gate from section 11.3 (core score present, price
 bar aligned, stale fundamentals, `Data_Quality != LOW`, specialist model required, two or more
 anomalies) and replaces the trend and high-conviction gates.
 
@@ -1225,12 +1251,12 @@ anomalies) and replaces the trend and high-conviction gates.
 | Technical coverage | `>= 0.90` (up from 0.75) |
 | Execution liquidity | `Portfolio_Actionable` (`REQUIRE_LIQUIDITY_FOR_BUY`) |
 
-**STRONG BUY** (inherits every BUY failure; further failures cap at `69.99`):
+**STRONG BUY** (inherits every BUY failure; further failures cap at `69.99`; the coverage, specialised-quality, anomaly and negative-FCF conditions of section 11.4 also apply):
 
 | Gate | Threshold |
 |---|---|
-| Quality / Growth / Momentum percentile | `>= 70` / `>= 60` / `>= 70` |
-| Moving-average stack | `Price > MA50 > MA200` |
+| Quality / Growth percentile | `>= 70` / `>= 60` (the momentum percentile floor of 70 was switched off in policy 5.2.0: a percentile floor is cross-sectional, so it keeps clearing in a falling market and buys no absolute protection) |
+| Moving-average stack | `Technical_Price >= 0.98 * MA50` and `MA50 > MA200` (the 2% band on the MA50 test since policy 5.3.0; the order of the averages stays strict) |
 | MA200 slope | strictly `> 0` |
 | 12M market relative strength | `> 0` |
 
@@ -1258,24 +1284,24 @@ UNKNOWN  : fewer than MA + slope sessions of index history
 | Regime | Effect |
 |---|---|
 | RISK_ON | normal policy |
-| NEUTRAL | STRONG BUY additionally requires momentum percentile `>= 85` |
-| RISK_OFF | BUY additionally requires momentum percentile `>= 90`; STRONG BUY is no longer disabled (policy 5.4.0, `REGIME_RISK_OFF_DISABLES_STRONG_BUY=false`) |
+| NEUTRAL | normal policy (the momentum floor of 85 was switched off in policy 5.2.0 with the one in 20.5) |
+| RISK_OFF | BUY additionally requires momentum percentile `>= 90`. STRONG BUY is not disabled (policy 5.4.0, `REGIME_RISK_OFF_DISABLES_STRONG_BUY=false`): a stock that clears every gate of its own used to read BUY for as long as the index stayed down, and its own MA200, breakdown, MA50/MA200 stack and relative-strength gates already bar a stock that is falling with the market |
 
 The overlay changes **deployment conviction only**. It never edits a factor score, so the
 research ranking stays fully visible and auditable in every regime. This is locked by
 `test_regime_never_edits_the_research_score`.
 
-### 20.7 Separated decision views and eligibility-class ranking
+### 20.7 Separated decision views and ranking
 
 Collapsing every gate failure onto an identical `59.99` creates a large artificial cluster and
 destroys the ordering *within* it — ranking that cluster by `Decision_Score` sorts a column that
 is constant by construction and falls through to the symbol tie-break, i.e. **alphabetical order
-presented as investment merit**. Model 5.0 publishes separate views instead:
+presented as investment merit**. Model 5 publishes separate views instead:
 
 | Field | Meaning |
 |---|---|
 | `Research_Rating` | Uncapped research view (band of `Evidence_Score`) |
-| `Policy_Eligible_Rating` | The published, gate-capped label (equals `Rating`) |
+| `Policy_Eligible_Rating` | The gate-capped label; equals `Rating` while `APPLY_RATING_CAP` is true |
 | `Execution_Status` | `ACTIONABLE` / `NOT_ACTIONABLE` |
 | `Primary_Gate` | Most severe binding reason, as a stable slug (`BELOW_MA200`, `LOW_QUALITY`, `ILLIQUID`, ...) |
 | `Gate_Severity` | Count of simultaneous failures |
@@ -1285,15 +1311,14 @@ presented as investment merit**. Model 5.0 publishes separate views instead:
 can still report a STRONG BUY gate. Patterns are scanned in severity order, not in the order the
 failures happened to be appended.
 
-With `RANK_BY_ELIGIBILITY_CLASS=True`:
+The primary rank does **not** sort by `Eligibility_Class` (`RANK_BY_ELIGIBILITY_CLASS=false` since Model 5.1; section 12). The point-in-time validation found that ranking eligibility first cost 5-16 CAGR points wherever the gates bound and changed nothing in the 2018-2020 drawdown. The gates still compute and publish in full, so a failing name is labelled rather than hidden, but they are no longer a stock-selection input. With the flag set to true:
 
 ```text
-Investment_Rank = sort(Eligibility_Class ASC, Research_Score DESC,
+Investment_Rank = sort(Eligibility_Class ASC, Evidence_Score DESC, Research_Score DESC,
                        Gate_Severity ASC, Symbol ASC)
 ```
 
-`Decision_Score`, `Final_Score` and the ceiling logic are unchanged, so every existing consumer
-keeps working.
+`Decision_Score`, `Final_Score` and the ceiling logic are unchanged either way, so every existing consumer keeps working.
 
 ### 20.8 Known gap: financial-sector regulatory evidence
 
@@ -1305,7 +1330,7 @@ barred from BUY** — silently removing the largest sector of the Indian market 
 universe. This was confirmed on a live run: all 9 financial rows failed with
 `missing specialized quality data`.
 
-Model 5.0's financial quality template scores these companies correctly from statement evidence
+Model 5's financial quality template scores these companies correctly from statement evidence
 at full coverage (measured spread on the same run: HDFCLIFE 5.1 to BAJFINANCE 100.0), so the gate
 is now the only thing blocking them.
 
@@ -1323,7 +1348,7 @@ caps them:
 | Bank / NBFC Equity Quality | 8 | Gross_NPA, Net_NPA, Capital_Adequacy | **0.625** |
 | Insurance Equity Quality | 6 | Solvency_Ratio | **0.833** |
 
-Model 5.0's BUY floor is 0.70, so **banks and NBFCs fail on coverage even with the flag set**;
+Model 5's BUY floor is 0.70, so **banks and NBFCs fail on coverage even with the flag set**;
 insurers clear BUY but can never reach the 0.75 STRONG BUY floor. Under 4.x the 0.55 BUY floor is
 cleared, so there the specialist gate alone is the binding constraint.
 
@@ -1333,83 +1358,49 @@ Fully closing the gap therefore needs one of:
    the evidence real rather than merely uncounted; or
 2. removing structurally uncollectable fields from the coverage denominator, so coverage measures
    *how much of what is knowable is known*. This changes 4.x behaviour too and should be a
-   separate, reviewed change rather than a side effect of the Model 5.0 rollout.
+   separate, reviewed change rather than a side effect of the Model 5 rollout.
 
-**A feed has been scoped and verified — see `docs/financial_regulatory_data_feed_scope.md`.**
-Summary: NSE's `corporates-financial-results` API tags bank filings and serves them under a
-`BANKING_` XBRL taxonomy carrying `PercentageOfGrossNpa` and `PercentageOfNpa`, verified against
-reported figures for HDFCBANK, SBIN and AXISBANK. That unblocks the 41 listed banks for about a
-day of work. The consolidated filing returns `0.00` for every NPA tag, so a naive reader would
-publish pristine asset quality for every bank — the scope document treats that as a required
-test, not a caveat.
+**Closing the gap needs a feed.** `docs/financial_regulatory_data_feed_scope.md` records the verified route: NSE\'s `corporates-financial-results` API serves bank filings under a `BANKING_` XBRL taxonomy carrying `PercentageOfGrossNpa` and `PercentageOfNpa`. The consolidated filing returns `0.00` for every NPA tag, so a naive reader would publish pristine asset quality for every bank; the scope document makes that a required test. NBFC asset quality and capital adequacy are only in the results PDF, which needs coordinate-based table extraction because labels and values are separated in the text stream. No scorer reads either feed yet: the NPA, capital-adequacy and solvency fields are still never populated, and the alternative of removing uncollectable fields from the coverage denominator would change 4.x behaviour and should be a separate, reviewed change.
 
-NBFC asset quality and capital adequacy are **not** in any XBRL taxonomy, but they are in the
-results PDF, which NSE exposes through `corporate-announcements` and which PyMuPDF (already a
-dependency) can read. Measured over 12 NBFCs: CRAR detected in 83%, gross/net NPA in 50%, where
-the 50% is a detection limit — filers write "Stage III", "GNPA" and "Gross Stage 3 assets"
-interchangeably — rather than an availability limit. That route also closes the CRAR gap for
-banks, which no XBRL carries. It is viable but is a 1-2 week parsing project with permanent
-layout maintenance, and it must use coordinate-based table extraction: labels and values are
-separated in the text stream, and a mis-paired CRAR would pass the regulatory gate with a
-fabricated number.
+### 20.9 Validation status and evidence
 
-### 20.9 Validation status and protocol
+Predictive evidence comes from the point-in-time backtest in `backtest/` (section 15.3), run with `python -m tools.run_p0_backtest`. A signal forms on the close of day t and fills at the next session\'s open; returns are adjusted for corporate actions and net of costs; delisted securities stay in. The weights and gates of Models 5.1 and 5.2 were chosen on its windows (the declared grids are in `backtest/strategies.py`: the gate grid, `GROWTH_REWEIGHT_GRID` and `VALUE_WEIGHT_GRID`, which led to cutting value from 0.25 to 0.15). Results and the commands that reproduce them are in the README\'s "Point-in-time validation" section, and the protocol is in `docs/model_methodology.md`; they are not copied here because they change with each run.
 
-Measured on a 40-name large-cap watchlist, 4.x baseline vs Model 5.0 on identical vendor inputs:
-Spearman rank correlation **0.62**, top-20 Jaccard **0.60**, 5 entrants and 5 exits. The model
-re-ranks materially, which is the point — and exactly why it must not be promoted on a smoke test.
+What that evidence does not show:
 
-**Nothing here is evidence that Model 5.0 predicts returns better than 4.x.** Before making
-predictive-performance claims, run the pre-declared grid from the proposal (A: 4.x baseline,
-B: factorised 70/30, C: 60/40 with
-MA200 gate, D: proposed without MA200 gate, E: proposed with regime overlay) under expanding
-walk-forward validation with a final untouched test period, and evaluate forward 1/3/6/12-month
-returns, decile portfolios, excess return vs Nifty 500 TRI, rank information coefficient, hit
-rate, maximum drawdown, turnover, transaction costs, sector/size exposure, regime-split
-performance, and rating stability.
+- The weights were fitted on the same windows (in-sample). **Forward validation is pending**, and the exported `Model_Validation_Status` says so: "Production active; point-in-time validated over four windows incl. 2018-2020 drawdown; weights fitted in-sample, forward validation pending" on NSE. The US export says validation was done on NSE data only.
+- Windows after early 2025 use vendor statements as restated today, dated at the filing deadline (`reports_advanced/backtest_ext`): conservative on timing, but not the figures as first filed.
+- The backtest ranks `Research_Score` and has no calls, so the earnings-call evidence has its own, shorter studies (`docs/model_methodology.md`).
+- `screener/statements.py` derives from the statements the vendor publishes today. For a live screen that is correct; it does not reconstruct what was knowable on a past date.
 
-Note that `screener/statements.py` derives from the statements Yahoo publishes *today* and makes
-no attempt to reconstruct what was knowable on a past date, so it is suitable for a forward
-screen but **not** for a look-ahead-free historical backtest without a point-in-time
-fundamentals source. This is the single largest obstacle to executing the validation protocol
-above and should be scoped before interpreting Model 5.0 as predictively validated.
+A scheduled run fails before scoring when usable statements cover less than 95% of the universe (`FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE`), so a partial backfill cannot be mistaken for a full-universe result.
 
-The isolated candidate workflow adds an operational guard, not a predictive claim: comparison
-fails below 95% statement coverage so an alphabetical or otherwise partial backfill cannot be
-mistaken for a full-universe result. A successful screen checkpoints its candidate-only
-statement tranche before that guard or a later baseline comparison can fail. For transcript
-parity the workflow may bulk-read Supabase using the service-role secret, but read-only mode
-rejects every write and the secret is never placed in a manifest, cache, or artifact.
-
-Full-NSE candidate run `31685056109` completed successfully at the approved candidate commit. Its
-cache contained 2,284 unique statement rows; 2,283 matched the 2,301-row candidate universe and
-were usable (99.22% coverage). This is operational acceptance evidence
-only: it shows that the pipeline runs, the cross-section is substantially complete, and the
-comparison tooling works.
-It neither estimates future returns nor demonstrates superiority over 4.x. Scheduled production
-therefore exports a validation status that continues to state that point-in-time,
-out-of-sample validation is pending.
-
-### 20.10 Model 5.0 configuration reference
+### 20.10 Model 5 configuration reference
 
 | Parameter | Runtime default / scheduled override | Effect |
 |---|---:|---|
-| `FACTOR_MODEL_ENABLED` | false / true | Master switch; GitHub's scheduled production run explicitly enables it while manual daily dispatch remains false |
-| `MODEL_VERSION` / `RECOMMENDATION_POLICY_VERSION` / `OUTPUT_SCHEMA_VERSION` | local model/policy `4.0.0-candidate`; scheduled model/policy `5.0.0`; schema `4.2.0` | Scheduled model, policy, and additive export contracts are versioned independently |
-| `FACTOR_WEIGHT_{QUALITY,GROWTH,VALUE,MOMENTUM,RISK}` | .35/.20/.15/.25/.05 | Block blend |
+| `FACTOR_MODEL_ENABLED` | false / true | Master switch; the workflows enable it for scheduled runs and `mode=production` dispatches, and leave it false for `mode=validation` |
+| `MODEL_VERSION` / `RECOMMENDATION_POLICY_VERSION` / `OUTPUT_SCHEMA_VERSION` | local model/policy `4.0.0-candidate`; scheduled model/policy `5.2.0` / `5.5.0`; schema `4.2.0` | Scheduled model, policy, and additive export contracts are versioned independently |
+| `FACTOR_WEIGHT_{QUALITY,GROWTH,VALUE,MOMENTUM,RISK}` | .25/.25/.15/.30/.05 | Block blend (5.1 and 5.2 moved ten points each; set .20/.25/.25 growth/value/momentum to restore 5.1) |
+| `FACTOR_GROWTH_QUARTER_SHARE` | 0.35 | Share of the growth block carried by the latest quarter |
 | `FACTOR_SCORE_AS_PERCENTILE` | true | Publish the blend as a cross-sectional percentile |
 | `FACTOR_SECTOR_NEUTRAL` / `FACTOR_MIN_SECTOR_PEERS` | true / 8 | Rank inside sector when it is large enough |
 | `FACTOR_MIN_BLOCK_COVERAGE` | 0.50 | Block coverage floor for BUY |
 | `FACTOR_VALUE_QUALITY_FLOOR_PCT` / `FACTOR_VALUE_CEILING_WHEN_LOW_QUALITY` | 30 / 50 | Value-trap cap |
-| History/cache contract / `LEGACY_HISTORY_WINDOW_SESSIONS` | 4.x: 6mo/v6; Model 5.0: 2y/v7; 126 | Model-selected download depth and cache schema; six-month feature pinning applies to the longer Model 5.0 frame |
+| History/cache contract / `LEGACY_HISTORY_WINDOW_SESSIONS` | 4.x: 6mo/v6; Model 5: 2y/v7; 126 | Model-selected download depth and cache schema; six-month feature pinning applies to the longer Model 5 frame |
 | `BENCHMARK_INDEX_SYMBOL` / `BENCHMARK_INDEX_FALLBACK` | ^CRSLDX / ^NSEI | Relative strength and regime source |
 | `MARKET_REGIME_ENABLED` / `MARKET_REGIME_MA_SESSIONS` / `MARKET_REGIME_NEUTRAL_BAND_PCT` | true / 200 / 2.0 | Regime classification |
 | `REQUIRE_MA200_TREND_FOR_BUY` / `BUY_MA200_TOLERANCE` | true / 0.98 | Trend gate and hysteresis band |
 | `BREAKDOWN_CONFIRM_SESSIONS` | 10 | Confirmed-breakdown persistence |
-| `BUY_MIN_QUALITY_PCT` / `STRONG_BUY_MIN_{QUALITY,GROWTH,MOMENTUM}_PCT` | 40 / 70,60,70 | Factor percentile floors |
+| `BUY_MIN_QUALITY_PCT` / `STRONG_BUY_MIN_{QUALITY,GROWTH}_PCT` | 40 / 70, 60 | Factor percentile floors |
 | `FACTOR_FUNDAMENTAL_MIN_COVERAGE_FOR_BUY` / `FACTOR_TECHNICAL_MIN_COVERAGE_FOR_BUY` | 0.70 / 0.90 | Tightened BUY coverage |
 | `REQUIRE_LIQUIDITY_FOR_BUY` | true | Execution liquidity as a BUY gate |
-| `RANK_BY_ELIGIBILITY_CLASS` | true | Eligibility-first primary ranking |
+| `RANK_BY_ELIGIBILITY_CLASS` | false | Eligibility-first primary ranking when true (off since 5.1) |
+| `APPLY_RATING_CAP` | true | Policy gates cap the published rating; false caps on evidence-quality gates only |
+| `REGIME_RISK_OFF_DISABLES_STRONG_BUY` | false | Policy 5.4.0 |
+| `STRONG_BUY_MIN_MOMENTUM_PCT` / `REGIME_NEUTRAL_MIN_MOMENTUM_PCT_FOR_STRONG_BUY` | 0 / 0 | Momentum percentile floors, off since policy 5.2.0 |
+| `STRONG_BUY_MA50_TOLERANCE` | 0.98 | Price may sit 2% under its MA50 and still count as stacked (policy 5.3.0) |
 | `FACTOR_FINANCIAL_STATEMENT_QUALITY_SUFFICIENT` | false | See 20.8 — risk-policy decision |
 | `FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE` | 0.95 | Scheduled production fails before scoring and side effects if usable statement evidence covers less than 95% of the research universe |
-| `STATEMENT_CACHE_MAX_AGE_DAYS` / `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` | 90 / 2,500 scheduled (400 manual daily) | Statement cache TTL and recovery budget; candidate workflow defaults to 600 and allows 2,500 for one-time completion |
+| `TRANSCRIPT_SENTIMENT_WEIGHT` / `TRANSCRIPT_OUTLOOK_SHARE` / `TRANSCRIPT_TWO_SIDED` | 1.0 / 0.85 / true | Earnings-call evidence (sections 10 and 11.1) |
+| `STATEMENT_CACHE_MAX_AGE_DAYS` / `STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN` | 90 / 2,500 scheduled (400 validation dispatch) | Statement cache TTL and recovery budget |
