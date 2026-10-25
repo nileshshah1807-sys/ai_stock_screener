@@ -94,6 +94,7 @@ export async function GET(request: NextRequest) {
   filters.sector = request.nextUrl.searchParams.getAll("sector");
   filters.eligibility = request.nextUrl.searchParams.getAll("eligibility");
   filters.stage = request.nextUrl.searchParams.getAll("stage");
+  filters.listing = request.nextUrl.searchParams.getAll("listing");
 
   const rows = await getExportRows(market.code, run.run_date, filters);
 

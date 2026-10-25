@@ -59,12 +59,29 @@ const FACTOR_TOGGLES = [
   },
 ] as const;
 
+/** Which exchange a row trades on. Offered only on a run that carries BSE-only rows. */
+export const LISTINGS = [
+  {
+    value: "nse",
+    label: "Listed on NSE",
+    hint: "Including companies also listed on BSE.",
+  },
+  {
+    value: "bse",
+    label: "Listed on BSE only",
+    hint: "Mostly thinly traded. Scored from vendor data; exchange filings not connected yet.",
+  },
+] as const;
+
 export function FilterBar({
   sectors,
   factorModel = false,
+  exchanges = false,
 }: {
   sectors: string[];
   factorModel?: boolean;
+  /** Show the exchange choice: the run carries companies listed on BSE alone. */
+  exchanges?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -160,6 +177,7 @@ export function FilterBar({
     (searchParams.get("minQuality") ? 1 : 0) +
     (searchParams.get("minMomentum") ? 1 : 0) +
     searchParams.getAll("stage").length +
+    searchParams.getAll("listing").length +
     (searchParams.get("minRs") ? 1 : 0);
 
   const clearAll = () => {
@@ -286,6 +304,35 @@ export function FilterBar({
                 })}
               </div>
             </fieldset>
+
+            {exchanges ? (
+              <fieldset className="space-y-2">
+                <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Exchange
+                </legend>
+                {LISTINGS.map((item) => (
+                  <div key={item.value} className="flex items-start gap-2">
+                    <Checkbox
+                      id={`listing-${item.value}`}
+                      checked={searchParams.getAll("listing").includes(item.value)}
+                      onCheckedChange={() => toggleValue("listing", item.value)}
+                      className="mt-0.5"
+                    />
+                    <div className="min-w-0">
+                      <Label
+                        htmlFor={`listing-${item.value}`}
+                        className="cursor-pointer text-sm font-normal"
+                      >
+                        {item.label}
+                      </Label>
+                      <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                        {item.hint}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </fieldset>
+            ) : null}
 
             <fieldset className="space-y-2">
               <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">

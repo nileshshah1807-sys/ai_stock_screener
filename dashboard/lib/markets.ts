@@ -88,8 +88,10 @@ export const MARKETS: Record<MarketSlug, Market> = {
   nse: {
     slug: "nse",
     code: "NSE",
-    label: "NSE",
-    name: "India · National Stock Exchange",
+    // NSE's list plus the companies listed on BSE alone. The slug and code stay
+    // "nse"/"NSE": they key URLs and every stored row.
+    label: "India",
+    name: "India · NSE & BSE",
     currencySymbol: "₹",
     locale: "en-IN",
     scale: "indian",
