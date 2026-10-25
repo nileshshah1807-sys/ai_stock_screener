@@ -34,7 +34,13 @@ export function NotRatedBadge({
 }
 
 /** Sessions of price history against the model's minimum. */
-export function HistoryBar({ row, className }: { row: NewListingRow; className?: string }) {
+export function HistoryBar({
+  row,
+  className,
+}: {
+  row: Pick<NewListingRow, "sessions" | "sessions_required">;
+  className?: string;
+}) {
   const progress = historyProgress(row);
   const complete = progress >= 1;
   return (

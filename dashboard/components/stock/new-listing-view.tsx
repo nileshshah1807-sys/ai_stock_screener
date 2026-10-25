@@ -69,6 +69,9 @@ export function NewListingView({
       ? (points[points.length - 1].close / points[points.length - 2].close - 1) * 100
       : null;
   const change = listing.change_since_first_pct;
+  // One close has nothing to compare against: say so rather than print a dash.
+  const firstSession = listing.sessions === 1;
+  const firstSessionNote = <span className="text-muted-foreground">First session</span>;
   const live = { symbol: listing.symbol, barDate: listing.last_session };
   // Rank, score and anything else that needs a rating or 60 sessions of
   // history read "Not rated" -- never a zero or a dash that looks like a score.
@@ -83,12 +86,12 @@ export function NewListingView({
     },
     {
       label: "1D",
-      value: <LiveChange {...live} change={change1d} />,
+      value: firstSession && change1d === null ? firstSessionNote : <LiveChange {...live} change={change1d} />,
       tone: "",
     },
     {
       label: "Since first close",
-      value: formatPercent(change, 1, true),
+      value: firstSession && change === null ? firstSessionNote : formatPercent(change, 1, true),
       tone: changeTone(change),
     },
     { label: "Market cap", value: formatMoneyCompact(listing.market_cap, market), tone: "" },
@@ -143,8 +146,8 @@ export function NewListingView({
           ))}
         </dl>
 
-        {priceSeries ? (
-          <div className="mt-4">
+        <div className="mt-4">
+          {points.length >= 2 && priceSeries ? (
             <PriceChart
               series={priceSeries}
               sessions={sessions}
@@ -153,8 +156,15 @@ export function NewListingView({
               markers={[]}
               live={live}
             />
-          </div>
-        ) : null}
+          ) : (
+            <div className="rounded-row border border-dashed border-border px-5 py-10 text-center">
+              <p className="text-sm font-medium">Chart appears from the second session</p>
+              <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                A price line needs at least two closes.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       <StockTabs
@@ -182,7 +192,7 @@ export function NewListingView({
             content: (
               <Panel
                 title="Financials"
-                description="As reported so far. A new listing often has only its first one or two quarters at the source."
+                description="As reported by the source so far."
               >
                 <Financials data={financials} market={market} symbol={listing.symbol} asOf={asOf} />
               </Panel>

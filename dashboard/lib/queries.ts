@@ -902,6 +902,50 @@ export const getNewListings = cache(
   },
 );
 
+/**
+ * The listings shown after the ranked rows, newest first: `new_listings` minus
+ * any symbol the given run already rates. The table refreshes after the
+ * evening publish, so for a short window a just-rated symbol is in both.
+ * `runDate` is the run `getLatestRun` returned, so a reserved, still-empty run
+ * cannot hide the overlap. Empty -- never an error -- on any failure, so the
+ * grid renders as it always did. `q` is the grid's own symbol/company search.
+ */
+export async function getNotRatedRows(
+  market: MarketCode,
+  runDate: string,
+  q?: string,
+): Promise<NewListingRow[]> {
+  const listings = await getNewListings(market);
+  if (!listings.length) return [];
+
+  const supabase = await createClient();
+  const rated = new Set<string>();
+  // `in` rides in the URL, so ask in slices.
+  for (let i = 0; i < listings.length; i += 200) {
+    const { data, error } = await supabase
+      .from("screener_snapshot")
+      .select("symbol")
+      .eq("market", market)
+      .eq("run_date", runDate)
+      .in("symbol", listings.slice(i, i + 200).map((row) => row.symbol));
+    if (error) {
+      // Without the overlap check a rated symbol would show twice: show none.
+      console.error("getNotRatedRows failed", error.message);
+      return [];
+    }
+    for (const row of data ?? []) rated.add(row.symbol as string);
+  }
+
+  const term = q?.trim().toLowerCase();
+  return listings.filter(
+    (row) =>
+      !rated.has(row.symbol) &&
+      (!term ||
+        row.symbol.toLowerCase().includes(term) ||
+        (row.company ?? "").toLowerCase().includes(term)),
+  );
+}
+
 /** How many of a run's rows are companies listed on BSE alone (`SYMBOL.BO`). */
 export const countBseOnly = cache(
   async (market: MarketCode, runDate: string): Promise<number> => {
