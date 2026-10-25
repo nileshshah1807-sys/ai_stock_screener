@@ -8,6 +8,7 @@ import { formatDate, MISSING } from "@/lib/format";
 import { buildHolders, buildPattern } from "@/lib/shareholding.mjs";
 import type { Market } from "@/lib/markets";
 import type { BulkBlockDealRow, Shareholding as ShareholdingData } from "@/lib/queries";
+import { listing } from "@/lib/listing.mjs";
 
 type Column = { period: string; label: string };
 type TableRow = {
@@ -209,12 +210,25 @@ export function Shareholding({
   }, [patterns, breakdown]);
 
   if (!patterns.length && !data?.deals.length) {
+    const { ticker, exchange } = listing(symbol);
     return (
       <div className="rounded-row border border-dashed border-border px-5 py-10 text-center">
-        <p className="text-sm font-medium">No shareholding filings for {symbol} have been stored yet.</p>
-        <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
-          Patterns are read from NSE as companies file them, within 21 days of each quarter end.
-        </p>
+        {exchange === "BSE" ? (
+          <>
+            <p className="text-sm font-medium">BSE filings aren&apos;t connected yet.</p>
+            <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+              {ticker} is listed on BSE alone, so its shareholding pattern is filed only
+              there. It will appear here once BSE filings are read.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-medium">No shareholding filings for {symbol} have been stored yet.</p>
+            <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+              Patterns are read from NSE as companies file them, within 21 days of each quarter end.
+            </p>
+          </>
+        )}
       </div>
     );
   }

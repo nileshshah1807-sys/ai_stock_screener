@@ -93,9 +93,12 @@ function ShareBar({ share, className }: { share: number; className: string }) {
 export function SummaryTiles({
   run,
   market,
+  bseOnly = 0,
 }: {
   run: ScreenerRun;
   market: Market;
+  /** Rows that are companies listed on BSE alone, named so the total is not a surprise. */
+  bseOnly?: number;
 }) {
   const total = run.row_count || 0;
 
@@ -135,7 +138,9 @@ export function SummaryTiles({
               className="numeral text-2xl font-semibold sm:text-4xl"
             />
           </p>
-          <p className="text-[11px] text-muted-foreground">scored</p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            {bseOnly ? `scored · incl. ${bseOnly.toLocaleString(market.locale)} BSE-only` : "scored"}
+          </p>
         </div>
       </div>
 

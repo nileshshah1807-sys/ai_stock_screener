@@ -10,7 +10,13 @@ import Link from "next/link";
 import { Clock } from "lucide-react";
 
 import { marketFromSlug, marketPath } from "@/lib/markets";
-import { countNewListings, getLatestRun, getSectors, runUsesFactorModel } from "@/lib/queries";
+import {
+  countBseOnly,
+  countNewListings,
+  getLatestRun,
+  getSectors,
+  runUsesFactorModel,
+} from "@/lib/queries";
 import { mark, trace } from "@/lib/trace";
 
 /**
@@ -47,7 +53,7 @@ export default async function ScreenerLayout({
   // the factor model reads as false instead of triggering the fallback query.
   // New listings are NSE-only; the count rides along with the reads the
   // layout already makes rather than adding a round trip of its own.
-  const [sectors, factorModel, newListings] = await Promise.all([
+  const [sectors, factorModel, newListings, bseOnly] = await Promise.all([
     run.sectors?.length
       ? run.sectors
       : trace("  getSectors (fallback)", () =>
@@ -58,12 +64,13 @@ export default async function ScreenerLayout({
         runUsesFactorModel(market.code, run.run_date),
       ),
     market.code === "NSE" ? countNewListings(market.code) : Promise.resolve(0),
+    market.code === "NSE" ? countBseOnly(market.code, run.run_date) : Promise.resolve(0),
   ]);
 
   return (
     // data-screener scopes the pending dim in globals.css to this view.
     <div data-screener className="space-y-4 px-4 py-5 sm:px-6">
-      <SummaryTiles run={run} market={market} />
+      <SummaryTiles run={run} market={market} bseOnly={bseOnly} />
 
       {/*
         One chrome block at gap-2, not three siblings at the page's gap-4.
@@ -74,7 +81,7 @@ export default async function ScreenerLayout({
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex-1">
-            <FilterBar sectors={sectors} factorModel={factorModel} />
+            <FilterBar sectors={sectors} factorModel={factorModel} exchanges={bseOnly > 0} />
           </div>
           <ViewOptions factorModel={factorModel} />
           <StockSearch />

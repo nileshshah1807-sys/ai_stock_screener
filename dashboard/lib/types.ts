@@ -429,6 +429,8 @@ export type ScreenerFilters = {
   /** Entry timing. Stage labels as published; RS rating on 1-99. */
   stage?: string[];
   minRs?: number;
+  /** "nse" (listed on NSE, alone or with BSE) and/or "bse" (BSE alone); both or neither is every row. */
+  listing?: string[];
   /** Market-cap floor in crore of the market's currency. NSE views only. */
   minCapCr?: number;
   sort?: string;
