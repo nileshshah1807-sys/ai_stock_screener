@@ -6,13 +6,10 @@ import { SavedViews } from "@/components/screener/saved-views";
 import { StockSearch } from "@/components/screener/stock-search";
 import { ViewOptions } from "@/components/screener/view-options";
 import { investmentRankExplanation } from "@/lib/model-display.mjs";
-import Link from "next/link";
-import { Clock } from "lucide-react";
 
-import { marketFromSlug, marketPath } from "@/lib/markets";
+import { marketFromSlug } from "@/lib/markets";
 import {
   countBseOnly,
-  countNewListings,
   getLatestRun,
   getSectors,
   runUsesFactorModel,
@@ -51,9 +48,7 @@ export default async function ScreenerLayout({
   //
   // `??` rather than `||` for the flag, so a run that genuinely scored without
   // the factor model reads as false instead of triggering the fallback query.
-  // New listings are NSE-only; the count rides along with the reads the
-  // layout already makes rather than adding a round trip of its own.
-  const [sectors, factorModel, newListings, bseOnly] = await Promise.all([
+  const [sectors, factorModel, bseOnly] = await Promise.all([
     run.sectors?.length
       ? run.sectors
       : trace("  getSectors (fallback)", () =>
@@ -63,7 +58,6 @@ export default async function ScreenerLayout({
       trace("  runUsesFactorModel (fallback)", () =>
         runUsesFactorModel(market.code, run.run_date),
       ),
-    market.code === "NSE" ? countNewListings(market.code) : Promise.resolve(0),
     market.code === "NSE" ? countBseOnly(market.code, run.run_date) : Promise.resolve(0),
   ]);
 
@@ -95,19 +89,6 @@ export default async function ScreenerLayout({
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
           <SavedViews factorModel={factorModel} />
           <ActiveFilters />
-          {/* Recent listings the grid cannot show: they have no rank or
-              rating yet. A chip rather than a nav destination because it is
-              a side view of the screener, not a place of its own. */}
-          {newListings > 0 ? (
-            <Link
-              href={marketPath(market.slug, "/new-listings")}
-              className="press ml-auto inline-flex min-h-7 items-center gap-1.5 rounded-md bg-(--control) px-3 text-xs font-medium text-foreground hover:bg-(--control-hover) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Clock className="size-3.5 text-muted-foreground" aria-hidden />
-              New listings
-              <span className="tabular text-muted-foreground">{newListings}</span>
-            </Link>
-          ) : null}
         </div>
       </div>
 
