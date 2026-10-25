@@ -90,6 +90,10 @@ DEFAULT_MAX_AGE_DAYS = 30
 # India). Past 100 days the next quarter has almost certainly been reported.
 RESULTS_DUE_DAYS = 100
 RESULTS_RECHECK_DAYS = 1
+# A row with no statements is a company the vendor had nothing for when it was
+# asked -- a listing fetched before its first session. Ask again soon rather
+# than after DEFAULT_MAX_AGE_DAYS.
+EMPTY_RECHECK_DAYS = 2
 DEFAULT_MAX_SYMBOLS = 500
 
 SOURCE_WITH_FILINGS = "NSE filings (quarterly results) and Yahoo Finance"
@@ -502,7 +506,7 @@ def select_due(
     max_age_days: int = DEFAULT_MAX_AGE_DAYS,
     limit: int = DEFAULT_MAX_SYMBOLS,
 ) -> list[str]:
-    """Symbols to refresh this run: never-fetched first, then oldest first."""
+    """Symbols to refresh this run: never-fetched and empty first, then oldest."""
     never, due = [], []
     for symbol in dict.fromkeys(str(s).strip().upper() for s in symbols if s):
         row = state.get(symbol)
@@ -514,6 +518,9 @@ def select_due(
             never.append(symbol)
             continue
         age = (today - fetched).days
+        if row.get("has_data") is False and age >= EMPTY_RECHECK_DAYS:
+            never.append(symbol)
+            continue
         quarter = _as_date(row.get("latest_quarter"))
         results_due = (
             quarter is not None

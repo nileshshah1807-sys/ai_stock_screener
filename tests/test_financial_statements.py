@@ -201,6 +201,15 @@ class SelectDueTests(unittest.TestCase):
         }
         self.assertEqual(select_due(["YESTERDAY", "TODAY"], state, self.today), ["YESTERDAY"])
 
+    def test_empty_row_is_rechecked_after_two_days_with_the_never_fetched(self):
+        state = {
+            "EMPTY_OLD": {"has_data": False, "fetched_at": "2026-09-21T00:00:00+00:00"},
+            "EMPTY_TODAY": {"has_data": False, "fetched_at": "2026-09-22T12:00:00+00:00"},
+            "AGED": {"has_data": True, "fetched_at": "2026-07-01T00:00:00+00:00"},
+        }
+        due = select_due(["AGED", "EMPTY_OLD", "EMPTY_TODAY", "NEW"], state, self.today)
+        self.assertEqual(due, ["EMPTY_OLD", "NEW", "AGED"])
+
     def test_limit_bounds_the_run(self):
         self.assertEqual(select_due(["A", "B", "C"], {}, self.today, limit=2), ["A", "B"])
 
