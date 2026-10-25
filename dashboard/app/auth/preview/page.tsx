@@ -231,7 +231,13 @@ export default function PreviewPage() {
           <h2 className="text-heading">New listing stock page</h2>
           <div className="panel overflow-hidden">
             <NewListingView
-              listing={{ ...previewNewListings[3], last_close: 44.5, market_cap: 4475320500 }}
+              listing={{
+                ...previewNewListings[3],
+                // The series starts on the listing date, as a real listing's does.
+                listed_on: previewListingSessions[0],
+                last_close: 44.5,
+                market_cap: 4475320500,
+              }}
               market={DEFAULT_MARKET}
               financials={previewFinancials}
               shareholding={null}

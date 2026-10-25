@@ -902,20 +902,6 @@ export const getNewListings = cache(
   },
 );
 
-/** Count only, for the screener's entry chip. */
-export const countNewListings = cache(async (market: MarketCode): Promise<number> => {
-  const supabase = await createClient();
-  const { count, error } = await supabase
-    .from("new_listings")
-    .select("symbol", { count: "exact", head: true })
-    .eq("market", market);
-  if (error) {
-    console.error("countNewListings failed", error.message);
-    return 0;
-  }
-  return count ?? 0;
-});
-
 /** How many of a run's rows are companies listed on BSE alone (`SYMBOL.BO`). */
 export const countBseOnly = cache(
   async (market: MarketCode, runDate: string): Promise<number> => {
