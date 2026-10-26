@@ -4,9 +4,11 @@ Private web dashboard for the daily screener. Replaces the emailed spreadsheet
 and the static `dashboard_*.html` report with a searchable, filterable view of
 the full scored universe.
 
-Every view is nested under a market segment — `/nse` and `/us` — and the market
-switch beside the brand moves between them, keeping the destination. `/`
-redirects to `/nse`, so links saved before markets existed still resolve.
+Every view is nested under a market segment — `/ind` (India: NSE and the
+companies listed on BSE alone) and `/us` — and the market switch beside the
+brand moves between them, keeping the destination. `/` redirects to `/ind`, so
+links saved before markets existed still resolve, and `/nse/...`, India's
+segment until BSE joined it, redirects to the same page under `/ind`.
 
 Next.js 16 (App Router) · TypeScript · Tailwind v4 · shadcn/ui (Base UI) ·
 Supabase (Postgres + Auth).

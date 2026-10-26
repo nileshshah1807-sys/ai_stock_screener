@@ -9,7 +9,7 @@ import { StockIdentity } from "@/components/stock-identity";
 import { cn } from "@/lib/utils";
 import { rankIndices } from "@/lib/indices.mjs";
 import { rank } from "@/lib/search.mjs";
-import { useMarket } from "@/components/market-provider";
+import { useMarket, useRunDate } from "@/components/market-provider";
 import { loadIndexDirectory, loadSearchIndex } from "@/lib/stock-directory";
 import type { IndexInfo, SearchEntry } from "@/lib/types";
 
@@ -134,6 +134,7 @@ export function StockPicker({
   onPickIndex?: (index: IndexInfo) => void;
 }) {
   const market = useMarket();
+  const runDate = useRunDate();
   const withIndices = onPickIndex !== undefined;
   const [term, setTerm] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -170,8 +171,8 @@ export function StockPicker({
     if (!open || status === "ready") return;
     let active = true;
     Promise.all([
-      loadSearchIndex(market.slug),
-      withIndices ? loadIndexDirectory(market.slug) : Promise.resolve([]),
+      loadSearchIndex(market.slug, runDate),
+      withIndices ? loadIndexDirectory(market.slug, runDate) : Promise.resolve([]),
     ]).then(([loaded, listed]) => {
       if (!active) return;
       setEntries(loaded);
@@ -181,7 +182,7 @@ export function StockPicker({
     return () => {
       active = false;
     };
-  }, [open, status, market.slug, withIndices]);
+  }, [open, status, market.slug, runDate, withIndices]);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();

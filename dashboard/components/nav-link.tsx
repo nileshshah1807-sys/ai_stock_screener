@@ -36,7 +36,7 @@ export function NavLink({
    * Match the path exactly rather than by prefix.
    *
    * Needed since destinations gained a market segment: the screener lives at
-   * `/nse`, which is a prefix of `/nse/watchlists`, `/nse/movers` and every
+   * `/ind`, which is a prefix of `/ind/watchlists`, `/ind/movers` and every
    * other sibling. Without this the screener tab would read as active on
    * every page in the market.
    */

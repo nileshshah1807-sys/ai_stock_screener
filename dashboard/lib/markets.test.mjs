@@ -9,7 +9,7 @@ import { test } from "node:test";
  * divergence shows up as a failure here rather than as a broken link.
  */
 
-const MARKET_SLUGS = ["nse", "us"];
+const MARKET_SLUGS = ["ind", "us"];
 
 function isMarketSlug(value) {
   return typeof value === "string" && MARKET_SLUGS.includes(value.toLowerCase());
@@ -29,7 +29,7 @@ function switchMarketPath(pathname, next) {
 }
 
 test("market slugs are recognised case-insensitively", () => {
-  assert.equal(isMarketSlug("nse"), true);
+  assert.equal(isMarketSlug("ind"), true);
   assert.equal(isMarketSlug("US"), true);
   assert.equal(isMarketSlug("lse"), false);
   assert.equal(isMarketSlug(undefined), false);
@@ -37,41 +37,41 @@ test("market slugs are recognised case-insensitively", () => {
 });
 
 test("marketPath builds an in-market URL", () => {
-  assert.equal(marketPath("nse"), "/nse");
+  assert.equal(marketPath("ind"), "/ind");
   assert.equal(marketPath("us", "/movers"), "/us/movers");
   assert.equal(marketPath("us", "/stocks/AAPL"), "/us/stocks/AAPL");
 });
 
 test("marketPath treats a bare slash as the market root", () => {
-  // Otherwise the screener would live at "/nse/", a second URL for one page.
-  assert.equal(marketPath("nse", "/"), "/nse");
+  // Otherwise the screener would live at "/ind/", a second URL for one page.
+  assert.equal(marketPath("ind", "/"), "/ind");
 });
 
 test("switching market keeps the destination", () => {
-  assert.equal(switchMarketPath("/nse/movers", "us"), "/us/movers");
-  assert.equal(switchMarketPath("/us/health", "nse"), "/nse/health");
-  assert.equal(switchMarketPath("/nse/watchlists", "us"), "/us/watchlists");
+  assert.equal(switchMarketPath("/ind/movers", "us"), "/us/movers");
+  assert.equal(switchMarketPath("/us/health", "ind"), "/ind/health");
+  assert.equal(switchMarketPath("/ind/watchlists", "us"), "/us/watchlists");
 });
 
 test("switching market from the grid stays on the grid", () => {
-  assert.equal(switchMarketPath("/nse", "us"), "/us");
+  assert.equal(switchMarketPath("/ind", "us"), "/us");
 });
 
 test("switching market from a stock page falls back to the screener", () => {
   // The same ticker is a different company in each market, and most are not
   // listed in both at all -- /us/stocks/RELIANCE is not a page.
-  assert.equal(switchMarketPath("/nse/stocks/RELIANCE", "us"), "/us");
-  assert.equal(switchMarketPath("/us/stocks/AAPL", "nse"), "/nse");
+  assert.equal(switchMarketPath("/ind/stocks/RELIANCE", "us"), "/us");
+  assert.equal(switchMarketPath("/us/stocks/AAPL", "ind"), "/ind");
 });
 
 test("switching market from an unprefixed path lands on the market root", () => {
-  assert.equal(switchMarketPath("/", "nse"), "/nse");
+  assert.equal(switchMarketPath("/", "ind"), "/ind");
   assert.equal(switchMarketPath("/login", "us"), "/us");
 });
 
 test("a deep in-market path keeps every segment", () => {
   assert.equal(
-    switchMarketPath("/nse/watchlists/extra/deep", "us"),
+    switchMarketPath("/ind/watchlists/extra/deep", "us"),
     "/us/watchlists/extra/deep",
   );
 });

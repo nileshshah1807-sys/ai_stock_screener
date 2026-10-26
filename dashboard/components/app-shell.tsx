@@ -253,7 +253,7 @@ export function AppShell({
           motion belongs to the components that actually change.
         */}
         <main className="flex-1 animate-fade">
-          <MarketProvider market={market}>
+          <MarketProvider market={market} runDate={run?.run_date ?? null}>
             {children}
             {/* The header's search dialog: it reads the market, so it lives
                 inside the provider, and is opened from the header by event. */}
