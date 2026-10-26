@@ -648,6 +648,7 @@ def _remove_failed_reservation(
             "screener_history",
             params=repository._scoped({"observed_on": f"eq.{run_date}"}),  # noqa: SLF001
             headers={"Prefer": "return=minimal"},
+            retries=2,
         )
         history_cleaned = True
     except Exception as exc:  # noqa: BLE001 - retain the original publish error
@@ -663,6 +664,7 @@ def _remove_failed_reservation(
                 "screener_runs",
                 params=repository._scoped({"run_date": f"eq.{run_date}"}),  # noqa: SLF001
                 headers={"Prefer": "return=minimal"},
+                retries=2,
             )
         except Exception as exc:  # noqa: BLE001 - retain the original publish error
             errors.append(f"run reservation cleanup failed: {exc}")
