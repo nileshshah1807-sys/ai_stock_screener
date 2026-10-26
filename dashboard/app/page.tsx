@@ -8,7 +8,7 @@ import { DEFAULT_MARKET_SLUG, marketPath } from "@/lib/markets";
  * Redirecting rather than rendering NSE at `/` keeps one URL per view: every
  * bookmark, share and export link carries the market it was taken from, and
  * there is no second address for the same page. Links saved before markets
- * existed were NSE links, which is exactly where this sends them.
+ * existed were Indian links, which is exactly where this sends them.
  */
 export default function RootPage() {
   redirect(marketPath(DEFAULT_MARKET_SLUG));

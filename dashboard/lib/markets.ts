@@ -7,8 +7,10 @@
  *
  * Two identifiers, deliberately:
  *
- *  - `slug` is the URL segment, lowercase, because `/nse` reads better than
- *    `/NSE` and a path is not the place to be shouting.
+ *  - `slug` is the URL segment, lowercase, because `/ind` reads better than
+ *    `/IND` and a path is not the place to be shouting. India's is `ind`, not
+ *    `nse`: the market holds the companies listed on BSE alone as well, and
+ *    `/nse/...` redirects to it (next.config.ts) so older links still open.
  *  - `code` is what the database stores, uppercase, matching the `market`
  *    column's check constraint.
  *
@@ -16,7 +18,7 @@
  * of them would eventually be forgotten.
  */
 
-export const MARKET_SLUGS = ["nse", "us"] as const;
+export const MARKET_SLUGS = ["ind", "us"] as const;
 
 export type MarketSlug = (typeof MARKET_SLUGS)[number];
 export type MarketCode = "NSE" | "US";
@@ -85,11 +87,11 @@ export type Market = {
 };
 
 export const MARKETS: Record<MarketSlug, Market> = {
-  nse: {
-    slug: "nse",
+  ind: {
+    slug: "ind",
     code: "NSE",
-    // NSE's list plus the companies listed on BSE alone. The slug and code stay
-    // "nse"/"NSE": they key URLs and every stored row.
+    // NSE's list plus the companies listed on BSE alone. The code stays "NSE":
+    // it keys every stored row and the pipeline's MARKET.
     label: "India",
     name: "India · NSE & BSE",
     currencySymbol: "₹",
@@ -125,7 +127,7 @@ export const MARKETS: Record<MarketSlug, Market> = {
   },
 };
 
-export const DEFAULT_MARKET_SLUG: MarketSlug = "nse";
+export const DEFAULT_MARKET_SLUG: MarketSlug = "ind";
 export const DEFAULT_MARKET = MARKETS[DEFAULT_MARKET_SLUG];
 
 export const MARKET_LIST: readonly Market[] = MARKET_SLUGS.map(

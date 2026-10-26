@@ -11,6 +11,18 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  /*
+   * India's segment was `/nse` until the market took in the companies listed
+   * on BSE alone. Bookmarks, shared links and the `next` of a sign-in link
+   * still name it, so it is redirected permanently, destination kept. These
+   * run before proxy.ts, so the sign-in check sees only the new address.
+   */
+  async redirects() {
+    return [
+      { source: "/nse", destination: "/ind", permanent: true },
+      { source: "/nse/:path*", destination: "/ind/:path*", permanent: true },
+    ];
+  },
   experimental: {
     /*
      * Client Router Cache retention.
