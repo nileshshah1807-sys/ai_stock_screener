@@ -284,7 +284,10 @@ if __name__ == "__main__":
 
 
 class _FlakySession:
-    """requests.Session stand-in: raises the queued errors, then answers 204."""
+    """requests.Session stand-in: raises the queued errors, then answers 204.
+
+    A queued integer is answered as that HTTP status instead of raised.
+    """
 
     def __init__(self, *errors):
         self.errors = list(errors)
@@ -292,10 +295,11 @@ class _FlakySession:
 
     def request(self, *args, **kwargs):
         self.calls += 1
-        if self.errors:
-            raise self.errors.pop(0)
+        error = self.errors.pop(0) if self.errors else 204
+        if not isinstance(error, int):
+            raise error
         response = requests.Response()
-        response.status_code = 204
+        response.status_code = error
         response._content = b""
         return response
 
@@ -329,6 +333,34 @@ class RetryTests(unittest.TestCase):
         with self.assertRaises(requests.ConnectionError):
             self.repository(session)._request("POST", "t", json=[])
         self.assertEqual(session.calls, 1)
+
+    def test_gateway_errors_are_retried_like_timeouts(self):
+        # The NSE publish of 26 Oct 2026 died on one Cloudflare 520.
+        session = _FlakySession(520, 521)
+        with mock.patch("storage.dashboard_repository.time.sleep") as sleep:
+            self.repository(session)._request("POST", "t", retries=3, json=[])
+        self.assertEqual(session.calls, 3)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [5, 10])
+
+    def test_a_gateway_error_on_the_last_attempt_is_raised(self):
+        session = _FlakySession(*[521] * 3)
+        with mock.patch("storage.dashboard_repository.time.sleep"), self.assertRaises(requests.HTTPError):
+            self.repository(session)._request("POST", "t", retries=2, json=[])
+        self.assertEqual(session.calls, 3)
+
+    def test_a_rejected_request_is_not_retried(self):
+        session = _FlakySession(400)
+        with self.assertRaises(requests.HTTPError):
+            self.repository(session)._request("POST", "t", retries=3, json=[])
+        self.assertEqual(session.calls, 1)
+
+    def test_snapshot_and_history_upserts_ask_for_retries(self):
+        session = _FlakySession(520, 520)
+        repository = self.repository(session)
+        with mock.patch("storage.dashboard_repository.time.sleep"):
+            repository.replace_snapshot_rows("2026-10-26", [{"symbol": "A"}])
+            repository.upsert_history_rows([{"symbol": "A"}])
+        self.assertEqual(session.calls, 4)
 
     def test_breadth_upsert_asks_for_retries(self):
         session = _FlakySession(requests.ConnectionError("The write operation timed out"))

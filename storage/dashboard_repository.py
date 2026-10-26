@@ -48,6 +48,12 @@ PRUNE_BATCH_SIZE = 250
 #: error. Doubles each time: 5, 10, 20 seconds.
 RETRY_BACKOFF_SECONDS = 5
 
+#: Gateway answers that mean the database was briefly unreachable, not that
+#: the request was wrong: Cloudflare's 520-524 in front of Supabase, and the
+#: proxy's own 502-504. Retried like a timeout (NSE publish, 26 Oct 2026: one
+#: 520 on a snapshot chunk failed the run).
+TRANSIENT_STATUS_CODES = frozenset({502, 503, 504, 520, 521, 522, 523, 524})
+
 
 def chunked(rows: list[dict[str, Any]], size: int) -> Iterator[list[dict[str, Any]]]:
     for start in range(0, len(rows), size):
@@ -108,9 +114,10 @@ class DashboardRepository:
     def _request(self, method: str, path: str, *, retries: int = 0, **kwargs: Any) -> Any:
         """One PostgREST call.
 
-        ``retries`` re-sends after a connection error or timeout. Pass it only
-        for idempotent calls -- an upsert on a conflict key, a delete -- since a
-        write that timed out may still have landed.
+        ``retries`` re-sends after a connection error, a timeout or a gateway
+        error (``TRANSIENT_STATUS_CODES``). Pass it only for idempotent calls --
+        an upsert on a conflict key, a delete -- since a write that timed out
+        may still have landed.
         """
         headers = {**self.headers, **kwargs.pop("headers", {})}
         for attempt in range(retries + 1):
@@ -122,16 +129,19 @@ class DashboardRepository:
                     timeout=self.timeout_seconds,
                     **kwargs,
                 )
-                break
+                if response.status_code not in TRANSIENT_STATUS_CODES or attempt == retries:
+                    break
+                failure: object = f"HTTP {response.status_code}"
             except (requests.ConnectionError, requests.Timeout) as exc:
                 if attempt == retries:
                     raise
-                pause = RETRY_BACKOFF_SECONDS * 2**attempt
-                logger.warning(
-                    "%s %s failed (%s); retry %d of %d in %ds",
-                    method, path, exc, attempt + 1, retries, pause,
-                )
-                time.sleep(pause)
+                failure = exc
+            pause = RETRY_BACKOFF_SECONDS * 2**attempt
+            logger.warning(
+                "%s %s failed (%s); retry %d of %d in %ds",
+                method, path, failure, attempt + 1, retries, pause,
+            )
+            time.sleep(pause)
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
@@ -230,6 +240,7 @@ class DashboardRepository:
                 headers={
                     "Prefer": "resolution=merge-duplicates,return=minimal",
                 },
+                retries=2,
             )
             written += len(chunk)
         return written
@@ -1023,6 +1034,7 @@ class DashboardRepository:
                 "POST",
                 "screener_history?on_conflict=market,observed_on,symbol",
                 json=self._stamped(chunk),
+                retries=2,
                 headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )
             written += len(chunk)
