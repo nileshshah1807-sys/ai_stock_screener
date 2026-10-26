@@ -67,8 +67,8 @@ export async function GET(request: NextRequest) {
     {
       headers: {
         // A run is immutable once published, so the browser can hold this for
-        // the rest of the session; a new run changes the URL's implied content
-        // via runDate and the next reload picks it up.
+        // the rest of the session. The client names the run in the URL
+        // (lib/stock-directory.ts), so a new run is a new URL, never a stale hit.
         "Cache-Control": "private, max-age=3600, stale-while-revalidate=86400",
       },
     },

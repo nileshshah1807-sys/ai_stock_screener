@@ -2,6 +2,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 
+import { useRunDate } from "@/components/market-provider";
 import type { MarketSlug } from "@/lib/markets";
 import type { IndexInfo, SearchEntry } from "@/lib/types";
 
@@ -10,7 +11,7 @@ import type { IndexInfo, SearchEntry } from "@/lib/types";
  * rating -- held once per tab and shared by everything that names a stock.
  *
  * It is the ⌘K search index (/api/search-index), which also carries the
- * market's indices for the header search: one request the browser
+ * market's indices for the header search: one request per run the browser
  * keeps for an hour, so a row that knows only a symbol -- a live mover, a
  * feed event -- can show the same logo, name and rank as the screener without
  * its own query, and without every server read having to join them in.
@@ -26,13 +27,16 @@ const directories = new Map<MarketSlug, Map<string, SearchEntry>>();
 const listeners = new Set<() => void>();
 
 /** The search route's whole answer, fetched at most once per page load. */
-function loadPayload(market: MarketSlug): Promise<Payload> {
+function loadPayload(market: MarketSlug, runDate: string | null): Promise<Payload> {
   const cached = payloads.get(market);
   if (cached) return cached;
 
-  // `v` names the payload's shape: the browser holds an answer for an hour,
-  // and one cached before it carried `indices` would list none.
-  const promise = fetch(`/api/search-index?market=${market}&v=2`)
+  // The browser holds an answer for an hour and serves it stale for a day,
+  // so the URL names what the answer is of: `run` the universe, which a new
+  // run changes (BSE-only listings were missing from search for a day after
+  // they joined it), and `v` the payload's shape.
+  const run = runDate ? `&run=${runDate}` : "";
+  const promise = fetch(`/api/search-index?market=${market}${run}&v=2`)
     .then((response) => (response.ok ? response.json() : {}))
     .then((payload: Partial<Payload>) => ({
       entries: payload.entries ?? [],
@@ -54,13 +58,19 @@ function loadPayload(market: MarketSlug): Promise<Payload> {
 }
 
 /** The market's whole index, fetched at most once per page load. */
-export function loadSearchIndex(market: MarketSlug): Promise<SearchEntry[]> {
-  return loadPayload(market).then((payload) => payload.entries);
+export function loadSearchIndex(
+  market: MarketSlug,
+  runDate: string | null,
+): Promise<SearchEntry[]> {
+  return loadPayload(market, runDate).then((payload) => payload.entries);
 }
 
 /** The market's indices, from the same request as the stocks. */
-export function loadIndexDirectory(market: MarketSlug): Promise<IndexInfo[]> {
-  return loadPayload(market).then((payload) => payload.indices);
+export function loadIndexDirectory(
+  market: MarketSlug,
+  runDate: string | null,
+): Promise<IndexInfo[]> {
+  return loadPayload(market, runDate).then((payload) => payload.indices);
 }
 
 function subscribe(listener: () => void) {
@@ -84,8 +94,9 @@ export function useStockEntry(
     () => directories.get(market) ?? null,
     () => null,
   );
+  const runDate = useRunDate();
   useEffect(() => {
-    if (wanted && !directories.has(market)) void loadSearchIndex(market);
-  }, [market, wanted]);
+    if (wanted && !directories.has(market)) void loadSearchIndex(market, runDate);
+  }, [market, runDate, wanted]);
   return wanted ? (directory?.get(symbol) ?? null) : null;
 }
