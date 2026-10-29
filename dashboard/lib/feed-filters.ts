@@ -23,12 +23,16 @@ import { getWatchlists } from "@/lib/watchlists";
 export async function loadFeedFilters(
   market: MarketCode,
   query: Record<string, string | string[] | undefined>,
-  { defaultScope, facets = [] }: { defaultScope: "all" | "watchlists"; facets?: EventFilterFacet[] },
+  {
+    defaultScope,
+    facets = [],
+    growth = false,
+  }: { defaultScope: "all" | "watchlists"; facets?: EventFilterFacet[]; growth?: boolean },
 ) {
   const [lists, companies] = await Promise.all([getWatchlists(market), getCompanyFacts(market)]);
   // A list with nothing on it scopes a feed to nothing; it is not offered.
   const watchlists = lists.filter((list) => list.symbols.length);
-  const context = { market, listIds: watchlists.map((list) => list.id), defaultScope, facets };
+  const context = { market, listIds: watchlists.map((list) => list.id), defaultScope, facets, growth };
   const filters = parseEventFilters(query, context);
 
   return {
@@ -52,6 +56,7 @@ export async function loadFeedFilters(
         count: list.symbols.length,
       })),
       factsAvailable: companies !== null,
+      growth,
     },
   };
 }

@@ -10,6 +10,7 @@
  * rate off a zero or negative base.
  */
 
+import { GROWTH_METRICS, isGrowthRule } from "./event-filters.mjs";
 import { growth, monthsBefore, periodLabel, ratio } from "./financials.mjs";
 
 /** The lines a card shows, in the stock page's words. */
@@ -182,4 +183,19 @@ export function amountDigits(values, divisor) {
   const largest = Math.max(0, ...values.map((value) => (value == null ? 0 : Math.abs(value / divisor))));
   if (largest >= 100) return 0;
   return largest >= 10 ? 1 : 2;
+}
+
+/**
+ * Whether a card passes the growth rules among `rules`. The rate tested is the
+ * one the card prints, on the basis it opens on (`bases[0]`); no rate -- a
+ * loss for a base, a line the filing lacks -- passes no rule, as an unreported
+ * figure passes none anywhere else on the filter bar.
+ */
+export function passesGrowth(card, rules) {
+  return rules.filter(isGrowthRule).every((rule) => {
+    const { line, period } = GROWTH_METRICS.find((item) => item.value === rule.metric).growth;
+    const rate = card.bases[0]?.rows.find((row) => row.key === line)?.[period];
+    if (typeof rate !== "number" || !Number.isFinite(rate)) return false;
+    return rule.op === "gte" ? rate >= rule.value : rate <= rule.value;
+  });
 }

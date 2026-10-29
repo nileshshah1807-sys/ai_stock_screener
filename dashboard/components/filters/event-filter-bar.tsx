@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   MAX_RULES,
+  GROWTH_METRICS,
   RULE_METRICS,
   RULE_OPERATORS,
   SIZE_UNITS,
@@ -40,11 +41,13 @@ const SELECT_CLASS =
 function RuleBuilder({
   market,
   rules,
+  metrics,
   onApply,
   disabled,
   title,
 }: {
   market: MarketCode;
+  metrics: Array<{ value: string; label: string; size?: boolean }>;
   rules: FilterRule[];
   onApply: (rules: FilterRule[]) => void;
   disabled: boolean;
@@ -95,7 +98,7 @@ function RuleBuilder({
         ) : null}
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-[min(26rem,calc(100vw-2rem))] gap-3">
+      <PopoverContent align="start" className="w-[min(32rem,calc(100vw-2rem))] gap-3">
         <form
           className="contents"
           onSubmit={(event) => {
@@ -106,7 +109,9 @@ function RuleBuilder({
           {drafts.length ? (
             <ul className="space-y-2">
               {drafts.map((draft, index) => {
-                const sized = RULE_METRICS.find((item) => item.value === draft.metric)?.size;
+                const chosen = metrics.find((item) => item.value === draft.metric);
+                const sized = chosen?.size;
+                const percent = Boolean(chosen && "growth" in chosen);
                 return (
                   <li key={index} className="flex items-center gap-1.5">
                     <select
@@ -115,7 +120,7 @@ function RuleBuilder({
                       aria-label="Figure"
                       className={`${SELECT_CLASS} flex-1`}
                     >
-                      {RULE_METRICS.map((item) => (
+                      {metrics.map((item) => (
                         <option key={item.value} value={item.value}>
                           {item.label}
                         </option>
@@ -140,11 +145,11 @@ function RuleBuilder({
                       value={draft.value}
                       onChange={(event) => edit(index, { value: event.target.value })}
                       placeholder="Value"
-                      aria-label={sized ? `Value in ${unit.symbol} ${unit.suffix}` : "Value"}
+                      aria-label={sized ? `Value in ${unit.symbol} ${unit.suffix}` : percent ? "Value in percent" : "Value"}
                       className="tabular h-8 w-24"
                     />
                     <span className="w-9 shrink-0 text-xs text-muted-foreground">
-                      {sized ? `${unit.symbol} ${unit.suffix}` : ""}
+                      {sized ? `${unit.symbol} ${unit.suffix}` : percent ? "%" : ""}
                     </span>
                     <Button
                       type="button"
@@ -172,7 +177,7 @@ function RuleBuilder({
               size="sm"
               disabled={drafts.length >= MAX_RULES}
               onClick={() =>
-                setDrafts((current) => [...current, { metric: "mcap", op: "gte", value: "" }])
+                setDrafts((current) => [...current, { metric: metrics[0].value, op: "gte", value: "" }])
               }
             >
               <Plus className="size-3.5" aria-hidden />
@@ -185,6 +190,9 @@ function RuleBuilder({
           <p className="px-1 text-[11px] leading-snug text-muted-foreground">
             Figures are from the latest screener run. A company the run does not hold, or one with
             the figure unreported, passes no filter.
+            {metrics.some((item) => "growth" in item)
+              ? " Growth is the card's own, on the basis it opens on; a loss, or a quarter the company did not file, has no growth rate and passes no growth filter."
+              : ""}
           </p>
         </form>
       </PopoverContent>
@@ -209,6 +217,7 @@ export function EventFilterBar({
   watchlists,
   facets = [],
   factsAvailable = true,
+  growth = false,
 }: {
   market: MarketCode;
   /** The filters the server rendered with. */
@@ -220,6 +229,8 @@ export function EventFilterBar({
   facets?: EventFilterFacet[];
   /** False when the run could not be read, so rules and industries cannot apply. */
   factsAvailable?: boolean;
+  /** Offer rules on the growth of a result (Results only). */
+  growth?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -228,8 +239,8 @@ export function EventFilterBar({
   const [shown, setShown] = useOptimistic(filters);
 
   const context = useMemo(
-    () => ({ market, listIds: watchlists.map((item) => item.value), defaultScope, facets }),
-    [market, watchlists, defaultScope, facets],
+    () => ({ market, listIds: watchlists.map((item) => item.value), defaultScope, facets, growth }),
+    [market, watchlists, defaultScope, facets, growth],
   );
 
   const apply = (next: EventFilters) => {
@@ -252,6 +263,7 @@ export function EventFilterBar({
     <div className="flex flex-wrap items-center gap-2">
       <RuleBuilder
         market={market}
+        metrics={growth ? [...RULE_METRICS, ...GROWTH_METRICS] : RULE_METRICS}
         rules={shown.rules}
         onApply={(rules) => apply({ ...shown, rules })}
         disabled={!factsAvailable}
