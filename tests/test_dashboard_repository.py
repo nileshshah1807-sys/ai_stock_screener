@@ -38,6 +38,103 @@ class StorageRecordingRepository(RecordingDashboardRepository):
         return self.objects.get(path)
 
 
+class MemoryObjectStore:
+    """Supabase Storage as a dict of path -> bytes, with its folder listing."""
+
+    def __init__(self, paths=()):
+        self.objects = dict.fromkeys(paths, b"")
+
+    def put(self, path, body, content_type="application/gzip"):
+        self.objects[path] = body
+
+    def get(self, path):
+        return self.objects.get(path)
+
+    def _children(self, prefix):
+        return {path[len(prefix) + 1 :].split("/")[0]: path for path in self.objects
+                if path.startswith(prefix + "/")}
+
+    def list(self, prefix):
+        return [path for name, path in self._children(prefix).items()
+                if path == f"{prefix}/{name}"]
+
+    def folders(self, prefix):
+        return [name for name, path in self._children(prefix).items()
+                if path != f"{prefix}/{name}"]
+
+    def remove(self, paths):
+        paths = list(paths)
+        for path in paths:
+            del self.objects[path]
+        return len(paths)
+
+
+class SnapshotPayloadTests(unittest.TestCase):
+    """The payload left Postgres for Storage: a third of the database in a day."""
+
+    def repository(self, runs, paths=(), market="NSE"):
+        repository = RecordingDashboardRepository([runs], market=market)
+        repository._objects = MemoryObjectStore(paths)
+        return repository
+
+    def test_each_symbol_is_one_object_in_its_runs_folder(self):
+        repository = self.repository([])
+
+        written = repository.upsert_snapshot_payloads(
+            "2026-10-28", {"A&B": {"Symbol": "A&B", "Decision_Score": 36.8}, "XYZ.BO": {}}
+        )
+
+        self.assertEqual(written, 2)
+        stored = repository._objects.objects
+        self.assertEqual(
+            sorted(stored),
+            [
+                "snapshot-payload/NSE/2026-10-28/A&B.json.gz",
+                "snapshot-payload/NSE/2026-10-28/XYZ.BO.json.gz",
+            ],
+        )
+        body = stored["snapshot-payload/NSE/2026-10-28/A&B.json.gz"]
+        self.assertEqual(json.loads(gzip.decompress(body)), {"Symbol": "A&B", "Decision_Score": 36.8})
+
+    def test_prune_deletes_every_folder_whose_run_is_gone(self):
+        # 10-27 was pruned; 10-26 was a failed publish whose reservation the
+        # compensation removed. Neither is in screener_runs any more.
+        repository = self.repository(
+            [{"run_date": "2026-10-28"}],
+            [
+                "snapshot-payload/NSE/2026-10-28/AAA.json.gz",
+                "snapshot-payload/NSE/2026-10-27/AAA.json.gz",
+                "snapshot-payload/NSE/2026-10-27/BBB.json.gz",
+                "snapshot-payload/NSE/2026-10-26/AAA.json.gz",
+            ],
+        )
+
+        removed = repository.prune_snapshot_payloads()
+
+        self.assertEqual(removed, 3)
+        self.assertEqual(list(repository._objects.objects), ["snapshot-payload/NSE/2026-10-28/AAA.json.gz"])
+        self.assertEqual(repository.calls[0][2]["params"]["market"], "eq.NSE")
+
+    def test_prune_keeps_an_in_flight_reservation(self):
+        repository = self.repository(
+            [{"run_date": "2026-10-29"}, {"run_date": "2026-10-28"}],
+            ["snapshot-payload/NSE/2026-10-29/AAA.json.gz", "snapshot-payload/NSE/2026-10-28/AAA.json.gz"],
+        )
+
+        self.assertEqual(repository.prune_snapshot_payloads(), 0)
+        self.assertEqual(len(repository._objects.objects), 2)
+
+    def test_prune_never_touches_the_other_markets_folders(self):
+        repository = self.repository(
+            [{"run_date": "2026-10-28"}],
+            ["snapshot-payload/NSE/2026-10-27/AAA.json.gz"],
+            market="US",
+        )
+
+        self.assertEqual(repository.prune_snapshot_payloads(), 0)
+        self.assertIn("snapshot-payload/NSE/2026-10-27/AAA.json.gz", repository._objects.objects)
+
+
 class SimulatedRankingTests(unittest.TestCase):
     def test_a_rebuild_clears_this_markets_backtest_before_the_live_date(self):
         repository = RecordingDashboardRepository(market="NSE")
@@ -95,7 +192,7 @@ class DashboardRepositoryLogoTests(unittest.TestCase):
         first_params = repository.calls[0][2]["params"]
         second_params = repository.calls[1][2]["params"]
         self.assertEqual(first_params["logo_domain"], "is.null")
-        self.assertIn("payload", first_params["select"])
+        self.assertNotIn("payload", first_params["select"])
         self.assertEqual(first_params["offset"], "0")
         self.assertEqual(second_params["offset"], "2")
 
@@ -105,11 +202,7 @@ class DashboardRepositoryLogoTests(unittest.TestCase):
         written = repository.upsert_snapshot_logo_domains(
             "2026-08-14",
             [
-                {
-                    "symbol": "RELIANCE",
-                    "logo_domain": "ril.com",
-                    "payload": {"Symbol": "RELIANCE", "Decision_Score": 36.8},
-                }
+                {"symbol": "RELIANCE", "logo_domain": "ril.com"}
             ],
         )
 
@@ -128,7 +221,6 @@ class DashboardRepositoryLogoTests(unittest.TestCase):
                     "run_date": "2026-08-14",
                     "symbol": "RELIANCE",
                     "logo_domain": "ril.com",
-                    "payload": {"Symbol": "RELIANCE", "Decision_Score": 36.8},
                     "market": "NSE",
                 }
             ],

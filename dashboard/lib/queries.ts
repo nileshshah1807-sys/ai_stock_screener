@@ -3,7 +3,12 @@ import "server-only";
 import { cache } from "react";
 
 import { gridProjection } from "@/lib/columns";
-import { priceCalendarPath, priceSeriesPath, readMarketObject } from "@/lib/market-data";
+import {
+  priceCalendarPath,
+  priceSeriesPath,
+  readMarketObject,
+  snapshotPayloadPath,
+} from "@/lib/market-data";
 import {
   LIVE_MOVERS_LIMIT,
   normalizeLiveMarket,
@@ -662,25 +667,39 @@ export const runUsesFactorModel = cache(
   return (data?.length ?? 0) > 0;
 });
 
+/**
+ * One snapshot row with its complete source record.
+ *
+ * The record is a Storage object beside the run (lib/market-data.ts); a row
+ * published before it moved there still carries it in `payload`. The object
+ * is asked for alongside the row, so the page waits for one round trip, not
+ * two. A missing object leaves an empty payload, which the page renders as
+ * fields not reported rather than failing.
+ */
 export async function getStock(
   market: MarketCode,
   runDate: string,
   symbol: string,
 ): Promise<SnapshotRowWithPayload | null> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("screener_snapshot")
-    .select("*")
-    .eq("market", market)
-    .eq("run_date", runDate)
-    .eq("symbol", symbol.toUpperCase())
-    .maybeSingle();
+  const code = symbol.toUpperCase();
+  const [{ data, error }, stored] = await Promise.all([
+    supabase
+      .from("screener_snapshot")
+      .select("*")
+      .eq("market", market)
+      .eq("run_date", runDate)
+      .eq("symbol", code)
+      .maybeSingle(),
+    readMarketObject<Record<string, unknown>>(supabase, snapshotPayloadPath(market, runDate, code)),
+  ]);
 
   if (error) {
     console.error("getStock failed", error.message);
     return null;
   }
-  return data as SnapshotRowWithPayload | null;
+  if (!data) return null;
+  return { ...data, payload: data.payload ?? stored ?? {} } as SnapshotRowWithPayload;
 }
 
 /**

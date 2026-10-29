@@ -831,6 +831,8 @@ def publish(
     records = df.to_dict(orient="records")
 
     snapshot_rows: list[dict[str, Any]] = []
+    # Symbol -> complete source record, stored in Storage beside the run.
+    payloads: dict[str, dict[str, Any]] = {}
     history_rows: list[dict[str, Any]] = []
     estimate_rows: list[dict[str, Any]] = []
     basis_rows: list[dict[str, Any]] = []
@@ -851,8 +853,8 @@ def publish(
 
         snapshot = map_row(record, SNAPSHOT_COLUMNS, report)
         snapshot["run_date"] = run_date
-        snapshot["payload"] = build_payload(record)
         snapshot_rows.append(snapshot)
+        payloads[symbol] = build_payload(record)
 
         history = map_row(record, HISTORY_COLUMNS, report)
         history["observed_on"] = run_date
@@ -946,6 +948,9 @@ def publish(
     try:
         written = repository.replace_snapshot_rows(run_date, snapshot_rows, chunk_size)
         repository.delete_stale_snapshot_rows(run_date, seen_symbols)
+        # Before the run is published: the stock page reads a row's payload
+        # from Storage, so a complete run must have every one there.
+        payloads_written = repository.upsert_snapshot_payloads(run_date, payloads)
         history_written = repository.upsert_history_rows(history_rows)
         repository.upsert_run(run_row)
     except Exception as exc:
@@ -957,13 +962,14 @@ def publish(
         raise
 
     prune_error = None
+    pruned = payloads_pruned = 0
     try:
         pruned = repository.prune_snapshots(keep_runs)
+        payloads_pruned = repository.prune_snapshot_payloads()
     except Exception as exc:  # noqa: BLE001 - retention must not invalidate a publish
         # The new run is already complete and visible. Retention is housekeeping,
         # so failing it must not turn the workflow red and trigger a same-date
         # retry that is correctly refused as a non-atomic replacement.
-        pruned = 0
         prune_error = str(exc)
         logger.warning("Dashboard snapshot pruning failed after publish: %s", exc)
 
@@ -1014,8 +1020,10 @@ def publish(
     summary.update(
         {
             "snapshot_rows_written": written,
+            "payload_objects_written": payloads_written,
             "history_rows_written": history_written,
             "runs_pruned": pruned,
+            "payload_objects_pruned": payloads_pruned,
             "prune_error": prune_error,
             "estimate_rows_written": estimates_written,
             "estimate_error": estimate_error,
