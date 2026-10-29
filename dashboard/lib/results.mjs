@@ -199,3 +199,71 @@ export function passesGrowth(card, rules) {
     return rule.op === "gte" ? rate >= rule.value : rate <= rule.value;
   });
 }
+
+/** The growth lines the Analysis tab charts, in the card's keys. */
+export const ANALYSIS_LINES = [
+  { key: "revenue", label: "Revenue" },
+  { key: "operating_profit", label: "Operating profit" },
+  { key: "net_profit", label: "PAT" },
+];
+
+/** How many quarters the Analysis tab offers: 4, 6 or 8, six by default. */
+export const ANALYSIS_SPANS = [4, 6, 8];
+
+/** The span a URL asks for, if it is one offered. */
+export function chosenSpan(value) {
+  const parsed = Number.parseInt(Array.isArray(value) ? (value[0] ?? "") : (value ?? ""), 10);
+  return ANALYSIS_SPANS.includes(parsed) ? parsed : 6;
+}
+
+/** The middle of the values, or null for none; the mean of the two middle ones when even. */
+export function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+/**
+ * Per quarter, how many companies reported and the median year-on-year growth
+ * of each analysed line across them, oldest quarter first.
+ *
+ * Each rate is the one the company's Results card prints (`resultCard`: its
+ * opening basis, no rate off a non-positive base), so the chart and the cards
+ * cannot disagree. A company with no rate for a line is left out of that
+ * line's median but still counts as a result; `n` says how many the median
+ * rests on.
+ *
+ * @param {Array<{ symbol: string, period_end: string }>} filings  every filing read, any basis
+ * @param {string[]} quarters  quarter ends, newest first
+ * @param {Set<string> | null} [symbols]  restrict to these companies; null for all
+ */
+export function quarterMedians(filings, quarters, symbols = null) {
+  const byCompany = new Map();
+  for (const filing of filings) {
+    if (symbols && !symbols.has(filing.symbol)) continue;
+    const list = byCompany.get(filing.symbol) ?? [];
+    list.push(filing);
+    byCompany.set(filing.symbol, list);
+  }
+  return [...quarters].reverse().map((quarter) => {
+    const rates = Object.fromEntries(ANALYSIS_LINES.map((line) => [line.key, []]));
+    let results = 0;
+    for (const [symbol, list] of byCompany) {
+      const basis = resultCard({ symbol }, list, quarter).bases[0];
+      if (!basis) continue;
+      results += 1;
+      for (const line of ANALYSIS_LINES) {
+        const rate = basis.rows.find((row) => row.key === line.key)?.yoy;
+        if (typeof rate === "number" && Number.isFinite(rate)) rates[line.key].push(rate);
+      }
+    }
+    return {
+      quarter,
+      results,
+      series: Object.fromEntries(
+        ANALYSIS_LINES.map((line) => [line.key, { median: median(rates[line.key]), n: rates[line.key].length }]),
+      ),
+    };
+  });
+}

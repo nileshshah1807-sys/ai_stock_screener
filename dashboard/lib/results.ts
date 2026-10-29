@@ -1,5 +1,8 @@
 import "server-only";
 
+import { createServerClient } from "@supabase/ssr";
+import { unstable_cache } from "next/cache";
+
 import type { MarketCode } from "@/lib/markets";
 import { getLatestRun, getSearchIndex } from "@/lib/queries";
 import { createClient } from "@/lib/supabase/server";
@@ -193,44 +196,117 @@ export async function getCompanyNames(
   return new Map([...names].filter(([symbol]) => wanted.has(symbol)));
 }
 
-/**
- * The lines of every filing for these quarters, as a whole market's growth
- * needs them: the page cannot ask by symbol, since a thousand symbols do not
- * fit in a URL. Read in windows, the later ones together.
- */
-export async function getQuarterLines(
+/** Tag on the cached whole-market read; `revalidateTag` it to drop it early. */
+export const QUARTER_LINES_TAG = "quarterly-filings";
+const QUARTER_LINES_REVALIDATE = 600;
+
+type LineRow = Omit<QuarterFiling, "lines"> & {
+  revenue: number | null;
+  operating_profit: number | null;
+  net_profit: number | null;
+};
+
+const toFiling = ({ revenue, operating_profit, net_profit, ...rest }: LineRow): QuarterFiling => ({
+  ...rest,
+  lines: { revenue, operating_profit, net_profit },
+});
+
+type Reader = Awaited<ReturnType<typeof createClient>>;
+
+/** Every window of the filings' three lines for `periods`, narrowed to `symbols` when given. */
+async function readQuarterLines(
+  supabase: Reader,
   market: MarketCode,
   periods: string[],
+  symbols: string[] | null,
 ): Promise<QuarterFiling[]> {
-  const supabase = await createClient();
-  const window = (from: number) =>
-    supabase
+  const window = (from: number) => {
+    let built = supabase
       .from("quarterly_filings")
-      .select("symbol, period_end, is_consolidated, lines", { count: "exact" })
+      .select(
+        "symbol, period_end, is_consolidated, revenue:lines->revenue, operating_profit:lines->operating_profit, net_profit:lines->net_profit",
+        { count: "exact" },
+      )
       .eq("market", market)
-      .in("period_end", periods)
+      .in("period_end", periods);
+    if (symbols) built = built.in("symbol", symbols);
+    return built
       .order("symbol", { ascending: true })
       .order("period_end", { ascending: true })
       .order("is_consolidated", { ascending: true })
       .range(from, from + READ_WINDOW - 1);
+  };
   const first = await window(0);
-  if (first.error) {
-    console.error("getQuarterLines failed", first.error.message);
-    return [];
-  }
-  const rows = (first.data ?? []) as unknown as QuarterFiling[];
+  // Throws rather than returning a short read, so the cache never keeps one.
+  if (first.error) throw new Error(first.error.message);
+  const rows = ((first.data ?? []) as unknown as LineRow[]).map(toFiling);
   const rest = await Promise.all(
     Array.from({ length: Math.max(0, Math.ceil((first.count ?? 0) / READ_WINDOW) - 1) }, (_, index) =>
       window((index + 1) * READ_WINDOW),
     ),
   );
   for (const page of rest) {
-    if (page.error) {
-      // A short read would silently drop companies from the filter: show none.
-      console.error("getQuarterLines failed", page.error.message);
-      return [];
-    }
-    rows.push(...((page.data ?? []) as unknown as QuarterFiling[]));
+    // A short read would silently drop companies from the result.
+    if (page.error) throw new Error(page.error.message);
+    rows.push(...((page.data ?? []) as unknown as LineRow[]).map(toFiling));
   }
   return rows;
+}
+
+/** The whole market's lines, from the cache when it holds them; see `getQuarterLines`. */
+async function readWholeMarket(supabase: Reader, market: MarketCode, periods: string[]) {
+  const { data: access } = await supabase.from("quarterly_filings").select("symbol").eq("market", market).limit(1);
+  const { data: session } = await supabase.auth.getSession();
+  const token = session.session?.access_token;
+  if (!access?.length || !token) return [];
+
+  const reader = () =>
+    createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+      cookies: { getAll: () => [], setAll: () => {} },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+  // One entry per quarter end: the Data Cache refuses an entry over 2 MB, and
+  // a quarter's filings are about 1 MB where several together may not be.
+  const quarters = await Promise.all(
+    periods.map((period) =>
+      unstable_cache(() => readQuarterLines(reader(), market, [period], null), ["quarter-lines", market, period], {
+        revalidate: QUARTER_LINES_REVALIDATE,
+        tags: [QUARTER_LINES_TAG, `${QUARTER_LINES_TAG}:${market}`],
+      })(),
+    ),
+  );
+  return quarters.flat();
+}
+
+/**
+ * The revenue, operating profit and net profit of every filing for these
+ * quarters -- the three lines a growth rate here is worked out from, not the
+ * whole `lines` document, since a whole quarter is some thousands of filings.
+ *
+ * Narrowed to `symbols` when they fit in the request (`PUSH_DOWN_MAX`), and
+ * then read as the viewer, uncached. Anything larger is the whole market's
+ * filings, the same for every viewer, so it is cached for ten minutes,
+ * a quarter end at a time (`QUARTER_LINES_TAG`): the caller keeps its own scope.
+ *
+ * The cache holds the filings, not the access check. Every call first reads
+ * one row as the viewer, so the invite list's row-level security is applied
+ * on each request as it is everywhere else; only a viewer who passes it is
+ * served the cached read. A miss reads with that viewer's own token, since
+ * the cache runs outside the request and has no cookies.
+ */
+export async function getQuarterLines(
+  market: MarketCode,
+  periods: string[],
+  symbols: string[] | null = null,
+): Promise<QuarterFiling[]> {
+  if (symbols && symbols.length === 0) return [];
+  try {
+    const supabase = await createClient();
+    return symbols && symbols.length <= PUSH_DOWN_MAX
+      ? await readQuarterLines(supabase, market, periods, symbols)
+      : await readWholeMarket(supabase, market, periods);
+  } catch (error) {
+    console.error("getQuarterLines failed", error instanceof Error ? error.message : error);
+    return [];
+  }
 }

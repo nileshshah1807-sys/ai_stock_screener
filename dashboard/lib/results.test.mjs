@@ -7,8 +7,11 @@ import {
   chosenQuarter,
   formatChange,
   groupByAnnouncedDay,
+  chosenSpan,
+  median,
   passesGrowth,
   quarterEnds,
+  quarterMedians,
   quarterLabel,
   resultCard,
 } from "./results.mjs";
@@ -175,4 +178,46 @@ test("a growth rule tests the rate the card prints, on the basis it opens on", (
 test("a company that did not file the quarter on any basis passes no growth rule", () => {
   const card = resultCard({ symbol: "ABC" }, [], "2026-09-30");
   assert.equal(passesGrowth(card, [{ metric: "revyoy", op: "gte", value: -100 }]), false);
+});
+
+const filed = (symbol, period_end, revenue, net_profit = 10) => ({
+  symbol,
+  period_end,
+  is_consolidated: true,
+  lines: { revenue, net_profit },
+});
+
+test("quarterMedians takes the median rate of those who reported, oldest first", () => {
+  const filings = [
+    filed("A", "2026-09-30", 120), filed("A", "2025-09-30", 100),
+    filed("B", "2026-09-30", 150), filed("B", "2025-09-30", 100),
+    filed("C", "2026-09-30", 90), filed("C", "2025-09-30", 100),
+    // reported, but nothing a year earlier: counts as a result, not in the median
+    filed("D", "2026-09-30", 500),
+  ];
+  const [older, newer] = quarterMedians(filings, ["2026-09-30", "2026-06-30"]);
+  assert.equal(older.quarter, "2026-06-30");
+  assert.equal(older.results, 0);
+  assert.equal(older.series.revenue.median, null);
+  assert.equal(newer.results, 4);
+  assert.deepEqual(newer.series.revenue, { median: 20, n: 3 });
+  assert.deepEqual(newer.series.operating_profit, { median: null, n: 0 });
+});
+
+test("quarterMedians keeps to the companies in scope", () => {
+  const filings = [
+    filed("A", "2026-09-30", 120), filed("A", "2025-09-30", 100),
+    filed("B", "2026-09-30", 300), filed("B", "2025-09-30", 100),
+  ];
+  const [only] = quarterMedians(filings, ["2026-09-30"], new Set(["A"]));
+  assert.equal(only.results, 1);
+  assert.equal(only.series.revenue.median, 20);
+});
+
+test("median and chosenSpan", () => {
+  assert.equal(median([]), null);
+  assert.equal(median([3, 1, 2, 4]), 2.5);
+  assert.equal(chosenSpan("8"), 8);
+  assert.equal(chosenSpan("5"), 6);
+  assert.equal(chosenSpan(undefined), 6);
 });
