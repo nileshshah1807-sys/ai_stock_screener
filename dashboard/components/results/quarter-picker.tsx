@@ -16,13 +16,21 @@ import {
  * Which quarter's results the page shows. The choice is in the URL, with the
  * filters and the search, so a season can be bookmarked; the newest quarter
  * is the page's default and is left out of the URL.
+ *
+ * Any one-of-a-few choice kept in a URL parameter works the same way (the
+ * Analysis tab's index and span): the first option is the default and is
+ * left out of the URL.
  */
 export function QuarterPicker({
   value,
   options,
+  param = "quarter",
+  name = "Quarter",
 }: {
   value: string;
   options: { value: string; label: string }[];
+  param?: string;
+  name?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -32,8 +40,8 @@ export function QuarterPicker({
 
   const choose = (next: string) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (next === options[0]?.value) params.delete("quarter");
-    else params.set("quarter", next);
+    if (next === options[0]?.value) params.delete(param);
+    else params.set(param, next);
     // A longer page of the old quarter means nothing in the new one.
     params.delete("shown");
     const text = params.toString();
@@ -43,7 +51,7 @@ export function QuarterPicker({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="outline" className="gap-1.5 pr-3" aria-label={`Quarter: ${current?.label}`} />}
+        render={<Button variant="outline" className="gap-1.5 pr-3" aria-label={`${name}: ${current?.label}`} />}
       >
         {pending ? (
           <Loader2 className="size-3.5 animate-spin" aria-hidden />

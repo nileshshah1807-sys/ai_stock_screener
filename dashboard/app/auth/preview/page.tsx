@@ -17,6 +17,8 @@ import { NewListingView } from "@/components/stock/new-listing-view";
 import { Suspense } from "react";
 import { ActiveFilters } from "@/components/screener/active-filters";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
+import { AnalysisChart } from "@/components/results/analysis-chart";
+import { QuarterPicker } from "@/components/results/quarter-picker";
 import { ExportLink } from "@/components/screener/export-link";
 import { FilterBar } from "@/components/screener/filter-bar";
 import { SavedViews } from "@/components/screener/saved-views";
@@ -163,6 +165,42 @@ export default function PreviewPage() {
         <section className="flex flex-col gap-3">
           <h2 className="text-heading">Call outlook</h2>
           <CallOutlook payload={previewDetailRow.payload} />
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Results analysis</h2>
+          <Suspense>
+            <div className="flex gap-2">
+              <QuarterPicker param="index" name="Index" value="" options={[{ value: "", label: "All companies" }]} />
+              <QuarterPicker
+                param="n"
+                name="Quarters"
+                value="6"
+                options={[{ value: "6", label: "6 quarters" }, { value: "4", label: "4 quarters" }]}
+              />
+            </div>
+          </Suspense>
+          <div className="panel p-4">
+            <AnalysisChart
+              series={[
+                { key: "revenue", label: "Revenue", color: "var(--series-1)" },
+                { key: "operating_profit", label: "Operating profit", color: "var(--series-2)" },
+                { key: "net_profit", label: "PAT", color: "var(--series-3)" },
+              ]}
+              columns={[
+                ["Jun 2025", 227, [9.1, 13.8, 13]],
+                ["Sep 2025", 231, [11.1, 12.2, 12.9]],
+                ["Dec 2025", 243, [13, 19.7, -6.4]],
+                ["Mar 2026", 246, [15.8, 23.2, 29.5]],
+                ["Jun 2026", 251, [20.1, 25.1, 28.5]],
+                ["Sep 2026", 54, [22.4, null, 41]],
+              ].map(([label, results, medians]) => ({
+                label: label as string,
+                results: results as number,
+                values: (medians as (number | null)[]).map((median) => ({ median, n: median === null ? 0 : (results as number) - 12 })),
+              }))}
+            />
+          </div>
         </section>
 
         <section className="flex flex-col gap-3">

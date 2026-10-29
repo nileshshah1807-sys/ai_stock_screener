@@ -194,31 +194,53 @@ export async function getCompanyNames(
 }
 
 /**
- * The lines of every filing for these quarters, as a whole market's growth
- * needs them: the page cannot ask by symbol, since a thousand symbols do not
+ * The revenue, operating profit and net profit of every filing for these
+ * quarters -- the three lines a growth rate here is worked out from, not the
+ * whole `lines` document, since a whole quarter is some thousands of filings.
+ * Narrowed to `symbols` when they fit in the request (`PUSH_DOWN_MAX`); a
+ * larger scope is read whole and the caller keeps its own.
+ *
+ * The page cannot ask by symbol past that, since a thousand symbols do not
  * fit in a URL. Read in windows, the later ones together.
  */
 export async function getQuarterLines(
   market: MarketCode,
   periods: string[],
+  symbols: string[] | null = null,
 ): Promise<QuarterFiling[]> {
+  if (symbols && symbols.length === 0) return [];
   const supabase = await createClient();
-  const window = (from: number) =>
-    supabase
+  const window = (from: number) => {
+    let built = supabase
       .from("quarterly_filings")
-      .select("symbol, period_end, is_consolidated, lines", { count: "exact" })
+      .select(
+        "symbol, period_end, is_consolidated, revenue:lines->revenue, operating_profit:lines->operating_profit, net_profit:lines->net_profit",
+        { count: "exact" },
+      )
       .eq("market", market)
-      .in("period_end", periods)
+      .in("period_end", periods);
+    if (symbols && symbols.length <= PUSH_DOWN_MAX) built = built.in("symbol", symbols);
+    return built
       .order("symbol", { ascending: true })
       .order("period_end", { ascending: true })
       .order("is_consolidated", { ascending: true })
       .range(from, from + READ_WINDOW - 1);
+  };
+  type Row = Omit<QuarterFiling, "lines"> & {
+    revenue: number | null;
+    operating_profit: number | null;
+    net_profit: number | null;
+  };
+  const toFiling = ({ revenue, operating_profit, net_profit, ...rest }: Row): QuarterFiling => ({
+    ...rest,
+    lines: { revenue, operating_profit, net_profit },
+  });
   const first = await window(0);
   if (first.error) {
     console.error("getQuarterLines failed", first.error.message);
     return [];
   }
-  const rows = (first.data ?? []) as unknown as QuarterFiling[];
+  const rows = ((first.data ?? []) as unknown as Row[]).map(toFiling);
   const rest = await Promise.all(
     Array.from({ length: Math.max(0, Math.ceil((first.count ?? 0) / READ_WINDOW) - 1) }, (_, index) =>
       window((index + 1) * READ_WINDOW),
@@ -226,11 +248,11 @@ export async function getQuarterLines(
   );
   for (const page of rest) {
     if (page.error) {
-      // A short read would silently drop companies from the filter: show none.
+      // A short read would silently drop companies from the result: show none.
       console.error("getQuarterLines failed", page.error.message);
       return [];
     }
-    rows.push(...((page.data ?? []) as unknown as QuarterFiling[]));
+    rows.push(...((page.data ?? []) as unknown as Row[]).map(toFiling));
   }
   return rows;
 }

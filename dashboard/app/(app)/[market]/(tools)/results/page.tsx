@@ -117,7 +117,7 @@ export default async function ResultsPage({
     // then page through that.
     const [scanned, lines] = await Promise.all([
       getResultFeed(market.code, { quarter, symbols: feed.symbols, search, limit: GROWTH_SCAN }),
-      getQuarterLines(market.code, periods),
+      getQuarterLines(market.code, periods, feed.symbols),
     ]);
     scanCapped = scanned.entries.length >= GROWTH_SCAN;
     const filingsOf = new Map<string, QuarterFiling[]>();
