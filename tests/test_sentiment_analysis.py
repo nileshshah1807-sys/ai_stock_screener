@@ -361,8 +361,8 @@ class OutlookStanceTests(unittest.TestCase):
         from sentiment.outlook import stance_from_score
 
         cases = {
-            100: "bullish", 78: "bullish", 77.99: "optimistic", 68: "optimistic", 67.5: "neutral",
-            58: "neutral", 57: "cautious", 48: "cautious", 47.9: "bearish", 0: "bearish",
+            100: "bullish", 72: "bullish", 71.99: "optimistic", 62: "optimistic", 61.5: "neutral",
+            53: "neutral", 52.5: "cautious", 45: "cautious", 44.9: "bearish", 0: "bearish",
         }
         for score, view in cases.items():
             self.assertEqual(stance_from_score(score), view, score)
@@ -406,9 +406,10 @@ class OutlookScoreTests(unittest.TestCase):
         self.assertEqual(points["order book rising"], 8.0)
         self.assertEqual(points["order book covers two years or more of revenue"], 6.0)
         self.assertEqual(points["new capacity producing"], 6.0)
-        self.assertEqual(points["demand outlook strong"], 8.0)
+        # "Demand ... remains very strong" states no figure.
+        self.assertEqual(points["demand outlook strong, no figure given"], 4.0)
         self.assertEqual(points["margin outlook worsening"], -8.0)
-        self.assertEqual(score, 95.0)
+        self.assertEqual(score, 91.0)
 
     def test_lowered_guidance_costs_more_than_raised_guidance_earns(self):
         lowered = {"direction": "lowered", "metric": None, "growth_pct": None,
@@ -428,11 +429,73 @@ class OutlookScoreTests(unittest.TestCase):
         _, points = self.score()
         self.assertEqual(points["guided revenue growth 25% or more"], 10.0)
 
-    def test_planned_capacity_is_worth_almost_nothing(self):
+    def test_planned_capacity_is_worth_nothing(self):
         planned = {"state": "planned", "commissioning": None,
                    "quote": "The new Hosur plant started commercial production in July."}
         _, points = self.score(capacity=planned)
-        self.assertEqual(points["capacity planned"], 1.0)
+        self.assertEqual(points["capacity planned"], 0.0)
+
+    def test_capacity_due_more_than_two_years_after_the_call_scores_as_planned(self):
+        building = {"state": "under_construction", "commissioning": "2029-01",
+                    "quote": "The new Hosur plant started commercial production in July."}
+        verified, _, _ = verify_quotes(extraction(capacity=building), CALL)
+        self.assertEqual(dict(outlook_points(verified, "2026-10-20"))["capacity due more than two years out"], 0.0)
+        self.assertEqual(dict(outlook_points(verified, "2027-06-20"))["capacity under construction"], 3.0)
+        # Undated, as a caller without the call's date reads it.
+        self.assertEqual(dict(outlook_points(verified))["capacity under construction"], 3.0)
+
+    def test_growth_guided_near_the_economys_rate_scores_nothing(self):
+        modest = {"direction": "maintained", "metric": "revenue", "growth_pct": 10,
+                  "quote": "We are raising our revenue growth guidance for FY27 to 30% from 25% earlier."}
+        _, points = self.score(guidance=modest)
+        self.assertEqual(points["guided revenue growth 5-15%"], 0.0)
+
+    def test_volume_growth_is_scored_where_no_revenue_growth_is_guided(self):
+        volume = {"direction": "maintained", "metric": "loan book", "growth_metric": "volume", "growth_pct": 20,
+                  "period": "FY27",
+                  "quote": "We are raising our revenue growth guidance for FY27 to 30% from 25% earlier."}
+        verified, _, _ = verify_quotes(extraction(guidance=volume), CALL)
+        self.assertEqual(verified["guidance"]["period"], "FY27")
+        self.assertEqual(dict(outlook_points(verified))["guided volume growth 15-25%"], 6.0)
+
+    def test_an_upbeat_claim_scores_in_full_only_with_a_figure(self):
+        call = CALL + "\nWe see demand growing 20% in FY27. We see demand improving through FY27 and Q3."
+        quantified = verify_quotes(
+            extraction(demand={"tone": "strong", "quote": "We see demand growing 20% in FY27."}), call
+        )[0]
+        dated = verify_quotes(
+            extraction(demand={"tone": "strong", "quote": "We see demand improving through FY27 and Q3."}), call
+        )[0]
+        self.assertEqual(dict(outlook_points(quantified))["demand outlook strong"], 8.0)
+        # A period is not a figure.
+        self.assertEqual(dict(outlook_points(dated))["demand outlook strong, no figure given"], 4.0)
+
+    def test_a_margin_rise_from_a_one_off_counts_for_half(self):
+        call = CALL + "\nThe export incentive refund adds 150 basis points to margins next quarter."
+        refund = {"trend": "up", "driver": "one_off",
+                  "quote": "The export incentive refund adds 150 basis points to margins next quarter."}
+        verified, _, _ = verify_quotes(extraction(margin=refund), call)
+        self.assertEqual(dict(outlook_points(verified))["margin outlook improving on a one-off"], 3.0)
+        verified["margin"]["driver"] = "structural"
+        self.assertEqual(dict(outlook_points(verified))["margin outlook improving"], 6.0)
+
+    def test_a_named_contract_with_a_value_outweighs_a_general_tailwind(self):
+        call = CALL + "\nWe won a Rs 900 crore order from a railway customer. Exports look promising for the year."
+        verified, _, _ = verify_quotes(extraction(tailwinds=[
+            {"what": "railway order", "contract_win": True,
+             "quote": "We won a Rs 900 crore order from a railway customer."},
+            {"what": "exports", "contract_win": True, "quote": "Exports look promising for the year."},
+        ]), call)
+        points = dict(outlook_points(verified))
+        self.assertEqual(points["contract win: railway order"], 4.0)
+        # Called a win but stating no value: a tailwind without a figure.
+        self.assertEqual(points["tailwind: exports, no figure given"], 1.0)
+
+    def test_a_tailwind_stored_before_contract_wins_scores_as_a_tailwind(self):
+        call = CALL + "\nWe won a Rs 900 crore order from a railway customer."
+        verified, _, _ = verify_quotes(extraction(), call)
+        verified["tailwinds"] = [{"what": "railway order", "quote": "We won a Rs 900 crore order from a railway customer."}]
+        self.assertEqual(dict(outlook_points(verified))["tailwind: railway order"], 2.0)
 
     def test_the_score_is_bounded(self):
         verified, _, _ = verify_quotes(extraction(), CALL)
@@ -441,6 +504,15 @@ class OutlookScoreTests(unittest.TestCase):
 
 
 class OutlookRequestTests(unittest.TestCase):
+    def test_a_long_call_loses_its_middle_not_its_questions(self):
+        from sentiment.outlook import MAX_TRANSCRIPT_CHARACTERS
+
+        text = "OPENING " + "x" * MAX_TRANSCRIPT_CHARACTERS + " CLOSING"
+        _, user = build_messages("Acme Ltd", "ACME", "2026-08-10", text)
+        body = user["content"].split("Transcript:\n", 1)[1]
+        self.assertEqual(len(body), MAX_TRANSCRIPT_CHARACTERS)
+        self.assertTrue(body.startswith("OPENING") and body.endswith("CLOSING"))
+
     def test_messages_carry_the_company_and_the_transcript(self):
         system, user = build_messages("Acme Ltd", "ACME", "2026-08-10", CALL)
         self.assertEqual(system["role"], "system")
@@ -487,14 +559,14 @@ class OutlookItemTests(unittest.TestCase):
         verified = {section: dict(empty) for section, empty in _EMPTY.items()}
         verified["guidance"] = {"direction": "raised", "metric": "revenue", "growth_pct": 30, "quote": "G"}
         verified["demand"] = {"tone": "weak", "quote": "D"}
-        verified["tailwinds"] = [{"what": "new approval", "quote": "T"}]
+        verified["tailwinds"] = [{"what": "new approval", "quote": "T 2"}]
         verified["headwinds"] = []
 
         self.assertEqual(outlook_items(verified), [
             ("guidance raised", 15.0, "G"),
             ("guided revenue growth 25% or more", 10.0, "G"),
             ("demand outlook weak", -10.0, "D"),
-            ("tailwind: new approval", 2.0, "T"),
+            ("tailwind: new approval", 2.0, "T 2"),
         ])
         self.assertEqual(outlook_points(verified), [
             ("guidance raised", 15.0),
@@ -509,6 +581,13 @@ class OutlookChangeTests(unittest.TestCase):
         from sentiment.outlook import compare_outlooks
 
         return {item["item"]: (item["change"], item["text"]) for item in compare_outlooks(previous, current)}
+
+    def test_growth_guided_for_different_years_is_not_compared(self):
+        changes = self.changes(
+            {"guidance": {"direction": "maintained", "growth_pct": 20, "period": "FY26"}},
+            {"guidance": {"direction": "maintained", "growth_pct": 15, "period": "FY27"}},
+        )
+        self.assertEqual(changes["guidance"], ("kept", "guidance maintained"))
 
     def test_guided_growth_is_compared_as_a_number_whatever_the_label(self):
         # "Maintained" on both calls, and five points lower: that is a cut.

@@ -21,6 +21,16 @@ them -- a guidance change, a quantified order book -- and light on expansion
 plans, which management announces freely and which predict lower returns on
 their own (Jha, Qian, Weber and Yang, NBER w32161).
 
+The same rule sets the October 2026 changes, made on judgment and not
+refitted: an upbeat statement scores in full only when its sentence carries a
+figure (`quantified`). Three in four calls said demand was strong, three in
+five that margins would rise, and nine in ten named three tailwinds, so the
+bare claims barely told one call from another; the figure is what costs
+management something to say. A margin rise from a one-off or from cheaper
+raw material is discounted, growth guided at about the economy's nominal rate
+(5-15%) and capacity merely planned score nothing, and capacity due more than
+two years after the call scores as planned.
+
 Measured against the month that followed (`tools.evaluate_outlook_returns`,
 15 Oct 2026, 2,213 calls): the score ranks the excess return over the
 equal-weight universe at Spearman 0.141 in both Apr-Jun and Jul-Sep 2026,
@@ -53,30 +63,43 @@ logger = logging.getLogger(__name__)
 # version is how a stored outlook is found and how a transcript is known to be
 # done, so a new one would hide every earlier call until it was extracted
 # again. Both bind at extraction and neither changes what a stored outlook
-# scores.
+# scores. Nor for the growth metric, guidance period, margin driver and
+# contract win (2026-10-29): each is optional to the scoring, and a reading
+# stored without them scores as a reading that did not find them.
 OUTLOOK_VERSION = "outlook-v1"
 DEFAULT_MODEL = OPENROUTER_MODEL
-# Calls longer than this are cut from the end. The median call is ~45,000
-# characters; the cap only bounds the cost of a pathological document.
+# Calls longer than this lose their middle. The median call is ~45,000
+# characters and the 99th percentile ~90,000; the cap only bounds the cost of
+# a pathological document. The opening remarks, where guidance is given, and
+# the end of the questions are kept.
 MAX_TRANSCRIPT_CHARACTERS = 160_000
+TRANSCRIPT_HEAD_SHARE = 0.25
 # The same model is sold by some thirty providers at prices a factor of ten
 # apart, and OpenRouter's default routing does not pick the cheapest. Requests
 # go to the cheapest provider first and never to one above these prices, USD
 # per million tokens (prompt, completion).
 MAX_PRICE_PER_MILLION = (0.10, 1.20)
-MAX_OUTPUT_TOKENS = 3000
+# The October 2026 fields lengthened the reply: at 3,000 tokens, 5 of 235 calls
+# were cut off before the object closed.
+MAX_OUTPUT_TOKENS = 4500
 
 GUIDANCE_DIRECTIONS = ("raised", "maintained", "lowered", "none")
 GUIDANCE_SCOPES = ("company", "segment", "none")
 TRENDS = ("up", "flat", "down", "unknown")
 DEMAND_TONES = ("strong", "stable", "weak", "unknown")
 CAPACITY_STATES = ("operational", "ramping", "under_construction", "planned", "none")
+# What a guided growth rate is a rate of. A lender's loan book or AUM is its
+# volume. Read only when no revenue growth is guided.
+GROWTH_METRICS = ("revenue", "volume", "ebitda", "profit", "none")
+MARGIN_DRIVERS = ("structural", "one_off", "raw_material", "unknown")
 # Management's sentiment on the call, for the Concalls page: a band of the
 # call's own outlook score (`stance_from_score`), so the page shows the signal
 # the ranking uses and costs no request of its own. The bands are cut where
-# the stored scores fall (2,263 calls, April-October 2026: median 66, 94%
-# above 50), because the ranking measures a call against the median call, not
-# against 50: bullish is about the top tenth, bearish the bottom twentieth.
+# the stored scores fall (2,476 calls, April-October 2026, scored by the
+# October 2026 weights: median 59, 85% above 50), because the ranking measures
+# a call against the median call, not against 50: bullish is about the top
+# eighth, bearish the bottom twentieth. Recut at the same shares whenever the
+# weights change.
 #
 # Asked of the model instead, the label cost more than the outlook it sat
 # beside and moved nothing that ranks. Asked as a field of the extraction it
@@ -86,7 +109,7 @@ CAPACITY_STATES = ("operational", "ramping", "under_construction", "planned", "n
 # call (14-15 Oct 2026).
 STANCES = ("bullish", "optimistic", "neutral", "cautious", "bearish", "unknown")
 # The lowest outlook score of each band, highest band first.
-STANCE_BANDS = (("bullish", 78.0), ("optimistic", 68.0), ("neutral", 58.0), ("cautious", 48.0))
+STANCE_BANDS = (("bullish", 72.0), ("optimistic", 62.0), ("neutral", 53.0), ("cautious", 45.0))
 
 _QUOTE = {"type": ["string", "null"]}
 _NUMBER = {"type": ["number", "null"]}
@@ -101,12 +124,14 @@ SCHEMA: dict[str, Any] = {
         "guidance": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["direction", "scope", "metric", "growth_pct", "quote"],
+            "required": ["direction", "scope", "metric", "growth_metric", "growth_pct", "period", "quote"],
             "properties": {
                 "direction": {"enum": list(GUIDANCE_DIRECTIONS)},
                 "scope": {"enum": list(GUIDANCE_SCOPES)},
                 "metric": {"type": ["string", "null"]},
+                "growth_metric": {"enum": list(GROWTH_METRICS)},
                 "growth_pct": _NUMBER,
+                "period": {"type": ["string", "null"]},
                 "quote": _QUOTE,
             },
         },
@@ -140,10 +165,14 @@ SCHEMA: dict[str, Any] = {
         "margin": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["trend", "quote"],
-            "properties": {"trend": {"enum": list(TRENDS)}, "quote": _QUOTE},
+            "required": ["trend", "driver", "quote"],
+            "properties": {
+                "trend": {"enum": list(TRENDS)},
+                "driver": {"enum": list(MARGIN_DRIVERS)},
+                "quote": _QUOTE,
+            },
         },
-        "tailwinds": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/item"}},
+        "tailwinds": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/tailwind"}},
         "headwinds": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/item"}},
     },
     "$defs": {
@@ -152,7 +181,17 @@ SCHEMA: dict[str, Any] = {
             "additionalProperties": False,
             "required": ["what", "quote"],
             "properties": {"what": {"type": "string"}, "quote": {"type": "string"}},
-        }
+        },
+        "tailwind": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["what", "contract_win", "quote"],
+            "properties": {
+                "what": {"type": "string"},
+                "contract_win": {"type": "boolean"},
+                "quote": {"type": "string"},
+            },
+        },
     },
 }
 
@@ -173,8 +212,13 @@ revenue or earnings; "segment" if it is for one segment, division, product \
 line, geography or subsidiary; "none" if no guidance is given. When both are \
 given, report the company's.
 - guidance.growth_pct: the guided revenue growth for the current or next \
-financial year, in percent, as one number (the midpoint of a range). Null if \
-the guidance is not a revenue growth rate.
+financial year, in percent, as one number (the midpoint of a range), and \
+growth_metric "revenue". Only if no revenue growth is guided, the guided \
+growth of volume (units sold; a lender's loan book or AUM), else EBITDA, else \
+profit, with growth_metric naming which. A guided margin, an absolute amount \
+or a capex figure is not a growth rate: growth_pct null, growth_metric "none".
+- guidance.period: the financial year or half the guided growth is for, as \
+"FY27" or "H2FY27"; null if the call does not say.
 - order_book.value_inr_crore: the company's total order book or backlog in \
 rupees crore. Convert lakh, million and billion. Ignore a single segment's or \
 subsidiary's figure. revenue_cover_years only if management states it.
@@ -187,29 +231,46 @@ quarter just reported.
 fall from here, and the quote is that sentence in full. A margin that rose or \
 fell in the reported quarter, a margin to be sustained or held, and a bare \
 "yes" to an analyst's question are "flat" or "unknown".
+- margin.driver: why management says margins will move. "structural" for \
+product mix, operating leverage, pricing power or a lasting cost programme; \
+"one_off" for a refund, incentive, inventory gain, exchange gain or any \
+item management calls one-time; "raw_material" for input or commodity \
+prices; "unknown" if the call does not say or the trend is flat or unknown.
 - tailwinds and headwinds: at most three each, specific to this company \
 (a new approval, a customer win, a tariff, a raw-material cost), not general \
-optimism.
+optimism. contract_win is true only for a named order, contract or customer \
+win.
 
 Answer with one JSON object and nothing else -- no explanation, no code fence. \
 It has exactly these keys; where a set of values is listed, use one of them:
 {
   "guidance": {"direction": "raised|maintained|lowered|none", \
 "scope": "company|segment|none", "metric": string or null, \
-"growth_pct": number or null, "quote": string or null},
+"growth_metric": "revenue|volume|ebitda|profit|none", "growth_pct": number or null, \
+"period": string or null, "quote": string or null},
   "order_book": {"value_inr_crore": number or null, "revenue_cover_years": number or null, \
 "trend": "up|flat|down|unknown", "quote": string or null},
   "capacity": {"state": "operational|ramping|under_construction|planned|none", \
 "commissioning": "YYYY-MM" or null, "quote": string or null},
   "demand": {"tone": "strong|stable|weak|unknown", "quote": string or null},
-  "margin": {"trend": "up|flat|down|unknown", "quote": string or null},
-  "tailwinds": [{"what": string, "quote": string}],
+  "margin": {"trend": "up|flat|down|unknown", \
+"driver": "structural|one_off|raw_material|unknown", "quote": string or null},
+  "tailwinds": [{"what": string, "contract_win": true or false, "quote": string}],
   "headwinds": [{"what": string, "quote": string}]
 }"""
 
 
+def _shortened(text: str, limit: int = MAX_TRANSCRIPT_CHARACTERS) -> str:
+    """``text`` within ``limit`` characters, its middle cut out if it must be."""
+    if len(text) <= limit:
+        return text
+    marker = "\n\n[... transcript shortened ...]\n\n"
+    head = int(limit * TRANSCRIPT_HEAD_SHARE)
+    return text[:head] + marker + text[-(limit - head - len(marker)):]
+
+
 def build_messages(company: str, symbol: str, call_date: str, text: str) -> list[dict[str, str]]:
-    body = text[:MAX_TRANSCRIPT_CHARACTERS]
+    body = _shortened(text)
     header = f"Company: {company or symbol} ({symbol})\nCall date: {call_date or 'unknown'}\n\nTranscript:\n"
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -249,22 +310,26 @@ def quote_found(quote: str | None, normalised_transcript: str, min_words: int = 
 
 _EMPTY = {
     "guidance": {
-        "direction": "none", "scope": "none", "metric": None, "growth_pct": None, "quote": None,
+        "direction": "none", "scope": "none", "metric": None, "growth_metric": "none",
+        "growth_pct": None, "period": None, "quote": None,
     },
     "order_book": {"value_inr_crore": None, "revenue_cover_years": None, "trend": "unknown", "quote": None},
     "capacity": {"state": "none", "commissioning": None, "quote": None},
     "demand": {"tone": "unknown", "quote": None},
-    "margin": {"trend": "unknown", "quote": None},
+    "margin": {"trend": "unknown", "driver": "unknown", "quote": None},
 }
+# Keys that describe a section's claim rather than make one.
+_DESCRIPTIVE = ("quote", "scope", "growth_metric", "period", "driver")
 
 
 def _stated(section: str, value: dict[str, Any]) -> bool:
     """Whether a section claims anything beyond its empty default.
 
-    A scope is a description of the guidance, not a claim of its own.
+    A scope, a period or a driver is a description of the claim, not a claim
+    of its own.
     """
     empty = _EMPTY[section]
-    return any(value.get(key) != empty[key] for key in empty if key not in ("quote", "scope"))
+    return any(value.get(key) != empty[key] for key in empty if key not in _DESCRIPTIVE)
 
 
 def verify_quotes(extraction: dict[str, Any], transcript: str) -> tuple[dict[str, Any], int, int]:
@@ -294,7 +359,10 @@ def verify_quotes(extraction: dict[str, Any], transcript: str) -> tuple[dict[str
         items = []
         for item in (extraction.get(section) or [])[:3]:
             if isinstance(item, dict) and item.get("what") and quote_found(item.get("quote"), haystack):
-                items.append({"what": str(item["what"]), "quote": str(item["quote"])})
+                kept_item = {"what": str(item["what"]), "quote": str(item["quote"])}
+                if section == "tailwinds":
+                    kept_item["contract_win"] = item.get("contract_win") is True
+                items.append(kept_item)
                 kept += 1
             else:
                 dropped += 1
@@ -327,7 +395,41 @@ def _number(value: Any) -> float | None:
     return number if number == number else None
 
 
-def outlook_items(verified: dict[str, Any]) -> list[tuple[str, float, str | None]]:
+# A period is not a figure: "demand in FY27" or "from Q3" says nothing more
+# than "demand".
+_PERIOD_LABEL = re.compile(
+    r"(?<![a-z])(?:fy|q|h)\s*'?\d{1,4}|\b(?:19|20)\d{2}(?:\s*[-/]\s*\d{2,4})?\b", re.IGNORECASE
+)
+_FIGURE = re.compile(r"\d|\b(?:double|triple)[\s-]digit", re.IGNORECASE)
+# Capacity this far out is an intention, whatever its state.
+DISTANT_COMMISSIONING_MONTHS = 24
+_GROWTH_NAMES = {"volume": "volume", "ebitda": "EBITDA", "profit": "profit"}
+
+
+def quantified(quote: str | None) -> bool:
+    """Whether a sentence states a figure -- an amount, a rate, a count -- not just a period."""
+    return bool(_FIGURE.search(_PERIOD_LABEL.sub(" ", str(quote or ""))))
+
+
+def months_to_commissioning(commissioning: Any, call_date: str | None) -> int | None:
+    """Months from the call to a ``YYYY-MM`` commissioning date, or None if either is missing."""
+    start, due = str(call_date or "")[:7], str(commissioning or "")
+    if not (re.fullmatch(r"\d{4}-\d{2}", start) and re.fullmatch(r"\d{4}-\d{2}", due)):
+        return None
+    return (int(due[:4]) - int(start[:4])) * 12 + int(due[5:]) - int(start[5:])
+
+
+def _claim(points, reason, full, quote):
+    """An upbeat item: in full when its sentence states a figure, else half."""
+    if quantified(quote):
+        points.append((reason, full, quote))
+    else:
+        points.append((f"{reason}, no figure given", full / 2, quote))
+
+
+def outlook_items(
+    verified: dict[str, Any], call_date: str | None = None
+) -> list[tuple[str, float, str | None]]:
     """The scored items of a verified extraction, as ``(reason, points, quote)``.
 
     The quote is the transcript sentence the item was taken from. Two items
@@ -337,28 +439,37 @@ def outlook_items(verified: dict[str, Any]) -> list[tuple[str, float, str | None
     Growth guided for one segment scores as the company's would: few calls
     guide a segment, and those that do guide the one that matters. The scope
     only keeps a segment's growth from being compared with the company's in
-    `compare_outlooks`.
+    `compare_outlooks`. So does growth guided for volume, EBITDA or profit,
+    read only where the call guided no revenue growth.
+
+    ``call_date`` dates the capacity: without it, capacity under construction
+    scores however far away it is due. Fields a reading stored before they
+    were asked for -- the growth metric, the margin driver, a contract win --
+    score as not found.
     """
     points: list[tuple[str, float, str | None]] = []
 
     guidance = verified["guidance"]
     direction = guidance.get("direction")
+    quote = guidance.get("quote")
     if direction == "raised":
-        points.append(("guidance raised", 15.0, guidance.get("quote")))
+        points.append(("guidance raised", 15.0, quote))
     elif direction == "lowered":
-        points.append(("guidance lowered", -20.0, guidance.get("quote")))
+        points.append(("guidance lowered", -20.0, quote))
     elif direction == "maintained":
-        points.append(("guidance maintained", 3.0, guidance.get("quote")))
+        points.append(("guidance maintained", 3.0, quote))
     growth = _number(guidance.get("growth_pct"))
     if growth is not None and direction != "none":
+        name = _GROWTH_NAMES.get(guidance.get("growth_metric"), "revenue")
         if growth >= 25:
-            points.append(("guided revenue growth 25% or more", 10.0, guidance.get("quote")))
+            points.append((f"guided {name} growth 25% or more", 10.0, quote))
         elif growth >= 15:
-            points.append(("guided revenue growth 15-25%", 6.0, guidance.get("quote")))
+            points.append((f"guided {name} growth 15-25%", 6.0, quote))
         elif growth >= 5:
-            points.append(("guided revenue growth 5-15%", 2.0, guidance.get("quote")))
+            # About the economy's nominal growth: guided, but not news.
+            points.append((f"guided {name} growth 5-15%", 0.0, quote))
         elif growth < 0:
-            points.append(("guided revenue decline", -10.0, guidance.get("quote")))
+            points.append((f"guided {name} decline", -10.0, quote))
 
     order_book = verified["order_book"]
     if order_book.get("trend") == "up":
@@ -372,41 +483,56 @@ def outlook_items(verified: dict[str, Any]) -> list[tuple[str, float, str | None
         elif cover >= 1:
             points.append(("order book covers a year or more of revenue", 3.0, order_book.get("quote")))
 
-    state = verified["capacity"].get("state")
+    capacity = verified["capacity"]
+    state = capacity.get("state")
+    months = months_to_commissioning(capacity.get("commissioning"), call_date)
     if state in ("operational", "ramping"):
-        points.append(("new capacity producing", 6.0, verified["capacity"].get("quote")))
+        points.append(("new capacity producing", 6.0, capacity.get("quote")))
+    elif state == "under_construction" and months is not None and months > DISTANT_COMMISSIONING_MONTHS:
+        points.append(("capacity due more than two years out", 0.0, capacity.get("quote")))
     elif state == "under_construction":
-        points.append(("capacity under construction", 3.0, verified["capacity"].get("quote")))
+        points.append(("capacity under construction", 3.0, capacity.get("quote")))
     elif state == "planned":
-        points.append(("capacity planned", 1.0, verified["capacity"].get("quote")))
+        points.append(("capacity planned", 0.0, capacity.get("quote")))
 
-    tone = verified["demand"].get("tone")
-    if tone == "strong":
-        points.append(("demand outlook strong", 8.0, verified["demand"].get("quote")))
-    elif tone == "weak":
-        points.append(("demand outlook weak", -10.0, verified["demand"].get("quote")))
+    demand = verified["demand"]
+    if demand.get("tone") == "strong":
+        _claim(points, "demand outlook strong", 8.0, demand.get("quote"))
+    elif demand.get("tone") == "weak":
+        points.append(("demand outlook weak", -10.0, demand.get("quote")))
 
-    margin = verified["margin"].get("trend")
-    if margin == "up":
-        points.append(("margin outlook improving", 6.0, verified["margin"].get("quote")))
-    elif margin == "down":
-        points.append(("margin outlook worsening", -8.0, verified["margin"].get("quote")))
+    margin = verified["margin"]
+    if margin.get("trend") == "up":
+        driver = margin.get("driver")
+        if driver in ("one_off", "raw_material"):
+            # A refund or a cheaper input is gone, or reversed, within a year.
+            reason = "margin outlook improving on a one-off" if driver == "one_off" else (
+                "margin outlook improving on input costs"
+            )
+            _claim(points, reason, 3.0, margin.get("quote"))
+        else:
+            _claim(points, "margin outlook improving", 6.0, margin.get("quote"))
+    elif margin.get("trend") == "down":
+        points.append(("margin outlook worsening", -8.0, margin.get("quote")))
 
     for item in verified["tailwinds"]:
-        points.append((f"tailwind: {item['what']}", 2.0, item.get("quote")))
+        if item.get("contract_win") and quantified(item.get("quote")):
+            points.append((f"contract win: {item['what']}", 4.0, item.get("quote")))
+        else:
+            _claim(points, f"tailwind: {item['what']}", 2.0, item.get("quote"))
     for item in verified["headwinds"]:
         points.append((f"headwind: {item['what']}", -3.0, item.get("quote")))
     return points
 
 
-def outlook_points(verified: dict[str, Any]) -> list[tuple[str, float]]:
+def outlook_points(verified: dict[str, Any], call_date: str | None = None) -> list[tuple[str, float]]:
     """The scored items of a verified extraction, as ``(reason, points)``."""
-    return [(reason, value) for reason, value, _ in outlook_items(verified)]
+    return [(reason, value) for reason, value, _ in outlook_items(verified, call_date)]
 
 
-def outlook_score(verified: dict[str, Any]) -> float:
+def outlook_score(verified: dict[str, Any], call_date: str | None = None) -> float:
     """0-100, neutral at 50, from verified items only."""
-    total = 50.0 + sum(value for _, value in outlook_points(verified))
+    total = 50.0 + sum(value for _, value in outlook_points(verified, call_date))
     return round_half_up(min(100.0, max(0.0, total)), 2)
 
 
@@ -446,9 +572,10 @@ def compare_outlooks(previous: dict[str, Any], current: dict[str, Any]) -> list[
     dropping a number.
 
     Two limits. Guided growth is compared as stated, so across a financial
-    year-end the two figures are for different years. And both sides are one
-    reading of one call: a "change" can be the model picking a different
-    project or segment the second time.
+    year-end the two figures are for different years -- unless both readings
+    name the period, when growth for different periods is not compared. And
+    both sides are one reading of one call: a "change" can be the model
+    picking a different project or segment the second time.
     """
     changes: list[dict[str, str]] = []
 
@@ -457,6 +584,9 @@ def compare_outlooks(previous: dict[str, Any], current: dict[str, Any]) -> list[
     old_growth, new_growth = _number(before.get("growth_pct")), _number(after.get("growth_pct"))
     if "segment" in (before.get("scope"), after.get("scope")):
         # A segment's growth against the company's, or another segment's.
+        old_growth = new_growth = None
+    if before.get("period") and after.get("period") and before["period"] != after["period"]:
+        # Growth for different years, or for a year against a half.
         old_growth = new_growth = None
     if was != "none" and now == "none":
         changes.append({"item": "guidance", "change": "not_restated", "text": "guidance not restated"})
@@ -680,19 +810,22 @@ def analyse_transcript(session, provider: Provider, transcript: dict[str, Any], 
     """Extract, verify and score one call. Returns the row to store."""
     extraction, usage = request_extraction(session, provider, _messages(transcript, text))
     verified, kept, dropped = verify_quotes(extraction, text)
+    call_date = str(transcript.get("call_date") or "")[:10] or None
     return {
         "transcript_id": transcript["id"],
         "market": transcript.get("market") or "NSE",
         "symbol": transcript.get("symbol"),
-        "call_date": str(transcript.get("call_date") or "")[:10] or None,
+        "call_date": call_date,
         "model_name": provider.stored_model_name,
         "analysis_version": OUTLOOK_VERSION,
-        "outlook_score": outlook_score(verified),
+        "outlook_score": outlook_score(verified, call_date),
         "verified_fields": kept,
         "unverified_fields": dropped,
         "extraction": {
             **verified,
-            "points": [{"reason": reason, "points": value} for reason, value in outlook_points(verified)],
+            "points": [
+                {"reason": reason, "points": value} for reason, value in outlook_points(verified, call_date)
+            ],
         },
         "prompt_tokens": int(usage.get("prompt_tokens") or 0),
         "completion_tokens": int(usage.get("completion_tokens") or 0),

@@ -214,10 +214,10 @@ the scheduled workflows set the same flag.
   `storage/concalls_schema.sql` and must be applied by hand.
 - **Management's sentiment on the Concalls page is the outlook score in a
   word.** `workers/concall_feed.management_stance` reads the call's outlook
-  score into a band (`sentiment.outlook.stance_from_score`: bullish from 78,
-  optimistic 68, neutral 58, cautious 48, bearish below) and quotes the
+  score into a band (`sentiment.outlook.stance_from_score`: bullish from 72,
+  optimistic 62, neutral 53, cautious 45, bearish below) and quotes the
   scored statement that moved it most that way. The bands sit where the
-  stored scores fall -- median 66, 94% above 50 -- because the ranking
+  stored scores fall -- median 59, 85% above 50 -- because the ranking
   measures a call against the median call, not 50. No request asks for it:
   asked of the model, the label cost more than the outlook (a request of its
   own with thinking on, some 17,000 tokens a call) and moved nothing that
@@ -235,7 +235,18 @@ the scheduled workflows set the same flag.
   screener reads the latest outlook of any model, so a Token Harbor reading
   is a trial: printed, never stored. The free allowance is 5M tokens a
   rolling week, about 400 extractions; a spent allowance stops the run
-  (`QuotaSpentError`) rather than failing every call after it.
+  (`QuotaSpentError`) rather than failing every call after it. One
+  exception, by hand: the September 2026 quarter's 247 calls were re-read
+  with the October prompt on Token Harbor and stored (29 Oct 2026); their
+  `model_name` starts `tokenharbor/`. Two models reading one call rank it
+  differently (0.65 Spearman against the stored GLM readings), so the score
+  carries the reader as well as the call.
+- **Outlook weights score a reading; they are not part of it.** After a
+  change to `sentiment.outlook.outlook_items`, run
+  `python -m tools.rescore_transcript_outlooks` before the next screener run
+  and recut `STANCE_BANDS` at the same shares: the ranking compares each call
+  with the run's median, and calls scored under two sets of weights are not
+  comparable. No model is asked anything.
 - **NSE shareholding and bulk/block deals are display evidence, read from the
   exchange.** `workers/shareholding.py` (a step of the Quarterly filings
   workflow) stores each quarter's shareholding pattern, parsed once from its

@@ -337,7 +337,7 @@ class TranscriptSentimentEnricher:
             # The whole breakdown, for the stock page; the summary above is the
             # four largest items for the report.
             enriched.at[index, "Transcript_Outlook_Points"] = json.dumps(
-                _outlook_breakdown(extraction), separators=(",", ":")
+                _outlook_breakdown(extraction, call_date), separators=(",", ":")
             )
             # Against the quarter before: what management kept to and what
             # moved. Shown beside the score, not part of it.
@@ -368,10 +368,10 @@ class TranscriptSentimentEnricher:
 OUTLOOK_QUOTE_MAX_CHARACTERS = 400
 
 
-def _outlook_breakdown(extraction):
+def _outlook_breakdown(extraction, call_date=None):
     """Every scored item of a stored outlook with the sentence behind it."""
     try:
-        items = outlook_items(extraction)
+        items = outlook_items(extraction, call_date)
     except (KeyError, TypeError, AttributeError):
         # A row whose sections are not in the current shape: the stored points
         # still say what was scored, without the quotes.
