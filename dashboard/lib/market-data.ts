@@ -8,9 +8,9 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * Reads from the private `market-data` Storage bucket.
  *
- * Chart price series live there as gzip JSON objects rather than in Postgres:
- * the free database stops accepting writes at 500 MB, and Storage has its own
- * 1 GB under the same auth. Every read runs as the signed-in viewer, so the
+ * Chart price series and snapshot payloads live there as gzip JSON objects
+ * rather than in Postgres: the free database stops accepting writes at 500 MB,
+ * and Storage has its own 1 GB under the same auth. Every read runs as the signed-in viewer, so the
  * bucket's `dashboard_has_access()` policy applies exactly as the table
  * policies do (storage/market_data_storage.sql).
  */
@@ -23,6 +23,10 @@ const DOWNLOAD_CONCURRENCY = 24;
 export const priceCalendarPath = (market: MarketCode) => `price-series/${market}/calendar.json.gz`;
 export const priceSeriesPath = (market: MarketCode, symbol: string) =>
   `price-series/${market}/symbols/${symbol}.json.gz`;
+
+/** A snapshot row's complete source record, written beside its run by the publisher. */
+export const snapshotPayloadPath = (market: MarketCode, runDate: string, symbol: string) =>
+  `snapshot-payload/${market}/${runDate}/${symbol}.json.gz`;
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 

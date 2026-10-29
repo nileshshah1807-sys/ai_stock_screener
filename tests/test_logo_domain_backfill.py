@@ -40,12 +40,7 @@ class BackfillTests(unittest.TestCase):
         repository = RecordingRepository(
             [
                 {"symbol": "INFY", "company": "Infosys", "logo_domain": None},
-                {
-                    "symbol": "RELIANCE",
-                    "company": "Reliance",
-                    "logo_domain": None,
-                    "payload": {"Symbol": "RELIANCE"},
-                },
+                {"symbol": "RELIANCE", "company": "Reliance", "logo_domain": None},
                 {"symbol": "MISSING", "company": "Missing", "logo_domain": None},
             ]
         )
@@ -72,21 +67,13 @@ class BackfillTests(unittest.TestCase):
                 (
                     "2026-08-14",
                     [
-                        {
-                            "symbol": "INFY",
-                            "logo_domain": "infosys.com",
-                            "payload": {},
-                        }
+                        {"symbol": "INFY", "logo_domain": "infosys.com"}
                     ],
                 ),
                 (
                     "2026-08-14",
                     [
-                        {
-                            "symbol": "RELIANCE",
-                            "logo_domain": "ril.com",
-                            "payload": {"Symbol": "RELIANCE"},
-                        }
+                        {"symbol": "RELIANCE", "logo_domain": "ril.com"}
                     ],
                 ),
             ],

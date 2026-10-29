@@ -154,7 +154,6 @@ def backfill_logo_domains(
                 {
                     "symbol": symbol,
                     "logo_domain": domain,
-                    "payload": row.get("payload") or {},
                 }
             )
             if len(pending) >= batch_size:

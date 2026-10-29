@@ -26,9 +26,9 @@ from storage.object_store import ObjectStore
 
 logger = logging.getLogger(__name__)
 
-# The snapshot row carries the full source record in `payload`, so a batch of
-# rows is large in bytes even though the row count is modest. Chunks are sized
-# for request-body limits rather than row count.
+# A snapshot row is ~150 typed columns, so a batch of rows is large in bytes
+# even though the row count is modest. Chunks are sized for request-body
+# limits rather than row count.
 DEFAULT_CHUNK_SIZE = 200
 
 # A price-series row carries three encoded arrays and runs 20-30 KB, so the
@@ -39,9 +39,9 @@ PRICE_SERIES_CHUNK_SIZE = 25
 #: few thousand small requests; sixteen at a time keeps it to about a minute.
 STORAGE_WORKERS = 16
 
-#: Snapshot rows deleted per statement when pruning. A row is ~27 KB with its
-#: payload, so a whole run (~2,300 rows) in one statement outran the
-#: database's statement timeout; 250 stays well inside it.
+#: Snapshot rows deleted per statement when pruning. A row was ~27 KB while it
+#: carried its payload, and a whole run (~2,300 rows) in one statement outran
+#: the database's statement timeout; 250 stays well inside it.
 PRUNE_BATCH_SIZE = 250
 
 #: Pause before each retry of an idempotent write that hit a transient network
@@ -256,10 +256,7 @@ class DashboardRepository:
         rows: list[dict[str, Any]] = []
         for offset in range(0, 1_000_000, page_size):
             params: dict[str, Any] = self._scoped({
-                # `payload` is NOT NULL. The domain update uses an upsert so it
-                # can batch distinct symbols; carrying the existing payload
-                # satisfies the insert side without changing drill-down data.
-                "select": "symbol,company,logo_domain,payload",
+                "select": "symbol,company,logo_domain",
                 "run_date": f"eq.{run_date}",
                 "order": "symbol.asc",
                 "limit": str(page_size),
@@ -290,7 +287,6 @@ class DashboardRepository:
                 "run_date": run_date,
                 "symbol": row["symbol"],
                 "logo_domain": row["logo_domain"],
-                "payload": row["payload"],
             }
             for row in domains
         ]
@@ -311,10 +307,8 @@ class DashboardRepository:
     ) -> dict[str, Any]:
         """Symbol -> current ``pct_change_1d`` for one snapshot.
 
-        Deliberately excludes `payload`: unlike the logo backfill, the session
-        change is written with PATCH rather than upsert, so there is no NOT NULL
-        column to satisfy and no reason to move ~12 MB of payload over the wire
-        and back to set one numeric field.
+        Reads the one field it sets: the session change is written with PATCH,
+        so nothing else of the row has to make the round trip.
         """
         state: dict[str, Any] = {}
         for offset in range(0, 1_000_000, page_size):
@@ -382,10 +376,9 @@ class DashboardRepository:
 
         A real UPDATE, not an upsert. PostgREST applies one request body to
         every matching row, so a per-row value needs a per-row request -- which
-        is the deliberate trade here. It touches exactly the columns named and
-        cannot rewrite `payload`, where an upsert of 2,370 rows would put the
-        entire drill-down record of the run in the blast radius to set one
-        nullable number.
+        is the deliberate trade here. It touches exactly the columns named,
+        where an upsert of 2,370 rows would put every column of the run in the
+        blast radius to set one nullable number.
         """
         self._request(
             "PATCH",
@@ -467,6 +460,49 @@ class DashboardRepository:
         with ThreadPoolExecutor(STORAGE_WORKERS) as pool:
             found = pool.map(lambda symbol: self._get_json(self._series_path(symbol)), symbols)
         return {symbol: row for symbol, row in zip(symbols, found) if row is not None}
+
+    # -- snapshot payloads (Supabase Storage) --------------------------------
+    #
+    # Each snapshot row's complete source record, one gzip JSON object per
+    # symbol in its run's folder. At ~20 KB a row it was nine-tenths of
+    # screener_snapshot and a third of the free database for a single day
+    # (Oct 2026), and only the stock page reads it, one symbol at a time.
+
+    def _payload_folder(self, run_date: str | None = None) -> str:
+        folder = f"snapshot-payload/{self.market}"
+        return f"{folder}/{run_date}" if run_date else folder
+
+    def _payload_path(self, run_date: str, symbol: str) -> str:
+        return f"{self._payload_folder(run_date)}/{symbol}.json.gz"
+
+    def upsert_snapshot_payloads(self, run_date: str, payloads: dict[str, dict[str, Any]]) -> int:
+        """Write each symbol's payload as its own object; returns the count."""
+
+        def write(item: tuple[str, dict[str, Any]]) -> None:
+            symbol, payload = item
+            self._put_json(self._payload_path(run_date, symbol), payload)
+
+        with ThreadPoolExecutor(STORAGE_WORKERS) as pool:
+            list(pool.map(write, payloads.items()))
+        return len(payloads)
+
+    def prune_snapshot_payloads(self) -> int:
+        """Delete the payload folders of runs this market no longer holds.
+
+        Swept against ``screener_runs`` rather than the runs a prune just
+        removed, so a folder left behind by a failed publish -- whose
+        reservation the compensation deleted -- goes on the next prune too.
+        Returns the number of objects deleted.
+        """
+        runs = self._request(
+            "GET", "screener_runs", params=self._scoped({"select": "run_date"})
+        ) or []
+        held = {str(row["run_date"]) for row in runs}
+        removed = 0
+        for run_date in self._objects.folders(self._payload_folder()):
+            if run_date not in held:
+                removed += self._objects.remove(self._objects.list(self._payload_folder(run_date)))
+        return removed
 
     # -- financial statements -----------------------------------------------
 

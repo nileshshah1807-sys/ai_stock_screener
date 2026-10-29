@@ -108,6 +108,12 @@ class RecordingDashboardRepository:
     def delete_stale_snapshot_rows(self, run_date, symbols):
         self.calls.append(("delete_stale", {"run_date": run_date}))
 
+    def upsert_snapshot_payloads(self, run_date, payloads):
+        self.calls.append(("payloads", {"run_date": run_date, "payloads": payloads}))
+        if self.fail_at == "payloads":
+            raise RuntimeError("payload write failed")
+        return len(payloads)
+
     def upsert_history_rows(self, rows):
         self.calls.append(("history", {"rows": rows}))
         if self.fail_at == "history":
@@ -125,6 +131,12 @@ class RecordingDashboardRepository:
         if self.fail_at == "prune":
             raise RuntimeError("snapshot prune failed")
         return 0
+
+    def prune_snapshot_payloads(self):
+        self.calls.append(("prune_payloads", {}))
+        if self.fail_at == "prune_payloads":
+            raise RuntimeError("payload prune failed")
+        return 3
 
     def upsert_estimate_rows(self, rows):
         self.calls.append(("estimates", {"rows": rows}))
@@ -486,6 +498,48 @@ class PublishTests(unittest.TestCase):
         self.assertNotIn("publish_run", labels)
         self.assertIn("cleanup_history", labels)
         self.assertIn("cleanup_run", labels)
+
+    def test_the_payload_is_stored_beside_the_run_not_in_its_row(self):
+        repository = RecordingDashboardRepository()
+
+        summary = self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertLess(labels.index("payloads"), labels.index("publish_run"))
+        snapshot = next(details for name, details in repository.calls if name == "snapshot")
+        self.assertNotIn("payload", snapshot["rows"][0])
+        stored = next(details for name, details in repository.calls if name == "payloads")
+        self.assertEqual(stored["run_date"], snapshot["run_date"])
+        (symbol, payload), = stored["payloads"].items()
+        self.assertEqual(payload["Symbol"], symbol)
+        self.assertEqual(summary["payload_objects_written"], 1)
+
+    def test_payload_failure_never_publishes_run_metadata_and_cleans_reservation(self):
+        repository = RecordingDashboardRepository(fail_at="payloads")
+
+        with self.assertRaisesRegex(RuntimeError, "payload write failed"):
+            self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertNotIn("publish_run", labels)
+        self.assertIn("cleanup_run", labels)
+
+    def test_payloads_are_pruned_after_the_runs_they_belong_to(self):
+        repository = RecordingDashboardRepository()
+
+        summary = self.publish_with(repository)
+
+        labels = [name for name, _ in repository.calls]
+        self.assertLess(labels.index("prune"), labels.index("prune_payloads"))
+        self.assertEqual(summary["payload_objects_pruned"], 3)
+
+    def test_a_failed_payload_prune_does_not_fail_the_publish(self):
+        repository = RecordingDashboardRepository(fail_at="prune_payloads")
+
+        summary = self.publish_with(repository)
+
+        self.assertIn("payload prune failed", summary["prune_error"])
+        self.assertEqual(summary["payload_objects_pruned"], 0)
 
     def test_history_failure_never_publishes_run_metadata_and_cleans_partial_rows(self):
         repository = RecordingDashboardRepository(fail_at="history")

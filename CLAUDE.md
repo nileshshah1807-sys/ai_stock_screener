@@ -298,6 +298,11 @@ the scheduled workflows set the same flag.
   (`Rating`, `Rank`, `Buy_Eligible`, `Final_Score`, ...). The scoring layer emits
   components and `Core_*` diagnostics only. A rescored export purges stale
   canonical columns first.
+- **A snapshot row's payload is a Storage object, not a column.** The complete
+  source record is `market-data/snapshot-payload/{MARKET}/{run_date}/{symbol}.json.gz`,
+  written before the run is published and swept with the run when it is
+  pruned; `getStock` reads it. In the column it was a third of the free
+  database for a single day (Oct 2026).
 - **`backtest/` is point-in-time.** It must never read anything the model could
   not have seen on the day being simulated.
 - **`app.py` is also a backwards-compatible API.** It re-exports names that

@@ -6,7 +6,10 @@
 -- revision, so the read model splits the row in two:
 --
 --   * typed columns for the fields the dashboard sorts, filters, or indexes on
---   * `payload` jsonb for the complete row, so drill-down never loses a field
+--   * a payload for the complete row, so drill-down never loses a field. It
+--     is one gzip JSON object per row in Storage, under
+--     market-data/snapshot-payload/{market}/{run_date}/{symbol}.json.gz;
+--     the `payload` column is the legacy home and is null on new runs
 --
 -- A new audit column therefore appears in drill-down with no migration; only a
 -- new *filterable* field needs one.
@@ -357,9 +360,10 @@ create table if not exists screener_snapshot (
     advance_age_censored boolean,
     pct_from_52w_high numeric(10,3),
 
-    -- Complete source row. Every column above also appears here; the typed
-    -- copies exist for indexing, not as the record of truth.
-    payload jsonb not null,
+    -- Complete source row. Every column above also appears in it; the typed
+    -- copies exist for indexing, not as the record of truth. Null on new runs:
+    -- the publisher stores it in Storage (see the header).
+    payload jsonb,
 
     primary key (market, run_date, symbol),
     foreign key (market, run_date)
@@ -435,6 +439,13 @@ alter table screener_snapshot
     add column if not exists max_drawdown_1y_pct numeric(10,3),
     add column if not exists downside_deviation_pct numeric(10,3),
     add column if not exists roic numeric(12,4);
+
+-- The payload moved to Storage (Oct 2026): at ~20 KB a row it was a third of
+-- the free database for a single day. Apply before deploying the publisher
+-- that stops writing it. Once each market has published a run since, the
+-- old rows are pruned, and `vacuum full screener_snapshot;` (run on its own)
+-- returns their space -- a plain vacuum does not shrink the table's files.
+alter table screener_snapshot alter column payload drop not null;
 
 -- Last completed session's move, added after the Model 5.0 block because it is
 -- not factor evidence: it is display-only and applies to both models. Null on
