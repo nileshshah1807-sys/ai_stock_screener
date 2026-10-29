@@ -260,20 +260,22 @@ async function readWholeMarket(supabase: Reader, market: MarketCode, periods: st
   const token = session.session?.access_token;
   if (!access?.length || !token) return [];
 
-  return unstable_cache(
-    () =>
-      readQuarterLines(
-        createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
-          cookies: { getAll: () => [], setAll: () => {} },
-          global: { headers: { Authorization: `Bearer ${token}` } },
-        }),
-        market,
-        periods,
-        null,
-      ),
-    ["quarter-lines", market, ...periods],
-    { revalidate: QUARTER_LINES_REVALIDATE, tags: [QUARTER_LINES_TAG, `${QUARTER_LINES_TAG}:${market}`] },
-  )();
+  const reader = () =>
+    createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+      cookies: { getAll: () => [], setAll: () => {} },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+  // One entry per quarter end: the Data Cache refuses an entry over 2 MB, and
+  // a quarter's filings are about 1 MB where several together may not be.
+  const quarters = await Promise.all(
+    periods.map((period) =>
+      unstable_cache(() => readQuarterLines(reader(), market, [period], null), ["quarter-lines", market, period], {
+        revalidate: QUARTER_LINES_REVALIDATE,
+        tags: [QUARTER_LINES_TAG, `${QUARTER_LINES_TAG}:${market}`],
+      })(),
+    ),
+  );
+  return quarters.flat();
 }
 
 /**
@@ -283,8 +285,8 @@ async function readWholeMarket(supabase: Reader, market: MarketCode, periods: st
  *
  * Narrowed to `symbols` when they fit in the request (`PUSH_DOWN_MAX`), and
  * then read as the viewer, uncached. Anything larger is the whole market's
- * filings, the same for every viewer, so it is cached for ten minutes
- * (`QUARTER_LINES_TAG`): the caller keeps its own scope.
+ * filings, the same for every viewer, so it is cached for ten minutes,
+ * a quarter end at a time (`QUARTER_LINES_TAG`): the caller keeps its own scope.
  *
  * The cache holds the filings, not the access check. Every call first reads
  * one row as the viewer, so the invite list's row-level security is applied
