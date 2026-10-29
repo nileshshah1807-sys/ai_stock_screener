@@ -54,7 +54,11 @@ class HighlightTests(unittest.TestCase):
         # Guidance raised (+15) and the growth it guided (+6) share a quote.
         self.assertEqual(
             [(item["text"], item["tone"]) for item in chosen],
-            [("guidance raised", "positive"), ("demand outlook weak", "negative"), ("margin outlook improving", "positive")],
+            [
+                ("guidance raised", "positive"),
+                ("demand outlook weak", "negative"),
+                ("margin outlook improving, no figure given", "positive"),
+            ],
         )
         self.assertEqual(chosen[0]["quote"], "We now expect eighteen percent growth.")
 
@@ -73,7 +77,7 @@ class StanceTests(unittest.TestCase):
         # Guidance raised (+15) is the largest gain; weak demand (-10) the largest loss.
         self.assertEqual(management_stance(self.outlook(82)), ("bullish", "We now expect eighteen percent growth."))
         self.assertEqual(management_stance(self.outlook(70)), ("optimistic", "We now expect eighteen percent growth."))
-        self.assertEqual(management_stance(self.outlook(62)), ("neutral", None))
+        self.assertEqual(management_stance(self.outlook(57)), ("neutral", None))
         self.assertEqual(management_stance(self.outlook(52)), ("cautious", "Demand in the rural market remains weak."))
         self.assertEqual(management_stance(self.outlook(40)), ("bearish", "Demand in the rural market remains weak."))
 

@@ -9,7 +9,8 @@ Token Harbor unless OpenRouter is asked for by name.
 Token Harbor's figures are not production's. It may serve the model at a
 different precision, and nothing it returns should reach the tables the
 screener reads -- see `tools.extract_transcript_outlook`, which does not write
-a Token Harbor reading unless told to.
+a Token Harbor reading. The September 2026 quarter's calls are the one
+exception, re-read and stored by hand on 29 Oct 2026.
 """
 
 from __future__ import annotations

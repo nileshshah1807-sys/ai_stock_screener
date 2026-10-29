@@ -80,7 +80,9 @@ def _from_recording(transcript: dict[str, Any]) -> bool:
     return method.startswith(SPEECH_METHOD_PREFIX)
 
 
-def highlights(extraction: dict[str, Any] | None, limit: int = HIGHLIGHTS) -> list[dict[str, str]]:
+def highlights(
+    extraction: dict[str, Any] | None, call_date: str | None = None, limit: int = HIGHLIGHTS
+) -> list[dict[str, str]]:
     """The scored statements of a call that moved its outlook most, one per quote.
 
     Each is something the call said, with the sentence it was read from --
@@ -89,7 +91,7 @@ def highlights(extraction: dict[str, Any] | None, limit: int = HIGHLIGHTS) -> li
     if not isinstance(extraction, dict):
         return []
     try:
-        items = outlook_items(extraction)
+        items = outlook_items(extraction, call_date)
     except (KeyError, TypeError, AttributeError):
         # A stored extraction from a shape this version does not read.
         return []
@@ -110,7 +112,9 @@ def highlights(extraction: dict[str, Any] | None, limit: int = HIGHLIGHTS) -> li
     return chosen
 
 
-def management_stance(outlook: dict[str, Any] | None) -> tuple[str | None, str | None]:
+def management_stance(
+    outlook: dict[str, Any] | None, call_date: str | None = None
+) -> tuple[str | None, str | None]:
     """``(view, quote)`` for a call: the band of its outlook score, and the sentence behind it.
 
     The view is the outlook score read as a label (`stance_from_score`), so
@@ -129,7 +133,7 @@ def management_stance(outlook: dict[str, Any] | None) -> tuple[str | None, str |
     quote = None
     if sign:
         try:
-            items = outlook_items(outlook.get("extraction") or {})
+            items = outlook_items(outlook.get("extraction") or {}, call_date)
         except (KeyError, TypeError, AttributeError):
             items = []
         moved = [(points, str(said or "").strip()) for _, points, said in items if points * sign > 0 and said]
@@ -166,7 +170,7 @@ def outlook_detail(
     detail: dict[str, Any] = {
         "Transcript_Call_Date": call_date,
         "Transcript_Outlook_Score": round_half_up(score, 2),
-        "Transcript_Outlook_Points": _outlook_breakdown(extraction),
+        "Transcript_Outlook_Points": _outlook_breakdown(extraction, call_date),
     }
     if previous and _verified_outlook(previous[1]):
         previous_date, earlier = previous
@@ -222,7 +226,8 @@ def build_feed(
         )
         tone = safe_float(sentiment.get("overall_score"))
         outlook_score = safe_float(outlook.get("outlook_score"))
-        stance, stance_quote = management_stance(outlook)
+        read_on = str(chosen.get("call_date"))[:10]
+        stance, stance_quote = management_stance(outlook, read_on)
         rows.append({
             "symbol": symbol,
             "quarter": quarter,
@@ -240,12 +245,12 @@ def build_feed(
             "management_stance": stance,
             "management_stance_quote": stance_quote,
             "outlook_score": None if outlook_score is None else round_half_up(outlook_score, 2),
-            "highlights": highlights(outlook.get("extraction")),
+            "highlights": highlights(outlook.get("extraction"), read_on),
             "outlook_detail": None,
         })
         # Dated as the screener dates it -- by the transcript read -- so "the
         # quarter before" is the same call here as in a run.
-        read.append((str(chosen.get("call_date"))[:10], outlook))
+        read.append((read_on, outlook))
         outlooks.setdefault(symbol, []).append(read[-1])
     for row, (call_date, outlook) in zip(rows, read):
         row["outlook_detail"] = outlook_detail(

@@ -668,7 +668,7 @@ Examples of the points: guidance raised +15, lowered -20, maintained +3; order b
 
 In production the request goes to OpenRouter (model `z-ai/glm-5.3-flash`, temperature 0, strict JSON schema, minimal reasoning, price-capped routing); on a developer\'s machine it goes to Token Harbor\'s free model, and those readings are printed, never stored. Production refuses Token Harbor and a missing free key is an error, never a fallback to the paid provider. The scorer reads the latest outlook of any model unless `TRANSCRIPT_OUTLOOK_MODEL` names one. Extraction runs after the transcript worker and after each recording batch, with a spend cap per run, and is skipped with a warning when no key is set.
 
-The stance word on the dashboard\'s Concalls page is this outlook score read into a band (bullish from 78, optimistic 68, neutral 58, cautious 48, bearish below). It is display only.
+The stance word on the dashboard\'s Concalls page is this outlook score read into a band (bullish from 72, optimistic 62, neutral 53, cautious 45, bearish below). It is display only.
 
 ## 11. Authoritative evidence blend and recommendation policy
 

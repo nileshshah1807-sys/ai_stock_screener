@@ -412,6 +412,38 @@ class SupabaseRepository:
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
         )
 
+    def stored_outlooks(self, analysis_version: str) -> list[dict[str, Any]]:
+        """Every outlook of this market and version, any model, with its extraction."""
+        outlooks: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            rows = self._request(
+                "GET",
+                "transcript_outlooks",
+                params={
+                    "select": "id,symbol,call_date,outlook_score,extraction",
+                    "market": f"eq.{self.market}",
+                    "analysis_version": f"eq.{analysis_version}",
+                    "order": "id.asc",
+                    "limit": "1000",
+                    "offset": str(offset),
+                },
+            )
+            outlooks.extend(rows or [])
+            if not rows or len(rows) < 1000:
+                return outlooks
+            offset += 1000
+
+    def update_outlook_score(self, outlook_id: Any, outlook_score: float, extraction: dict[str, Any]) -> None:
+        """Replace one stored outlook's score and extraction, the reading itself unchanged."""
+        self._request(
+            "PATCH",
+            "transcript_outlooks",
+            params={"id": f"eq.{outlook_id}"},
+            json={"outlook_score": outlook_score, "extraction": extraction},
+            headers={"Prefer": "return=minimal"},
+        )
+
     def outlook_transcript_ids(self, model_name: str | None, analysis_version: str) -> set[str]:
         """Transcripts that already have an outlook from this model (any model if None) and version."""
         ids: set[str] = set()
