@@ -7,6 +7,7 @@ import {
   chosenQuarter,
   formatChange,
   groupByAnnouncedDay,
+  passesGrowth,
   quarterEnds,
   quarterLabel,
   resultCard,
@@ -148,4 +149,30 @@ test("a bank's card has net interest income and no operating profit", () => {
   const filings = [filing("2026-09-30", { revenue: 1584, net_interest_income: 1116, net_profit: 426, eps: 1.62 })];
   const rows = basisTable(filings, "2026-09-30", "consolidated").rows;
   assert.deepEqual(rows.map((row) => row.key), ["revenue", "net_interest_income", "net_profit", "eps"]);
+});
+
+test("a growth rule tests the rate the card prints, on the basis it opens on", () => {
+  const filings = [
+    filing("2026-09-30", { revenue: 120 * CRORE, operating_profit: 30 * CRORE, net_profit: 20 * CRORE }),
+    filing("2026-06-30", { revenue: 100 * CRORE, operating_profit: 20 * CRORE, net_profit: 25 * CRORE }),
+    filing("2025-09-30", { revenue: 80 * CRORE, operating_profit: 30 * CRORE, net_profit: -5 * CRORE }),
+  ];
+  const card = resultCard({ symbol: "ABC" }, filings, "2026-09-30");
+  const rule = (metric, op, value) => ({ metric, op, value });
+  // Revenue is up 50% on the year and 20% on the quarter.
+  assert.equal(passesGrowth(card, [rule("revyoy", "gte", 50)]), true);
+  assert.equal(passesGrowth(card, [rule("revyoy", "gte", 51)]), false);
+  assert.equal(passesGrowth(card, [rule("revqoq", "gte", 20), rule("opqoq", "gte", 50)]), true);
+  // PAT fell on the quarter, and the year-ago quarter was a loss: no rate, so no rule passes.
+  assert.equal(passesGrowth(card, [rule("patqoq", "lte", -10)]), true);
+  assert.equal(passesGrowth(card, [rule("patyoy", "gte", -1000)]), false);
+  assert.equal(passesGrowth(card, [rule("patyoy", "lte", 1000)]), false);
+  // Rules that are not about growth are not this function's to judge.
+  assert.equal(passesGrowth(card, [rule("mcap", "gte", 10 ** 9)]), true);
+  assert.equal(passesGrowth(card, []), true);
+});
+
+test("a company that did not file the quarter on any basis passes no growth rule", () => {
+  const card = resultCard({ symbol: "ABC" }, [], "2026-09-30");
+  assert.equal(passesGrowth(card, [{ metric: "revyoy", op: "gte", value: -100 }]), false);
 });

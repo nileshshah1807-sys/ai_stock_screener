@@ -166,3 +166,15 @@ test("each market's floor is stated in its own unit", () => {
   assert.deepEqual(defaultRules("US", false), [{ metric: "mcap", op: "gte", value: 1000 }]);
   assert.equal(ruleLabel(defaultRules("US", false)[0], "US"), "Market cap ≥ $1,000 M");
 });
+
+test("growth rules are read only where the page offers them, and never tested against the run", () => {
+  const url = { f: "mcap.gte.1000,revyoy.gte.15,patqoq.lte.-5" };
+  assert.deepEqual(parseEventFilters(url, wholeMarket).rules, CAP_FLOOR);
+  const withGrowth = parseEventFilters(url, { ...wholeMarket, growth: true });
+  assert.deepEqual(withGrowth.rules.map((rule) => rule.metric), ["mcap", "revyoy", "patqoq"]);
+  // A run's facts say nothing of growth: the rule is the page's to apply.
+  const companies = [{ symbol: "A", market_cap: 2000 * 1e7 }, { symbol: "B", market_cap: 10 * 1e7 }];
+  assert.deepEqual([...matchSymbols(companies, withGrowth, "NSE")], ["A"]);
+  assert.equal(matchSymbols(companies, { rules: [withGrowth.rules[1]], industries: [] }, "NSE"), null);
+  assert.equal(ruleLabel({ metric: "patqoq", op: "lte", value: -5 }, "NSE"), "PAT growth QoQ ≤ -5%");
+});

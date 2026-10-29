@@ -31,12 +31,26 @@ export const RULE_METRICS = [
   { value: "score", label: "Decision score", field: "decision_score", size: false },
 ];
 
+/**
+ * Growth in a result, for the Results page only (`context.growth`): the card's
+ * own rates, so a filter and the number it filters agree. Not facts of the
+ * run, so `matchSymbols` leaves them to the page, which tests each card.
+ */
+export const GROWTH_METRICS = [
+  { value: "revyoy", label: "Revenue growth YoY", growth: { line: "revenue", period: "yoy" } },
+  { value: "revqoq", label: "Revenue growth QoQ", growth: { line: "revenue", period: "qoq" } },
+  { value: "opyoy", label: "Operating profit growth YoY", growth: { line: "operating_profit", period: "yoy" } },
+  { value: "opqoq", label: "Operating profit growth QoQ", growth: { line: "operating_profit", period: "qoq" } },
+  { value: "patyoy", label: "PAT growth YoY", growth: { line: "net_profit", period: "yoy" } },
+  { value: "patqoq", label: "PAT growth QoQ", growth: { line: "net_profit", period: "qoq" } },
+];
+
 export const RULE_OPERATORS = [
   { value: "gte", label: "≥" },
   { value: "lte", label: "≤" },
 ];
 
-export const MAX_RULES = 6;
+export const MAX_RULES = 10;
 /** Spelled out when the viewer removed every rule, the default included. */
 const NO_RULES = "none";
 
@@ -56,12 +70,18 @@ const DEFAULT_MIN_CAP = { NSE: 1000, US: 1000 };
  * @typedef {object} FilterContext
  * @property {MarketCode} market
  * @property {string[]} [listIds]
+ * @property {boolean} [growth]  Whether the page offers the growth rules.
  * @property {"all" | "watchlists"} [defaultScope]
  * @property {Array<{ param: string, options: Array<{ value: string }> }>} [facets]
  */
 /** @typedef {{ symbol: string, industry?: string | null } & Record<string, unknown>} Company */
 
-const metric = (value) => RULE_METRICS.find((item) => item.value === value);
+const metric = (value) =>
+  RULE_METRICS.find((item) => item.value === value) ??
+  GROWTH_METRICS.find((item) => item.value === value);
+
+/** Whether a rule tests a result's growth, not a figure of the run. */
+export const isGrowthRule = (rule) => Boolean(metric(rule.metric)?.growth);
 
 function list(value) {
   if (value === undefined || value === null || value === "") return [];
@@ -98,11 +118,13 @@ function sameRules(a, b) {
   );
 }
 
-function parseRule(text) {
+function parseRule(text, growth) {
   const [name, op, ...rest] = String(text).split(".");
   const amount = rest.join(".").trim();
   const value = Number(amount);
   if (!metric(name) || !RULE_OPERATORS.some((item) => item.value === op)) return null;
+  // A page that does not offer growth ignores a stale link's growth rule.
+  if (metric(name).growth && !growth) return null;
   if (amount === "" || !Number.isFinite(value)) return null;
   return { metric: name, op, value };
 }
@@ -121,7 +143,7 @@ function parseRule(text) {
  * @returns {EventFilters}
  */
 export function parseEventFilters(params, context) {
-  const { market, listIds = [], defaultScope = "all", facets = [] } = context;
+  const { market, listIds = [], defaultScope = "all", facets = [], growth = false } = context;
   const query = params ?? {};
 
   const named = list(query.list).filter((id) => listIds.includes(id));
@@ -136,7 +158,7 @@ export function parseEventFilters(params, context) {
   let rules;
   if (raw.length === 0) rules = defaultRules(market, lists.length > 0);
   else if (raw.includes(NO_RULES)) rules = [];
-  else rules = raw.map(parseRule).filter(Boolean).slice(0, MAX_RULES);
+  else rules = raw.map((text) => parseRule(text, growth)).filter(Boolean).slice(0, MAX_RULES);
 
   const chosen = {};
   for (const facet of facets) {
@@ -235,11 +257,12 @@ function passes(rule, company, market) {
  */
 export function matchSymbols(companies, filters, market) {
   const industries = new Set(filters.industries);
-  if (!filters.rules.length && !industries.size) return null;
+  const rules = filters.rules.filter((rule) => !isGrowthRule(rule));
+  if (!rules.length && !industries.size) return null;
   const symbols = new Set();
   for (const company of companies ?? []) {
     if (industries.size && !industries.has(company.industry)) continue;
-    if (!filters.rules.every((rule) => passes(rule, company, market))) continue;
+    if (!rules.every((rule) => passes(rule, company, market))) continue;
     symbols.add(company.symbol);
   }
   return symbols;
@@ -335,6 +358,7 @@ export function ruleLabel(rule, market) {
   if (!definition || !operator) return "";
   const unit = SIZE_UNITS[market];
   const amount = Number(rule.value).toLocaleString(unit.locale);
+  if (definition.growth) return `${definition.label} ${operator.label} ${amount}%`;
   return definition.size
     ? `${definition.label} ${operator.label} ${unit.symbol}${amount} ${unit.suffix}`
     : `${definition.label} ${operator.label} ${amount}`;

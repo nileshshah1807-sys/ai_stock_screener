@@ -166,6 +166,29 @@ export default function PreviewPage() {
         </section>
 
         <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Results filters (with growth)</h2>
+          <Suspense>
+            <EventFilterBar
+              market="NSE"
+              defaultScope="all"
+              growth
+              filters={{
+                rules: [
+                  { metric: "mcap", op: "gte", value: 1000 },
+                  { metric: "revyoy", op: "gte", value: 15 },
+                  { metric: "patqoq", op: "gte", value: 0 },
+                ],
+                industries: [],
+                lists: [],
+                facets: {},
+              }}
+              industries={[{ value: "Auto Parts", label: "Auto Parts", count: 84 }]}
+              watchlists={[{ value: "core", label: "Core holdings", count: 14 }]}
+            />
+          </Suspense>
+        </section>
+
+        <section className="flex flex-col gap-3">
           <h2 className="text-heading">Feed filters</h2>
           {/* The bar above Notifications and Concalls, opened on the default
               view. A static page cannot re-render for a new URL, so a choice

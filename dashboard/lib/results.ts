@@ -37,6 +37,9 @@ export type QuarterFiling = {
   lines: Record<string, number | null>;
 };
 
+/** PostgREST returns at most this many rows per request. */
+const READ_WINDOW = 1000;
+
 const FEED_COLUMNS =
   "symbol, period_end, announced_at, company, has_consolidated, has_standalone";
 // viewer_url arrived after the table first shipped; see getQuarterFilings.
@@ -123,14 +126,23 @@ export async function getResultFeed(
   };
 
   if (!symbols || symbols.length <= PUSH_DOWN_MAX) {
-    let built = query(true);
-    if (symbols) built = built.in("symbol", symbols);
-    const { data, error, count } = await built.range(0, limit - 1);
-    if (error) {
-      console.error("getResultFeed failed", error.message);
-      return { entries: [], total: 0 };
+    // One request returns at most READ_WINDOW rows; a longer read goes by windows.
+    const entries: ResultFeedEntry[] = [];
+    let total: number | null = null;
+    for (let from = 0; from < limit; from += READ_WINDOW) {
+      let built = query(true);
+      if (symbols) built = built.in("symbol", symbols);
+      const { data, error, count } = await built.range(from, Math.min(from + READ_WINDOW, limit) - 1);
+      if (error) {
+        console.error("getResultFeed failed", error.message);
+        return from === 0 ? { entries: [], total: 0 } : { entries, total };
+      }
+      const page = (data ?? []) as unknown as ResultFeedEntry[];
+      entries.push(...page);
+      total = count ?? null;
+      if (page.length < READ_WINDOW) break;
     }
-    return { entries: (data ?? []) as unknown as ResultFeedEntry[], total: count ?? null };
+    return { entries, total };
   }
 
   const { rows, error } = await readForSymbols<ResultFeedEntry>(symbols, limit, (_pushed, from, to) =>
@@ -179,4 +191,46 @@ export async function getCompanyNames(
   const wanted = new Set(symbols);
   const names = await runCompanyNames(market);
   return new Map([...names].filter(([symbol]) => wanted.has(symbol)));
+}
+
+/**
+ * The lines of every filing for these quarters, as a whole market's growth
+ * needs them: the page cannot ask by symbol, since a thousand symbols do not
+ * fit in a URL. Read in windows, the later ones together.
+ */
+export async function getQuarterLines(
+  market: MarketCode,
+  periods: string[],
+): Promise<QuarterFiling[]> {
+  const supabase = await createClient();
+  const window = (from: number) =>
+    supabase
+      .from("quarterly_filings")
+      .select("symbol, period_end, is_consolidated, lines", { count: "exact" })
+      .eq("market", market)
+      .in("period_end", periods)
+      .order("symbol", { ascending: true })
+      .order("period_end", { ascending: true })
+      .order("is_consolidated", { ascending: true })
+      .range(from, from + READ_WINDOW - 1);
+  const first = await window(0);
+  if (first.error) {
+    console.error("getQuarterLines failed", first.error.message);
+    return [];
+  }
+  const rows = (first.data ?? []) as unknown as QuarterFiling[];
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, Math.ceil((first.count ?? 0) / READ_WINDOW) - 1) }, (_, index) =>
+      window((index + 1) * READ_WINDOW),
+    ),
+  );
+  for (const page of rest) {
+    if (page.error) {
+      // A short read would silently drop companies from the filter: show none.
+      console.error("getQuarterLines failed", page.error.message);
+      return [];
+    }
+    rows.push(...((page.data ?? []) as unknown as QuarterFiling[]));
+  }
+  return rows;
 }

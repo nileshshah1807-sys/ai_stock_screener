@@ -17,6 +17,7 @@ import {
   getCompanyNames,
   getLatestResultQuarter,
   getQuarterFilings,
+  getQuarterLines,
   getResultFeed,
   type QuarterFiling,
 } from "@/lib/results";
@@ -25,8 +26,10 @@ import {
   groupByAnnouncedDay,
   quarterEnds,
   quarterLabel,
+  passesGrowth,
   resultCard,
 } from "@/lib/results.mjs";
+import { isGrowthRule } from "@/lib/event-filters.mjs";
 
 export const metadata: Metadata = { title: "Results" };
 export const dynamic = "force-dynamic";
@@ -34,6 +37,8 @@ export const dynamic = "force-dynamic";
 /** Cards per step of "Show more", and the most one page will hold. */
 const PAGE_SIZE = 30;
 const MAX_SHOWN = 300;
+/** Results a growth filter reads before it filters: more than a quarter's NSE filings. */
+const GROWTH_SCAN = 4000;
 const SEARCH_RESETS = ["shown"];
 /** The exchange files by India's calendar; a result filed at 00:30 IST is that day's. */
 const TIME_ZONE = "Asia/Kolkata";
@@ -84,7 +89,7 @@ export default async function ResultsPage({
   const offered = quarterEnds(today);
   const [latest, feed, facts, run] = await Promise.all([
     getLatestResultQuarter(market.code, offered),
-    loadFeedFilters(market.code, query, { defaultScope: "all" }),
+    loadFeedFilters(market.code, query, { defaultScope: "all", growth: true }),
     getCompanyFacts(market.code),
     getLatestRun(market.code),
   ]);
@@ -101,15 +106,42 @@ export default async function ResultsPage({
   const shown = shownCount(query.shown);
   const filtered = Boolean(search) || !feed.isDefault;
 
-  const { entries, total } = await getResultFeed(market.code, {
-    quarter,
-    symbols: feed.symbols,
-    search,
-    limit: shown,
-  });
+  const periods = [quarter, monthsBefore(quarter, 3), monthsBefore(quarter, 12)];
+  const growthRules = feed.filters.rules.filter(isGrowthRule);
+  let entries: Awaited<ReturnType<typeof getResultFeed>>["entries"];
+  let total: number | null;
+  let scanCapped = false;
+  if (growthRules.length) {
+    // Growth is worked out from the filings, not stored with the feed, so a
+    // growth filter reads the whole quarter and keeps what passes; the cards
+    // then page through that.
+    const [scanned, lines] = await Promise.all([
+      getResultFeed(market.code, { quarter, symbols: feed.symbols, search, limit: GROWTH_SCAN }),
+      getQuarterLines(market.code, periods),
+    ]);
+    scanCapped = scanned.entries.length >= GROWTH_SCAN;
+    const filingsOf = new Map<string, QuarterFiling[]>();
+    for (const filing of lines) {
+      const list = filingsOf.get(filing.symbol) ?? [];
+      list.push(filing);
+      filingsOf.set(filing.symbol, list);
+    }
+    const passing = scanned.entries.filter((entry) =>
+      passesGrowth(resultCard(entry, filingsOf.get(entry.symbol) ?? [], quarter), growthRules),
+    );
+    entries = passing.slice(0, shown);
+    total = passing.length;
+  } else {
+    ({ entries, total } = await getResultFeed(market.code, {
+      quarter,
+      symbols: feed.symbols,
+      search,
+      limit: shown,
+    }));
+  }
   const symbols = entries.map((entry) => entry.symbol);
   const [filings, names] = await Promise.all([
-    getQuarterFilings(market.code, symbols, [quarter, monthsBefore(quarter, 3), monthsBefore(quarter, 12)]),
+    getQuarterFilings(market.code, symbols, periods),
     getCompanyNames(
       market.code,
       entries.filter((entry) => !entry.company).map((entry) => entry.symbol),
@@ -184,6 +216,7 @@ export default async function ResultsPage({
               ? `Showing the latest ${formatInteger(cards.length)} results`
               : `Showing ${formatInteger(cards.length)} of ${formatInteger(total)} results`}{" "}
             for {quarterLabel(quarter, { fiscal: true })}
+            {scanCapped ? ` (growth filters read the latest ${formatInteger(GROWTH_SCAN)} results)` : ""}
           </p>
           {groups.map((group) => (
             <section key={group.date} aria-labelledby={`results-${group.date}`} className="space-y-3">
