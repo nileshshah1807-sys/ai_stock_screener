@@ -167,6 +167,7 @@ function scanPage() {
 
 const chrome = await launchChrome();
 const cookieUrl = new URL(BASE);
+let chromeAgent = "";
 let current = null; // per-navigation collector
 chrome.on((message) => {
   if (message.method === "Fetch.requestPaused") return guard(message.params);
@@ -189,6 +190,7 @@ chrome.on((message) => {
   } else if (method === "Network.loadingFailed") {
     current.inflight.delete(params.requestId);
     current.lastActivity = Date.now();
+    if (!params.canceled && params.errorText.includes("BLOCKED_BY_ORB")) probe(current.requests.get(params.requestId));
     if (!params.canceled && !params.errorText.startsWith("net::ERR_BLOCKED_BY_CLIENT")) current.errors.push(`request failed (${params.errorText}) ${shorten(current.requests.get(params.requestId) ?? "")}`);
   } else if (method === "Runtime.exceptionThrown") {
     const d = params.exceptionDetails;
@@ -208,6 +210,17 @@ function guard({ requestId, request }) {
     : chrome.send("Fetch.continueRequest", { requestId });
   if (action && current) current.blocked += 1;
   done.catch(() => {});
+}
+
+// Once per run: ask for a blocked image again from outside the browser and say what
+// came back, so a guard on the user agent or referrer shows up as a status, not a guess.
+let probed = false;
+function probe(url) {
+  if (probed || !url) return;
+  probed = true;
+  fetch(url, { redirect: "manual", headers: { "user-agent": chromeAgent, referer: `${cookieUrl.origin}/` } })
+    .then((res) => warn("(image probe)", `${shorten(url)} answers ${res.status} ${res.headers.get("content-type")} ${res.headers.get("location") ? "-> " + shorten(res.headers.get("location")) : ""} to a normal browser's user agent and referrer`))
+    .catch(() => {});
 }
 
 function shorten(url) {
@@ -295,6 +308,17 @@ try {
   await chrome.send("Network.enable");
   await chrome.send("Runtime.enable");
   await chrome.send("Page.enable");
+  // Headless Chrome announces itself ("HeadlessChrome" in the user agent and in
+  // the client-hint brands); some image CDNs answer a bot guard instead of the image.
+  const agent = chromeAgent = (await evaluate(() => navigator.userAgent)).replace("HeadlessChrome", "Chrome");
+  const major = agent.match(/Chrome\/(\d+)/)?.[1] ?? "130";
+  await chrome.send("Emulation.setUserAgentOverride", {
+    userAgent: agent,
+    userAgentMetadata: {
+      brands: [{ brand: "Chromium", version: major }, { brand: "Google Chrome", version: major }, { brand: "Not.A/Brand", version: "24" }],
+      fullVersion: `${major}.0.0.0`, platform: "macOS", platformVersion: "15.0.0", architecture: "arm", model: "", mobile: false,
+    },
+  });
   await chrome.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
   await chrome.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await chrome.send("Network.setCookies", {
