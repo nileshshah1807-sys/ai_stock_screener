@@ -73,18 +73,21 @@ def _as_date(value):
 def normalise_index_rows(index_name, records):
     """Normalise ``fetch_historical_index_data`` output to a stable schema."""
     rows = []
+    bad_date = bad_close = 0
     for record in records or []:
         raw_date = (
             record.get("EOD_TIMESTAMP")
             or record.get("TIMESTAMP")
             or record.get("EOD_DATE")
         )
-        try:
-            trade_date = pd.to_datetime(raw_date, dayfirst=True).date()
-        except Exception:
+        trade_date = pd.to_datetime(raw_date, dayfirst=True, errors="coerce")
+        if pd.isna(trade_date):
+            bad_date += 1
             continue
+        trade_date = trade_date.date()
         close = pd.to_numeric(record.get("EOD_CLOSE_INDEX_VAL"), errors="coerce")
         if pd.isna(close) or float(close) <= 0:
+            bad_close += 1
             continue
         rows.append(
             {
@@ -95,6 +98,16 @@ def normalise_index_rows(index_name, records):
                 "Low": pd.to_numeric(record.get("EOD_LOW_INDEX_VAL"), errors="coerce"),
                 "Close": float(close),
             }
+        )
+    # Not raised: an undated row cannot be placed inside or outside a window,
+    # and a missing session already drops its period (level_on_or_before's staleness bound).
+    if bad_date or bad_close:
+        logger.warning(
+            "Index %s: skipped %d rows with no parseable date and %d with no "
+            "positive close",
+            index_name,
+            bad_date,
+            bad_close,
         )
     frame = pd.DataFrame(rows, columns=list(INDEX_COLUMNS))
     if frame.empty:

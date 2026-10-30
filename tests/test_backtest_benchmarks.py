@@ -67,6 +67,12 @@ class NormaliseTests(unittest.TestCase):
     def test_unparseable_date_is_dropped(self):
         self.assertEqual(len(normalise_index_rows("X", self.raw())), 1)
 
+    def test_skipped_rows_are_counted_in_a_warning(self):
+        raw = self.raw() + [{"EOD_CLOSE_INDEX_VAL": 100}]  # no date at all
+        with self.assertLogs("backtest.benchmarks", "WARNING") as logs:
+            normalise_index_rows("X", raw)
+        self.assertIn("skipped 2 rows with no parseable date and 1", logs.output[0])
+
     def test_non_positive_close_is_dropped(self):
         frame = normalise_index_rows("X", self.raw())
         self.assertTrue((frame["Close"] > 0).all())
