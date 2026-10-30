@@ -1,8 +1,10 @@
 # P11 -- NSE group relative strength (WNN-23)
 
 Rules are Jim's, pre-registered in WNN-22 (`research/themes.md` on
-`research-notes`, section 4). Committed before any scored run. This file
-records how each rule was implemented; nothing here moves a threshold.
+`research-notes`, section 4). The rules were committed before the scored run:
+WNN-22 on `research-notes`, and this implementation in `d0a961e` on
+`study/p11-group-rs`. This file records how each rule was implemented, which
+moves no threshold, and adds the 30 Oct 2026 result.
 
 ## Map
 - Source: 15 Wayback Machine captures of NSE's `ind_nifty500list.csv`,
