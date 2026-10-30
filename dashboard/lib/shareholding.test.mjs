@@ -82,3 +82,19 @@ test("a promoter-group entity at zero in every quarter is not listed", () => {
   ];
   assert.deepEqual(buildHolders(patterns, ["promoter"]).rows.map((row) => row.name), ["Tata Sons Private Limited"]);
 });
+
+test("a holder with a stake in only one shown quarter stays listed", () => {
+  const patterns = [
+    quarter("2026-03-31", 71, 9, 13, 1, [{ name: "Early Holder", group: "promoter", pct: 1.5 }]),
+    quarter("2026-06-30", 71, 9, 13, 1, [{ name: "Early Holder", group: "promoter", pct: 0 }]),
+  ];
+  assert.deepEqual(buildHolders(patterns, ["promoter"]).rows.map((row) => row.name), ["Early Holder"]);
+});
+
+test("a holder that went from 3.1 to 0 keeps both cells", () => {
+  const patterns = [
+    quarter("2026-03-31", 71, 9, 13, 1, [{ name: "Exiting Holder", group: "promoter", pct: 3.1 }]),
+    quarter("2026-06-30", 71, 9, 13, 1, [{ name: "Exiting Holder", group: "promoter", pct: 0 }]),
+  ];
+  assert.deepEqual(buildHolders(patterns, ["promoter"]).rows[0].cells, [3.1, 0]);
+});

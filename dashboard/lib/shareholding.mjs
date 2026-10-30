@@ -100,8 +100,8 @@ export function buildHolders(patterns, groups) {
   const rows = [...holders.values()]
     .filter((entry) => entry.cells.some((pct) => pct))
     .sort(
-    (a, b) => (b.cells.at(-1) ?? -1) - (a.cells.at(-1) ?? -1) || maxOf(b.cells) - maxOf(a.cells),
-  );
+      (a, b) => (b.cells.at(-1) ?? -1) - (a.cells.at(-1) ?? -1) || maxOf(b.cells) - maxOf(a.cells),
+    );
   return {
     columns: sorted.map((row) => ({ period: row.period_end, label: periodLabel(row.period_end) })),
     rows,
