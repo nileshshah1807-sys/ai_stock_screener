@@ -585,6 +585,9 @@ class DocumentFetcher:
         self.workers = max(1, int(workers))
         self.timeout = int(timeout)
         self.retries = max(1, int(retries))
+        # Refusals with 403 in the last `fetch_many`: the exchange's archive
+        # blocks a client that asks too fast, for minutes (30 Oct 2026).
+        self.forbidden = 0
         self._session_factory = session_factory
         self._local = threading.local()
 
@@ -619,6 +622,9 @@ class DocumentFetcher:
                 ("<!doctype html", "<html")
             ):
                 return body
+            if status == 403:  # the archive's block on a burst; not worth asking again now
+                self.forbidden += 1
+                break
             # A missing archive file stays missing; only a throttle is retried.
             if 400 <= status < 500 and status != 429:
                 break
@@ -627,6 +633,7 @@ class DocumentFetcher:
     def fetch_many(self, urls):
         if not urls:
             return []
+        self.forbidden = 0
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             return list(pool.map(self.fetch_one, urls))
 

@@ -242,6 +242,24 @@ class StoreTests(FilingsRun):
         self.assertEqual(counts["derived"], 0)
         self.assertIsNone(repo.upserted[-1]["lines"]["revenue"])
 
+    def test_a_blocked_archive_stops_the_run_after_the_batch(self):
+        # 30 Oct 2026: the archive answered a burst with 403; the run asked for
+        # all 680 anyway. It stops after the batch that was mostly refused.
+        records = [filing(f"S{n}", "30-SEP-2026", 100 + n) for n in range(130)]
+
+        class Blocked(FakeFetcher):
+            forbidden = 0
+
+            def fetch_many(self, urls):
+                self.forbidden = len(urls)
+                return super().fetch_many(urls)
+
+        repo = FakeRepository()
+        fetcher = Blocked({})
+        counts = run(repo, index_records_loader=lambda a, b: records, fetcher=fetcher, today=TODAY)
+        self.assertEqual(len(fetcher.asked), 60)
+        self.assertEqual(counts["deferred"], 70)
+
     def test_an_unfetchable_earlier_filing_is_asked_for_again(self):
         records = [
             filing("JKB", "30-SEP-2026", 5, broadcast="22-Oct-2026 15:11:12"),

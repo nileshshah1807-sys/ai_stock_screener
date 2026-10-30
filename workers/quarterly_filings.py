@@ -239,6 +239,7 @@ def run(
             )
             break
         texts = fetcher.fetch_many([row["XBRL_URL"] for row in batch])
+        blocked = getattr(fetcher, "forbidden", 0) * 2 > len(batch)
         parsed_at = datetime.now(UTC).isoformat(timespec="seconds")
         rows = []
         for row, text in zip(batch, texts, strict=True):
@@ -271,6 +272,14 @@ def run(
             repo.upsert_quarterly_filings(rows)
         counts["stored"] += len(rows)
         touched += [row["symbol"] for row in rows]
+        if blocked:
+            # Asking on only feeds the block; the 15-minute cadence retries.
+            counts["deferred"] = len(due) - (position + 1) * BATCH_SIZE
+            logger.warning(
+                "The exchange archive is refusing requests (403); stopping with %d "
+                "filing(s) left for the next run", max(counts["deferred"], 0),
+            )
+            break
 
     # After the loop, so the quarters a half year is read against are stored
     # whatever order the batches ran in.
