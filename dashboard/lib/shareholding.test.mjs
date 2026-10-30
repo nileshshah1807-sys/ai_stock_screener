@@ -72,3 +72,13 @@ test("holders match across quarters by name, whatever the case", () => {
   );
   assert.deepEqual(buildHolders(patterns, ["promoter"]).rows[0].cells, [35.14, 35.39]);
 });
+
+test("a promoter-group entity at zero in every quarter is not listed", () => {
+  const patterns = [
+    quarter("2026-06-30", 71.77, 9, 13, 1, [
+      { name: "Tata Sons Private Limited", group: "promoter", pct: 71.74 },
+      { name: "Air India Limited", group: "promoter", pct: 0 },
+    ]),
+  ];
+  assert.deepEqual(buildHolders(patterns, ["promoter"]).rows.map((row) => row.name), ["Tata Sons Private Limited"]);
+});

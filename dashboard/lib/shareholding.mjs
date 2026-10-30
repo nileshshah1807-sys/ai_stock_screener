@@ -71,7 +71,8 @@ export function buildPattern(patterns) {
  * quarter first. A holder is matched across quarters by name, ignoring case
  * and spacing: filings spell the same fund "ICICI PRUDENTIAL" one quarter and
  * "ICICI Prudential" the next. A quarter the holder is not named in is blank
- * -- under the 1% a public holder must be named at, or gone.
+ * -- under the 1% a public holder must be named at, or gone. A holder with no
+ * stake in any shown quarter is left out.
  */
 export function buildHolders(patterns, groups) {
   const sorted = [...(patterns ?? [])]
@@ -93,7 +94,12 @@ export function buildHolders(patterns, groups) {
       entry.name = holder.name;
     }
   });
-  const rows = [...holders.values()].sort(
+  // Since June 2025 a filing lists every promoter-group entity, most of them at
+  // 0.00% (Tata Sons' group: ~300). Such a holder has nothing to show, and its
+  // rows would make every earlier quarter's column read blank.
+  const rows = [...holders.values()]
+    .filter((entry) => entry.cells.some((pct) => pct))
+    .sort(
     (a, b) => (b.cells.at(-1) ?? -1) - (a.cells.at(-1) ?? -1) || maxOf(b.cells) - maxOf(a.cells),
   );
   return {
