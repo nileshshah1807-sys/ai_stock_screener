@@ -130,14 +130,22 @@ jobs:
           name: call-recordings-plan
           path: call-recordings
 
+      # Offline only when the model is on disk: a cache entry saved without it
+      # never updates, and offline would then fail every run. A changed
+      # CALL_RECORDING_MODEL finds no directory and downloads.
+      - name: Go offline when the speech model is cached
+        run: |
+          model="${CALL_RECORDING_MODEL:-large-v3-turbo}"
+          if ls -d ~/.cache/huggingface/hub/models--*--faster-whisper-"$model"/snapshots/* >/dev/null 2>&1; then
+            echo HF_HUB_OFFLINE=1 >> "$GITHUB_ENV"
+          fi
+
       # A fifteen-minute piece takes about five. One in sixteen hung in the
       # benchmark, so each attempt is bounded and tried twice.
       - name: Transcribe the piece
         env:
           PIECE_KEY: ${{ matrix.key }}
           PIECE_PART: ${{ matrix.part }}
-          # With the model cached, do not ask the Hub about it at all.
-          HF_HUB_OFFLINE: ${{ steps.speech-model.outputs.cache-hit == 'true' && '1' || '0' }}
         run: |
           for attempt in 1 2; do
             if timeout 15m python -m workers.call_recordings piece \
@@ -192,7 +200,6 @@ jobs:
 
       # Read, never written: the transcript-sentiment workflow owns this entry.
       - name: Restore Hugging Face models
-        id: finbert-model
         uses: actions/cache/restore@v6
         with:
           path: ~/.cache/huggingface
@@ -209,10 +216,14 @@ jobs:
           path: pieces
           merge-multiple: true
 
+      # Offline only when FinBERT is on disk (see the piece job).
+      - name: Go offline when FinBERT is cached
+        run: |
+          if ls -d ~/.cache/huggingface/hub/models--ProsusAI--finbert/snapshots/* >/dev/null 2>&1; then
+            echo HF_HUB_OFFLINE=1 >> "$GITHUB_ENV"
+          fi
+
       - name: Store the calls and score their tone
-        env:
-          # A restored model is loaded without asking the Hub (no unauthenticated-request warning).
-          HF_HUB_OFFLINE: ${{ steps.finbert-model.outputs.cache-hit == 'true' && '1' || '0' }}
         run: python -m workers.call_recordings assemble --plan call-recordings/plan.json --pieces pieces
 
       # The outlook of each new call, as in the transcript-sentiment workflow.
