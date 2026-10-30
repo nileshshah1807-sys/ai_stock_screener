@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getViewer } from "@/lib/auth";
+import { csvCell } from "@/lib/csv.mjs";
 import { parseFilters } from "@/lib/filters";
 import { DEFAULT_MARKET, marketFromSlug } from "@/lib/markets";
 import { getExportRows, getLatestRun } from "@/lib/queries";
@@ -51,22 +52,6 @@ const COLUMNS: Array<[keyof SnapshotRow, string]> = [
   ["rs_rating_change_1m", "RS_Rating_Change_1M"],
   ["entry_state", "Entry_State"],
 ];
-
-/**
- * RFC 4180 escaping.
- *
- * Company names in this universe contain commas and the occasional quote, and
- * gate-failure strings contain both. A naive join would shift every later
- * column on those rows.
- */
-function csvCell(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  const text = String(value);
-  if (/[",\r\n]/.test(text)) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
-  return text;
-}
 
 export async function GET(request: NextRequest) {
   // Route handlers are not covered by the page-level check, and Proxy only
