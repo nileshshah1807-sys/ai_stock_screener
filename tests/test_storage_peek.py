@@ -13,3 +13,10 @@ class StoragePeekTests(unittest.TestCase):
         store = viewer_store("https://x.supabase.co", "anon", "user-token")
         self.assertEqual(store.headers["Authorization"], "Bearer user-token")
         self.assertTrue(store.read_only)
+
+    def test_the_viewer_store_refuses_a_write_or_a_delete(self):
+        store = viewer_store("https://x.supabase.co", "anon", "user-token")
+        with self.assertRaises(PermissionError):
+            store.put("x", b"")
+        with self.assertRaises(PermissionError):
+            store.remove(["x"])
