@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import time
 from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, timedelta
@@ -203,7 +204,8 @@ def run(
     dry_run: bool = False,
 ) -> dict[str, int]:
     profile = resolve_market(repo.market)
-    counts = {"due": 0, "stored": 0, "failed": 0, "deferred": 0, "redrawn": 0, "basis": 0, "derived": 0}
+    counts = {"due": 0, "stored": 0, "failed": 0, "deferred": 0, "redrawn": 0, "basis": 0, "derived": 0,
+              "blocked": 0}
     if not profile.quarterly_results_provider:
         logger.info("%s has no results filing index; nothing to store", profile.code)
         return counts
@@ -274,10 +276,11 @@ def run(
         touched += [row["symbol"] for row in rows]
         if blocked:
             # Asking on only feeds the block; the 15-minute cadence retries.
-            counts["deferred"] = len(due) - (position + 1) * BATCH_SIZE
+            counts["deferred"] = max(len(due) - (position + 1) * BATCH_SIZE, 0)
+            counts["blocked"] = 1
             logger.warning(
                 "The exchange archive is refusing requests (403); stopping with %d "
-                "filing(s) left for the next run", max(counts["deferred"], 0),
+                "filing(s) left for the next run", counts["deferred"],
             )
             break
 
@@ -366,6 +369,22 @@ def refresh_valuation_basis(repo, symbols: Iterable[str], today: date, timezone:
     return sum(repo.upsert_valuation_basis(group) for group in groups.values())
 
 
+def _note_block(counts: dict[str, int]) -> None:
+    """Put a blocked run on the run's summary page, where a string of them shows.
+
+    A step that failed would skip the steps after it (shareholding, events), so
+    the run stays green; the summary is what tells a block from a quiet day.
+    """
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if path:
+        with open(path, "a", encoding="utf-8") as summary:
+            summary.write(
+                "### NSE archive refused requests (403)\n"
+                f"Stored {counts['stored']}, failed {counts['failed']}, "
+                f"left for the next run {counts['deferred']}.\n"
+            )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--market", default=None, help="NSE or US (default: $MARKET)")
@@ -390,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     from storage.dashboard_repository import DashboardRepository
 
-    run(
+    counts = run(
         DashboardRepository.from_environment(args.market),
         lookback_days=args.lookback_days,
         full=args.full,
@@ -399,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
         ),
         dry_run=args.dry_run,
     )
+    if counts["blocked"]:
+        _note_block(counts)
     return 0
 
 

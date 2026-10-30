@@ -260,6 +260,32 @@ class StoreTests(FilingsRun):
         self.assertEqual(len(fetcher.asked), 60)
         self.assertEqual(counts["deferred"], 70)
 
+    def _blocked_run(self, total, refused):
+        records = [filing(f"S{n}", "30-SEP-2026", 100 + n) for n in range(total)]
+
+        class Partly(FakeFetcher):
+            forbidden = 0
+
+            def fetch_many(self, urls):
+                self.forbidden = len(urls) * refused // 100
+                return super().fetch_many(urls)
+
+        fetcher = Partly({})
+        counts = run(
+            FakeRepository(), index_records_loader=lambda a, b: records,
+            fetcher=fetcher, today=TODAY,
+        )
+        return counts, fetcher
+
+    def test_a_batch_refused_by_under_half_does_not_stop_the_run(self):
+        counts, fetcher = self._blocked_run(130, refused=30)  # percent of each batch
+        self.assertEqual(len(fetcher.asked), 130)
+        self.assertEqual(counts["blocked"], 0)
+
+    def test_a_block_on_the_last_batch_defers_nothing(self):
+        counts, _ = self._blocked_run(50, refused=100)
+        self.assertEqual((counts["blocked"], counts["deferred"]), (1, 0))
+
     def test_an_unfetchable_earlier_filing_is_asked_for_again(self):
         records = [
             filing("JKB", "30-SEP-2026", 5, broadcast="22-Oct-2026 15:11:12"),
