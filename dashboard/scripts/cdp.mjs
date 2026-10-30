@@ -20,23 +20,42 @@ export async function launchChrome() {
   const proc = spawn(
     chrome,
     ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--disable-gpu", "about:blank"],
-    { stdio: ["ignore", "ignore", "pipe"] },
+    { stdio: ["ignore", "ignore", "pipe"], detached: true }, // own process group, so its helpers can be killed too
   );
-  const endpoint = await new Promise((resolve, reject) => {
-    let log = "";
-    proc.stderr.on("data", (chunk) => {
-      log += chunk;
-      const found = log.match(/ws:\/\/\S+/);
-      if (found) resolve(found[0]);
+  // Anything that fails from here on must not leave Chrome or its profile behind.
+  const cleanup = async () => {
+    const exited = new Promise((resolve) => (proc.exitCode === null ? proc.once("exit", resolve) : resolve()));
+    try {
+      process.kill(-proc.pid); // Chrome's helper processes keep writing to the profile otherwise
+    } catch {
+      proc.kill();
+    }
+    await exited; // Chrome writes to the profile until it is gone
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+  };
+  let socket;
+  try {
+    let timer;
+    const endpoint = await new Promise((resolve, reject) => {
+      let log = "";
+      proc.stderr.on("data", (chunk) => {
+        log += chunk;
+        const found = log.match(/ws:\/\/\S+/);
+        if (found) resolve(found[0]);
+      });
+      proc.on("exit", () => reject(new Error("Chrome exited before it was ready.")));
+      timer = setTimeout(() => reject(new Error("Chrome did not start in 15 s.")), 15000);
+    }).finally(() => clearTimeout(timer));
+    socket = new WebSocket(endpoint);
+    await new Promise((resolve, reject) => {
+      socket.onopen = resolve;
+      socket.onerror = () => reject(new Error("Could not connect to Chrome."));
     });
-    proc.on("exit", () => reject(new Error("Chrome exited before it was ready.")));
-    setTimeout(() => reject(new Error("Chrome did not start in 15 s.")), 15000);
-  });
-  const socket = new WebSocket(endpoint);
-  await new Promise((resolve, reject) => {
-    socket.onopen = resolve;
-    socket.onerror = () => reject(new Error("Could not connect to Chrome."));
-  });
+  } catch (error) {
+    socket?.close();
+    await cleanup();
+    throw error;
+  }
 
   let nextId = 0;
   const pending = new Map();
@@ -68,10 +87,7 @@ export async function launchChrome() {
     },
     close: async () => {
       socket.close();
-      const exited = new Promise((resolve) => proc.once("exit", resolve));
-      proc.kill();
-      await exited; // Chrome writes to the profile until it is gone
-      rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+      await cleanup();
     },
   };
 }

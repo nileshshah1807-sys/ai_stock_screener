@@ -167,16 +167,9 @@ function scanPage() {
 
 const chrome = await launchChrome();
 const cookieUrl = new URL(BASE);
-await chrome.send("Network.enable");
-await chrome.send("Runtime.enable");
-await chrome.send("Page.enable");
-await chrome.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
-await chrome.send("Network.setCookies", {
-  cookies: [...jar].map(([name, value]) => ({ name, value, url: cookieUrl.origin, path: "/", secure: cookieUrl.protocol === "https:" })),
-});
-
 let current = null; // per-navigation collector
 chrome.on((message) => {
+  if (message.method === "Fetch.requestPaused") return guard(message.params);
   if (!current) return;
   const { method, params } = message;
   if (method === "Network.requestWillBeSent" && params.type !== "WebSocket") {
@@ -196,7 +189,7 @@ chrome.on((message) => {
   } else if (method === "Network.loadingFailed") {
     current.inflight.delete(params.requestId);
     current.lastActivity = Date.now();
-    if (!params.canceled) current.errors.push(`request failed (${params.errorText}) ${shorten(current.requests.get(params.requestId) ?? "")}`);
+    if (!params.canceled && !params.errorText.startsWith("net::ERR_BLOCKED_BY_CLIENT")) current.errors.push(`request failed (${params.errorText}) ${shorten(current.requests.get(params.requestId) ?? "")}`);
   } else if (method === "Runtime.exceptionThrown") {
     const d = params.exceptionDetails;
     current.errors.push(`uncaught exception: ${(d.exception?.description ?? d.text).split("\n")[0]}`);
@@ -205,6 +198,17 @@ chrome.on((message) => {
     current.errors.push(`${/hydrat|did not match/i.test(text) ? "hydration error" : "console error"}: ${text.slice(0, 160)}`);
   }
 });
+
+// The audit login must write nothing: a Next server action (the notifications
+// page marks itself seen on view) is a POST carrying a Next-Action header.
+function guard({ requestId, request }) {
+  const action = Object.keys(request.headers).some((name) => name.toLowerCase() === "next-action");
+  const done = action
+    ? chrome.send("Fetch.failRequest", { requestId, errorReason: "BlockedByClient" })
+    : chrome.send("Fetch.continueRequest", { requestId });
+  if (action && current) current.blocked += 1;
+  done.catch(() => {});
+}
 
 function shorten(url) {
   try {
@@ -245,7 +249,7 @@ function judge(path, scan, expected, { grid = false } = {}) {
 }
 
 async function visit(path, expected, { grid = false, tabs = false } = {}) {
-  current = { inflight: new Set(), requests: new Map(), errors: [], status: null, lastActivity: Date.now() };
+  current = { inflight: new Set(), requests: new Map(), errors: [], status: null, blocked: 0, lastActivity: Date.now() };
   const started = Date.now();
   await chrome.send("Page.navigate", { url: BASE + path });
   await new Promise((r) => setTimeout(r, 300));
@@ -260,6 +264,7 @@ async function visit(path, expected, { grid = false, tabs = false } = {}) {
   if (current.status !== 200) fail(path, `HTTP ${current.status}`);
   if (finalUrl !== path.split("?")[0]) fail(path, `redirected to ${finalUrl}`);
   if (ms > SLOW_MS) fail(path, `slow: ${(ms / 1000).toFixed(1)} s`);
+  if (current.blocked) warn(path, `${current.blocked} server-action write(s) blocked: the check is read-only`);
   judge(path, await evaluate(scanPage), expected, { grid });
 
   if (tabs) {
@@ -285,6 +290,14 @@ async function visit(path, expected, { grid = false, tabs = false } = {}) {
 
 // ---- run -----------------------------------------------------------------------
 try {
+  await chrome.send("Network.enable");
+  await chrome.send("Runtime.enable");
+  await chrome.send("Page.enable");
+  await chrome.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] });
+  await chrome.send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
+  await chrome.send("Network.setCookies", {
+    cookies: [...jar].map(([name, value]) => ({ name, value, url: cookieUrl.origin, path: "/", secure: cookieUrl.protocol === "https:" })),
+  });
   for (const slug of Object.keys(MARKETS)) {
     const expected = await expectations(slug);
     await liveFreshness(slug);
