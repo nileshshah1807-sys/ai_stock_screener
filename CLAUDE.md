@@ -133,6 +133,9 @@ the scheduled workflows set the same flag.
   reader of those tables shows them. Until a filing is stored, its results
   event is its stored statements gaining a quarter, as in the US. The dashboard shows it as
   `SYMBOL` tagged BSE (`dashboard/lib/listing.mjs`).
+  In every market, a session a name did not trade is still a session: Yahoo
+  carries the close forward with zero volume and the collector keeps that bar;
+  only a name with no volume anywhere in the window is dropped.
 - **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
   `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
   `screener/session_bars.py` fill a symbol's missing expected-session bar from
