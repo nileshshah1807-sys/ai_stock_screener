@@ -155,6 +155,36 @@ def earlier_quarter_statement(
     return None
 
 
+def derived_quarters(repo, half_years: list[tuple[dict[str, Any], str]]) -> list[dict[str, Any]]:
+    """Stored half-year documents, each as the quarter it ends with.
+
+    MTARTECH, Sep 2026, filed only the half year; the feed view hides a row
+    with no revenue or profit, so the company had no result. The quarter is
+    the half year less the first quarter, where that is stored on the same
+    basis. A company that never filed the quarter (an SME reporting half
+    yearly) keeps its row with no lines.
+    """
+    if not half_years:
+        return []
+    stored = repo.quarterly_filings({row["symbol"] for row, _ in half_years})
+    out = []
+    for row, text in half_years:
+        earlier = {
+            date.fromisoformat(str(f["period_end"])[:10]): f["lines"]
+            for f in stored.get(row["symbol"], [])
+            if bool(f["is_consolidated"]) == row["is_consolidated"]
+        }
+        lines = quarterly_results.quarter_from_cumulative(
+            quarterly_results.parse_filing(text, row["taxonomy"], cumulative=True),
+            quarterly_results.statement_days(text),
+            date.fromisoformat(row["period_end"]),
+            earlier,
+        )
+        if lines:
+            out.append({**row, "lines": lines})
+    return out
+
+
 def _batches(rows: list[Any], size: int) -> Iterable[list[Any]]:
     for start in range(0, len(rows), size):
         yield rows[start:start + size]
@@ -173,7 +203,7 @@ def run(
     dry_run: bool = False,
 ) -> dict[str, int]:
     profile = resolve_market(repo.market)
-    counts = {"due": 0, "stored": 0, "failed": 0, "deferred": 0, "redrawn": 0, "basis": 0}
+    counts = {"due": 0, "stored": 0, "failed": 0, "deferred": 0, "redrawn": 0, "basis": 0, "derived": 0}
     if not profile.quarterly_results_provider:
         logger.info("%s has no results filing index; nothing to store", profile.code)
         return counts
@@ -199,6 +229,7 @@ def run(
 
     fetcher = fetcher or quarterly_results.DocumentFetcher(workers=FETCH_WORKERS)
     touched: list[str] = []
+    half_years: list[tuple[dict[str, Any], str]] = []
     started = clock()
     for position, batch in enumerate(_batches(due, BATCH_SIZE)):
         if time_budget_seconds is not None and clock() - started >= time_budget_seconds:
@@ -234,10 +265,19 @@ def run(
                     parsed_at=parsed_at,
                 )
             )
+            if not quarterly_results.covers_a_quarter(text):
+                half_years.append((rows[-1], text))
         if rows and not dry_run:
             repo.upsert_quarterly_filings(rows)
         counts["stored"] += len(rows)
         touched += [row["symbol"] for row in rows]
+
+    # After the loop, so the quarters a half year is read against are stored
+    # whatever order the batches ran in.
+    derived = [] if dry_run else derived_quarters(repo, half_years)
+    if derived:
+        repo.upsert_quarterly_filings(derived)
+        counts["derived"] = len(derived)
 
     if counts["failed"]:
         logger.warning(

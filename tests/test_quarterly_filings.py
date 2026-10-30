@@ -210,6 +210,38 @@ class StoreTests(FilingsRun):
         (row,) = repo.upserted
         self.assertTrue(all(value is None for value in row["lines"].values()))
 
+    def test_a_half_year_is_stored_as_the_quarter_after_the_first_quarter(self):
+        # MTARTECH, Oct 2026: the only Sep filing stated 1 Apr - 30 Sep. Stored
+        # as nothing, the feed hid the company's result.
+        q1 = {"revenue": 3607, "net_profit": 505, "pat": 505, "pbt": 676,
+              "interest": 158, "depreciation": 95, "tax": 171, "other_income": 80,
+              "eps": 16.4, "operating_profit": 929}
+        repo = FakeRepository()
+        repo.filings = {"MTAR": [{"period_end": "2026-06-30", "is_consolidated": False, "lines": q1}]}
+        records = [filing("MTAR", "30-SEP-2026", 8, consolidated=False)]
+        counts, repo, _, _ = self.run_worker(
+            records,
+            {"8": document(7675, 1101, start="2026-04-01")},
+            repo=repo,
+        )
+        row = repo.upserted[-1]
+        self.assertEqual(row["lines"]["revenue"], 7675 - 3607)
+        self.assertEqual(row["lines"]["net_profit"], 1101 - 505)
+        self.assertIsNone(row["lines"]["eps"])
+        self.assertEqual(counts["derived"], 1)
+
+    def test_a_half_year_is_not_read_against_the_other_basis(self):
+        q1 = {"revenue": 3607, "net_profit": 505}
+        repo = FakeRepository()
+        repo.filings = {"MTAR": [{"period_end": "2026-06-30", "is_consolidated": True, "lines": q1}]}
+        counts, repo, _, _ = self.run_worker(
+            [filing("MTAR", "30-SEP-2026", 8, consolidated=False)],
+            {"8": document(7675, 1101, start="2026-04-01")},
+            repo=repo,
+        )
+        self.assertEqual(counts["derived"], 0)
+        self.assertIsNone(repo.upserted[-1]["lines"]["revenue"])
+
     def test_an_unfetchable_earlier_filing_is_asked_for_again(self):
         records = [
             filing("JKB", "30-SEP-2026", 5, broadcast="22-Oct-2026 15:11:12"),
