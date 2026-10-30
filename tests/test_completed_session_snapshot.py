@@ -120,6 +120,14 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
         self.assertEqual(row["Latest_Volume"], 0)
         self.assertTrue(row["Price_Bar_Aligned"])
 
+    def test_name_with_no_volume_in_the_window_is_still_rejected(self):
+        frame = self._price_frame()
+        frame["Volume"] = 0
+
+        result = self._collect(datetime(2026, 8, 10, 16, 15, tzinfo=IST), frame)
+
+        self.assertTrue(result.empty)
+
     def test_insufficient_return_and_slope_history_is_explicitly_missing(self):
         frame = self._price_frame(periods=60, final_price=159.0)
 

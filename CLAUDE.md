@@ -122,9 +122,7 @@ the scheduled workflows set the same flag.
   equal an NSE symbol and `ticker_for` passes it through; `is_bse_only`
   (`screener/markets.py`) is the one test for it. Prices, statements, live
   quotes and charts are Yahoo's; NSE's filings, shareholding, impact cost and
-  transcripts have nothing for it and degrade. A session it did not trade
-  is still a session: Yahoo carries the close forward with zero volume, and the
-  collector keeps that bar (a name that never traded in the window is dropped). Its results and shareholding
+  transcripts have nothing for it and degrade. Its results and shareholding
   filings come from `workers/bse_source.py` (written by the owner; the repo
   itself never fetches from BSE): `workers/bse_filings.py`, a step of the
   Quarterly filings workflow, turns them into NSE index records and stores
@@ -132,6 +130,9 @@ the scheduled workflows set the same flag.
   reader of those tables shows them. Until a filing is stored, its results
   event is its stored statements gaining a quarter, as in the US. The dashboard shows it as
   `SYMBOL` tagged BSE (`dashboard/lib/listing.mjs`).
+  In every market, a session a name did not trade is still a session: Yahoo
+  carries the close forward with zero volume and the collector keeps that bar;
+  only a name with no volume anywhere in the window is dropped.
 - **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
   `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
   `screener/session_bars.py` fill a symbol's missing expected-session bar from
