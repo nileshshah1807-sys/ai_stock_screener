@@ -7,10 +7,13 @@ nothing for that quarter.
 """
 
 import json
+import os
 import re
+import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from screener.quarterly_results import PARSER_VERSION
@@ -346,6 +349,42 @@ class StoreTests(FilingsRun):
         self.assertEqual(counts["failed"], 1)
         self.assertEqual([r["seq_id"] for r in repo.upserted], ["2"])
 
+    def attempts(self, records, documents, **kwargs):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "attempts.json")
+            result = self.run_worker(records, documents, attempts_path=path, **kwargs)
+            written = json.loads(Path(path).read_text()) if os.path.exists(path) else None
+        return written, result
+
+    def test_a_failed_fetch_is_written_with_the_archives_answer(self):
+        written, _ = self.attempts(self.RECORDS, {"2": document(2732, 419)})
+        self.assertEqual(
+            [(a["seq_id"], a["status"], a["http_code"]) for a in written["attempts"]],
+            [("1", "fetch_failed", 0)],
+        )
+
+    def test_a_stored_filing_is_not_listed(self):
+        written, _ = self.attempts(self.RECORDS, self.DOCUMENTS)
+        self.assertEqual(written["attempts"], [])
+
+    def test_a_format_the_parser_does_not_read_is_listed_on_a_full_run_only(self):
+        records = [*self.RECORDS, filing("STAR", "30-SEP-2026", 9, taxonomy="UNKNOWN")]
+        written, (_, _, fetcher, _) = self.attempts(records, self.DOCUMENTS, full=True)
+        self.assertNotIn("9", fetcher.asked)
+        self.assertEqual(
+            [(a["symbol"], a["status"]) for a in written["attempts"]],
+            [("STAR", "unsupported_format")],
+        )
+        short = FakeRepository(stored={("OLD", "2026-06-30", True): stored_row(7)})
+        written, _ = self.attempts(records, self.DOCUMENTS, repo=short)
+        self.assertEqual(written["attempts"], [])
+
+    def test_an_unwritable_attempts_file_does_not_fail_the_run(self):
+        counts, _, _, _ = self.run_worker(
+            self.RECORDS, self.DOCUMENTS, attempts_path="/nonexistent-folder/a.json"
+        )
+        self.assertEqual(counts["stored"], 2)
+
     def test_dry_run_writes_nothing(self):
         counts, repo, _, _ = self.run_worker(self.RECORDS, self.DOCUMENTS, dry_run=True)
         self.assertEqual(counts["stored"], 2)
@@ -495,3 +534,16 @@ class ValuationBasisRefresh(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FetcherStatusTests(unittest.TestCase):
+    def test_an_error_page_served_with_200_is_logged_as_no_document(self):
+        from screener.quarterly_results import DocumentFetcher
+
+        class Session:
+            def get(self, url, timeout):
+                return SimpleNamespace(status_code=200, text="<html>Access Denied</html>")
+
+        fetcher = DocumentFetcher(retries=1, session_factory=Session)
+        self.assertEqual(fetcher.fetch_many(["u"]), [None])
+        self.assertEqual(fetcher.statuses, {"u": 0})

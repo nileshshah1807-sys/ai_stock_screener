@@ -113,6 +113,9 @@ the scheduled workflows set the same flag.
   April 2025; the older endpoint `backtest/filings.py` reads ends that
   January. A filing that states only a half year (MTARTECH, Sep 2026) is stored
   as its quarter, less the earlier quarters on the same basis (`PARSER_VERSION` 4).
+  A filing the worker could not store (a fetch the archive refused, or a file format the parser does
+  not read -- the latter listed by the full run only) is written to a `filing-attempts` artifact of the
+  workflow run (JSON, kept 14 days) with its reason, and counted in the run's summary; no table.
   Annual statements, valuation ratios and prices are still Yahoo's.
 - **A company listed on BSE alone is screened in the NSE run as `SYMBOL.BO`.**
   `NSE_UNIVERSE_SOURCE=nse_with_bse_only` (set in the NSE screener and price
@@ -130,6 +133,9 @@ the scheduled workflows set the same flag.
   reader of those tables shows them. Until a filing is stored, its results
   event is its stored statements gaining a quarter, as in the US. The dashboard shows it as
   `SYMBOL` tagged BSE (`dashboard/lib/listing.mjs`).
+  In every market, a session a name did not trade is still a session: Yahoo
+  carries the close forward with zero volume and the collector keeps that bar;
+  only a name with no volume anywhere in the window is dropped.
 - **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
   `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
   `screener/session_bars.py` fill a symbol's missing expected-session bar from

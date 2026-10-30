@@ -45,6 +45,7 @@ picked up by the daily full sweep.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import time
@@ -197,6 +198,57 @@ def _batches(rows: list[Any], size: int) -> Iterable[list[Any]]:
         yield rows[start:start + size]
 
 
+def write_attempts(
+    path: str,
+    index: pd.DataFrame,
+    failures: list[tuple[dict[str, Any], int]],
+    *,
+    now: datetime,
+    full: bool,
+) -> dict[str, int]:
+    """Write the filings this run could not store, and why, as JSON at ``path``.
+
+    The workflow uploads it as a run artifact, so "not filed", "fetch refused"
+    and "format not read" can be told apart. A format the parser does not read
+    is listed on a full run only: it is the same few filings every run. Returns
+    the count per status.
+    """
+
+    def entry(row: dict[str, Any], status: str, code: int | None) -> dict[str, Any]:
+        return {
+            "symbol": row["Symbol"],
+            "period_end": row["Period_End"].isoformat(),
+            "is_consolidated": bool(row["Is_Consolidated"]),
+            "seq_id": str(row["Seq_Id"]),
+            "status": status,
+            "http_code": code,
+            "taxonomy": row["Taxonomy"] or None,
+            "document_url": row["XBRL_URL"],
+        }
+
+    rows = [entry(row, "fetch_failed", code) for row, code in failures]
+    if full and not index.empty:
+        unread = index[~index["Taxonomy"].isin(quarterly_results.SUPPORTED_TAXONOMIES)]
+        rows += [entry(row, "unsupported_format", None) for row in unread.to_dict("records")]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"run_at": now.isoformat(timespec="seconds"), "attempts": rows}, handle, indent=1)
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row["status"]] = counts.get(row["status"], 0) + 1
+    return counts
+
+
+def _note_attempts(counts: dict[str, int]) -> None:
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if path and counts:
+        with open(path, "a", encoding="utf-8") as summary:
+            summary.write(
+                "### Filings not stored\n"
+                + "".join(f"- {status}: {number}\n" for status, number in sorted(counts.items()))
+                + "Detail: the filing-attempts artifact of this run.\n"
+            )
+
+
 def run(
     repo,
     *,
@@ -209,6 +261,7 @@ def run(
     clock=time.monotonic,
     sleep=time.sleep,
     dry_run: bool = False,
+    attempts_path: str | None = None,
 ) -> dict[str, int]:
     profile = resolve_market(repo.market)
     counts = {"due": 0, "stored": 0, "failed": 0, "deferred": 0, "redrawn": 0, "basis": 0, "derived": 0,
@@ -239,6 +292,7 @@ def run(
     fetcher = fetcher or quarterly_results.DocumentFetcher(workers=FETCH_WORKERS)
     touched: list[str] = []
     half_years: list[tuple[dict[str, Any], str]] = []
+    failures: list[tuple[dict[str, Any], int]] = []
     started = clock()
     for position, batch in enumerate(_batches(due, BATCH_SIZE)):
         if time_budget_seconds is not None and clock() - started >= time_budget_seconds:
@@ -263,6 +317,7 @@ def run(
                     source, text = found
             if text is None:
                 counts["failed"] += 1
+                failures.append((row, getattr(fetcher, "statuses", {}).get(row["XBRL_URL"], 0)))
                 continue
             rows.append(
                 filing_row(
@@ -299,6 +354,17 @@ def run(
     if derived:
         repo.upsert_quarterly_filings(derived)
         counts["derived"] = len(derived)
+
+    if attempts_path and not dry_run:
+        try:
+            _note_attempts(
+                write_attempts(
+                    attempts_path, index, failures, now=datetime.now(UTC),
+                    full=lookback_days == FULL_LOOKBACK_DAYS,
+                )
+            )
+        except Exception as exc:  # a diagnostic file never fails the run
+            logger.warning("Filing attempts not written: %s", exc)
 
     if counts["failed"]:
         logger.warning(
@@ -426,6 +492,7 @@ def main(argv: list[str] | None = None) -> int:
             args.time_budget_minutes * 60 if args.time_budget_minutes else None
         ),
         dry_run=args.dry_run,
+        attempts_path=os.environ.get("FILING_ATTEMPTS_PATH"),
     )
     if counts["blocked"]:
         _note_block(counts)

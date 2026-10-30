@@ -463,3 +463,12 @@ class RetryTests(unittest.TestCase):
         ):
             self.assertEqual(repository.replace_market_breadth([{"scope": "s", "name": "n"}]), 1)
         self.assertEqual(session.calls, 2)
+
+    def test_breadth_upsert_stamps_updated_at(self):
+        repository = self.repository(_FlakySession())
+        with (
+            mock.patch.object(repository, "_request") as request,
+            mock.patch.object(repository, "_paged", return_value=[]),
+        ):
+            repository.replace_market_breadth([{"scope": "s", "name": "n"}])
+        self.assertIn("updated_at", request.call_args.kwargs["json"][0])
