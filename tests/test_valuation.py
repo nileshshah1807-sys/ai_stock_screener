@@ -1,4 +1,6 @@
+import os
 import unittest
+import unittest.mock
 from types import SimpleNamespace
 
 import numpy as np
@@ -251,5 +253,39 @@ class ReverseDCFTests(unittest.TestCase):
         self.assertEqual(result.loc[0, "Pre_DCF_Rank"], 7)
 
 
-if __name__ == "__main__":
-    unittest.main()
+class SizeBandTests(unittest.TestCase):
+    CAPS = (3e12, 3e11, 6e10, 1e10)  # rupees
+
+    def model(self, **env):
+        market = env.pop("MARKET", None)
+        cfg = SimpleNamespace(**({"MARKET": market} if market else {}))
+        return ReverseDCFModel(cfg)
+
+    def test_unset_market_keeps_the_nse_rupee_bands(self):
+        with unittest.mock.patch.dict("os.environ", {}):
+            os.environ.pop("MARKET", None)
+            model = self.model()
+            self.assertEqual(
+                [model._size_adjustment(c) for c in self.CAPS],
+                [-0.03, -0.015, 0.0, 0.02],
+            )
+
+    def test_us_run_converts_dollar_caps_at_the_override_rate(self):
+        with unittest.mock.patch.dict("os.environ", {"USD_INR_RATE": "95"}):
+            model = self.model(MARKET="US")
+            caps = (25e9, 3e9, 6e8, 1e8)
+            self.assertEqual(
+                [model._size_adjustment(c) for c in caps],
+                [-0.03, -0.015, 0.0, 0.02],
+            )
+            self.assertEqual(model._inr_per_unit(), 95.0)
+
+    def test_us_run_without_a_rate_is_neutral_never_a_fixed_number(self):
+        with unittest.mock.patch.dict("os.environ", {}):
+            os.environ.pop("USD_INR_RATE", None)
+            model = self.model(MARKET="US")
+            with unittest.mock.patch.object(
+                ReverseDCFModel, "_fetch_rate", return_value=None
+            ), self.assertLogs("screener.valuation", "WARNING"):
+                self.assertEqual(model._size_adjustment(25e9), 0.0)
+                self.assertIsNone(model._inr_per_unit())

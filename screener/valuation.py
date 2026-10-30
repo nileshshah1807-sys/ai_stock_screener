@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
+from .markets import active_profile
 from .numeric import round_half_up
 
 logger = logging.getLogger(__name__)
@@ -57,17 +59,51 @@ class ReverseDCFModel:
     def __init__(self, config):
         self.config = config
 
+    def _inr_per_unit(self):
+        """Rupees per unit of the market's currency, read once per run.
+
+        ``USD_INR_RATE`` overrides the vendor (tests, replays). None means the
+        rate is unknown, and the size step stays neutral: no fixed fallback.
+        """
+        if hasattr(self, "_rate"):
+            return self._rate
+        currency = active_profile(self.config).currency
+        rate = None
+        if currency == "INR":
+            rate = 1.0
+        else:
+            rate = self._safe_float(os.getenv(f"{currency}_INR_RATE"))
+            if rate is None:
+                rate = self._fetch_rate(currency)
+            if rate is None or rate <= 0:
+                rate = None
+                logger.warning(
+                    "No %s/INR rate: DCF size adjustment left neutral", currency
+                )
+        self._rate = rate
+        return rate
+
+    @classmethod
+    def _fetch_rate(cls, currency):
+        try:
+            import yfinance as yf
+
+            closes = yf.Ticker(f"{currency}INR=X").history(period="5d")["Close"]
+            return cls._safe_float(closes.dropna().iloc[-1])
+        except Exception as exc:  # vendor outage must not fail the run
+            logger.warning("%s/INR rate fetch failed: %s", currency, exc)
+            return None
+
     def _size_adjustment(self, market_cap):
-        if market_cap is None or market_cap <= 0:
+        rate = self._inr_per_unit()
+        if rate is None or market_cap is None or market_cap <= 0:
             return 0.0
-        market_cap_cr = market_cap / 1e7
-        if market_cap_cr >= 200_000:
-            return -0.03
-        if market_cap_cr >= 20_000:
-            return -0.015
-        if market_cap_cr >= 5_000:
-            return 0.0
-        return 0.02
+        market_cap_inr = market_cap * rate
+        profile = active_profile(self.config)
+        for floor, adjustment in profile.dcf_size_bands:
+            if market_cap_inr >= floor:
+                return adjustment
+        return profile.dcf_small_cap_adjustment
 
     def _expected_growth(self, sector, market_cap):
         base = self.SECTOR_GROWTH_BENCHMARKS.get(
@@ -380,6 +416,8 @@ class ReverseDCFModel:
             "DCF_Cash_Flow_Basis": "operating_cash_flow_less_capex_equity_proxy" if can_model else "n/a",
             "DCF_Sector": sector if sector else "Unknown",
             "DCF_Expected_Growth": expected_growth,
+            # INR per unit of currency behind the size step, so a run reproduces.
+            "DCF_Size_INR_Rate": self._inr_per_unit() or np.nan,
             "DCF_Base_FCF": round_half_up(fcf, 2) if fcf is not None else np.nan,
             "DCF_Market_Cap": round_half_up(market_cap, 2) if market_cap is not None else np.nan,
             "DCF_Net_Debt": round_half_up(net_debt, 2) if net_debt is not None else np.nan,
