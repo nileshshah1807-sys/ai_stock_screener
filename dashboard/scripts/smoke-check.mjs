@@ -177,6 +177,7 @@ chrome.on((message) => {
     current.inflight.add(params.requestId);
     // A redirect reuses the id: keep the URL the page asked for, not where it ended.
     if (!current.requests.has(params.requestId)) current.requests.set(params.requestId, params.request.url);
+    current.sent.set(params.requestId, params.request.headers);
     current.lastActivity = Date.now();
   } else if (method === "Network.responseReceived") {
     const url = params.response.url;
@@ -190,7 +191,7 @@ chrome.on((message) => {
   } else if (method === "Network.loadingFailed") {
     current.inflight.delete(params.requestId);
     current.lastActivity = Date.now();
-    if (!params.canceled && params.errorText.includes("BLOCKED_BY_ORB")) probe(current.requests.get(params.requestId));
+    if (!params.canceled && params.errorText.includes("BLOCKED_BY_ORB")) probe(current.requests.get(params.requestId), current.sent.get(params.requestId));
     if (!params.canceled && !params.errorText.startsWith("net::ERR_BLOCKED_BY_CLIENT")) current.errors.push(`request failed (${params.errorText}) ${shorten(current.requests.get(params.requestId) ?? "")}`);
   } else if (method === "Runtime.exceptionThrown") {
     const d = params.exceptionDetails;
@@ -215,11 +216,11 @@ function guard({ requestId, request }) {
 // Once per run: ask for a blocked image again from outside the browser and say what
 // came back, so a guard on the user agent or referrer shows up as a status, not a guess.
 let probed = false;
-function probe(url) {
+function probe(url, sent = {}) {
   if (probed || !url) return;
   probed = true;
   fetch(url, { redirect: "manual", headers: { "user-agent": chromeAgent, referer: `${cookieUrl.origin}/` } })
-    .then((res) => warn("(image probe)", `${shorten(url)} answers ${res.status} ${res.headers.get("content-type")} ${res.headers.get("location") ? "-> " + shorten(res.headers.get("location")) : ""} to a normal browser's user agent and referrer`))
+    .then((res) => warn("(image probe)", `${shorten(url)} answers ${res.status} ${res.headers.get("content-type")} ${res.headers.get("location") ? "-> " + shorten(res.headers.get("location")) : ""} to a normal browser's user agent and referrer; the browser itself sent referer=${sent.Referer ?? sent.referer ?? "none"} sec-fetch-site=${sent["Sec-Fetch-Site"] ?? "?"} ua=${(sent["User-Agent"] ?? "?").slice(-40)}`))
     .catch(() => {});
 }
 
@@ -262,7 +263,7 @@ function judge(path, scan, expected, { grid = false } = {}) {
 }
 
 async function visit(path, expected, { grid = false, tabs = false } = {}) {
-  current = { inflight: new Set(), requests: new Map(), errors: [], status: null, blocked: 0, lastActivity: Date.now() };
+  current = { inflight: new Set(), requests: new Map(), sent: new Map(), errors: [], status: null, blocked: 0, lastActivity: Date.now() };
   const started = Date.now();
   await chrome.send("Page.navigate", { url: BASE + path });
   await new Promise((r) => setTimeout(r, 300));
@@ -303,6 +304,17 @@ async function visit(path, expected, { grid = false, tabs = false } = {}) {
   console.log(`${String(current.status).padEnd(4)} ${path.padEnd(34)} ${String(ms).padStart(5)} ms`);
 }
 
+// A page the check could not finish is a finding, not the end of the run; only a
+// lost Chrome stops it.
+async function attempt(path, expected, options) {
+  try {
+    await visit(path, expected, options);
+  } catch (error) {
+    if (/Chrome connection/.test(error.message)) throw error;
+    fail(path, `check could not finish the page: ${error.message}`);
+  }
+}
+
 // ---- run -----------------------------------------------------------------------
 try {
   await chrome.send("Network.enable");
@@ -327,11 +339,13 @@ try {
   for (const slug of Object.keys(MARKETS)) {
     const expected = await expectations(slug);
     await liveFreshness(slug);
-    for (const page of PAGES) await visit(`/${slug}${page}`, expected, { grid: page === "" });
+    for (const page of PAGES) await attempt(`/${slug}${page}`, expected, { grid: page === "" });
     for (const symbol of expected?.picks ?? []) {
-      await visit(`/${slug}/stocks/${encodeURIComponent(symbol)}`, expected, { tabs: true });
+      await attempt(`/${slug}/stocks/${encodeURIComponent(symbol)}`, expected, { tabs: true });
     }
   }
+} catch (error) {
+  fail("(run)", `check stopped: ${error.message}`);
 } finally {
   await chrome.close();
 }

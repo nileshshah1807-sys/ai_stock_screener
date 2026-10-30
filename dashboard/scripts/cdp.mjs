@@ -13,6 +13,8 @@ const CHROME_PATHS = [
   "/usr/bin/chromium",
 ].filter(Boolean);
 
+const CALL_TIMEOUT_MS = 20000;
+
 export async function launchChrome() {
   const chrome = CHROME_PATHS.find((path) => existsSync(path));
   if (!chrome) throw new Error("No Chrome found; set CHROME_PATH.");
@@ -98,14 +100,34 @@ export async function launchChrome() {
     const message = JSON.parse(event.data);
     if (message.id === undefined) return listeners.forEach((listener) => listener(message));
     const call = pending.get(message.id);
+    if (!call) return; // answered after it timed out
     pending.delete(message.id);
+    clearTimeout(call.timer);
     if (message.error) call.reject(new Error(`${call.method}: ${message.error.message}`));
     else call.resolve(message.result);
   };
+  // A call that never comes back (a page navigating away under it, Chrome gone)
+  // must reject, or the awaiting script just stops when the event loop empties.
+  let closed = false;
+  const failAll = (reason) => {
+    closed = true;
+    for (const call of pending.values()) {
+      clearTimeout(call.timer);
+      call.reject(new Error(`${call.method}: ${reason}`));
+    }
+    pending.clear();
+  };
+  socket.onclose = () => failAll("Chrome connection closed");
+  socket.onerror = () => failAll("Chrome connection failed");
   const send = (method, params = {}, sessionId) =>
     new Promise((resolve, reject) => {
+      if (closed) return reject(new Error(`${method}: Chrome connection closed`));
       const id = ++nextId;
-      pending.set(id, { resolve, reject, method });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`${method}: no answer in ${CALL_TIMEOUT_MS / 1000} s`));
+      }, CALL_TIMEOUT_MS);
+      pending.set(id, { resolve, reject, method, timer });
       socket.send(JSON.stringify({ id, method, params, sessionId }));
     });
 
@@ -120,6 +142,7 @@ export async function launchChrome() {
       return () => listeners.delete(wrapped);
     },
     close: async () => {
+      closed = true;
       socket.close();
       await cleanup();
     },
