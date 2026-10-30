@@ -76,11 +76,12 @@ def _as_date(value):
 
 
 def _age_days(as_of, available_from):
-    """Days between the decision date and the evidence behind it."""
-    try:
-        return (_as_date(as_of) - _as_date(available_from)).days
-    except Exception:
-        return None
+    """Days between the decision date and the evidence behind it.
+
+    Every panel row has a parseable date (the constructor drops the rest), so a
+    date that fails here is a bug and must raise, not read as "age unknown".
+    """
+    return (_as_date(as_of) - _as_date(available_from)).days
 
 
 class FundamentalPanel:
