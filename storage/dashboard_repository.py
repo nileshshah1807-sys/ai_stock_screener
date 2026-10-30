@@ -713,12 +713,15 @@ class DashboardRepository:
         whose upload timed out, leaving the page on the previous session.
         """
         written = 0
+        # A merge-duplicates upsert does not run the column's default on a row
+        # that exists, so without this updated_at stayed at its first write.
+        stamp = datetime.now(UTC).isoformat(timespec="seconds")
         for chunk in chunked(rows, chunk_size):
             self._request(
                 "POST",
                 "market_breadth?on_conflict=market,scope,name",
                 retries=3,
-                json=self._stamped(chunk),
+                json=self._stamped([{**row, "updated_at": stamp} for row in chunk]),
                 headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
             )
             written += len(chunk)
