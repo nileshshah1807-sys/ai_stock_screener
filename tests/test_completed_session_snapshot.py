@@ -107,6 +107,19 @@ class CompletedSessionSnapshotTests(unittest.TestCase):
         self.assertEqual(row["Technical_Price"], 499.5)
         self.assertAlmostEqual(row["MA20"], frame["Adj Close"].tail(20).mean(), 2)
 
+    def test_session_with_no_trades_is_kept_not_sent_to_stale_cache(self):
+        # Illiquid names carry the last close with zero volume on days they
+        # do not trade; rejecting them left a stale cached row for weeks.
+        frame = self._price_frame()
+        frame.iloc[-1, frame.columns.get_loc("Volume")] = 0
+
+        result = self._collect(datetime(2026, 8, 10, 16, 15, tzinfo=IST), frame)
+
+        self.assertEqual(len(result), 1)
+        row = result.iloc[0]
+        self.assertEqual(row["Latest_Volume"], 0)
+        self.assertTrue(row["Price_Bar_Aligned"])
+
     def test_insufficient_return_and_slope_history_is_explicitly_missing(self):
         frame = self._price_frame(periods=60, final_price=159.0)
 
