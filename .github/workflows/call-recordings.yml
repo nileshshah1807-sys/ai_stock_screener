@@ -115,6 +115,16 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements-speech.txt
 
+      # The speech model is ~1.6 GB; without this every piece downloads it from
+      # the Hub (and the Hub warns that the request is unauthenticated). The key
+      # names the default model: change CALL_RECORDING_MODEL, change the key.
+      - name: Restore the speech model
+        id: speech-model
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/huggingface
+          key: huggingface-whisper-large-v3-turbo-v1
+
       - uses: actions/download-artifact@v7
         with:
           name: call-recordings-plan
@@ -126,6 +136,8 @@ jobs:
         env:
           PIECE_KEY: ${{ matrix.key }}
           PIECE_PART: ${{ matrix.part }}
+          # With the model cached, do not ask the Hub about it at all.
+          HF_HUB_OFFLINE: ${{ steps.speech-model.outputs.cache-hit == 'true' && '1' || '0' }}
         run: |
           for attempt in 1 2; do
             if timeout 15m python -m workers.call_recordings piece \
@@ -180,6 +192,7 @@ jobs:
 
       # Read, never written: the transcript-sentiment workflow owns this entry.
       - name: Restore Hugging Face models
+        id: finbert-model
         uses: actions/cache/restore@v6
         with:
           path: ~/.cache/huggingface
@@ -197,6 +210,9 @@ jobs:
           merge-multiple: true
 
       - name: Store the calls and score their tone
+        env:
+          # A restored model is loaded without asking the Hub (no unauthenticated-request warning).
+          HF_HUB_OFFLINE: ${{ steps.finbert-model.outputs.cache-hit == 'true' && '1' || '0' }}
         run: python -m workers.call_recordings assemble --plan call-recordings/plan.json --pieces pieces
 
       # The outlook of each new call, as in the transcript-sentiment workflow.
