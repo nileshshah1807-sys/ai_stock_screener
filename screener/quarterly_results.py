@@ -229,8 +229,9 @@ GROWTH_COLUMNS = (
 # again, so a fix reaches the whole history rather than only what is filed
 # after it. 2: the company's name and the readable rendering of the filing.
 # 3: a document whose period is not a quarter (`covers_a_quarter`) is no
-# quarter's statement.
-PARSER_VERSION = 3
+# quarter's statement. 4: such a document's quarter is its figures less the
+# earlier quarters of the period (`quarter_from_cumulative`).
+PARSER_VERSION = 4
 
 # A document's own period is its quarter context. Most documents cover a
 # quarter; an SME files half-yearly, and some companies file the half year as
@@ -476,30 +477,73 @@ def parse_financial_statement(text, taxonomy):
     return lines
 
 
-def covers_a_quarter(text):
-    """Whether the document's own period is a quarter. One that does not state
-    its period is read as a quarter, as every document was before."""
+def statement_days(text):
+    """Days between the start and end of the document's own period, or None
+    where it states none."""
     context = _QUARTER_CONTEXT_RE.search(text or "")
     period = _PERIOD_RE.search(context.group(1)) if context else None
     if period is None:
-        return True
+        return None
     start, end = (date.fromisoformat(day) for day in period.groups())
-    return (end - start).days <= MAX_QUARTER_DAYS
+    return (end - start).days
 
 
-def parse_filing(text, taxonomy=""):
+def covers_a_quarter(text):
+    """Whether the document's own period is a quarter. One that does not state
+    its period is read as a quarter, as every document was before."""
+    days = statement_days(text)
+    return days is None or days <= MAX_QUARTER_DAYS
+
+
+def parse_filing(text, taxonomy="", *, cumulative=False):
     """Everything stored from one results document.
 
     The income statement lines the stock page draws, plus ``pat``: profit as
     the growth arithmetic measures it (continuing operations first, see
     `FACT_TAGS`), which is not always the line the page calls net profit.
-    A document that is not a quarter's statement parses to nothing.
+    A document that is not a quarter's statement parses to nothing, unless
+    ``cumulative`` asks for the figures of its longer period as filed.
     """
     if taxonomy in FINANCIAL_TAGS:
         lines = parse_financial_statement(text, taxonomy)
     else:
         lines = {**parse_quarter_statement(text), "pat": parse_quarter_facts(text)["PAT"]}
-    return lines if covers_a_quarter(text) else dict.fromkeys(lines)
+    return lines if cumulative or covers_a_quarter(text) else dict.fromkeys(lines)
+
+
+def quarter_from_cumulative(lines, days, period_end, earlier):
+    """The last quarter of a period the company filed whole, or None.
+
+    ``lines`` are the document's figures for ``days`` (a half year, nine
+    months or a year ending ``period_end``); ``earlier`` maps the period end
+    of each stored quarter on the same basis to its lines. The quarter is the
+    figures less the quarters before it, and only when every one of those is
+    stored and the sum is not negative. EPS is not additive across a change in
+    shares, so it is left out.
+    """
+    count = (days + 46) // 91 - 1  # quarters in the period, less this one
+    if not 1 <= count <= 3:
+        return None
+    before = []
+    for back in range(1, count + 1):
+        end = pd.Timestamp(period_end) - pd.DateOffset(months=3 * back) + pd.offsets.MonthEnd(0)
+        stored = earlier.get(end.date())
+        if not stored or (stored.get("revenue") is None and stored.get("net_profit") is None):
+            return None
+        before.append(stored)
+    quarter = {}
+    for key, value in lines.items():
+        parts = [stored.get(key) for stored in before]
+        quarter[key] = (
+            None
+            if key in ("eps", "operating_profit") or value is None or None in parts
+            else value - sum(parts)
+        )
+    if (quarter.get("revenue") or 0) < 0:  # the two filings disagree; show neither
+        return None
+    ebitda = (quarter.get("pbt"), quarter.get("interest"), quarter.get("depreciation"))
+    quarter["operating_profit"] = None if None in ebitda else sum(ebitda)
+    return quarter
 
 
 def facts_frame(rows, timezone):

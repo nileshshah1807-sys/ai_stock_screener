@@ -28,6 +28,7 @@ from screener.quarterly_results import (
     normalise_index,
     parse_filing,
     parse_quarter_facts,
+    quarter_from_cumulative,
     quarter_growth,
     taxonomy_of,
     vendor_quarter_end,
@@ -653,3 +654,42 @@ class WiringTests(CollectorCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QuarterFromCumulativeTests(unittest.TestCase):
+    H1 = {"revenue": 700.0, "pbt": 90.0, "interest": 10.0, "depreciation": 20.0,
+          "net_profit": 60.0, "eps": 6.0, "operating_profit": 120.0}
+    Q1 = {"revenue": 300.0, "pbt": 40.0, "interest": 5.0, "depreciation": 10.0,
+          "net_profit": 25.0, "eps": 2.5, "operating_profit": 55.0}
+
+    def test_half_year_less_the_first_quarter(self):
+        quarter = quarter_from_cumulative(
+            self.H1, 182, date(2026, 9, 30), {date(2026, 6, 30): self.Q1}
+        )
+        self.assertEqual(quarter["revenue"], 400.0)
+        self.assertEqual(quarter["net_profit"], 35.0)
+        self.assertEqual(quarter["operating_profit"], 50 + 5 + 10)
+        self.assertIsNone(quarter["eps"])
+
+    def test_nine_months_needs_both_earlier_quarters(self):
+        nine = {**self.H1, "revenue": 1000.0}
+        q2 = {**self.Q1, "revenue": 400.0}
+        earlier = {date(2026, 9, 30): q2}
+        self.assertIsNone(quarter_from_cumulative(nine, 273, date(2026, 12, 31), earlier))
+        earlier[date(2026, 6, 30)] = self.Q1
+        self.assertEqual(
+            quarter_from_cumulative(nine, 273, date(2026, 12, 31), earlier)["revenue"], 300.0
+        )
+
+    def test_nothing_without_the_earlier_quarter(self):
+        self.assertIsNone(quarter_from_cumulative(self.H1, 182, date(2026, 9, 30), {}))
+        empty = dict.fromkeys(self.Q1)
+        self.assertIsNone(
+            quarter_from_cumulative(self.H1, 182, date(2026, 9, 30), {date(2026, 6, 30): empty})
+        )
+
+    def test_a_quarter_larger_than_the_half_year_is_not_shown(self):
+        bigger = {**self.Q1, "revenue": 800.0}
+        self.assertIsNone(
+            quarter_from_cumulative(self.H1, 182, date(2026, 9, 30), {date(2026, 6, 30): bigger})
+        )

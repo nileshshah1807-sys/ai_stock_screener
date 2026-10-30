@@ -111,7 +111,9 @@ the scheduled workflows set the same flag.
   `storage/quarterly_filings_schema.sql` and must be applied by hand. Measure the two sources with
   `python -m tools.compare_quarter_growth_sources`. The index begins in
   April 2025; the older endpoint `backtest/filings.py` reads ends that
-  January. Annual statements, valuation ratios and prices are still Yahoo's.
+  January. A filing that states only a half year (MTARTECH, Sep 2026) is stored
+  as its quarter, less the earlier quarters on the same basis (`PARSER_VERSION` 4).
+  Annual statements, valuation ratios and prices are still Yahoo's.
 - **A company listed on BSE alone is screened in the NSE run as `SYMBOL.BO`.**
   `NSE_UNIVERSE_SOURCE=nse_with_bse_only` (set in the NSE screener and price
   series workflows) adds every mainboard company whose ISIN NSE does not list,
