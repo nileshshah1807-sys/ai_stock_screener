@@ -30,7 +30,16 @@ export async function launchChrome() {
     } catch {
       proc.kill();
     }
-    await exited; // Chrome writes to the profile until it is gone
+    await exited;
+    // Helpers outlive the main process for a moment and recreate the profile.
+    for (let i = 0; i < 30; i += 1) {
+      try {
+        process.kill(-proc.pid, 0);
+      } catch {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
     rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
   };
   let socket;
