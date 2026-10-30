@@ -7,7 +7,9 @@ nothing for that quarter.
 """
 
 import json
+import os
 import re
+import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
@@ -97,17 +99,6 @@ class FakeRepository:
     def upsert_quarterly_filings(self, rows):
         self.upserted += rows
         return len(rows)
-
-    attempts = None
-
-    def delete_quarterly_filing_attempts(self, keys):
-        self.attempts_deleted = list(keys)
-
-    def upsert_quarterly_filing_attempts(self, rows):
-        self.attempts = rows
-
-    def prune_quarterly_filing_attempts(self, before):
-        self.attempts_pruned_before = before
 
     # What `recompose_quarters` reads and writes; the valuation basis reads
     # the same filings after it.
@@ -358,39 +349,40 @@ class StoreTests(FilingsRun):
         self.assertEqual(counts["failed"], 1)
         self.assertEqual([r["seq_id"] for r in repo.upserted], ["2"])
 
-    def test_a_failed_fetch_is_logged_with_the_archives_answer(self):
-        _, repo, fetcher, _ = self.run_worker(self.RECORDS, {"2": document(2732, 419)})
+    def attempts(self, records, documents, **kwargs):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "attempts.json")
+            result = self.run_worker(records, documents, attempts_path=path, **kwargs)
+            written = json.loads(Path(path).read_text()) if os.path.exists(path) else None
+        return written, result
+
+    def test_a_failed_fetch_is_written_with_the_archives_answer(self):
+        written, _ = self.attempts(self.RECORDS, {"2": document(2732, 419)})
         self.assertEqual(
-            [(a["seq_id"], a["status"]) for a in repo.attempts], [("1", "fetch_failed")]
+            [(a["seq_id"], a["status"], a["http_code"]) for a in written["attempts"]],
+            [("1", "fetch_failed", 0)],
         )
-        self.assertEqual(repo.attempts[0]["http_code"], 0)
-        self.assertEqual(len(repo.attempts_deleted), 1)
 
-    def test_a_stored_filing_is_forgotten_by_the_attempts_log(self):
-        _, repo, _, _ = self.run_worker(self.RECORDS, self.DOCUMENTS)
-        self.assertEqual(repo.attempts, [])
-        self.assertEqual(len(repo.attempts_deleted), 2)
+    def test_a_stored_filing_is_not_listed(self):
+        written, _ = self.attempts(self.RECORDS, self.DOCUMENTS)
+        self.assertEqual(written["attempts"], [])
 
-    def test_a_format_the_parser_does_not_read_is_logged_not_fetched(self):
+    def test_a_format_the_parser_does_not_read_is_listed_on_a_full_run_only(self):
         records = [*self.RECORDS, filing("STAR", "30-SEP-2026", 9, taxonomy="UNKNOWN")]
-        _, repo, fetcher, _ = self.run_worker(records, self.DOCUMENTS, full=True)
+        written, (_, _, fetcher, _) = self.attempts(records, self.DOCUMENTS, full=True)
         self.assertNotIn("9", fetcher.asked)
         self.assertEqual(
-            [(a["symbol"], a["status"]) for a in repo.attempts], [("STAR", "unsupported_format")]
+            [(a["symbol"], a["status"]) for a in written["attempts"]],
+            [("STAR", "unsupported_format")],
         )
+        short = FakeRepository(stored={("OLD", "2026-06-30", True): stored_row(7)})
+        written, _ = self.attempts(records, self.DOCUMENTS, repo=short)
+        self.assertEqual(written["attempts"], [])
 
-    def test_a_short_run_does_not_refresh_an_unreadable_format(self):
-        records = [*self.RECORDS, filing("STAR", "30-SEP-2026", 9, taxonomy="UNKNOWN")]
-        repo = FakeRepository(stored={("OLD", "2026-06-30", True): stored_row(7)})
-        _, repo, _, _ = self.run_worker(records, self.DOCUMENTS, repo=repo)
-        self.assertEqual(repo.attempts, [])
-
-    def test_a_missing_attempts_table_does_not_fail_the_run(self):
-        class NoTable(FakeRepository):
-            def delete_quarterly_filing_attempts(self, keys):
-                raise RuntimeError("relation does not exist")
-
-        counts, _, _, _ = self.run_worker(self.RECORDS, self.DOCUMENTS, repo=NoTable())
+    def test_an_unwritable_attempts_file_does_not_fail_the_run(self):
+        counts, _, _, _ = self.run_worker(
+            self.RECORDS, self.DOCUMENTS, attempts_path="/nonexistent-folder/a.json"
+        )
         self.assertEqual(counts["stored"], 2)
 
     def test_dry_run_writes_nothing(self):
