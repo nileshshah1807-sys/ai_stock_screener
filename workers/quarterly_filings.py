@@ -70,6 +70,12 @@ FULL_LOOKBACK_DAYS = 600
 # everything it parsed before the stop.
 BATCH_SIZE = 60
 FETCH_WORKERS = 6
+# A batch takes at least this long, so the archive sees at most ~24 documents a
+# second. Measured from a laptop on 30 Oct 2026: 40/s drew no refusal in 1,200
+# requests, 60/s none in 300, and 100/s a 403 after ~570 requests in 6 s that
+# lasted four minutes. A quarter of the refused rate, with room for a runner
+# whose address NSE trusts less.
+MIN_SECONDS_PER_BATCH = 2.5
 # The screener's QUARTERLY_RESULTS_MAX_AGE_DAYS default: the newest quarter a
 # trailing year may end on, the evening run's rule.
 TRAILING_MAX_AGE_DAYS = 200
@@ -201,6 +207,7 @@ def run(
     full: bool = False,
     time_budget_seconds: float | None = None,
     clock=time.monotonic,
+    sleep=time.sleep,
     dry_run: bool = False,
 ) -> dict[str, int]:
     profile = resolve_market(repo.market)
@@ -240,6 +247,7 @@ def run(
                 "Time budget spent; %d filing(s) left for the next run", counts["deferred"]
             )
             break
+        asked_at = clock()
         texts = fetcher.fetch_many([row["XBRL_URL"] for row in batch])
         blocked = getattr(fetcher, "forbidden", 0) * 2 > len(batch)
         parsed_at = datetime.now(UTC).isoformat(timespec="seconds")
@@ -274,6 +282,7 @@ def run(
             repo.upsert_quarterly_filings(rows)
         counts["stored"] += len(rows)
         touched += [row["symbol"] for row in rows]
+        sleep(max(MIN_SECONDS_PER_BATCH - (clock() - asked_at), 0))
         if blocked:
             # Asking on only feeds the block; the 15-minute cadence retries.
             counts["deferred"] = max(len(due) - (position + 1) * BATCH_SIZE, 0)
