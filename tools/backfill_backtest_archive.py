@@ -190,7 +190,8 @@ def run_master(root, terminal_absence_sessions=None):
     logger.info("Security master: %s", json.dumps(summary))
     reused = master.reused_symbols()
     if reused:
-        logger.warning(
+        # By design (an ETF ticker reused by a later fund): nothing to act on.
+        logger.info(
             "%d tickers mapped to more than one security; resolve by date only: %s",
             len(reused),
             sorted(reused)[:15],
