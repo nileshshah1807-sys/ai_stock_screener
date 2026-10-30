@@ -154,12 +154,18 @@ The service-role key never reaches the browser or this app's environment. It is
 used only by the ingestion job, from GitHub Actions secrets.
 
 The weekly audit signs in with a password instead of an email code
-(`scripts/smoke-check.mjs`, read-only GETs; the account is a viewer on the
+(`scripts/smoke-check.mjs`, read-only; the account is a viewer on the
 allowlist). Run it with `CREED_DASHBOARD_PASSWORD`, `NEXT_PUBLIC_SUPABASE_URL`
-and `NEXT_PUBLIC_SUPABASE_ANON_KEY` set; it prints status, run date and any
-empty section for every page of `/ind` and `/us`. `CREED_DASHBOARD_EMAIL`
-(default `creed.audit@example.com`) and `DASHBOARD_URL` (default
-`https://win-now.vercel.app`, or pass it as the first argument) override the
+and `NEXT_PUBLIC_SUPABASE_ANON_KEY` set. It opens every page of `/ind` and
+`/us`, and ten sample stock pages with each tab, in the Mac's own headless
+Chrome (`scripts/cdp.mjs`, no browser package; `CHROME_PATH` overrides where it
+looks), and exits 1 on a console error, uncaught or hydration error, failed
+request, load over 10 s, empty table or chart, `NaN`/`undefined` on screen, a
+header run date that is not the latest `screener_runs` date, a grid under 90%
+of `row_count`, or stale live prices while the market is open. It prints one
+line per finding and writes `smoke-summary.json` (`--json=path` to move it).
+`CREED_DASHBOARD_EMAIL` (default `creed.audit@example.com`) and `DASHBOARD_URL`
+(default `https://win-now.vercel.app`, or the first argument) override the
 account and site. "Nothing measured in this range" and "No stocks on this list
 today" print as `WARN` and do not fail the run.
 
