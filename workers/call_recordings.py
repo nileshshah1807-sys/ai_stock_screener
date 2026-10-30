@@ -49,6 +49,7 @@ from typing import Any
 
 from transcripts.cleaner import clean_transcript_text
 from transcripts.collector import discover_nse_announcements, filing_payload
+from transcripts.page_browser import download_in_browser
 from transcripts.periods import reporting_period_end_for_call
 from transcripts.recording_sources import RecordingSource, source_from_notice
 from transcripts.recordings import (
@@ -61,6 +62,7 @@ from transcripts.recordings import (
     download_audio,
     download_notice,
     is_recording_notice,
+    keep_if_audio_sized,
     page_links,
     pdf_links,
     piece_count,
@@ -152,7 +154,7 @@ class CallRecordingWorker:
         source = self._find_source(filing, stored, quarter, notices)
         if source is None:
             return None
-        audio = download_audio(source.url, audio_directory, filing["seq_id"])
+        audio = self._download(source.url, audio_directory, filing["seq_id"])
         if audio is None:
             self._failed(stored, f"recording could not be downloaded ({source.found})")
             return None
@@ -192,6 +194,16 @@ class CallRecordingWorker:
                 for part in range(1, len(points))
             ],
         }
+
+    def _download(self, url: str, directory: Path, name: str) -> Path | None:
+        """The recording; a site that refuses a script's request is asked again as a browser."""
+        audio = download_audio(url, directory, name)
+        if audio or not self.settings.browse_pages or self._browsing_seconds >= self.settings.browse_seconds_per_run:
+            return audio
+        started = time.monotonic()
+        audio = download_in_browser(url, directory, name)
+        self._browsing_seconds += time.monotonic() - started
+        return keep_if_audio_sized(audio) if audio else None
 
     def _find_source(
         self, filing: dict, stored: dict, quarter: str | None, notices: Path

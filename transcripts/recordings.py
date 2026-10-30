@@ -183,7 +183,12 @@ def download_audio(url: str, folder: Path, name: str) -> Path | None:
         logger.warning("Recording download failed: %s", exc)
         path.unlink(missing_ok=True)
         return None
-    if not MIN_AUDIO_BYTES <= size <= MAX_AUDIO_BYTES:
+    return keep_if_audio_sized(path)
+
+
+def keep_if_audio_sized(path: Path) -> Path | None:
+    """``path`` if it is the size of a recording, else removed: a jingle or an error page is not one."""
+    if not MIN_AUDIO_BYTES <= path.stat().st_size <= MAX_AUDIO_BYTES:
         path.unlink(missing_ok=True)
         return None
     return path
