@@ -276,6 +276,11 @@ def main(argv=None):
         help="also run the latest-quarter share ladder (Q0/Q20/Q50); needs quarterly_panel.csv",
     )
     parser.add_argument(
+        "--group-rs-grid",
+        action="store_true",
+        help="also run WNN-23's group relative strength variants; needs group_map.csv",
+    )
+    parser.add_argument(
         "--no-quarter-growth",
         action="store_true",
         help="ignore quarterly_panel.csv even if the root has one",
@@ -356,6 +361,7 @@ def main(argv=None):
         FUNDAMENTAL_STRATEGIES,
         PRICE_ONLY_STRATEGIES,
         gate_relaxation_strategies,
+        group_strength_strategies,
         growth_reweight_strategies,
         quarter_share_strategies,
         timing_strategies,
@@ -420,6 +426,14 @@ def main(argv=None):
                 "blended into the Model 5 research score"
             )
         strategies.extend(timing_strategies())
+    if args.group_rs_grid:
+        if not args.with_fundamentals:
+            raise SystemExit("--group-rs-grid needs --with-fundamentals: it varies model_5")
+        from backtest.groups import GroupMap
+
+        strategies.extend(
+            group_strength_strategies(GroupMap.from_csv(Path(args.root) / "group_map.csv"))
+        )
     logger.info(
         "Strategies: %s", ", ".join(strategy.name for strategy in strategies)
     )

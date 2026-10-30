@@ -35,6 +35,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+from .groups import group_relative_strength
+
 logger = logging.getLogger(__name__)
 
 # (column, weight, higher_is_better) -- production MOMENTUM_FEATURES minus the
@@ -767,3 +769,72 @@ FUNDAMENTAL_STRATEGIES = (
 )
 
 DEFAULT_STRATEGIES = PRICE_ONLY_STRATEGIES
+
+
+class GroupStrength(Strategy):
+    """`model_5` with NSE group relative strength added -- WNN-23.
+
+    ``mode="score"`` (variant A) adds ``Group_RS_6M`` to the momentum block at
+    ``RS_Sector_6M_Pct``'s weight, 0.20, beside the production inputs.
+    ``mode="gate"`` (variant B) keeps `model_5`'s order but holds names in the
+    bottom third of groups (ranked by ``Group_RS_6M``) out of the Top 20, the
+    way a failed gate does. An unmapped name has no reading and is not held out.
+    ``backfilled=False`` treats back-filled labels as unmapped. See
+    `backtest.groups`.
+    """
+
+    #: As `SteadyClimbFilter`: wider than `Model5Gated`'s class bands.
+    OFFSET = 10_000.0
+    WEIGHT = 0.20
+
+    def __init__(self, group_map, mode, *, backfilled=True):
+        if mode not in ("score", "gate"):
+            raise ValueError(f"unknown mode: {mode}")
+        self.group_map = group_map
+        self.mode = mode
+        self.backfilled = backfilled
+        self.name = f"model_5_group_{mode}" + ("" if backfilled else "_no_backfill")
+        self.needs_model5 = mode == "gate"
+
+    def _attach(self, frame):
+        working = frame.copy()
+        groups, backfilled = self.group_map.as_of(
+            working["Security_ID"], working["Signal_Date"].iloc[0]
+        )
+        if not self.backfilled:
+            groups = groups.where(~backfilled)
+        working["Group"] = groups
+        working["Group_Backfilled"] = backfilled & groups.notna()
+        working["Group_RS_6M"] = group_relative_strength(working["Pct_Change_6M"], groups)
+        return working
+
+    def score(self, frame, shared=None):
+        working = self._attach(frame)
+        if self.mode == "score":
+            from unittest import mock
+
+            import screener.factors as factors
+
+            features = factors.MOMENTUM_FEATURES + (("Group_RS_6M", self.WEIGHT, True),)
+            # shortcut: patches the module constant for one call; a production
+            # adoption would make the momentum inputs configurable instead.
+            with mock.patch.object(factors, "MOMENTUM_FEATURES", features):
+                return Model5().score(working)
+        scored = _model5_result(frame, shared)
+        for column in ("Group", "Group_Backfilled", "Group_RS_6M"):
+            scored[column] = working[column]
+        by_group = scored.groupby("Group")["Group_RS_6M"].first().dropna()
+        weak = set(by_group[by_group.rank(pct=True) <= 1 / 3].index)
+        held_out = scored["Group"].isin(weak)
+        scored["Group_Held_Out"] = held_out
+        scored["Score"] = pd.to_numeric(scored["Score"], errors="coerce") - held_out * self.OFFSET
+        return scored
+
+
+def group_strength_strategies(group_map):
+    """WNN-23's two variants, then each without back-filled labels."""
+    return tuple(
+        GroupStrength(group_map, mode, backfilled=backfilled)
+        for backfilled in (True, False)
+        for mode in ("score", "gate")
+    )
