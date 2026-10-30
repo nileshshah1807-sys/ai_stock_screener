@@ -211,6 +211,53 @@ class PlanTests(unittest.TestCase):
             matrix(plan)["include"][0], {"key": "900", "symbol": "ALPHA", "part": 1, "parts": 3}
         )
 
+    def test_a_file_the_site_refuses_to_a_script_is_downloaded_by_the_browser(self):
+        repository = FakeRepository()
+        settings = RecordingSettings(browse_pages=True)
+        browser = patch("workers.call_recordings.download_in_browser")
+        with browser as fetch:
+            def save(url, folder, name):
+                (folder / "900.mp3").write_bytes(b"x" * 200_000)
+                return folder / "900.mp3"
+
+            fetch.side_effect = save
+            plan = self.plan(repository, downloaded=False, settings=settings)
+        self.assertEqual([call["key"] for call in plan["calls"]], ["900"])
+        self.assertEqual(fetch.call_args.args[0], "https://alpha.test/q2.mp3")
+
+    def test_a_page_the_browser_saves_instead_of_audio_is_not_kept_and_the_attempt_is_counted(self):
+        repository = FakeRepository()
+        settings = RecordingSettings(browse_pages=True)
+
+        def save(url, folder, name):
+            (folder / "900.mp3").write_bytes(b"<html>Access Denied</html>" + b" " * 200_000)
+            return folder / "900.mp3"
+
+        with patch("workers.call_recordings.download_in_browser", side_effect=save):
+            plan = self.plan(repository, downloaded=False, settings=settings)
+        self.assertEqual(plan["calls"], [])
+        self.assertFalse((self.directory / "audio" / "900.mp3").exists())
+        self.assertEqual(repository.updates[0][1]["status"], "failed")
+        self.assertEqual(repository.updates[0][1]["attempt_count"], 1)
+
+    def test_a_browser_that_also_fails_counts_the_attempt(self):
+        repository = FakeRepository()
+        settings = RecordingSettings(browse_pages=True)
+        with patch("workers.call_recordings.download_in_browser", return_value=None) as fetch:
+            plan = self.plan(repository, downloaded=False, settings=settings)
+        fetch.assert_called_once()
+        self.assertEqual(plan["calls"], [])
+        self.assertEqual(repository.updates[0][1]["status"], "failed")
+        self.assertEqual(repository.updates[0][1]["attempt_count"], 1)
+
+    def test_a_refused_file_is_not_sent_to_the_browser_unless_the_run_has_one(self):
+        repository = FakeRepository()
+        with patch("workers.call_recordings.download_in_browser") as fetch:
+            plan = self.plan(repository, downloaded=False)
+        fetch.assert_not_called()
+        self.assertEqual(plan["calls"], [])
+        self.assertIn("could not be downloaded", repository.updates[0][1]["last_error"])
+
     def test_a_call_whose_transcript_is_already_stored_is_not_transcribed(self):
         repository = FakeRepository(has_transcript=True)
         self.assertEqual(self.plan(repository)["calls"], [])

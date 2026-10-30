@@ -21,6 +21,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
@@ -132,3 +133,39 @@ def render_page(link: str, quarter_end: date | None = None) -> RenderedPage | No
     except Exception as exc:  # noqa: BLE001 - a page that will not open is one more page without a recording
         logger.info("The page a notice links to could not be rendered: %s", exc)
         return None
+
+
+def download_in_browser(url: str, folder: Path, name: str) -> Path | None:
+    """The file at ``url`` saved by the browser, or None when it will not serve it.
+
+    For a site that refuses a script's request (403) but serves a browser: the
+    site's own page is opened first, for the cookies its bot filter sets, then
+    the file is fetched as a same-origin download. Nothing is played.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+    parts = urlsplit(url)
+    path = folder / f"{name}{Path(parts.path).suffix.lower() or '.mp3'}"
+    try:
+        with sync_playwright() as playwright:
+            browser = _launch(playwright)
+            try:
+                context = browser.new_context(user_agent=USER_AGENT, locale="en-IN", accept_downloads=True)
+                page = context.new_page()
+                page.goto(f"{parts.scheme}://{parts.netloc}/", wait_until="domcontentloaded", timeout=45_000)
+                with page.expect_download(timeout=120_000) as download:
+                    page.evaluate(
+                        "href => { const a = document.createElement('a'); a.href = href; a.download = ''; "
+                        "document.body.appendChild(a); a.click(); }",
+                        url,
+                    )
+                download.value.save_as(path)
+            finally:
+                browser.close()
+    except Exception as exc:  # noqa: BLE001 - a refused file is one more recording not fetched
+        logger.info("The browser could not download %s: %s", url, exc)
+        path.unlink(missing_ok=True)
+        return None
+    return path

@@ -183,7 +183,18 @@ def download_audio(url: str, folder: Path, name: str) -> Path | None:
         logger.warning("Recording download failed: %s", exc)
         path.unlink(missing_ok=True)
         return None
-    if not MIN_AUDIO_BYTES <= size <= MAX_AUDIO_BYTES:
+    return keep_if_audio_sized(path)
+
+
+def keep_if_audio_sized(path: Path) -> Path | None:
+    """``path`` if it is the size of a recording and not markup, else removed.
+
+    A jingle is too small and an error page can be large, but no audio format
+    opens with ``<`` or ``{``: a browser's download of a block page is caught here.
+    """
+    with path.open("rb") as handle:
+        head = handle.read(64).lstrip().lower()
+    if not MIN_AUDIO_BYTES <= path.stat().st_size <= MAX_AUDIO_BYTES or head.startswith((b"<", b"{")):
         path.unlink(missing_ok=True)
         return None
     return path
