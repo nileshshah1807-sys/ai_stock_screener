@@ -113,6 +113,9 @@ the scheduled workflows set the same flag.
   April 2025; the older endpoint `backtest/filings.py` reads ends that
   January. A filing that states only a half year (MTARTECH, Sep 2026) is stored
   as its quarter, less the earlier quarters on the same basis (`PARSER_VERSION` 4).
+  A filing the worker could not store (a fetch the archive refused, or a file format the parser does
+  not read -- the latter listed by the full run only) is written to a `filing-attempts` artifact of the
+  workflow run (JSON, kept 14 days) with its reason, and counted in the run's summary; no table.
   Annual statements, valuation ratios and prices are still Yahoo's.
 - **A company listed on BSE alone is screened in the NSE run as `SYMBOL.BO`.**
   `NSE_UNIVERSE_SOURCE=nse_with_bse_only` (set in the NSE screener and price

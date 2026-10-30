@@ -88,6 +88,7 @@ jobs:
 
       - name: Store new filings
         env:
+          FILING_ATTEMPTS_PATH: ${{ runner.temp }}/filing-attempts.json
           FULL: ${{ inputs.full && '--full' || '' }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         # The budget leaves room for setup and the final writes inside the
@@ -98,6 +99,17 @@ jobs:
             --time-budget-minutes 22 \
             ${FULL} \
             ${DRY_RUN}
+
+      # Which filings were not stored and why (fetch refused, format not read),
+      # for whoever audits a missing result: gh run download <id> -n filing-attempts.
+      - name: Keep the filings not stored
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: filing-attempts
+          path: ${{ runner.temp }}/filing-attempts.json
+          retention-days: 14
+          if-no-files-found: ignore
 
       # Shareholding patterns and bulk/block deals for the stock page. Runs
       # even if the results step failed; the two share nothing. The first
