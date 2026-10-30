@@ -42,6 +42,7 @@ const PAGES = ["", "/market", "/movers", "/indices", "/watchlists", "/notificati
   "/concalls", "/results", "/results/analysis", "/returns"];
 const SAMPLE_SIZE = 10;
 const SLOW_MS = 10_000;
+const SETTLE_CAP_MS = 8_000; // polling or live-quote requests may never go quiet
 const MIN_GRID_SHARE = 0.9;
 const LIVE_MAX_AGE_MIN = 20; // the worker runs every 5 minutes
 // The empty-state sentences the app prints (grep ">No " in app/ and components/).
@@ -141,7 +142,8 @@ function scanPage() {
   for (const table of document.querySelectorAll("table")) {
     if (!visible(table)) continue;
     const rows = [...table.querySelectorAll("tbody tr")].filter(visible);
-    const label = table.getAttribute("aria-label") ?? table.closest("section")?.querySelector("h2, h3")?.textContent?.trim() ?? "table";
+    const label = table.getAttribute("aria-label") ?? table.querySelector("caption")?.textContent?.trim() ??
+      table.closest("section")?.querySelector("h2, h3")?.textContent?.trim() ?? `table ${table.outerHTML.slice(0, 90)}`;
     if (!rows.length) { out.emptyTables.push(label); continue; }
     if (rows.length < 5) continue;
     const headers = [...table.querySelectorAll("thead th")].map((th) => th.textContent.trim());
@@ -178,12 +180,15 @@ chrome.on((message) => {
   const { method, params } = message;
   if (method === "Network.requestWillBeSent" && params.type !== "WebSocket") {
     current.inflight.add(params.requestId);
-    current.requests.set(params.requestId, params.request.url);
+    // A redirect reuses the id: keep the URL the page asked for, not where it ended.
+    if (!current.requests.has(params.requestId)) current.requests.set(params.requestId, params.request.url);
     current.lastActivity = Date.now();
   } else if (method === "Network.responseReceived") {
     const url = params.response.url;
     if (params.type === "Document" && current.status === null) current.status = params.response.status;
     if (params.response.status >= 400) current.errors.push(`HTTP ${params.response.status} ${shorten(url)}`);
+  } else if (method === "Page.loadEventFired") {
+    current.loadedAt ??= Date.now();
   } else if (method === "Network.loadingFinished") {
     current.inflight.delete(params.requestId);
     current.lastActivity = Date.now();
@@ -211,7 +216,7 @@ function shorten(url) {
 
 async function settle(since) {
   // Quiet = nothing in flight for 1 s; live prices and charts load after render.
-  while (Date.now() - since < 15_000) {
+  while (Date.now() - since < SETTLE_CAP_MS) {
     if (!current.inflight.size && Date.now() - current.lastActivity > 1000) return;
     await new Promise((r) => setTimeout(r, 200));
   }
@@ -244,7 +249,12 @@ async function visit(path, expected, { grid = false, tabs = false } = {}) {
   await chrome.send("Page.navigate", { url: BASE + path });
   await new Promise((r) => setTimeout(r, 300));
   await settle(started);
-  const ms = Date.now() - started - 1000;
+  // Load time is the page's load event; "quiet" is only waited for to catch late errors.
+  const ms = (current.loadedAt ?? Date.now()) - started;
+  if (current.inflight.size) {
+    const open = [...current.inflight].map((id) => shorten(current.requests.get(id) ?? "")).slice(0, 3).join(", ");
+    warn(path, `network not quiet after ${SETTLE_CAP_MS / 1000} s; still open: ${open}`);
+  }
   const finalUrl = await evaluate(() => location.pathname);
   if (current.status !== 200) fail(path, `HTTP ${current.status}`);
   if (finalUrl !== path.split("?")[0]) fail(path, `redirected to ${finalUrl}`);
