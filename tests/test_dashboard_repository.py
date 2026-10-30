@@ -463,3 +463,12 @@ class RetryTests(unittest.TestCase):
         ):
             self.assertEqual(repository.replace_market_breadth([{"scope": "s", "name": "n"}]), 1)
         self.assertEqual(session.calls, 2)
+
+    def test_attempts_are_forgotten_by_exact_key(self):
+        repository = self.repository(_FlakySession())
+        with mock.patch.object(repository, "_request") as request:
+            repository.delete_quarterly_filing_attempts([("AAA", "2026-09-30", True)])
+        clause = request.call_args.kwargs["params"]["or"]
+        self.assertEqual(
+            clause, '(and(symbol.eq."AAA",period_end.eq.2026-09-30,is_consolidated.is.true))'
+        )

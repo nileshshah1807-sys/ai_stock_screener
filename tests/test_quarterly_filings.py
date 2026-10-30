@@ -97,6 +97,17 @@ class FakeRepository:
         self.upserted += rows
         return len(rows)
 
+    attempts = None
+
+    def delete_quarterly_filing_attempts(self, keys):
+        self.attempts_deleted = list(keys)
+
+    def upsert_quarterly_filing_attempts(self, rows):
+        self.attempts = rows
+
+    def prune_quarterly_filing_attempts(self, before):
+        self.attempts_pruned_before = before
+
     # What `recompose_quarters` reads and writes; the valuation basis reads
     # the same filings after it.
     def quarterly_filings(self, symbols):
@@ -345,6 +356,35 @@ class StoreTests(FilingsRun):
         counts, repo, _, _ = self.run_worker(self.RECORDS, {"2": document(2732, 419)})
         self.assertEqual(counts["failed"], 1)
         self.assertEqual([r["seq_id"] for r in repo.upserted], ["2"])
+
+    def test_a_failed_fetch_is_logged_with_the_archives_answer(self):
+        _, repo, fetcher, _ = self.run_worker(self.RECORDS, {"2": document(2732, 419)})
+        self.assertEqual(
+            [(a["seq_id"], a["status"]) for a in repo.attempts], [("1", "fetch_failed")]
+        )
+        self.assertEqual(repo.attempts[0]["http_code"], 0)
+        self.assertEqual(len(repo.attempts_deleted), 1)
+
+    def test_a_stored_filing_is_forgotten_by_the_attempts_log(self):
+        _, repo, _, _ = self.run_worker(self.RECORDS, self.DOCUMENTS)
+        self.assertEqual(repo.attempts, [])
+        self.assertEqual(len(repo.attempts_deleted), 2)
+
+    def test_a_format_the_parser_does_not_read_is_logged_not_fetched(self):
+        records = [*self.RECORDS, filing("STAR", "30-SEP-2026", 9, taxonomy="UNKNOWN")]
+        _, repo, fetcher, _ = self.run_worker(records, self.DOCUMENTS)
+        self.assertNotIn("9", fetcher.asked)
+        self.assertEqual(
+            [(a["symbol"], a["status"]) for a in repo.attempts], [("STAR", "unsupported_format")]
+        )
+
+    def test_a_missing_attempts_table_does_not_fail_the_run(self):
+        class NoTable(FakeRepository):
+            def delete_quarterly_filing_attempts(self, keys):
+                raise RuntimeError("relation does not exist")
+
+        counts, _, _, _ = self.run_worker(self.RECORDS, self.DOCUMENTS, repo=NoTable())
+        self.assertEqual(counts["stored"], 2)
 
     def test_dry_run_writes_nothing(self):
         counts, repo, _, _ = self.run_worker(self.RECORDS, self.DOCUMENTS, dry_run=True)

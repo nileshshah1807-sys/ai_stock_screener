@@ -588,6 +588,9 @@ class DocumentFetcher:
         # Refusals with 403 in the last `fetch_many`: the exchange's archive
         # blocks a client that asks too fast, for minutes (30 Oct 2026).
         self.forbidden = 0
+        # URL -> the last HTTP status of the last `fetch_many` (0: no answer, or
+        # a page that is not the document); what the attempts log records.
+        self.statuses = {}
         self._session_factory = session_factory
         self._local = threading.local()
 
@@ -609,6 +612,7 @@ class DocumentFetcher:
     def fetch_one(self, url):
         """The document's text, or None after the retries are spent."""
         for _attempt in range(self.retries):
+            self.statuses[url] = 0
             try:
                 response = self._session().get(
                     url, timeout=(min(10, self.timeout), self.timeout)
@@ -617,6 +621,7 @@ class DocumentFetcher:
                 logger.debug("Results document fetch failed %s: %s", url, exc)
                 continue
             status = getattr(response, "status_code", 200)
+            self.statuses[url] = status
             body = response.text or ""
             if status == 200 and body and not body.lstrip()[:15].lower().startswith(
                 ("<!doctype html", "<html")
@@ -634,6 +639,7 @@ class DocumentFetcher:
         if not urls:
             return []
         self.forbidden = 0
+        self.statuses = {}
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             return list(pool.map(self.fetch_one, urls))
 

@@ -611,6 +611,45 @@ class DashboardRepository:
             written += len(chunk)
         return written
 
+    def upsert_quarterly_filing_attempts(self, rows: list[dict[str, Any]], chunk_size: int = 200) -> int:
+        written = 0
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "quarterly_filing_attempts?on_conflict=market,symbol,period_end,is_consolidated",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                retries=2,
+            )
+            written += len(chunk)
+        return written
+
+    def delete_quarterly_filing_attempts(
+        self, keys: Iterable[tuple[str, str, bool]], chunk_size: int = 50
+    ) -> None:
+        """Forget the attempts for these (symbol, period_end, is_consolidated): stored now."""
+        for chunk in chunked(list(keys), chunk_size):
+            clauses = ",".join(
+                f'and(symbol.eq."{symbol}",period_end.eq.{period_end},'
+                f"is_consolidated.is.{str(consolidated).lower()})"
+                for symbol, period_end, consolidated in chunk
+            )
+            self._request(
+                "DELETE",
+                "quarterly_filing_attempts",
+                params=self._scoped({"or": f"({clauses})"}),
+                headers={"Prefer": "return=minimal"},
+            )
+
+    def prune_quarterly_filing_attempts(self, before: str) -> None:
+        """Drop attempts no run has repeated since ``before``."""
+        self._request(
+            "DELETE",
+            "quarterly_filing_attempts",
+            params=self._scoped({"tried_at": f"lt.{before}"}),
+            headers={"Prefer": "return=minimal"},
+        )
+
     def quarterly_filings(
         self, symbols: Iterable[str], chunk_size: int = 100
     ) -> dict[str, list[dict[str, Any]]]:

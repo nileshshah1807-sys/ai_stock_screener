@@ -79,6 +79,9 @@ MIN_SECONDS_PER_BATCH = 2.5
 # The screener's QUARTERLY_RESULTS_MAX_AGE_DAYS default: the newest quarter a
 # trailing year may end on, the evening run's rule.
 TRAILING_MAX_AGE_DAYS = 200
+# How long a failed or unreadable filing stays in quarterly_filing_attempts
+# without a run repeating it.
+ATTEMPTS_KEPT_DAYS = 14
 
 
 def due_filings(
@@ -197,6 +200,56 @@ def _batches(rows: list[Any], size: int) -> Iterable[list[Any]]:
         yield rows[start:start + size]
 
 
+def record_attempts(
+    repo,
+    index: pd.DataFrame,
+    failures: list[tuple[dict[str, Any], int]],
+    stored_keys: list[tuple[str, str, bool]],
+    *,
+    now: datetime,
+) -> None:
+    """Keep the filings the worker could not store, and why, for whoever asks.
+
+    A filing it stored is forgotten; one it cannot read (the exchange names a
+    format the parser does not know) or fetch is written with the reason, and
+    an entry no run repeats within ``ATTEMPTS_KEPT_DAYS`` is dropped.
+    """
+    tried_at = now.isoformat(timespec="seconds")
+    rows = [
+        {
+            "symbol": row["Symbol"],
+            "period_end": row["Period_End"].isoformat(),
+            "is_consolidated": bool(row["Is_Consolidated"]),
+            "seq_id": str(row["Seq_Id"]),
+            "status": "fetch_failed",
+            "http_code": code,
+            "taxonomy": row["Taxonomy"] or None,
+            "document_url": row["XBRL_URL"],
+            "tried_at": tried_at,
+        }
+        for row, code in failures
+    ]
+    if not index.empty:
+        unread = index[~index["Taxonomy"].isin(quarterly_results.SUPPORTED_TAXONOMIES)]
+        rows += [
+            {
+                "symbol": row["Symbol"],
+                "period_end": row["Period_End"].isoformat(),
+                "is_consolidated": bool(row["Is_Consolidated"]),
+                "seq_id": str(row["Seq_Id"]),
+                "status": "unsupported_format",
+                "http_code": None,
+                "taxonomy": row["Taxonomy"] or None,
+                "document_url": row["XBRL_URL"],
+                "tried_at": tried_at,
+            }
+            for row in unread.to_dict("records")
+        ]
+    repo.delete_quarterly_filing_attempts(stored_keys)
+    repo.upsert_quarterly_filing_attempts(rows)
+    repo.prune_quarterly_filing_attempts((now - timedelta(days=ATTEMPTS_KEPT_DAYS)).isoformat(timespec="seconds"))
+
+
 def run(
     repo,
     *,
@@ -239,6 +292,8 @@ def run(
     fetcher = fetcher or quarterly_results.DocumentFetcher(workers=FETCH_WORKERS)
     touched: list[str] = []
     half_years: list[tuple[dict[str, Any], str]] = []
+    failures: list[tuple[dict[str, Any], int]] = []
+    stored_keys: list[tuple[str, str, bool]] = []
     started = clock()
     for position, batch in enumerate(_batches(due, BATCH_SIZE)):
         if time_budget_seconds is not None and clock() - started >= time_budget_seconds:
@@ -263,7 +318,9 @@ def run(
                     source, text = found
             if text is None:
                 counts["failed"] += 1
+                failures.append((row, getattr(fetcher, "statuses", {}).get(row["XBRL_URL"], 0)))
                 continue
+            stored_keys.append(key)
             rows.append(
                 filing_row(
                     # Stored under the latest filing's id, so it is not due
@@ -299,6 +356,12 @@ def run(
     if derived:
         repo.upsert_quarterly_filings(derived)
         counts["derived"] = len(derived)
+
+    if not dry_run:
+        try:
+            record_attempts(repo, index, failures, stored_keys, now=datetime.now(UTC))
+        except Exception as exc:  # the log is a convenience; apply storage/quarterly_filing_attempts_schema.sql
+            logger.warning("Filing attempts not recorded: %s", exc)
 
     if counts["failed"]:
         logger.warning(
