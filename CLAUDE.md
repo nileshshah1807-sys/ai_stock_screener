@@ -122,7 +122,9 @@ the scheduled workflows set the same flag.
   equal an NSE symbol and `ticker_for` passes it through; `is_bse_only`
   (`screener/markets.py`) is the one test for it. Prices, statements, live
   quotes and charts are Yahoo's; NSE's filings, shareholding, impact cost and
-  transcripts have nothing for it and degrade. Its results and shareholding
+  transcripts have nothing for it and degrade. A session it did not trade
+  is still a session: Yahoo carries the close forward with zero volume, and the
+  collector keeps that bar (a name that never traded in the window is dropped). Its results and shareholding
   filings come from `workers/bse_source.py` (written by the owner; the repo
   itself never fetches from BSE): `workers/bse_filings.py`, a step of the
   Quarterly filings workflow, turns them into NSE index records and stores
