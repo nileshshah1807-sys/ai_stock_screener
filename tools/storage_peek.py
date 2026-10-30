@@ -7,6 +7,7 @@ refuses a write from a viewer. Only ``ls`` and ``cat`` exist.
 
     md-secret run CREED_DASHBOARD_PASSWORD NEXT_PUBLIC_SUPABASE_ANON_KEY -- \\
         env NEXT_PUBLIC_SUPABASE_URL=<project url> \\
+            CREED_DASHBOARD_EMAIL=creed.audit@example.com \\
         python -m tools.storage_peek ls price-series/NSE
     ... python -m tools.storage_peek cat <path>.json.gz     # gunzipped to stdout
 
