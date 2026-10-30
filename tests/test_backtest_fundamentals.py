@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pandas as pd
 
+from backtest import fundamentals
 from backtest.fundamentals import (
     FundamentalPanel,
     QuarterPanel,
@@ -147,6 +148,10 @@ class DerivationTests(unittest.TestCase):
     def test_statement_age_reflects_the_decision_date(self):
         factors = self.panel.factors_as_of("INE001A01", "2024-09-30")
         self.assertEqual(factors["Statement_Age_Days"], 138)
+
+    def test_an_unparseable_date_raises_rather_than_reading_as_unknown_age(self):
+        with self.assertRaises(ValueError):
+            fundamentals._age_days("2024-09-30", "not-a-date")
 
     def test_fiscal_year_of_the_evidence_is_recorded(self):
         self.assertEqual(self.factors["Statement_Fiscal_Year"], 2024)
