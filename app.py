@@ -46,7 +46,7 @@ from screener.statements import (
     FinancialStatementCollector,
     apply_statement_fallbacks,
 )
-from screener.valuation import ReverseDCFModel
+from screener.valuation import ReverseDCFModel, recorded_size_rate
 from screener.valuation_basis import attach_basis
 from validation.reproducibility import (
     build_run_manifest,
@@ -568,6 +568,7 @@ def run_daily_analysis():
         extra={
             "analysis_as_of": analysis_now.isoformat(timespec="seconds"),
             "row_count": len(scored_df),
+            "dcf_size_inr_rate": recorded_size_rate(scored_df),
             "collection_diagnostics": {
                 "path": diagnostics_path.name,
                 "sha256": diagnostics_sha256,

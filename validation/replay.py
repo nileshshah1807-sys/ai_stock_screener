@@ -20,7 +20,7 @@ from screener.liquidity import LiquidityQualityEnricher
 from screener.numeric import round_series_half_up
 from screener.recommendation import finalize_recommendations
 from screener.scoring import StockScorer
-from screener.valuation import ReverseDCFModel
+from screener.valuation import ReverseDCFModel, recorded_size_rate
 from transcripts.periods import (
     CURRENT_CYCLE,
     PRIOR_CYCLE,
@@ -408,6 +408,8 @@ def replay_export_frame(
     if source["Symbol"].astype(str).duplicated().any():
         raise ValueError("source export contains duplicate symbols")
 
+    # The source run's own rate, so the replay never fetches a new one.
+    recorded_rate = recorded_size_rate(source)
     drop_columns = [
         column
         for column in source.columns
@@ -427,7 +429,7 @@ def replay_export_frame(
     working = apply_replay_technical_price_proxy(working)
     scored = StockScorer(config).score_all_stocks(working)
     if getattr(config, "REVERSE_DCF_ENABLED", True):
-        scored = ReverseDCFModel(config).enrich(scored)
+        scored = ReverseDCFModel(config, recorded_rate).enrich(scored)
     scored = _attach_stored_transcript_evidence(
         scored, config, analysis_date=analysis_date
     )

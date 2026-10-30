@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from screener.valuation import ReverseDCFModel
+from screener.valuation import ReverseDCFModel, recorded_size_rate
 
 
 def config():
@@ -289,3 +289,15 @@ class SizeBandTests(unittest.TestCase):
             ), self.assertLogs("screener.valuation", "WARNING"):
                 self.assertEqual(model._size_adjustment(25e9), 0.0)
                 self.assertIsNone(model._inr_per_unit())
+
+    def test_replay_rate_is_used_and_recorded_without_a_fetch(self):
+        frame = pd.DataFrame([{"Symbol": "A", "DCF_Size_INR_Rate": 90.0}])
+        self.assertEqual(recorded_size_rate(frame), 90.0)
+        self.assertIsNone(recorded_size_rate(pd.DataFrame([{"Symbol": "A"}])))
+        with unittest.mock.patch.dict("os.environ", {}), unittest.mock.patch.object(
+            ReverseDCFModel, "_fetch_rate", side_effect=AssertionError("fetched")
+        ):
+            os.environ.pop("USD_INR_RATE", None)
+            model = ReverseDCFModel(SimpleNamespace(MARKET="US"), 90.0)
+            # $25B = Rs 2.25e12 at 90, over the Rs 2e12 floor.
+            self.assertEqual(model._size_adjustment(25e9), -0.03)

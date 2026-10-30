@@ -35,6 +35,14 @@ class RateSolve:
     upper_bound: float | None = None
 
 
+def recorded_size_rate(frame):
+    """The INR-per-unit rate a run's DCF size step used, or None."""
+    if frame is None or "DCF_Size_INR_Rate" not in frame:
+        return None
+    rates = pd.to_numeric(frame["DCF_Size_INR_Rate"], errors="coerce").dropna()
+    return float(rates.iloc[0]) if len(rates) else None
+
+
 class ReverseDCFModel:
     """Build transparent reverse-DCF evidence for each stock."""
 
@@ -56,8 +64,11 @@ class ReverseDCFModel:
     EXPECTED_GROWTH_CAP = 0.25
     UNSUPPORTED_DCF_SECTORS = {"Financial Services", "Real Estate"}
 
-    def __init__(self, config):
+    def __init__(self, config, inr_per_unit=None):
         self.config = config
+        # A replay passes the recorded rate rather than fetching a new one.
+        if inr_per_unit is not None:
+            self._rate = inr_per_unit
 
     def _inr_per_unit(self):
         """Rupees per unit of the market's currency, read once per run.
