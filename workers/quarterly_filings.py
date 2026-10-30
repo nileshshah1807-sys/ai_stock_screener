@@ -70,12 +70,13 @@ FULL_LOOKBACK_DAYS = 600
 # everything it parsed before the stop.
 BATCH_SIZE = 60
 FETCH_WORKERS = 6
-# A batch takes at least this long, so the archive sees at most ~24 documents a
+# A batch takes at least this long, so the archive sees at most ~10 documents a
 # second. Measured from a laptop on 30 Oct 2026: 40/s drew no refusal in 1,200
 # requests, 60/s none in 300, and 100/s a 403 after ~570 requests in 6 s that
-# lasted four minutes. A quarter of the refused rate, with room for a runner
+# lasted four minutes. The runner was refused after ~120 documents even at
+# 24/s (30 Oct, 08:45 UTC), so this is a tenth of the refused rate, for a runner
 # whose address NSE trusts less.
-MIN_SECONDS_PER_BATCH = 2.5
+MIN_SECONDS_PER_BATCH = 6.0
 # The screener's QUARTERLY_RESULTS_MAX_AGE_DAYS default: the newest quarter a
 # trailing year may end on, the evening run's rule.
 TRAILING_MAX_AGE_DAYS = 200

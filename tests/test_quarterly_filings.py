@@ -306,7 +306,7 @@ class StoreTests(FilingsRun):
             FakeRepository(), index_records_loader=lambda a, b: records,
             fetcher=FakeFetcher({}), today=TODAY, clock=lambda: now[0], sleep=sleep,
         )
-        self.assertEqual(pauses, [2.5, 2.5, 2.5])
+        self.assertEqual(pauses, [6.0, 6.0, 6.0])
 
     def test_an_unfetchable_earlier_filing_is_asked_for_again(self):
         records = [
