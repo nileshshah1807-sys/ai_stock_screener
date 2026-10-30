@@ -528,7 +528,7 @@ def quarter_from_cumulative(lines, days, period_end, earlier):
     for back in range(1, count + 1):
         end = pd.Timestamp(period_end) - pd.DateOffset(months=3 * back) + pd.offsets.MonthEnd(0)
         stored = earlier.get(end.date())
-        if not stored or stored.get("revenue") is None and stored.get("net_profit") is None:
+        if not stored or (stored.get("revenue") is None and stored.get("net_profit") is None):
             return None
         before.append(stored)
     quarter = {}
