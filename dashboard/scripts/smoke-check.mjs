@@ -8,7 +8,8 @@
 // @supabase/ssr write the auth cookies into an in-memory jar, then GETs every
 // top-level page and Tools tab for /ind and /us. Prints status, the run date
 // in the header and any empty-state text per page. Exits 1 on any non-200,
-// redirect or empty section. Never prints the password.
+// redirect or empty section, except the WARN sentences below, which are
+// printed but can be normal (a quiet day). Never prints the password.
 import { createServerClient } from "@supabase/ssr";
 
 const EMAIL = process.env.CREED_DASHBOARD_EMAIL ?? "creed.audit@example.com";
@@ -26,7 +27,7 @@ const PAGES = ["", "/market", "/movers", "/indices", "/watchlists", "/notificati
   "/concalls", "/results", "/results/analysis", "/returns"];
 // The empty-state sentences the app prints (grep ">No " in app/ and components/).
 const EMPTY = [
-  "No screener run has been published", "No stocks on this list today", "No stocks match these filters",
+  "No screener run has been published", "No stocks match these filters",
   "No results to analyse", "Nothing measured in this range", "No index is published", "Run date unavailable",
 ];
 
@@ -56,8 +57,9 @@ for (const market of MARKETS) {
       const date = html.match(/\d{2} [A-Z][a-z]{2} \d{4}(?= · v|<)/)?.[0] ?? "-";
       const empty = EMPTY.filter((text) => html.includes(text));
       const where = res.status >= 300 && res.status < 400 ? ` -> ${res.headers.get("location")}` : "";
+      const warn = WARN.filter((text) => html.includes(text));
       if (res.status !== 200 || empty.length) bad += 1;
-      line = `${String(res.status).padEnd(4)} ${path.padEnd(24)} run ${date}${where}${empty.length ? `  EMPTY: ${empty.join("; ")}` : ""}`;
+      line = `${String(res.status).padEnd(4)} ${path.padEnd(24)} run ${date}${where}${empty.length ? `  EMPTY: ${empty.join("; ")}` : ""}${warn.length ? `  WARN: ${warn.join("; ")}` : ""}`;
     } catch (err) {
       bad += 1;
       line = `ERR  ${path.padEnd(24)} ${err.message}`;

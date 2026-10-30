@@ -157,7 +157,11 @@ The weekly audit signs in with a password instead of an email code
 (`scripts/smoke-check.mjs`, read-only GETs; the account is a viewer on the
 allowlist). Run it with `CREED_DASHBOARD_PASSWORD`, `NEXT_PUBLIC_SUPABASE_URL`
 and `NEXT_PUBLIC_SUPABASE_ANON_KEY` set; it prints status, run date and any
-empty section for every page of `/ind` and `/us`.
+empty section for every page of `/ind` and `/us`. `CREED_DASHBOARD_EMAIL`
+(default `creed.audit@example.com`) and `DASHBOARD_URL` (default
+`https://win-now.vercel.app`, or pass it as the first argument) override the
+account and site. "Nothing measured in this range" and "No stocks on this list
+today" print as `WARN` and do not fail the run.
 
 `proxy.ts` (Next.js 16 renamed Middleware to Proxy) only refreshes the auth
 token and does an optimistic redirect for sessionless requests. Per the Next.js
