@@ -28,8 +28,9 @@ const PAGES = ["", "/market", "/movers", "/indices", "/watchlists", "/notificati
 // The empty-state sentences the app prints (grep ">No " in app/ and components/).
 const EMPTY = [
   "No screener run has been published", "No stocks match these filters",
-  "No results to analyse", "Nothing measured in this range", "No index is published", "Run date unavailable",
+  "No results to analyse", "No index is published", "Run date unavailable",
 ];
+const WARN = ["Nothing measured in this range", "No stocks on this list today"];
 
 const jar = new Map();
 const supabase = createServerClient(URL_, ANON, {
