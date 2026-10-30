@@ -140,7 +140,8 @@ function scanPage() {
     if (text.trim() === "—") out.dashes += 1;
   }
   for (const table of document.querySelectorAll("table")) {
-    if (!visible(table)) continue;
+    // A table with no header cells is layout (a chart's container), not data.
+    if (!visible(table) || !table.querySelector("th")) continue;
     const rows = [...table.querySelectorAll("tbody tr")].filter(visible);
     const label = table.getAttribute("aria-label") ?? table.querySelector("caption")?.textContent?.trim() ??
       table.closest("section")?.querySelector("h2, h3")?.textContent?.trim() ?? `table ${table.outerHTML.slice(0, 90)}`;
@@ -271,7 +272,13 @@ async function visit(path, expected, { grid = false, tabs = false } = {}) {
       judge(`${path} [${label}]`, await evaluate(scanPage), null);
     }
   }
-  for (const message of [...new Set(current.errors)]) fail(path, message);
+  // Many images failing the same way (every logo) read as one finding with a count.
+  const grouped = new Map();
+  for (const message of new Set(current.errors)) {
+    const key = message.replace(/^(request failed \(.+?\)) ([^/\s]+)\/.*$/, "$1 $2");
+    grouped.set(key, [...(grouped.get(key) ?? []), message]);
+  }
+  for (const [key, messages] of grouped) fail(path, messages.length > 1 ? `${key} x${messages.length}, e.g. ${messages[0].slice(0, 160)}` : messages[0]);
   pages.push({ path, status: current.status, ms, runDate: (await evaluate(scanPage)).header });
   console.log(`${String(current.status).padEnd(4)} ${path.padEnd(34)} ${String(ms).padStart(5)} ms`);
 }
