@@ -106,6 +106,14 @@ class MarketProfile:
     session_close: str = "15:30"
     # Indices the Market page lists the day's movers for, in display order.
     live_indices: tuple[LiveIndex, ...] = ()
+    # Reverse-DCF growth adjustment by company size, as (minimum market cap in
+    # rupees, adjustment), largest first: Rs 2,00,000 cr, 20,000 cr, 5,000 cr.
+    # The one source for every market -- a run in another currency converts
+    # its caps to rupees at the run-time rate (screener.valuation).
+    dcf_size_bands: tuple[tuple[float, float], ...] = (
+        (2e12, -0.03), (2e11, -0.015), (5e10, 0.0),
+    )
+    dcf_small_cap_adjustment: float = 0.02
 
 
 _NSE_PROFILE = MarketProfile(
