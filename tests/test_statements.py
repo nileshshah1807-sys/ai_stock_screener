@@ -1,5 +1,6 @@
 """Behavioural spec for annual-statement collection and factor derivation."""
 
+import logging
 import tempfile
 import unittest
 from datetime import datetime
@@ -256,6 +257,13 @@ class FakeTicker:
 
 class CollectorTests(unittest.TestCase):
     def setUp(self):
+        # Small fixtures are partial builds by construction; the coverage
+        # warning they trigger lands in the scheduled run's log, where it reads
+        # as a real shortfall. test_partial_coverage_is_reported still asserts it.
+        statements_logger = logging.getLogger("screener.statements")
+        previous = statements_logger.level
+        statements_logger.setLevel(logging.ERROR)
+        self.addCleanup(statements_logger.setLevel, previous)
         self._temp = tempfile.TemporaryDirectory()
         self.addCleanup(self._temp.cleanup)
 
