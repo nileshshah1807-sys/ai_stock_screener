@@ -14,7 +14,7 @@
 --   unsupported_format  the index names a file whose taxonomy the parser does
 --                       not read (e.g. an insurer's IF_INS_COM_IND_AS file)
 --
--- A filing that is stored is deleted from here; a row no run repeats for 14
+-- A filing that is stored is deleted from here; unsupported_format rows are written by the daily full run only; a row no run repeats for 14
 -- days is pruned. Server-side only: no policy, so only the service role reads it.
 --
 -- Apply with:  psql "$SUPABASE_DB_URL" -f storage/quarterly_filing_attempts_schema.sql

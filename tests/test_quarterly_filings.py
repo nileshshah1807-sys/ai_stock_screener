@@ -11,6 +11,7 @@ import re
 import unittest
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from screener.quarterly_results import PARSER_VERSION
@@ -372,11 +373,17 @@ class StoreTests(FilingsRun):
 
     def test_a_format_the_parser_does_not_read_is_logged_not_fetched(self):
         records = [*self.RECORDS, filing("STAR", "30-SEP-2026", 9, taxonomy="UNKNOWN")]
-        _, repo, fetcher, _ = self.run_worker(records, self.DOCUMENTS)
+        _, repo, fetcher, _ = self.run_worker(records, self.DOCUMENTS, full=True)
         self.assertNotIn("9", fetcher.asked)
         self.assertEqual(
             [(a["symbol"], a["status"]) for a in repo.attempts], [("STAR", "unsupported_format")]
         )
+
+    def test_a_short_run_does_not_refresh_an_unreadable_format(self):
+        records = [*self.RECORDS, filing("STAR", "30-SEP-2026", 9, taxonomy="UNKNOWN")]
+        repo = FakeRepository(stored={("OLD", "2026-06-30", True): stored_row(7)})
+        _, repo, _, _ = self.run_worker(records, self.DOCUMENTS, repo=repo)
+        self.assertEqual(repo.attempts, [])
 
     def test_a_missing_attempts_table_does_not_fail_the_run(self):
         class NoTable(FakeRepository):
@@ -535,3 +542,16 @@ class ValuationBasisRefresh(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FetcherStatusTests(unittest.TestCase):
+    def test_an_error_page_served_with_200_is_logged_as_no_document(self):
+        from screener.quarterly_results import DocumentFetcher
+
+        class Session:
+            def get(self, url, timeout):
+                return SimpleNamespace(status_code=200, text="<html>Access Denied</html>")
+
+        fetcher = DocumentFetcher(retries=1, session_factory=Session)
+        self.assertEqual(fetcher.fetch_many(["u"]), [None])
+        self.assertEqual(fetcher.statuses, {"u": 0})

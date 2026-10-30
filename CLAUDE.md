@@ -115,7 +115,7 @@ the scheduled workflows set the same flag.
   as its quarter, less the earlier quarters on the same basis (`PARSER_VERSION` 4).
   A filing the worker could not store (a fetch the archive refused, or a file format the parser does
   not read) is listed with the reason in `quarterly_filing_attempts` (`storage/quarterly_filing_attempts_schema.sql`,
-  applied by hand; the worker warns and carries on without it), until it is stored or 14 days pass.
+  applied by hand; the worker warns and carries on without it), until it is stored or 14 days pass (a file format the parser does not read is listed by the daily full run only).
   Annual statements, valuation ratios and prices are still Yahoo's.
 - **A company listed on BSE alone is screened in the NSE run as `SYMBOL.BO`.**
   `NSE_UNIVERSE_SOURCE=nse_with_bse_only` (set in the NSE screener and price

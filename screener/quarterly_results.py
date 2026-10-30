@@ -627,6 +627,8 @@ class DocumentFetcher:
                 ("<!doctype html", "<html")
             ):
                 return body
+            if status == 200:  # an error page served as the document
+                self.statuses[url] = 0
             if status == 403:  # the archive's block on a burst; not worth asking again now
                 self.forbidden += 1
                 break

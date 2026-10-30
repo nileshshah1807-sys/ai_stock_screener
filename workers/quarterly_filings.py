@@ -207,12 +207,16 @@ def record_attempts(
     stored_keys: list[tuple[str, str, bool]],
     *,
     now: datetime,
+    full: bool,
 ) -> None:
     """Keep the filings the worker could not store, and why, for whoever asks.
 
     A filing it stored is forgotten; one it cannot read (the exchange names a
     format the parser does not know) or fetch is written with the reason, and
-    an entry no run repeats within ``ATTEMPTS_KEPT_DAYS`` is dropped.
+    an entry no run repeats within ``ATTEMPTS_KEPT_DAYS`` is dropped. A format
+    the parser does not read is written on a full run only: a short run sees
+    the same week of the index every 15 minutes, which would keep it from
+    ever being pruned once it has left the index.
     """
     tried_at = now.isoformat(timespec="seconds")
     rows = [
@@ -229,7 +233,7 @@ def record_attempts(
         }
         for row, code in failures
     ]
-    if not index.empty:
+    if full and not index.empty:
         unread = index[~index["Taxonomy"].isin(quarterly_results.SUPPORTED_TAXONOMIES)]
         rows += [
             {
@@ -359,7 +363,10 @@ def run(
 
     if not dry_run:
         try:
-            record_attempts(repo, index, failures, stored_keys, now=datetime.now(UTC))
+            record_attempts(
+                repo, index, failures, stored_keys, now=datetime.now(UTC),
+                full=lookback_days == FULL_LOOKBACK_DAYS,
+            )
         except Exception as exc:  # the log is a convenience; apply storage/quarterly_filing_attempts_schema.sql
             logger.warning("Filing attempts not recorded: %s", exc)
 
