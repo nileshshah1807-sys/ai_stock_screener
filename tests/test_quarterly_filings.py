@@ -18,10 +18,16 @@ from workers.quarterly_filings import (
     DEFAULT_LOOKBACK_DAYS,
     FULL_LOOKBACK_DAYS,
     refresh_valuation_basis,
-    run,
 )
+from workers.quarterly_filings import run as run_with_pauses
 
 TODAY = date(2026, 10, 13)
+
+
+def run(*args, **kwargs):
+    """The worker without its real pauses between batches."""
+    return run_with_pauses(*args, **{"sleep": lambda seconds: None, **kwargs})
+
 ARCHIVE = "https://archive.example/xbrl"
 
 
@@ -286,6 +292,22 @@ class StoreTests(FilingsRun):
         counts, _ = self._blocked_run(50, refused=100)
         self.assertEqual((counts["blocked"], counts["deferred"]), (1, 0))
 
+    def test_each_batch_takes_at_least_the_minimum_time(self):
+        # The archive refuses a burst; the pause per batch keeps the rate down.
+        records = [filing(f"S{n}", "30-SEP-2026", 100 + n) for n in range(130)]
+        now = [0.0]
+        pauses = []
+
+        def sleep(seconds):
+            pauses.append(seconds)
+            now[0] += seconds
+
+        run(
+            FakeRepository(), index_records_loader=lambda a, b: records,
+            fetcher=FakeFetcher({}), today=TODAY, clock=lambda: now[0], sleep=sleep,
+        )
+        self.assertEqual(pauses, [2.5, 2.5, 2.5])
+
     def test_an_unfetchable_earlier_filing_is_asked_for_again(self):
         records = [
             filing("JKB", "30-SEP-2026", 5, broadcast="22-Oct-2026 15:11:12"),
@@ -381,7 +403,7 @@ class IncrementalTests(FilingsRun):
             filing("OLD", "30-JUN-2026", 1, broadcast="14-Jul-2026 19:00:00"),
             filing("NEW", "30-SEP-2026", 2, broadcast="13-Oct-2026 17:00:00"),
         ]
-        ticks = iter([0, 0, 100])
+        ticks = iter([0, 0, 0, 0, 100])
         with mock.patch("workers.quarterly_filings.BATCH_SIZE", 1):
             counts, _, fetcher, _ = self.run_worker(
                 records,
