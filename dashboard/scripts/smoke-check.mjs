@@ -280,6 +280,8 @@ async function visit(path, expected, { grid = false, tabs = false } = {}) {
   // Many images failing the same way (every logo) read as one finding with a count.
   const grouped = new Map();
   for (const message of new Set(current.errors)) {
+    // The blocked write's fetch rejects in the page; that is this check's doing, not the app's.
+    if (current.blocked && /^uncaught exception: .*Failed to fetch/.test(message)) continue;
     const key = message.replace(/^(request failed \(.+?\)) ([^/\s]+)\/.*$/, "$1 $2");
     grouped.set(key, [...(grouped.get(key) ?? []), message]);
   }

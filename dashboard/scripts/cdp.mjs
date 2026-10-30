@@ -22,6 +22,30 @@ export async function launchChrome() {
     ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--disable-gpu", "about:blank"],
     { stdio: ["ignore", "ignore", "pipe"], detached: true }, // own process group, so its helpers can be killed too
   );
+  // A timeout (SIGTERM), Ctrl-C or a crash must not leave Chrome running: kill its
+  // group and drop the profile synchronously, since the process is going away.
+  const killNow = () => {
+    try {
+      process.kill(-proc.pid, "SIGKILL"); // no grace: the process is going away
+      rmSync(profile, { recursive: true, force: true });
+    } catch {
+      // group already gone, or a helper is still writing; a stray temp dir is the lesser harm
+    }
+  };
+  const onSignal = (code) => () => {
+    killNow();
+    process.exit(code);
+  };
+  const onInt = onSignal(130);
+  const onTerm = onSignal(143);
+  process.on("exit", killNow);
+  process.on("SIGINT", onInt);
+  process.on("SIGTERM", onTerm);
+  const unhook = () => {
+    process.off("exit", killNow);
+    process.off("SIGINT", onInt);
+    process.off("SIGTERM", onTerm);
+  };
   // Anything that fails from here on must not leave Chrome or its profile behind.
   const cleanup = async () => {
     const exited = new Promise((resolve) => (proc.exitCode === null ? proc.once("exit", resolve) : resolve()));
@@ -41,6 +65,7 @@ export async function launchChrome() {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+    unhook();
   };
   let socket;
   try {
