@@ -758,7 +758,6 @@ class StockDataCollector:
                         if (
                             avg_volume == 0
                             or pd.isna(avg_volume)
-                            or last_volume == 0
                             or current_price <= 0
                             or not liquidity
                         ):
