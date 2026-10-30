@@ -48,3 +48,27 @@ records how each rule was implemented; nothing here moves a threshold.
         --root reports_advanced/backtest_ext --start 2018-12-31 --end 2026-09-30 \
         --horizons 1 --no-pdf --no-comparison --fills-out reports_advanced/p11_fills.csv
     python -m tools.p11_report reports_advanced/p11_fills.csv
+
+## Result (30 Oct 2026) -- KILL, nothing adopted
+Run at `d0a961e` (clean; `tools/p11_report.py` added after), 94 signals,
+726 s. `p11_fills.csv` sha256 `0a8103316472fe92...`, `group_map.csv`
+`784a800fee00c22c...`. The backtest JSON carries no run manifest.
+
+| strategy | net CAGR | Dec18-Sep22 | Oct22-Sep26 | max DD | Sharpe |
+|---|---|---|---|---|---|
+| model_5 | 43.4 | 50.6 | 36.6 | -24.9 | 1.59 |
+| A score | 38.8 | 47.7 | 30.6 | -24.9 | 1.46 |
+| B gate | 37.7 | 43.8 | 32.0 | -26.0 | 1.41 |
+| A, no back-fill | 40.3 | 49.7 | 31.8 | -25.6 | 1.53 |
+| B, no back-fill | 41.1 | 47.1 | 35.5 | -24.9 | 1.50 |
+
+- Coverage 48.9% of universe stock-months (53.3% of model_5's Top 20
+  holdings): kill on its own.
+- Both variants lose CAGR overall and in both halves; drawdown within 3 points.
+- Excess is negative, so no group "supplies most of the gain". A's biggest
+  loss is the unmapped bucket (-43.6 pts summed): adding a 0.20 input that
+  half the universe lacks shrinks those names' momentum toward neutral.
+- No sign flip without back-filled names (all still negative).
+- Diagnostic: group RS does predict next-month return in India -- rank IC
+  +0.048 (t 4.1), +0.041 (t 4.2) after the stock's own 6-month return -- but
+  model_5's Top 20 does not gain from it after costs.
