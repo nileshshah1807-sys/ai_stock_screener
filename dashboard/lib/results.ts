@@ -155,6 +155,21 @@ export async function getResultFeed(
   return { entries: rows, total: null };
 }
 
+/** How many companies have filed for a quarter, for the Upcoming tile's "declared so far". */
+export async function getDeclaredCount(market: MarketCode, quarter: string): Promise<number | null> {
+  const supabase = await createClient();
+  const { count, error } = await supabase
+    .from("quarterly_result_feed")
+    .select("symbol", { count: "exact", head: true })
+    .eq("market", market)
+    .eq("period_end", quarter);
+  if (error) {
+    console.error("getDeclaredCount failed", error.message);
+    return null;
+  }
+  return count;
+}
+
 /** Every filing of these companies for these quarters, on both bases. */
 export async function getQuarterFilings(
   market: MarketCode,

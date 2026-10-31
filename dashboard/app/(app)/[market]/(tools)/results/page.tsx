@@ -7,14 +7,19 @@ import { Reveal } from "@/components/motion";
 import { AutoRefresh } from "@/components/results/auto-refresh";
 import { QuarterPicker } from "@/components/results/quarter-picker";
 import { ResultCard, type ResultCardData } from "@/components/results/result-card";
+import { ResultsLinedUpTile } from "@/components/upcoming/upcoming-tiles";
+import { UpcomingSheet } from "@/components/upcoming/upcoming-sheet";
 import { searchTerm } from "@/lib/concalls.mjs";
 import { monthsBefore } from "@/lib/financials.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
 import { formatDate, formatInteger } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { getCompanyFacts, getLatestRun } from "@/lib/queries";
+import { getUpcoming } from "@/lib/upcoming";
+import { getWatchlists } from "@/lib/watchlists";
 import {
   getCompanyNames,
+  getDeclaredCount,
   getLatestResultQuarter,
   getQuarterFilings,
   getQuarterLines,
@@ -101,6 +106,13 @@ export default async function ResultsPage({
   // an empty page under another quarter's label.
   const quarter = chosenQuarter(query.quarter, ended) ?? newest;
   const quarters = ended.map((end) => ({ value: end, label: quarterLabel(end, { fiscal: true }) }));
+
+  const [upcoming, declared, lists] = await Promise.all([
+    getUpcoming(market.code, "results", today),
+    getDeclaredCount(market.code, newest),
+    getWatchlists(market.code),
+  ]);
+  const watchlists = lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }));
 
   const search = searchTerm(query.q);
   const shown = shownCount(query.shown);
@@ -196,8 +208,30 @@ export default async function ResultsPage({
             earlier.
           </p>
         </div>
-        <QuarterPicker value={quarter} options={quarters} />
+        <div className="flex items-center gap-2">
+          {upcoming ? (
+            <UpcomingSheet
+              kind="results"
+              rows={upcoming}
+              today={today}
+              lists={watchlists}
+              defaultOpen={query.upcoming !== undefined}
+            />
+          ) : null}
+          <QuarterPicker value={quarter} options={quarters} />
+        </div>
       </div>
+
+      {upcoming?.length ? (
+        <div className="flex flex-wrap gap-3">
+          <ResultsLinedUpTile
+            lined={upcoming.length}
+            declared={declared}
+            soonest={upcoming}
+            logos={new Map((facts ?? []).map((fact) => [fact.symbol, fact.logo_domain]))}
+          />
+        </div>
+      ) : null}
 
       <LiveSearch
         label="Search results by company or symbol"

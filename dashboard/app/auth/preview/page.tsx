@@ -19,6 +19,11 @@ import { ActiveFilters } from "@/components/screener/active-filters";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { AnalysisChart } from "@/components/results/analysis-chart";
 import { QuarterPicker } from "@/components/results/quarter-picker";
+import { UpcomingResultChip } from "@/components/upcoming/upcoming-result-chip";
+import { UpcomingSheet } from "@/components/upcoming/upcoming-sheet";
+import { NextConcallTile, ResultsLinedUpTile } from "@/components/upcoming/upcoming-tiles";
+import { fixtureEvents } from "@/lib/upcoming-fixtures.mjs";
+import { upcomingSummary } from "@/lib/upcoming.mjs";
 import { ExportLink } from "@/components/screener/export-link";
 import { FilterBar } from "@/components/screener/filter-bar";
 import { SavedViews } from "@/components/screener/saved-views";
@@ -52,6 +57,28 @@ import {
  * in a production build this file compiles to a route that always 404s.
  */
 export const dynamic = "force-static";
+
+function UpcomingPreview() {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const all = fixtureEvents(today) as import("@/lib/upcoming").UpcomingEvent[];
+  const results = all.filter((row) => row.kind === "results");
+  const calls = all.filter((row) => row.kind === "call");
+  const next = upcomingSummary(calls, today).next;
+  const lists = [{ id: "a", name: "Core", symbols: results.slice(0, 20).map((row) => row.symbol) }];
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-3">
+        <ResultsLinedUpTile lined={results.length} declared={612} soonest={results} logos={new Map()} />
+        {next ? <NextConcallTile next={next} today={today} logoDomain={null} /> : null}
+      </div>
+      <div className="flex gap-2">
+        <UpcomingSheet kind="results" rows={results} today={today} lists={lists} />
+        <UpcomingSheet kind="call" rows={calls} today={today} lists={lists} />
+      </div>
+      <UpcomingResultChip date={results[results.length - 1].event_date} />
+    </div>
+  );
+}
 
 export default function PreviewPage() {
   if (process.env.NODE_ENV !== "development") notFound();
@@ -201,6 +228,11 @@ export default function PreviewPage() {
               }))}
             />
           </div>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Upcoming events</h2>
+          <UpcomingPreview />
         </section>
 
         <section className="flex flex-col gap-3">

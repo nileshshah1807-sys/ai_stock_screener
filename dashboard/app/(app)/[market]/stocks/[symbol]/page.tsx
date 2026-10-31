@@ -24,6 +24,8 @@ import { PriceChart } from "@/components/stock/price-chart";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { StageSummary, stageMarkers } from "@/components/stock/stage-summary";
 import { Financials } from "@/components/stock/financials";
+import { UpcomingResultChip } from "@/components/upcoming/upcoming-result-chip";
+import { getUpcomingResultDate } from "@/lib/upcoming";
 import { Shareholding } from "@/components/stock/shareholding";
 import { StockTabs } from "@/components/stock/stock-tabs";
 import { NewListingView } from "@/components/stock/new-listing-view";
@@ -225,6 +227,7 @@ export default async function StockPage({
     watchlists,
     watchlistMembership,
     latestCall,
+    upcomingResult,
   ] = await Promise.all([
     runRead,
     rowRead,
@@ -237,6 +240,11 @@ export default async function StockPage({
     getWatchlists(market.code),
     getWatchlistMembership(market.code, symbol),
     getLatestConcall(market.code, symbol),
+    getUpcomingResultDate(
+      market.code,
+      symbol,
+      new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()),
+    ),
   ]);
   if (!run) notFound();
 
@@ -1079,6 +1087,7 @@ export default async function StockPage({
                   title="Financials"
                   info="Quarterly results, profit and loss, balance sheet and cash flow as reported, with growth measured against the same period a quarter and a year earlier."
                 >
+                  {upcomingResult ? <UpcomingResultChip date={upcomingResult} /> : null}
                   <Financials
                     data={financials}
                     market={market}
