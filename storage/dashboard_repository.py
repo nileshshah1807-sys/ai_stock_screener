@@ -1019,6 +1019,25 @@ class DashboardRepository:
             written += len(inserted or [])
         return written
 
+    # -- upcoming events -------------------------------------------------------
+
+    def upcoming_events(self) -> dict[str, dict[str, Any]]:
+        """Every stored upcoming-events row, by symbol."""
+        rows = self._paged("upcoming_events", {"select": "*", "order": "symbol.asc"})
+        return {str(row["symbol"]): row for row in rows}
+
+    def upsert_upcoming_events(self, rows: list[dict[str, Any]], chunk_size: int = 200) -> int:
+        """Write whole rows, replacing a stock's earlier one."""
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "upcoming_events?on_conflict=market,symbol",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                retries=2,
+            )
+        return len(rows)
+
     def prune_market_events(self, before: str) -> None:
         """Drop events first seen before ``before`` (an ISO timestamp)."""
         self._request(

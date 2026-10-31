@@ -149,3 +149,14 @@ jobs:
         env:
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: python -m workers.market_events --market NSE ${DRY_RUN}
+
+      # Who reports next and who has announced an earnings call
+      # (workers/upcoming_events.py, storage/upcoming_events_schema.sql).
+      # Independent of the filings above; reads the board-meeting feed and the
+      # call notices filed since it last looked, at most 60 PDFs a run.
+      - name: Record upcoming results and earnings calls
+        if: ${{ !cancelled() }}
+        timeout-minutes: 8
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.upcoming_events --market NSE ${DRY_RUN}
