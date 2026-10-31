@@ -113,7 +113,12 @@ export default async function ResultsPage({
     getWatchlists(market.code),
   ]);
   // A company that has filed is no longer lined up, even while its date is today's.
-  const upcoming = dated && declaredSymbols ? dated.filter((row) => !declaredSymbols.has(row.symbol)) : dated;
+  // Both figures follow the page's own filter scope (by default the market-cap floor), so the tile
+  // reads what the list below and Analysis count.
+  const scope = feed.symbols ? new Set(feed.symbols) : null;
+  const inScope = (symbol: string) => !scope || scope.has(symbol);
+  const declaredInScope = declaredSymbols ? [...declaredSymbols].filter(inScope) : null;
+  const upcoming = dated?.filter((row) => inScope(row.symbol) && !declaredSymbols?.has(row.symbol)) ?? null;
   const watchlists = lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }));
 
   const search = searchTerm(query.q);
@@ -233,7 +238,7 @@ export default async function ResultsPage({
         <div className="flex flex-wrap gap-3">
           <ResultsLinedUpTile
             lined={upcoming.length}
-            declared={declaredSymbols?.size ?? null}
+            declared={declaredInScope?.length ?? null}
             soonest={upcoming}
             logos={new Map((facts ?? []).map((fact) => [fact.symbol, fact.logo_domain]))}
           />
