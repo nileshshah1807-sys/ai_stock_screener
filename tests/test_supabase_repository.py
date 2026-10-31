@@ -1,4 +1,5 @@
 import unittest
+from datetime import date
 
 import requests
 
@@ -228,6 +229,17 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
         self.assertEqual(calls[0][2]["json"][0]["policy"], "shadow-v2")
         self.assertEqual(calls[0][2]["json"][0]["observed_on"], "2026-08-08")
         self.assertIn("fetched_at", calls[0][2]["json"][0])
+
+    def test_red_flag_history_older_than_90_days_is_deleted_in_one_request(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+        calls = []
+        repository._request = lambda method, path, **kwargs: calls.append((method, path, kwargs))
+
+        repository.prune_red_flag_snapshot_history(date(2026, 10, 31))
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][:2], ("DELETE", "red_flag_snapshot_history"))
+        self.assertEqual(calls[0][2]["params"], {"observed_on": "lt.2026-08-02"})
 
 
 if __name__ == "__main__":

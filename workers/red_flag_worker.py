@@ -71,6 +71,7 @@ class RedFlagWorker:
         if self.repository is not None:
             try:
                 history_saved = self.repository.upsert_red_flag_snapshot_history(snapshots, observed_on)
+                self.repository.prune_red_flag_snapshot_history(date.fromisoformat(observed_on))
             except requests.HTTPError as exc:
                 # The current cache is already safely written above.  Keep the
                 # optional audit history from blocking refreshes while an
