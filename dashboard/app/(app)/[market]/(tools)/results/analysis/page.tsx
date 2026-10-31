@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { PageTitle } from "@/components/page-title";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { AnalysisChart } from "@/components/results/analysis-chart";
 import { QuarterPicker } from "@/components/results/quarter-picker";
@@ -51,10 +52,7 @@ export default async function ResultsAnalysisPage({
       <div className="space-y-4 px-4 py-5 sm:px-6">
         <h1 className="text-title font-semibold">Results analysis</h1>
         <div className="panel px-5 py-10 text-center">
-          <p className="text-sm font-medium">Results are read for NSE only.</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {market.label} has no exchange index of results filings to read them from.
-          </p>
+          <p className="text-sm font-medium">Results are available for NSE only.</p>
         </div>
       </div>
     );
@@ -91,13 +89,24 @@ export default async function ResultsAnalysisPage({
   return (
     <div className="space-y-4 px-4 py-5 sm:px-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-title font-semibold">Results analysis</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            The median year-on-year growth of the companies that reported each quarter, from their own
-            filings with the exchange.
-          </p>
-        </div>
+        <PageTitle
+          title="Results analysis"
+          info={
+            <>
+              <p>
+                The median year-on-year growth of the companies that reported each quarter, from their own
+                filings with the exchange.
+              </p>
+              <p>
+                A result is a company that filed the quarter. Each median is over the companies with a
+                growth rate for that line, the number in brackets: there is no rate off a loss or without a
+                filing for the same quarter a year earlier, and the exchange&rsquo;s index of filings begins
+                in April 2025, so earlier quarters have few. A company counts on the basis its Results card
+                opens on. Operating profit is profit before tax with interest and depreciation added back.
+              </p>
+            </>
+          }
+        />
         <div className="flex flex-wrap gap-2">
           <QuarterPicker
             param="index"
@@ -165,20 +174,10 @@ export default async function ResultsAnalysisPage({
               </tbody>
             </table>
           </div>
-          <p className="max-w-3xl border-t pt-4 text-xs leading-relaxed text-muted-foreground">
-            A result is a company that filed the quarter. Each median is over the companies with a growth
-            rate for that line, the number in brackets: there is no rate off a loss or without a filing for
-            the same quarter a year earlier, and the exchange&rsquo;s index of filings begins in April 2025,
-            so earlier quarters have few. A company counts on the basis its Results card opens on. Operating
-            profit is profit before tax with interest and depreciation added back.
-          </p>
         </div>
       ) : (
         <div className="panel px-5 py-10 text-center">
-          <p className="text-sm font-medium">No results to analyse for these filters.</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Try another index or industry, or clear the filters.
-          </p>
+          <p className="text-sm font-medium">No results for these filters.</p>
         </div>
       )}
     </div>

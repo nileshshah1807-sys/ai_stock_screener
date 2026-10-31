@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 import { ConcallRow } from "@/components/concalls/concall-row";
+import { PageTitle } from "@/components/page-title";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { LiveSearch } from "@/components/filters/live-search";
 import { Reveal } from "@/components/motion";
@@ -74,14 +75,29 @@ export default async function ConcallsPage({
   const page = (
     <div className="space-y-4 px-4 py-5 sm:px-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-title font-semibold">Concalls</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            {market.code === "NSE"
-              ? "Earnings calls the day they are held. A call is first read from the recording the company files that evening, then from its transcript once that is filed. Open a highlight for the sentence it came from."
-              : `Earnings calls are read for NSE only; there is no recording or transcript source for ${market.label} yet.`}
-          </p>
-        </div>
+        <PageTitle
+          title="Concalls"
+          info={
+            market.code === "NSE" ? (
+              <>
+                <p>
+                  Earnings calls the day they are held. A call is first read from the recording the company
+                  files that evening, then from its transcript once that is filed. Open a highlight for the
+                  sentence it came from.
+                </p>
+                <p>
+                  Outlook starts at 50 and moves only on what the call stated (guidance, order book,
+                  capacity, demand, margins), so 50 means nothing was scored, not average; the typical call
+                  scores about 59. Management stance is the outlook in a word, against that typical call:
+                  Bullish from 72, Optimistic from 62, Neutral from 53, Cautious from 45, Bearish below;
+                  hover it for the statement that moved the score most that way. A call whose outlook
+                  verified nothing shows a dash. A call read from its recording has no speaker labels and its
+                  figures are as the speech model heard them.
+                </p>
+              </>
+            ) : undefined
+          }
+        />
         {upcoming ? <UpcomingButton /> : null}
       </div>
 
@@ -118,20 +134,6 @@ export default async function ConcallsPage({
               </ul>
             </section>
           ))}
-          {calls.length === FEED_LIMIT ? (
-            <p className="text-center text-xs text-muted-foreground">
-              Showing the latest {FEED_LIMIT} calls. Search or filter to see further back.
-            </p>
-          ) : null}
-          <p className="max-w-3xl border-t pt-4 text-xs leading-relaxed text-muted-foreground">
-            Outlook starts at 50 and moves only on what the call stated &mdash; guidance, order
-            book, capacity, demand, margins &mdash; so 50 means nothing was scored, not average; the
-            typical call scores about 59. Management stance is the outlook in a word, against that
-            typical call: Bullish from 72, Optimistic from 62, Neutral from 53, Cautious from 45,
-            Bearish below; hover it for the statement that moved the score most that way. A call
-            whose outlook verified nothing shows a dash. A call read from its recording has no
-            speaker labels and its figures are as the speech model heard them.
-          </p>
         </Reveal>
       ) : (
         <div className="panel px-5 py-10 text-center">
@@ -143,13 +145,6 @@ export default async function ConcallsPage({
                 : feed.isDefault
                   ? "No calls yet."
                   : "No calls match these filters."}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {market.code !== "NSE"
-              ? "Calls are read for NSE only."
-              : filtered
-                ? "Calls go back about six months."
-                : "Calls appear here the evening they are held, once the company files its recording."}
           </p>
           {filtered ? (
             <Link

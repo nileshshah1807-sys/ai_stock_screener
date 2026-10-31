@@ -5,7 +5,7 @@ import { CalendarClock } from "lucide-react";
 
 import { SearchInput } from "@/components/filters/live-search";
 import { StockIdentity } from "@/components/stock-identity";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { UpcomingEvent, UpcomingKind } from "@/lib/upcoming";
 import { callTime, filterUpcoming, groupUpcoming } from "@/lib/upcoming.mjs";
 import { cn } from "@/lib/utils";
@@ -16,14 +16,12 @@ const DAY_LIMIT = 7;
 const COPY = {
   results: {
     title: "Upcoming results",
-    blurb: "Board meetings that will approve quarterly results, by the date the company gave the exchange.",
     empty: "No results are lined up.",
     noun: "results",
     quiet: "No results",
   },
   call: {
     title: "Upcoming concalls",
-    blurb: "Earnings calls the companies have told the exchange they will hold.",
     empty: "No calls are lined up.",
     noun: "calls",
     quiet: "No calls",
@@ -158,8 +156,7 @@ export function UpcomingProvider({
         <SheetContent side="right" className="gap-0 data-[side=right]:w-[calc(100vw-1rem)] data-[side=right]:sm:max-w-2xl">
           <SheetHeader className="space-y-1 border-b p-4 pr-12">
             <SheetTitle className="text-base">{copy.title}</SheetTitle>
-            <SheetDescription className="text-xs">{copy.blurb}</SheetDescription>
-          </SheetHeader>
+                      </SheetHeader>
           <div className="space-y-3 border-b p-4">
             <SearchInput
               value={search}
