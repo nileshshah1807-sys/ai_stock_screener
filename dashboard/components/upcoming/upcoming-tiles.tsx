@@ -75,7 +75,7 @@ export function NextConcallTile({
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{next.company ?? next.symbol}</p>
           <p className="tabular text-xs text-muted-foreground">
-            {when} · {time ?? "time not stated"}
+            {when} · {time ?? "time TBA"}
           </p>
         </div>
       </div>

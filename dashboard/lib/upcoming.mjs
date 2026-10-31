@@ -1,15 +1,16 @@
 /**
- * Upcoming events: board meetings that will approve results, and calls that
- * will be held. One row per (market, kind, symbol, event_date):
+ * Upcoming events. The table `upcoming_events` holds one row per stock:
+ * `{ symbol, company, next_result_date, next_call_at, next_call_date }`. The
+ * lists work on events, one per stock and kind:
  * `{ kind: "results" | "call", symbol, company, event_date: "YYYY-MM-DD",
- * event_time: ISO with the IST offset | null }`. A results row has a date and
- * never a time; a call has a time when the notice stated one.
+ * event_time: ISO with the IST offset | null }`. A result has a date and never
+ * a time; a call has a time when its notice gave one (`next_call_at`) and a
+ * date alone otherwise (`next_call_date`).
  *
  * Pure functions, shared by the server pages and the sheet.
  */
 
-/** Most days of events one list reads: the notices run about a week ahead, up to 40 days. */
-export const HORIZON_DAYS = 45;
+const IST = "Asia/Kolkata";
 
 const DAY_MS = 86_400_000;
 
@@ -77,7 +78,7 @@ export function filterUpcoming(rows, { search = "", symbols = null } = {}) {
 }
 
 /** "12:30" in India's clock, or null when the notice named no time. */
-export function callTime(eventTime, timeZone = "Asia/Kolkata") {
+export function callTime(eventTime, timeZone = IST) {
   if (!eventTime) return null;
   const parsed = new Date(eventTime);
   if (Number.isNaN(parsed.getTime())) return null;
@@ -100,4 +101,21 @@ export function upcomingSummary(rows, today, now = new Date()) {
 export function upcomingResultDate(rows, symbol, today) {
   const found = sortUpcoming(rows, today).find((row) => row.symbol === symbol);
   return found ? found.event_date : null;
+}
+
+/** The table's rows as events of one kind, from `today` on, soonest first. */
+export function eventsFromRows(rows, kind, today) {
+  const events = [];
+  for (const row of rows ?? []) {
+    const base = { kind, symbol: row.symbol, company: row.company ?? null };
+    if (kind === "results") {
+      if (row.next_result_date) events.push({ ...base, event_date: row.next_result_date, event_time: null });
+    } else if (row.next_call_at) {
+      const date = new Intl.DateTimeFormat("en-CA", { timeZone: IST }).format(new Date(row.next_call_at));
+      events.push({ ...base, event_date: date, event_time: row.next_call_at });
+    } else if (row.next_call_date) {
+      events.push({ ...base, event_date: row.next_call_date, event_time: null });
+    }
+  }
+  return sortUpcoming(events, today);
 }

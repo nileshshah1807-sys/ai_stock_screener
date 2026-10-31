@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   callTime,
+  eventsFromRows,
   filterUpcoming,
   groupUpcoming,
   sortUpcoming,
@@ -66,4 +67,28 @@ test("a company's coming result date is its first row from today", () => {
   ];
   assert.equal(upcomingResultDate(rows, "TCS", "2026-10-31"), "2026-11-04");
   assert.equal(upcomingResultDate(rows, "INFY", "2026-10-31"), null);
+});
+
+test("one row per stock gives a result event and a call event, each from today on", () => {
+  const rows = [
+    { symbol: "A", company: "A Ltd", next_result_date: "2026-11-03", next_call_at: "2026-11-05T12:00:00+05:30", next_call_date: null },
+    { symbol: "B", company: null, next_result_date: "2026-10-20", next_call_at: null, next_call_date: "2026-11-04" },
+    { symbol: "C", company: "C Ltd", next_result_date: null, next_call_at: null, next_call_date: null },
+  ];
+  assert.deepEqual(
+    eventsFromRows(rows, "results", "2026-10-31").map((e) => [e.symbol, e.event_date, e.event_time]),
+    [["A", "2026-11-03", null]],
+  );
+  assert.deepEqual(
+    eventsFromRows(rows, "call", "2026-10-31").map((e) => [e.symbol, e.event_date, e.event_time]),
+    [
+      ["B", "2026-11-04", null],
+      ["A", "2026-11-05", "2026-11-05T12:00:00+05:30"],
+    ],
+  );
+});
+
+test("a call's day is India's: late evening UTC is the next morning in IST", () => {
+  const [event] = eventsFromRows([{ symbol: "A", next_call_at: "2026-11-04T20:00:00Z" }], "call", "2026-11-01");
+  assert.equal(event.event_date, "2026-11-05");
 });

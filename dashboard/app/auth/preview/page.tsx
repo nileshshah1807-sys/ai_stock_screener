@@ -22,8 +22,8 @@ import { QuarterPicker } from "@/components/results/quarter-picker";
 import { UpcomingResultChip } from "@/components/upcoming/upcoming-result-chip";
 import { UpcomingSheet } from "@/components/upcoming/upcoming-sheet";
 import { NextConcallTile, ResultsLinedUpTile } from "@/components/upcoming/upcoming-tiles";
-import { fixtureEvents } from "@/lib/upcoming-fixtures.mjs";
-import { upcomingSummary } from "@/lib/upcoming.mjs";
+import { fixtureRows } from "@/lib/upcoming-fixtures.mjs";
+import { eventsFromRows, upcomingSummary } from "@/lib/upcoming.mjs";
 import { ExportLink } from "@/components/screener/export-link";
 import { FilterBar } from "@/components/screener/filter-bar";
 import { SavedViews } from "@/components/screener/saved-views";
@@ -60,9 +60,9 @@ export const dynamic = "force-static";
 
 function UpcomingPreview() {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
-  const all = fixtureEvents(today) as import("@/lib/upcoming").UpcomingEvent[];
-  const results = all.filter((row) => row.kind === "results");
-  const calls = all.filter((row) => row.kind === "call");
+  const rows = fixtureRows(today);
+  const results = eventsFromRows(rows, "results", today) as import("@/lib/upcoming").UpcomingEvent[];
+  const calls = eventsFromRows(rows, "call", today) as import("@/lib/upcoming").UpcomingEvent[];
   const next = upcomingSummary(calls, today).next;
   const lists = [{ id: "a", name: "Core", symbols: results.slice(0, 20).map((row) => row.symbol) }];
   return (

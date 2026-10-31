@@ -24,7 +24,7 @@ const COPY = {
   },
   call: {
     title: "Upcoming concalls",
-    blurb: "Calls the companies have told the exchange they will hold. Some are one-on-one investor meets.",
+    blurb: "Earnings calls the companies have told the exchange they will hold.",
     empty: "No calls are lined up.",
     noun: "calls",
     quiet: "No calls",
@@ -73,7 +73,7 @@ function Day({
                 <StockIdentity symbol={row.symbol} company={row.company} className="min-w-0 flex-1" />
                 {kind === "call" ? (
                   <span className={cn("tabular shrink-0 font-mono text-xs", time ? "" : "text-muted-foreground")}>
-                    {time ?? "time not stated"}
+                    {time ?? "time TBA"}
                   </span>
                 ) : null}
               </li>
