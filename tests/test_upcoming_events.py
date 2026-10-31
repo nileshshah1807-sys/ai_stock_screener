@@ -239,6 +239,15 @@ class ReadNoticeTests(unittest.TestCase):
         _, reads = self.read(records, limit=2)
         self.assertEqual(reads, ["S2", "S1"])
 
+    def test_the_budget_is_checked_before_each_notice_not_only_each_stock(self):
+        from unittest.mock import patch
+
+        records = [notice("AAA", "31-Oct-2026 11:00:00", "meet"), notice("AAA", "30-Oct-2026 11:00:00", "call")]
+        # stock check, first notice, second notice: the clock passes the deadline at the third
+        with patch("workers.upcoming_events.time.monotonic", side_effect=[0, 0, 10]):
+            found, reads = self.read(records, results={"meet": None}, deadline=5)
+        self.assertEqual((found, reads), ([], ["AAA"]))
+
     def test_a_spent_time_budget_starts_no_new_stock(self):
         found, reads = self.read([notice("AAA", "31-Oct-2026 11:00:00")], deadline=0)
         self.assertEqual((found, reads), ([], []))
@@ -347,6 +356,17 @@ class RunTests(unittest.TestCase):
         repo = FakeRepo({"AAA": call_row(next_result_date="2026-11-03", result_purpose="Financial Results")})
         self.run_with(repo, FakeNSE([]))
         self.assertEqual(repo.written, [])
+
+    def test_a_refused_session_warns_and_the_step_still_succeeds(self):
+        from unittest.mock import patch
+
+        repo = FakeRepo()
+        with (
+            patch("workers.upcoming_events.open_session", side_effect=ConnectionError("403")),
+            self.assertLogs("workers.upcoming_events", "WARNING"),
+        ):
+            counts = run(repo, now=NOW)
+        self.assertEqual((counts["written"], repo.written), (0, []))
 
     def test_a_missing_table_is_a_warning_not_a_failure(self):
         with self.assertLogs("workers.upcoming_events", "WARNING"):

@@ -31,6 +31,7 @@ import logging
 import re
 import time
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as clock
 from pathlib import Path
@@ -330,7 +331,7 @@ def read_notices(
     an earnings call stands (an investor meet falls through to an older notice); one that
     reads as none is yielded with ``None`` so the stock is still marked as looked at. A
     stock whose notice would not download is left alone, and so is one the ``limit`` of
-    notices, or the ``deadline`` (a ``time.monotonic()`` value), cut short.
+    notices, or the ``deadline`` (a ``time.monotonic()`` value, checked before each notice), cut short.
     """
     by_stock: dict[str, list[tuple[datetime, dict[str, Any]]]] = {}
     for symbol, filed, record in fresh:
@@ -341,7 +342,7 @@ def read_notices(
             return
         result: tuple[str, dict[str, Any], Call | None] | None = (symbol, notices[0][1], None)
         for filed, record in notices:
-            if reads >= limit:
+            if reads >= limit or (deadline is not None and time.monotonic() >= deadline):
                 return
             reads += 1
             try:
@@ -390,7 +391,12 @@ def run(repo, *, now: datetime | None = None, dry_run: bool = False) -> dict[str
         for row in rows:  # what is stored now, so the next write sees only what changed
             stored[row["symbol"]] = {**stored.get(row["symbol"], {}), **row}
 
-    with TemporaryDirectory(prefix="upcoming_events_") as folder, open_session(folder) as nse:
+    with TemporaryDirectory(prefix="upcoming_events_") as folder, ExitStack() as stack:
+        try:
+            nse = stack.enter_context(open_session(folder))
+        except Exception as exc:  # a refused warm-up request: nothing to read this run, not a failed step
+            logger.warning("Exchange session not opened (%s); nothing read this run", exc)
+            return counts
         try:
             meetings = nse.boardMeetings(index="equities", from_date=_stamped_window(today, RESULTS_HORIZON_DAYS)[0],
                                          to_date=_stamped_window(today, RESULTS_HORIZON_DAYS)[1])
