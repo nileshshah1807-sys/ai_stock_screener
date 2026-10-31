@@ -52,7 +52,7 @@ export default async function ResultsAnalysisPage({
       <div className="space-y-4 px-4 py-5 sm:px-6">
         <h1 className="text-title font-semibold">Results analysis</h1>
         <div className="panel px-5 py-10 text-center">
-          <p className="text-sm font-medium">Results are available for NSE only.</p>
+          <p className="text-sm font-medium">NSE only</p>
         </div>
       </div>
     );

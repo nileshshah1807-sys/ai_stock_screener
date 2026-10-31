@@ -82,7 +82,7 @@ export default async function ResultsPage({
       <div className="space-y-4 px-4 py-5 sm:px-6">
         <h1 className="text-title font-semibold">Results</h1>
         <div className="panel px-5 py-10 text-center">
-          <p className="text-sm font-medium">Results are available for NSE only.</p>
+          <p className="text-sm font-medium">NSE only</p>
         </div>
       </div>
     );
@@ -113,12 +113,14 @@ export default async function ResultsPage({
     getWatchlists(market.code),
   ]);
   // A company that has filed is no longer lined up, even while its date is today's.
-  // Both figures follow the page's own filter scope (by default the market-cap floor), so the tile
-  // reads what the list below and Analysis count.
+  // The tile follows the page's own filter scope (by default the market-cap floor), so it reads what
+  // the list below and Analysis count; the Upcoming sheet has its own search and watchlist chips and
+  // lists every company not yet declared.
   const scope = feed.symbols ? new Set(feed.symbols) : null;
   const inScope = (symbol: string) => !scope || scope.has(symbol);
   const declaredInScope = declaredSymbols ? [...declaredSymbols].filter(inScope) : null;
-  const upcoming = dated?.filter((row) => inScope(row.symbol) && !declaredSymbols?.has(row.symbol)) ?? null;
+  const upcoming = dated?.filter((row) => !declaredSymbols?.has(row.symbol)) ?? null;
+  const lined = upcoming?.filter((row) => inScope(row.symbol)) ?? [];
   const watchlists = lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }));
 
   const search = searchTerm(query.q);
@@ -224,7 +226,6 @@ export default async function ResultsPage({
                 an insurer&rsquo;s its net premium. There is no growth rate off a loss, and a figure the
                 filing did not report is a dash.
               </p>
-              {scanCapped ? <p>Growth filters read the latest {formatInteger(GROWTH_SCAN)} results.</p> : null}
             </>
           }
         />
@@ -234,12 +235,12 @@ export default async function ResultsPage({
         </div>
       </div>
 
-      {upcoming?.length ? (
+      {lined.length ? (
         <div className="flex flex-wrap gap-3">
           <ResultsLinedUpTile
-            lined={upcoming.length}
+            lined={lined.length}
             declared={declaredInScope?.length ?? null}
-            soonest={upcoming}
+            soonest={lined}
             logos={new Map((facts ?? []).map((fact) => [fact.symbol, fact.logo_domain]))}
           />
         </div>
@@ -257,6 +258,9 @@ export default async function ResultsPage({
 
       {cards.length ? (
         <Reveal className="space-y-6">
+          {scanCapped ? (
+            <p className="tabular text-xs text-muted-foreground">Latest {formatInteger(GROWTH_SCAN)} scanned</p>
+          ) : null}
           {groups.map((group) => (
             <section key={group.date} aria-labelledby={`results-${group.date}`} className="space-y-3">
               <h2
@@ -285,6 +289,8 @@ export default async function ResultsPage({
                 Show more{total === null ? "" : ` · ${formatInteger(cards.length)} of ${formatInteger(total)}`}
               </Link>
             </div>
+          ) : total !== null ? (
+            <p className="tabular text-center text-xs text-muted-foreground">{formatInteger(total)} results</p>
           ) : null}
         </Reveal>
       ) : (

@@ -47,6 +47,17 @@ export default async function ConcallsPage({
   const market = marketFromSlug((await params).market)!;
   const query = await searchParams;
 
+  if (market.code !== "NSE") {
+    return (
+      <div className="space-y-4 px-4 py-5 sm:px-6">
+        <h1 className="text-title font-semibold">Concalls</h1>
+        <div className="panel px-5 py-10 text-center">
+          <p className="text-sm font-medium">NSE only</p>
+        </div>
+      </div>
+    );
+  }
+
   const feed = await loadFeedFilters(market.code, query, { defaultScope: "all", facets: FACETS });
   const search = searchTerm(query.q);
   const filtered = Boolean(search) || !feed.isDefault;
@@ -78,8 +89,7 @@ export default async function ConcallsPage({
         <PageTitle
           title="Concalls"
           info={
-            market.code === "NSE" ? (
-              <>
+            <>
                 <p>
                   Earnings calls the day they are held. A call is first read from the recording the company
                   files that evening, then from its transcript once that is filed. Open a highlight for the
@@ -94,8 +104,7 @@ export default async function ConcallsPage({
                   verified nothing shows a dash. A call read from its recording has no speaker labels and its
                   figures are as the speech model heard them.
                 </p>
-              </>
-            ) : undefined
+            </>
           }
         />
         {upcoming ? <UpcomingButton /> : null}
@@ -134,6 +143,9 @@ export default async function ConcallsPage({
               </ul>
             </section>
           ))}
+          {calls.length === FEED_LIMIT ? (
+            <p className="tabular text-center text-xs text-muted-foreground">Latest {FEED_LIMIT}</p>
+          ) : null}
         </Reveal>
       ) : (
         <div className="panel px-5 py-10 text-center">

@@ -156,7 +156,7 @@ export function UpcomingProvider({
         <SheetContent side="right" className="gap-0 data-[side=right]:w-[calc(100vw-1rem)] data-[side=right]:sm:max-w-2xl">
           <SheetHeader className="space-y-1 border-b p-4 pr-12">
             <SheetTitle className="text-base">{copy.title}</SheetTitle>
-                      </SheetHeader>
+          </SheetHeader>
           <div className="space-y-3 border-b p-4">
             <SearchInput
               value={search}
