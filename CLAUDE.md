@@ -267,6 +267,17 @@ the scheduled workflows set the same flag.
   sweep starts there. The deals export's JSON stops at 70 rows; its CSV form
   (`csv=true`) is complete. The tables are in `storage/shareholding_schema.sql`
   and must be applied by hand.
+- **Upcoming results dates and earnings calls are one row per stock.**
+  `workers/upcoming_events.py` (a step of the Quarterly filings workflow, NSE
+  only) writes `upcoming_events`: `next_result_date` from the board-meeting
+  feed (the later intimation wins a reschedule), and `next_call_at` /
+  `next_call_date` from the "Con. Call" notice's PDF -- the API carries
+  neither. A call is an *earnings* call, not an investor meet, when the
+  notice's text names a conference or earnings call and ties it to results;
+  a time is kept only in India time. The worker clears a passed date, reads
+  a notice once (`updated_at` is when it last looked at the stock), and
+  skips BSE-only names. Display evidence; the table is in
+  `storage/upcoming_events_schema.sql`, applied by hand.
 - **Live prices are display-only, every five minutes during the session.**
   `workers/live_quotes.py` (the Live quotes workflow, dispatch-only:
   cron-job.org calls it every 5 minutes on weekdays; do not add a
