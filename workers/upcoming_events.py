@@ -45,8 +45,9 @@ logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 #: How far ahead the board-meeting feed is read.
 RESULTS_HORIZON_DAYS = 60
-#: How far back a run looks for call notices; a call is announced days ahead and runs are minutes apart.
-NOTICE_LOOKBACK_DAYS = 3
+#: How far back a run looks for call notices: a call is announced a median 7 days ahead, p90 13,
+#: p95 14, longest 19 (112 notices read 24-31 Oct 2026), so 14 days reaches all but the rare early one.
+NOTICE_LOOKBACK_DAYS = 14
 #: Notices read in one run (the archive refuses a burst); the rest wait.
 MAX_NOTICES_PER_RUN = 60
 #: Seconds between two downloads from the archive.

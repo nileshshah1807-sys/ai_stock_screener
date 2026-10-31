@@ -167,7 +167,7 @@ class MergeTests(unittest.TestCase):
         (row,) = self.merged(stored, {"AAA": {"company": "Aaa", "next_result_date": "2026-11-07", "result_purpose": "Financial Results"}}, {})
         self.assertEqual(row["updated_at"], "2026-10-30T10:00:00+00:00")
         (new,) = self.merged({}, {"BBB": {"company": "B", "next_result_date": "2026-11-07", "result_purpose": "Financial Results"}}, {})
-        self.assertEqual(new["updated_at"], "2026-10-28T08:00:00+00:00")  # the notice window's start
+        self.assertEqual(new["updated_at"], "2026-10-17T08:00:00+00:00")  # the notice window's start
 
     def test_no_board_meeting_feed_leaves_result_dates_alone(self):
         stored = {"AAA": call_row(next_result_date="2026-11-03", result_purpose="Financial Results"),
