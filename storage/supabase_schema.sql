@@ -119,6 +119,8 @@ create index if not exists red_flag_snapshots_symbol_idx on red_flag_snapshots(s
 -- Daily, point-in-time observations for audits and future walk-forward tests.
 -- Re-running the worker on the same day updates that day's observation rather
 -- than creating duplicates; a new policy retains an independent history.
+-- The worker deletes rows older than 90 days after each write
+-- (RED_FLAG_HISTORY_RETENTION_DAYS in storage/supabase_repository.py).
 create table if not exists red_flag_snapshot_history (
     source text not null,
     symbol text not null,

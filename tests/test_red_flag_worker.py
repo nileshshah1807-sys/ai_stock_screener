@@ -28,6 +28,7 @@ class FakeRepository:
     def __init__(self):
         self.snapshots = []
         self.history = []
+        self.pruned = []
 
     def upsert_red_flag_snapshots(self, snapshots):
         self.snapshots = snapshots
@@ -38,7 +39,17 @@ class FakeRepository:
         return len(snapshots)
 
 
+    def prune_red_flag_snapshot_history(self, today):
+        self.pruned.append(today)
+
+
 class RedFlagWorkerTests(unittest.TestCase):
+    def test_worker_prunes_history_after_writing_it(self):
+        repository = FakeRepository()
+        RedFlagWorker(repository, RedFlagSettings(), FakeClient()).run()
+
+        self.assertEqual(repository.pruned, [date.today()])
+
     def test_worker_fetches_required_tables_and_saves_snapshots(self):
         repository = FakeRepository()
         result = RedFlagWorker(repository, RedFlagSettings(), FakeClient()).run()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import requests
@@ -17,6 +17,8 @@ READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # Results seasons are a quarter apart; two transcripts closer than this are
 # the same season's call and a follow-up meeting.
 PREVIOUS_CALL_MIN_GAP_DAYS = 45
+# Red-flag audit history is kept this long (~2,300 rows a trading day).
+RED_FLAG_HISTORY_RETENTION_DAYS = 90
 
 
 def _days_between(earlier: Any, later: Any) -> int:
@@ -653,6 +655,16 @@ class SupabaseRepository:
             )
             saved += len(batch)
         return saved
+
+    def prune_red_flag_snapshot_history(self, today: date) -> None:
+        """Delete observations older than the retention window, by the observed_on index."""
+        cutoff = today - timedelta(days=RED_FLAG_HISTORY_RETENTION_DAYS)
+        self._request(
+            "DELETE",
+            "red_flag_snapshot_history",
+            params={"observed_on": f"lt.{cutoff.isoformat()}"},
+            headers={"Prefer": "return=minimal"},
+        )
 
     def latest_red_flag_snapshots(self, symbols: list[str], batch_size: int = 200) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
