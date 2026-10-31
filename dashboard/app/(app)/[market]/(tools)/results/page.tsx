@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { LiveSearch } from "@/components/filters/live-search";
+import { PageTitle } from "@/components/page-title";
 import { Reveal } from "@/components/motion";
 import { AutoRefresh } from "@/components/results/auto-refresh";
 import { QuarterPicker } from "@/components/results/quarter-picker";
@@ -81,10 +82,7 @@ export default async function ResultsPage({
       <div className="space-y-4 px-4 py-5 sm:px-6">
         <h1 className="text-title font-semibold">Results</h1>
         <div className="panel px-5 py-10 text-center">
-          <p className="text-sm font-medium">Results are read for NSE only.</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {market.label} has no exchange index of results filings to read them from.
-          </p>
+          <p className="text-sm font-medium">NSE only</p>
         </div>
       </div>
     );
@@ -115,7 +113,14 @@ export default async function ResultsPage({
     getWatchlists(market.code),
   ]);
   // A company that has filed is no longer lined up, even while its date is today's.
-  const upcoming = dated && declaredSymbols ? dated.filter((row) => !declaredSymbols.has(row.symbol)) : dated;
+  // The tile follows the page's own filter scope (by default the market-cap floor), so it reads what
+  // the list below and Analysis count; the Upcoming sheet has its own search and watchlist chips and
+  // lists every company not yet declared.
+  const scope = feed.symbols ? new Set(feed.symbols) : null;
+  const inScope = (symbol: string) => !scope || scope.has(symbol);
+  const declaredInScope = declaredSymbols ? [...declaredSymbols].filter(inScope) : null;
+  const upcoming = dated?.filter((row) => !declaredSymbols?.has(row.symbol)) ?? null;
+  const lined = upcoming?.filter((row) => inScope(row.symbol)) ?? [];
   const watchlists = lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }));
 
   const search = searchTerm(query.q);
@@ -204,26 +209,38 @@ export default async function ResultsPage({
       {quarter === newest ? <AutoRefresh /> : null}
 
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-title font-semibold">Results</h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Quarterly results the evening they are filed, from each company&rsquo;s own filing with the
-            exchange. Each card sets the quarter against the one before it and the same quarter a year
-            earlier.
-          </p>
-        </div>
+        <PageTitle
+          title="Results"
+          info={
+            <>
+              <p>
+                Quarterly results as each company files them with the exchange, within a quarter of an
+                hour. Each card sets the quarter against the one before it and the same quarter a year
+                earlier.
+              </p>
+              <p>
+                Figures are the company&rsquo;s own, as filed. A company that files on both bases opens on
+                its consolidated results, unless only its standalone results reach back a year; changes
+                are only taken within one basis. Operating profit is profit before tax with interest and
+                depreciation added back. A bank&rsquo;s revenue is net interest income plus other income,
+                an insurer&rsquo;s its net premium. There is no growth rate off a loss, and a figure the
+                filing did not report is a dash.
+              </p>
+            </>
+          }
+        />
         <div className="flex items-center gap-2">
           {upcoming ? <UpcomingButton /> : null}
           <QuarterPicker value={quarter} options={quarters} />
         </div>
       </div>
 
-      {upcoming?.length ? (
+      {lined.length ? (
         <div className="flex flex-wrap gap-3">
           <ResultsLinedUpTile
-            lined={upcoming.length}
-            declared={declaredSymbols?.size ?? null}
-            soonest={upcoming}
+            lined={lined.length}
+            declared={declaredInScope?.length ?? null}
+            soonest={lined}
             logos={new Map((facts ?? []).map((fact) => [fact.symbol, fact.logo_domain]))}
           />
         </div>
@@ -241,13 +258,9 @@ export default async function ResultsPage({
 
       {cards.length ? (
         <Reveal className="space-y-6">
-          <p className="tabular text-xs text-muted-foreground">
-            {total === null
-              ? `Showing the latest ${formatInteger(cards.length)} results`
-              : `Showing ${formatInteger(cards.length)} of ${formatInteger(total)} results`}{" "}
-            for {quarterLabel(quarter, { fiscal: true })}
-            {scanCapped ? ` (growth filters read the latest ${formatInteger(GROWTH_SCAN)} results)` : ""}
-          </p>
+          {scanCapped ? (
+            <p className="tabular text-xs text-muted-foreground">Latest {formatInteger(GROWTH_SCAN)} scanned</p>
+          ) : null}
           {groups.map((group) => (
             <section key={group.date} aria-labelledby={`results-${group.date}`} className="space-y-3">
               <h2
@@ -273,18 +286,12 @@ export default async function ResultsPage({
                 scroll={false}
                 className="inline-flex items-center rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                Show more results
+                Show more{total === null ? "" : ` · ${formatInteger(cards.length)} of ${formatInteger(total)}`}
               </Link>
             </div>
+          ) : total !== null ? (
+            <p className="tabular text-center text-xs text-muted-foreground">{formatInteger(total)} results</p>
           ) : null}
-          <p className="max-w-3xl border-t pt-4 text-xs leading-relaxed text-muted-foreground">
-            Figures are the company&rsquo;s own, as filed; a company that files on both bases opens
-            on its consolidated results, unless only its standalone results reach back a year, and
-            changes are only ever taken within one basis. Operating profit is profit before tax with
-            interest and depreciation added back, as on the stock page. A bank&rsquo;s revenue is net
-            interest income plus other income, and an insurer&rsquo;s is its net premium. There is no
-            growth rate off a loss, and a figure the filing did not report is a dash.
-          </p>
         </Reveal>
       ) : (
         <div className="panel px-5 py-10 text-center">
@@ -296,9 +303,6 @@ export default async function ResultsPage({
                 : feed.isDefault
                   ? `No results filed for ${quarterLabel(quarter)} yet.`
                   : "No results match these filters."}
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Results appear here within a quarter of an hour of being filed with the exchange.
           </p>
           {filtered ? (
             <Link

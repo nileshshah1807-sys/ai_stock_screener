@@ -221,3 +221,13 @@ test("median and chosenSpan", () => {
   assert.equal(chosenSpan("5"), 6);
   assert.equal(chosenSpan(undefined), 6);
 });
+
+test("a filing that reports neither revenue nor net profit is not a result, as in the feed view", () => {
+  const filings = [
+    filed("A", "2026-09-30", 120), filed("A", "2025-09-30", 100),
+    { symbol: "B", period_end: "2026-09-30", is_consolidated: true, lines: { revenue: null, net_profit: null } },
+    { symbol: "C", period_end: "2026-09-30", is_consolidated: true, lines: { revenue: null, net_profit: 5 } },
+  ];
+  const [only] = quarterMedians(filings, ["2026-09-30"]);
+  assert.equal(only.results, 2);
+});

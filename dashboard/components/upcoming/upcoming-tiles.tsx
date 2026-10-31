@@ -44,7 +44,7 @@ export function ResultsLinedUpTile({
             <span className="block h-full bg-foreground/60" style={{ width: `${(declared / total) * 100}%` }} />
           </span>
           <span className="tabular mt-1.5 block text-xs text-muted-foreground">
-            {formatInteger(declared)} declared so far this season
+            {formatInteger(declared)} declared
           </span>
         </>
       ) : null}
