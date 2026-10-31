@@ -19,7 +19,7 @@ import { getUpcoming } from "@/lib/upcoming";
 import { getWatchlists } from "@/lib/watchlists";
 import {
   getCompanyNames,
-  getDeclaredCount,
+  getDeclaredSymbols,
   getLatestResultQuarter,
   getQuarterFilings,
   getQuarterLines,
@@ -107,11 +107,13 @@ export default async function ResultsPage({
   const quarter = chosenQuarter(query.quarter, ended) ?? newest;
   const quarters = ended.map((end) => ({ value: end, label: quarterLabel(end, { fiscal: true }) }));
 
-  const [upcoming, declared, lists] = await Promise.all([
+  const [dated, declaredSymbols, lists] = await Promise.all([
     getUpcoming(market.code, "results", today),
-    getDeclaredCount(market.code, newest),
+    getDeclaredSymbols(market.code, newest),
     getWatchlists(market.code),
   ]);
+  // A company that has filed is no longer lined up, even while its date is today's.
+  const upcoming = dated && declaredSymbols ? dated.filter((row) => !declaredSymbols.has(row.symbol)) : dated;
   const watchlists = lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }));
 
   const search = searchTerm(query.q);
@@ -218,7 +220,7 @@ export default async function ResultsPage({
         <div className="flex flex-wrap gap-3">
           <ResultsLinedUpTile
             lined={upcoming.length}
-            declared={declared}
+            declared={declaredSymbols?.size ?? null}
             soonest={upcoming}
             logos={new Map((facts ?? []).map((fact) => [fact.symbol, fact.logo_domain]))}
           />

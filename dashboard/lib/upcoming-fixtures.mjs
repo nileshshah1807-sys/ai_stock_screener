@@ -1,5 +1,6 @@
 /**
- * Rows in the shape of `upcoming_events` (one per stock), for developing the UI
+ * Rows as the reader hands them on (the table's columns it reads, plus the
+ * `company` it adds from the latest run), one per stock, for developing the UI
  * before the table exists. Read only when UPCOMING_FIXTURES=1 (see
  * lib/upcoming.ts); the volumes follow the exchange's notices: results peak
  * near 200 a day, and about one call in four names no time.

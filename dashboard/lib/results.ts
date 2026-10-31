@@ -155,19 +155,26 @@ export async function getResultFeed(
   return { entries: rows, total: null };
 }
 
-/** How many companies have filed for a quarter, for the Upcoming tile's "declared so far". */
-export async function getDeclaredCount(market: MarketCode, quarter: string): Promise<number | null> {
+/** The companies that have filed for a quarter: "declared so far", and not "lined up" any more. */
+export async function getDeclaredSymbols(market: MarketCode, quarter: string): Promise<Set<string> | null> {
   const supabase = await createClient();
-  const { count, error } = await supabase
-    .from("quarterly_result_feed")
-    .select("symbol", { count: "exact", head: true })
-    .eq("market", market)
-    .eq("period_end", quarter);
-  if (error) {
-    console.error("getDeclaredCount failed", error.message);
-    return null;
+  const symbols = new Set<string>();
+  for (let from = 0; ; from += READ_WINDOW) {
+    const { data, error } = await supabase
+      .from("quarterly_result_feed")
+      .select("symbol")
+      .eq("market", market)
+      .eq("period_end", quarter)
+      .order("symbol", { ascending: true })
+      .range(from, from + READ_WINDOW - 1);
+    if (error) {
+      console.error("getDeclaredSymbols failed", error.message);
+      return null;
+    }
+    for (const row of data) symbols.add(row.symbol as string);
+    if (data.length < READ_WINDOW) break;
   }
-  return count;
+  return symbols;
 }
 
 /** Every filing of these companies for these quarters, on both bases. */

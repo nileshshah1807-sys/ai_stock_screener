@@ -99,7 +99,7 @@ const OpenContext = createContext<(open: boolean) => void>(() => {});
 export function UpcomingTrigger({ className, children }: { className?: string; children: ReactNode }) {
   const setOpen = useContext(OpenContext);
   return (
-    <button type="button" onClick={() => setOpen(true)} className={className}>
+    <button type="button" aria-haspopup="dialog" onClick={() => setOpen(true)} className={className}>
       {children}
     </button>
   );
@@ -115,13 +115,15 @@ export function UpcomingButton() {
 }
 
 /**
- * The sheet of one page's upcoming list, and what opens it: wrap the page's
- * header and tiles in this, and any UpcomingTrigger inside opens the sheet.: one list, by day, of what the
- * exchange has been told is coming. Searchable, and narrowed to a watchlist by
- * its chip. Days with nothing on them fold into a single line.
+ * One page's Upcoming sheet, and what opens it: wrap the page's header and
+ * tiles in this, and any UpcomingTrigger inside opens it. The sheet is one
+ * list, by day, of what the exchange has been told is coming: searchable,
+ * narrowed to a watchlist by its chip, with days that have nothing on them
+ * folded into a single line.
  *
  * The rows arrive with the page (a peak week is under a thousand), so
- * searching and switching list answer on the keystroke.
+ * searching and switching list answer on the keystroke. `defaultOpen` is
+ * read on the first render only; a later `?upcoming` change does not reopen it.
  */
 export function UpcomingProvider({
   kind,
@@ -153,57 +155,57 @@ export function UpcomingProvider({
     <OpenContext.Provider value={setOpen}>
       {children}
       <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent side="right" className="gap-0 data-[side=right]:w-[calc(100vw-1rem)] data-[side=right]:sm:max-w-2xl">
-        <SheetHeader className="space-y-1 border-b p-4 pr-12">
-          <SheetTitle className="text-base">{copy.title}</SheetTitle>
-          <SheetDescription className="text-xs">{copy.blurb}</SheetDescription>
-        </SheetHeader>
-        <div className="space-y-3 border-b p-4">
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            label={`Search ${copy.noun} by company or symbol`}
-            placeholder="Search a company or symbol"
-          />
-          {lists.length ? (
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Watchlist">
-              {[{ id: null, name: "All companies" }, ...lists].map((list) => (
-                <button
-                  key={list.id ?? "all"}
-                  type="button"
-                  aria-pressed={list.id === listId}
-                  onClick={() => setListId(list.id)}
-                  className={cn(
-                    "h-7 rounded-md border px-2.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    list.id === listId ? "border-foreground bg-muted" : "text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  {list.name}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
-          {kept.length ? (
-            groups.map((group) =>
-              "gap" in group ? (
-                <p key={group.from} className="text-xs text-muted-foreground">
-                  {group.days === 1
-                    ? `${dayLabel(group.from)} · ${copy.quiet.toLowerCase()}`
-                    : `${dayLabel(group.from)} – ${dayLabel(group.to)} · ${copy.quiet.toLowerCase()}`}
-                </p>
-              ) : (
-                <Day key={group.date} group={group} kind={kind} />
-              ),
-            )
-          ) : (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              {search || symbols ? `No ${copy.noun} match.` : copy.empty}
-            </p>
-          )}
-        </div>
-      </SheetContent>
+        <SheetContent side="right" className="gap-0 data-[side=right]:w-[calc(100vw-1rem)] data-[side=right]:sm:max-w-2xl">
+          <SheetHeader className="space-y-1 border-b p-4 pr-12">
+            <SheetTitle className="text-base">{copy.title}</SheetTitle>
+            <SheetDescription className="text-xs">{copy.blurb}</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-3 border-b p-4">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              label={`Search ${copy.noun} by company or symbol`}
+              placeholder="Search a company or symbol"
+            />
+            {lists.length ? (
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Watchlist">
+                {[{ id: null, name: "All companies" }, ...lists].map((list) => (
+                  <button
+                    key={list.id ?? "all"}
+                    type="button"
+                    aria-pressed={list.id === listId}
+                    onClick={() => setListId(list.id)}
+                    className={cn(
+                      "h-7 rounded-md border px-2.5 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      list.id === listId ? "border-foreground bg-muted" : "text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {list.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4">
+            {kept.length ? (
+              groups.map((group) =>
+                "gap" in group ? (
+                  <p key={group.from} className="text-xs text-muted-foreground">
+                    {group.days === 1
+                      ? `${dayLabel(group.from)} · ${copy.quiet.toLowerCase()}`
+                      : `${dayLabel(group.from)} – ${dayLabel(group.to)} · ${copy.quiet.toLowerCase()}`}
+                  </p>
+                ) : (
+                  <Day key={group.date} group={group} kind={kind} />
+                ),
+              )
+            ) : (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                {search || symbols ? `No ${copy.noun} match.` : copy.empty}
+              </p>
+            )}
+          </div>
+        </SheetContent>
       </Sheet>
     </OpenContext.Provider>
   );

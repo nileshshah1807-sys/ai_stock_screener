@@ -35,6 +35,9 @@ const COLUMNS = "symbol, next_result_date, next_call_at, next_call_date";
 /** PostgREST returns at most this many rows per request; a peak week holds about 900 stocks. */
 const READ_WINDOW = 1000;
 
+/** PostgREST and Postgres codes for a table that is not there yet: nothing to log until it is applied. */
+const MISSING_TABLE = new Set(["PGRST205", "42P01"]);
+
 type UpcomingRow = {
   symbol: string;
   next_result_date: string | null;
@@ -63,7 +66,7 @@ export async function getUpcoming(
       .order("symbol", { ascending: true })
       .range(from, from + READ_WINDOW - 1);
     if (error) {
-      console.error("getUpcoming failed", error.message);
+      if (!MISSING_TABLE.has(error.code)) console.error("getUpcoming failed", error.message);
       return null;
     }
     rows.push(...(data as UpcomingRow[]));
@@ -91,7 +94,7 @@ export async function getUpcomingResultDate(
     .gte("next_result_date", today)
     .maybeSingle();
   if (error) {
-    console.error("getUpcomingResultDate failed", error.message);
+    if (!MISSING_TABLE.has(error.code)) console.error("getUpcomingResultDate failed", error.message);
     return null;
   }
   return (data?.next_result_date as string | undefined) ?? null;

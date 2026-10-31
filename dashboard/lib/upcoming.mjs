@@ -1,7 +1,8 @@
 /**
- * Upcoming events. The table `upcoming_events` holds one row per stock:
- * `{ symbol, company, next_result_date, next_call_at, next_call_date }`. The
- * lists work on events, one per stock and kind:
+ * Upcoming events. The table `upcoming_events` holds one row per stock; the
+ * reader takes `{ symbol, next_result_date, next_call_at, next_call_date }`
+ * from it and adds `company` from the latest run (the table's own company
+ * column is not read). The lists work on events, one per stock and kind:
  * `{ kind: "results" | "call", symbol, company, event_date: "YYYY-MM-DD",
  * event_time: ISO with the IST offset | null }`. A result has a date and never
  * a time; a call has a time when its notice gave one (`next_call_at`) and a
