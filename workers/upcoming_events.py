@@ -123,8 +123,8 @@ def _date_of(match: re.Match[str]) -> date | None:
 def _time_in(chunk: str) -> clock | None:
     """The first India-time clock reading in ``chunk``, or None.
 
-    A reading with no am/pm needs a colon and an hour a day starts with the 24-hour
-    clock ('16:00'); '4.30' alone could be either half of the day.
+    A reading with no am/pm is the 24-hour clock only as 'HH:MM' from 13:00 ('16:00') or with
+    'hrs'; '10:00' or '4.30' alone could be either half of the day, and a time is never guessed.
     """
     for match in _TIME.finditer(chunk):
         hour, minute, marker = int(match["h"]), int(match["min"] or 0), (match["ap"] or "").lower().replace(" ", "")
@@ -138,7 +138,7 @@ def _time_in(chunk: str) -> clock | None:
             hour = hour % 12 + (12 if marker.startswith("p") else 0)
         elif marker == "noon":
             hour = 12
-        elif not (marker == "hrs" or ":" in match.group(0)) or hour < 7:
+        elif marker != "hrs" and (":" not in match.group(0) or hour < 13):
             continue
         return clock(hour, minute)
     return None
@@ -232,6 +232,13 @@ def _call_day(row: dict[str, Any]) -> date | None:
     return date.fromisoformat(str(row["next_call_date"])[:10]) if row.get("next_call_date") else None
 
 
+def _looked_before(old: dict[str, Any], checked_at: datetime) -> datetime:
+    """When the worker last read this stock's notices; for a stock it has not, the start of the window."""
+    if old.get("updated_at"):
+        return datetime.fromisoformat(str(old["updated_at"]))
+    return checked_at - timedelta(days=NOTICE_LOOKBACK_DAYS)
+
+
 def _same(new: Any, old: Any) -> bool:
     """Equal as stored: Postgres hands a timestamp back in UTC, whatever offset it was written in."""
     if isinstance(new, str) and "T" in new and isinstance(old, str):
@@ -244,7 +251,7 @@ _COLUMNS = ("company", "next_result_date", "result_purpose", "next_call_at", "ne
 
 def merge(
     stored: dict[str, dict[str, Any]],
-    results: dict[str, dict[str, Any]],
+    results: dict[str, dict[str, Any]] | None,
     notices: dict[str, tuple[dict[str, Any], tuple[date, clock | None] | None]],
     *,
     today: date,
@@ -252,14 +259,21 @@ def merge(
 ) -> list[dict[str, Any]]:
     """The rows to write: those whose content changed, and every stock whose notices were read.
 
+    ``results`` is None when the board-meeting feed was not had: the stored result dates stand
+    (a passed one is still cleared). ``updated_at`` advances only for a stock whose notices were read;
+    a stock new to the table starts the notice window over, so notices filed in it are still read.
+
     ``notices`` maps a symbol to its newest earnings-call notice and what it announced
     (None: read, but no call date in it -- the stock keeps the call it had).
     """
     rows = []
-    for symbol in sorted(set(stored) | set(results) | set(notices)):
+    for symbol in sorted(set(stored) | set(results or ()) | set(notices)):
         old = stored.get(symbol, {})
         row = {column: old.get(column) for column in _COLUMNS}
-        row.update({"next_result_date": None, "result_purpose": None, **results.get(symbol, {})})
+        if results is not None:
+            row.update({"next_result_date": None, "result_purpose": None, **results.get(symbol, {})})
+        if row["next_result_date"] and date.fromisoformat(str(row["next_result_date"])[:10]) < today:
+            row.update(next_result_date=None, result_purpose=None)
         if symbol in notices:
             record, call = notices[symbol]
             if call is not None:
@@ -269,7 +283,8 @@ def merge(
         if called is not None and called < today:
             row.update(next_call_at=None, next_call_date=None, call_source_url=None)
         if symbol in notices or any(_same(row[c], old.get(c)) is False for c in _COLUMNS if c != "company"):
-            rows.append({"symbol": symbol, **row, "updated_at": checked_at.isoformat(timespec="seconds")})
+            looked = checked_at if symbol in notices else _looked_before(old, checked_at)
+            rows.append({"symbol": symbol, **row, "updated_at": looked.isoformat(timespec="seconds")})
     return rows
 
 
@@ -345,7 +360,13 @@ def run(repo, *, now: datetime | None = None, dry_run: bool = False) -> dict[str
         )
         return counts
 
-    results = result_dates(fetch_board_meetings(today), today=today)
+    try:
+        meetings = fetch_board_meetings(today)
+    except Exception as exc:  # the call notices are still worth reading
+        logger.warning("Board meetings unavailable (%s); result dates left as they were", exc)
+        meetings = []
+    # An empty feed is a failed read, not a market where nobody reports.
+    results = result_dates(meetings, today=today) if meetings else None
     with TemporaryDirectory(prefix="call_notices_") as folder:
         try:
             notices = collect_notices(stored, folder=Path(folder))

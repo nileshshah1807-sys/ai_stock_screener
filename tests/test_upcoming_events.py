@@ -54,6 +54,11 @@ class CallScheduleTests(unittest.TestCase):
     def test_a_bare_number_or_an_ambiguous_hour_is_not_a_time(self):
         self.assertEqual(self.read("call on 5 November 2026 under Regulation 30 at 4.30"), (date(2026, 11, 5), None))
 
+    def test_an_unmarked_time_is_only_read_from_13_00_or_with_hrs(self):
+        self.assertEqual(self.read("call on 5 November 2026 at 10:00"), (date(2026, 11, 5), None))
+        self.assertEqual(self.read("call on 5 November 2026 at 16:00"), (date(2026, 11, 5), time(16, 0)))
+        self.assertEqual(self.read("call on 5 November 2026 at 10:00 hrs"), (date(2026, 11, 5), time(10, 0)))
+
     def test_a_dotted_date_is_not_read_as_a_time(self):
         self.assertEqual(self.read("call on 05.11.2026"), (date(2026, 11, 5), None))
 
@@ -157,6 +162,20 @@ class MergeTests(unittest.TestCase):
         self.assertEqual((row["next_call_date"], row["call_source_url"]), ("2026-11-05", "old"))
         self.assertEqual(row["updated_at"], "2026-10-31T08:00:00+00:00")
 
+    def test_updated_at_moves_only_for_a_stock_whose_notices_were_read(self):
+        stored = {"AAA": call_row(next_result_date="2026-11-03", result_purpose="Financial Results")}
+        (row,) = self.merged(stored, {"AAA": {"company": "Aaa", "next_result_date": "2026-11-07", "result_purpose": "Financial Results"}}, {})
+        self.assertEqual(row["updated_at"], "2026-10-30T10:00:00+00:00")
+        (new,) = self.merged({}, {"BBB": {"company": "B", "next_result_date": "2026-11-07", "result_purpose": "Financial Results"}}, {})
+        self.assertEqual(new["updated_at"], "2026-10-28T08:00:00+00:00")  # the notice window's start
+
+    def test_no_board_meeting_feed_leaves_result_dates_alone(self):
+        stored = {"AAA": call_row(next_result_date="2026-11-03", result_purpose="Financial Results"),
+                  "BBB": call_row(symbol="BBB", next_result_date="2026-10-30", result_purpose="Financial Results")}
+        rows = {row["symbol"]: row for row in self.merged(stored, None, {})}
+        self.assertNotIn("AAA", rows)
+        self.assertIsNone(rows["BBB"]["next_result_date"])
+
     def test_a_result_date_that_left_the_feed_is_cleared(self):
         stored = {"AAA": call_row(next_result_date="2026-11-03", result_purpose="Financial Results")}
         (row,) = self.merged(stored, {}, {})
@@ -255,6 +274,29 @@ class RunTests(unittest.TestCase):
         repo = FakeRepo()
         self.assertEqual(self.run_with(repo)["written"], 1)
         self.assertEqual(repo.written[0]["next_result_date"], "2026-11-03")
+
+    def test_a_failed_board_meeting_read_warns_and_keeps_the_dates(self):
+        from unittest.mock import patch
+
+        repo = FakeRepo({"AAA": call_row(next_result_date="2026-11-03", result_purpose="Financial Results")})
+        with (
+            patch("workers.upcoming_events.fetch_board_meetings", side_effect=TimeoutError("nse")),
+            patch("workers.upcoming_events.discover_nse_announcements", return_value=[]),
+            self.assertLogs("workers.upcoming_events", "WARNING"),
+        ):
+            counts = run(repo, now=NOW)
+        self.assertEqual((counts["written"], repo.written), (0, []))
+
+    def test_an_empty_board_meeting_feed_clears_nothing(self):
+        from unittest.mock import patch
+
+        repo = FakeRepo({"AAA": call_row(next_result_date="2026-11-03", result_purpose="Financial Results")})
+        with (
+            patch("workers.upcoming_events.fetch_board_meetings", return_value=[]),
+            patch("workers.upcoming_events.discover_nse_announcements", return_value=[]),
+        ):
+            run(repo, now=NOW)
+        self.assertEqual(repo.written, [])
 
     def test_a_missing_table_is_a_warning_not_a_failure(self):
         with self.assertLogs("workers.upcoming_events", "WARNING"):
