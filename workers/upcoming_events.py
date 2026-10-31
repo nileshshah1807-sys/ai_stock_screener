@@ -30,6 +30,7 @@ import argparse
 import logging
 import re
 import time
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from datetime import time as clock
 from pathlib import Path
@@ -37,8 +38,8 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from transcripts.collector import discover_nse_announcements, is_earnings_transcript
-from transcripts.recordings import download_notice, is_recording_notice
+from transcripts.collector import is_earnings_transcript
+from transcripts.recordings import is_recording_notice
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,11 @@ NOTICE_LOOKBACK_DAYS = 14
 MAX_NOTICES_PER_RUN = 60
 #: Seconds between two downloads from the archive.
 NOTICE_PAUSE_SECONDS = 0.7
+#: Stocks read between two writes: a run cut short keeps what it had read.
+BATCH_STOCKS = 10
+#: Stop starting new stocks after this long; the step's own timeout is 8 minutes and
+#: opening the exchange session alone can take 35 s on a runner.
+TIME_BUDGET_SECONDS = 5 * 60
 
 _RESULT_PURPOSE = "financial results"
 _NOT_A_SCHEDULE = re.compile(r"presentation|outcome|minutes", re.IGNORECASE)
@@ -145,7 +151,7 @@ def _time_in(chunk: str) -> clock | None:
     return None
 
 
-def call_schedule(text: str, *, filed: date) -> tuple[date, clock | None] | None:
+def call_schedule(text: str, *, filed: date) -> Call | None:
     """The date, and the India time if stated, of the call a notice announces.
 
     A date with a time beside it wins; failing that the first date after the
@@ -206,17 +212,22 @@ def _filed_at(record: dict[str, Any]) -> datetime | None:
         return None
 
 
-def read_notice(record: dict[str, Any], folder: Path, *, filed: date) -> tuple[date, clock | None] | None:
+Call = tuple[date, clock | None]
+
+
+def read_notice(record: dict[str, Any], fetch: Callable[[str], Path], *, filed: date) -> Call | None:
     """The call a notice announces; None for an investor meet or a notice with no stated date."""
     import pymupdf
 
-    path = download_notice(str(record["attchmntFile"]), folder)
+    path = fetch(str(record["attchmntFile"]))
+    if path.read_bytes()[:5] != b"%PDF-":
+        raise ValueError("NSE attachment is not a valid PDF")
     with pymupdf.open(path) as document:
         text = "\n".join(page.get_text("text") for page in document)
     return call_schedule(text, filed=filed) if is_earnings_call(text) else None
 
 
-def _call_fields(call: tuple[date, clock | None] | None, url: str) -> dict[str, Any]:
+def _call_fields(call: Call | None, url: str) -> dict[str, Any]:
     if call is None:
         return {"next_call_at": None, "next_call_date": None, "call_source_url": url}
     day, stamp = call
@@ -240,10 +251,10 @@ def _looked_before(old: dict[str, Any], checked_at: datetime) -> datetime:
     return checked_at - timedelta(days=NOTICE_LOOKBACK_DAYS)
 
 
-def _same(new: Any, old: Any) -> bool:
+def _same(column: str, new: Any, old: Any) -> bool:
     """Equal as stored: Postgres hands a timestamp back in UTC, whatever offset it was written in."""
-    if isinstance(new, str) and "T" in new and isinstance(old, str):
-        return datetime.fromisoformat(new) == datetime.fromisoformat(old)
+    if column == "next_call_at" and new and old:
+        return datetime.fromisoformat(str(new)) == datetime.fromisoformat(str(old))
     return new == old
 
 
@@ -253,7 +264,7 @@ _COLUMNS = ("company", "next_result_date", "result_purpose", "next_call_at", "ne
 def merge(
     stored: dict[str, dict[str, Any]],
     results: dict[str, dict[str, Any]] | None,
-    notices: dict[str, tuple[dict[str, Any], tuple[date, clock | None] | None]],
+    notices: dict[str, tuple[dict[str, Any], Call | None]],
     *,
     today: date,
     checked_at: datetime,
@@ -283,27 +294,14 @@ def merge(
         called = _call_day(row)
         if called is not None and called < today:
             row.update(next_call_at=None, next_call_date=None, call_source_url=None)
-        if symbol in notices or any(_same(row[c], old.get(c)) is False for c in _COLUMNS if c != "company"):
+        if symbol in notices or any(not _same(c, row[c], old.get(c)) for c in _COLUMNS if c != "company"):
             looked = checked_at if symbol in notices else _looked_before(old, checked_at)
             rows.append({"symbol": symbol, **row, "updated_at": looked.isoformat(timespec="seconds")})
     return rows
 
 
-def collect_notices(
-    stored: dict[str, dict[str, Any]],
-    *,
-    folder: Path,
-    pause: float = NOTICE_PAUSE_SECONDS,
-    limit: int = MAX_NOTICES_PER_RUN,
-    discover=None,
-    read=None,
-) -> dict[str, tuple[dict[str, Any], tuple[date, clock | None] | None]]:
-    """For each stock with a notice filed since the worker last looked, its newest earnings-call one.
-
-    Newest filings first; at most ``limit`` are read, and the stocks of those not
-    reached are left alone. A stock whose notice would not download is left alone too.
-    """
-    records = (discover or discover_nse_announcements)(NOTICE_LOOKBACK_DAYS, is_call_notice)
+def pending_notices(stored: dict[str, dict[str, Any]], records: list[dict[str, Any]]) -> list[tuple[str, datetime, dict[str, Any]]]:
+    """The call notices filed since the worker last looked at their stock, newest first."""
     fresh = []
     for record in records:
         symbol = str(record.get("symbol") or "").strip().upper()
@@ -314,39 +312,62 @@ def collect_notices(
         if seen and filed <= datetime.fromisoformat(str(seen)):
             continue
         fresh.append((symbol, filed, record))
-    fresh.sort(key=lambda item: item[1], reverse=True)
-
-    found: dict[str, tuple[dict[str, Any], tuple[date, clock | None] | None]] = {}
-    failed: set[str] = set()
-    for symbol, filed, record in fresh[:limit]:
-        if symbol in found or symbol in failed:
-            continue  # the newest earnings-call notice of a stock is the one that stands
-        try:
-            call = (read or read_notice)(record, folder, filed=filed.date())
-        except Exception as exc:
-            logger.warning("Call notice for %s not read: %s", symbol, exc)
-            failed.add(symbol)
-            continue
-        finally:
-            time.sleep(pause)
-        if call is not None:
-            found[symbol] = (record, call)
-    # A stock whose every notice read as an investor meet is still marked as looked at.
-    for symbol, _, record in fresh[:limit]:
-        if symbol not in found and symbol not in failed:
-            found[symbol] = (record, None)
-    return found
+    return sorted(fresh, key=lambda item: item[1], reverse=True)
 
 
-def fetch_board_meetings(today: date) -> list[dict[str, Any]]:
+def read_notices(
+    fresh: list[tuple[str, datetime, dict[str, Any]]],
+    fetch: Callable[[str], Path],
+    *,
+    pause: float | None = None,
+    limit: int = MAX_NOTICES_PER_RUN,
+    deadline: float | None = None,
+    read: Callable[..., Call | None] | None = None,
+) -> Iterator[tuple[str, dict[str, Any], Call | None]]:
+    """Each stock's newest earnings-call notice and what it announced, one stock at a time.
+
+    A stock is yielded once all its fresh notices are settled: the newest one that reads as
+    an earnings call stands (an investor meet falls through to an older notice); one that
+    reads as none is yielded with ``None`` so the stock is still marked as looked at. A
+    stock whose notice would not download is left alone, and so is one the ``limit`` of
+    notices, or the ``deadline`` (a ``time.monotonic()`` value), cut short.
+    """
+    by_stock: dict[str, list[tuple[datetime, dict[str, Any]]]] = {}
+    for symbol, filed, record in fresh:
+        by_stock.setdefault(symbol, []).append((filed, record))
+    reads = 0
+    for symbol, notices in by_stock.items():
+        if deadline is not None and time.monotonic() >= deadline:
+            return
+        result: tuple[str, dict[str, Any], Call | None] | None = (symbol, notices[0][1], None)
+        for filed, record in notices:
+            if reads >= limit:
+                return
+            reads += 1
+            try:
+                call = (read or read_notice)(record, fetch, filed=filed.date())
+            except Exception as exc:
+                logger.warning("Call notice for %s not read: %s", symbol, exc)
+                result = None
+                break
+            finally:
+                time.sleep(NOTICE_PAUSE_SECONDS if pause is None else pause)
+            if call is not None:
+                result = (symbol, record, call)
+                break
+        if result:
+            yield result
+
+
+def open_session(folder: str):
+    """One exchange session for the run: opening it costs a warm-up request that can take 35 s."""
     from nse import NSE
 
-    with TemporaryDirectory(prefix="nse_meetings_") as folder, NSE(download_folder=folder, timeout=60, server=False) as nse:
-        return nse.boardMeetings(
-            index="equities",
-            from_date=datetime.combine(today, datetime.min.time()),
-            to_date=datetime.combine(today + timedelta(days=RESULTS_HORIZON_DAYS), datetime.min.time()),
-        )
+    return NSE(download_folder=folder, timeout=60, server=False)
+
+
+def _stamped_window(today: date, days: int) -> tuple[datetime, datetime]:
+    return datetime.combine(today, datetime.min.time()), datetime.combine(today + timedelta(days=days), datetime.min.time())
 
 
 def run(repo, *, now: datetime | None = None, dry_run: bool = False) -> dict[str, int]:
@@ -354,34 +375,58 @@ def run(repo, *, now: datetime | None = None, dry_run: bool = False) -> dict[str
     today = now.astimezone(IST).date()
     counts = {"results": 0, "calls": 0, "read": 0, "written": 0}
     try:
-        stored = repo.upcoming_events()
+        stored = dict(repo.upcoming_events())
     except Exception as exc:
         logger.warning(
             "Upcoming events not recorded: upcoming_events is unreadable (%s). Apply storage/upcoming_events_schema.sql.", exc
         )
         return counts
 
-    try:
-        meetings = fetch_board_meetings(today)
-    except Exception as exc:  # the call notices are still worth reading
-        logger.warning("Board meetings unavailable (%s); result dates left as they were", exc)
-        meetings = []
-    # An empty feed is a failed read, not a market where nobody reports.
-    results = result_dates(meetings, today=today) if meetings else None
-    with TemporaryDirectory(prefix="call_notices_") as folder:
+    deadline = time.monotonic() + TIME_BUDGET_SECONDS
+
+    def write(rows: list[dict[str, Any]]) -> None:
+        if rows and not dry_run:
+            counts["written"] += repo.upsert_upcoming_events(rows)
+        for row in rows:  # what is stored now, so the next write sees only what changed
+            stored[row["symbol"]] = {**stored.get(row["symbol"], {}), **row}
+
+    with TemporaryDirectory(prefix="upcoming_events_") as folder, open_session(folder) as nse:
         try:
-            notices = collect_notices(stored, folder=Path(folder))
-        except Exception as exc:  # the result dates are still worth writing
+            meetings = nse.boardMeetings(index="equities", from_date=_stamped_window(today, RESULTS_HORIZON_DAYS)[0],
+                                         to_date=_stamped_window(today, RESULTS_HORIZON_DAYS)[1])
+        except Exception as exc:  # the call notices are still worth reading
+            logger.warning("Board meetings unavailable (%s); result dates left as they were", exc)
+            meetings = []
+        # An empty feed is a failed read, not a market where nobody reports.
+        results = result_dates(meetings, today=today) if meetings else None
+        write(merge(stored, results, {}, today=today, checked_at=now))
+
+        try:
+            start = datetime.combine(today - timedelta(days=NOTICE_LOOKBACK_DAYS), datetime.min.time())
+            records = [
+                record
+                for record in nse.announcements(index="equities", from_date=start, to_date=datetime.combine(today, datetime.max.time()))
+                if is_call_notice(record)
+            ]
+        except Exception as exc:  # the result dates are already written
             logger.warning("Call notices unavailable (%s)", exc)
-            notices = {}
-    rows = merge(stored, results, notices, today=today, checked_at=now)
-    counts.update(
-        results=sum(1 for row in rows if row["next_result_date"]),
-        calls=sum(1 for row in rows if row["next_call_at"] or row["next_call_date"]),
-        read=len(notices),
-    )
-    if rows and not dry_run:
-        counts["written"] = repo.upsert_upcoming_events(rows)
+            records = []
+
+        def fetch(url: str) -> Path:
+            return Path(nse.download_document(url))
+
+        batch: dict[str, tuple[dict[str, Any], Call | None]] = {}
+        for symbol, record, call in read_notices(pending_notices(stored, records), fetch, deadline=deadline):
+            batch[symbol] = (record, call)
+            counts["read"] += 1
+            if len(batch) >= BATCH_STOCKS:
+                write(merge(stored, results, batch, today=today, checked_at=now))
+                batch = {}
+        if batch:
+            write(merge(stored, results, batch, today=today, checked_at=now))
+
+    counts["results"] = sum(1 for row in stored.values() if row.get("next_result_date"))
+    counts["calls"] = sum(1 for row in stored.values() if row.get("next_call_at") or row.get("next_call_date"))
     logger.info("%s upcoming events: %s%s", repo.market, counts, " (dry run, nothing written)" if dry_run else "")
     return counts
 

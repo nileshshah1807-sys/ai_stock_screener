@@ -5,17 +5,17 @@ kept only when it is India time, a rescheduled meeting replaces the old date,
 a passed date is cleared, and a notice already read is not fetched again.
 """
 
-import tempfile
 import unittest
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 from workers.upcoming_events import (
     call_schedule,
-    collect_notices,
     is_call_notice,
     is_earnings_call,
     merge,
+    pending_notices,
+    read_notices,
     result_dates,
     run,
 )
@@ -151,6 +151,11 @@ class MergeTests(unittest.TestCase):
         )
         self.assertEqual(rows, [])
 
+    def test_a_stored_notice_url_is_compared_as_text(self):
+        stored = {"AAA": call_row(next_call_date="2026-11-05", call_source_url="https://x/TIMED_a.pdf")}
+        rows = self.merged(stored, None, {"AAA": ({"attchmntFile": "https://x/TIMED_b.pdf"}, (date(2026, 11, 5), None))})
+        self.assertEqual(rows[0]["call_source_url"], "https://x/TIMED_b.pdf")
+
     def test_a_passed_date_is_cleared(self):
         stored = {"AAA": call_row(next_result_date="2026-10-30", next_call_date="2026-10-30", call_source_url="u")}
         (row,) = self.merged(stored, {}, {})
@@ -186,57 +191,57 @@ def notice(symbol, filed, url=None):
     return {"symbol": symbol, "an_dt": filed, "attchmntFile": url or f"https://x/{symbol}.pdf", "sm_name": symbol}
 
 
-class CollectNoticeTests(unittest.TestCase):
-    def collect(self, records, stored=None, read=None, limit=60):
+def fresh(records, stored=None):
+    return pending_notices(stored or {}, records)
+
+
+class ReadNoticeTests(unittest.TestCase):
+    def read(self, records, stored=None, results=None, limit=60, deadline=None):
         reads = []
 
-        def fake_read(record, folder, *, filed):
+        def fake_read(record, fetch, *, filed):
             reads.append(record["symbol"])
-            return (read or {}).get(record["attchmntFile"], (date(2026, 11, 5), None))
+            return (results or {}).get(record["attchmntFile"], (date(2026, 11, 5), None))
 
-        found = collect_notices(
-            stored or {}, folder=Path(tempfile.gettempdir()), pause=0, limit=limit,
-            discover=lambda days, matches: records, read=fake_read,
-        )
+        found = list(read_notices(fresh(records, stored), None, pause=0, limit=limit, deadline=deadline, read=fake_read))
         return found, reads
 
     def test_a_notice_older_than_the_last_look_is_not_fetched(self):
         stored = {"AAA": call_row(updated_at="2026-10-31T05:00:00+00:00")}  # 10:30 IST
-        found, reads = self.collect(
-            [notice("AAA", "31-Oct-2026 09:00:00"), notice("BBB", "31-Oct-2026 09:00:00")], stored
-        )
-        self.assertEqual(reads, ["BBB"])
-        self.assertEqual(set(found), {"BBB"})
+        found, reads = self.read([notice("AAA", "31-Oct-2026 09:00:00"), notice("BBB", "31-Oct-2026 09:00:00")], stored)
+        self.assertEqual((reads, [f[0] for f in found]), (["BBB"], ["BBB"]))
 
     def test_the_newest_earnings_call_notice_stands(self):
         records = [notice("AAA", "31-Oct-2026 11:00:00", "new"), notice("AAA", "30-Oct-2026 11:00:00", "old")]
-        found, reads = self.collect(records)
+        found, reads = self.read(records)
         self.assertEqual(reads, ["AAA"])
-        self.assertEqual(found["AAA"][0]["attchmntFile"], "new")
+        self.assertEqual(found[0][1]["attchmntFile"], "new")
 
     def test_an_investor_meet_falls_through_to_an_older_call_notice(self):
         records = [notice("AAA", "31-Oct-2026 11:00:00", "meet"), notice("AAA", "30-Oct-2026 11:00:00", "call")]
-        found, _ = self.collect(records, read={"meet": None, "call": (date(2026, 11, 6), time(16, 0))})
-        self.assertEqual(found["AAA"][0]["attchmntFile"], "call")
+        found, _ = self.read(records, results={"meet": None, "call": (date(2026, 11, 6), time(16, 0))})
+        self.assertEqual(found[0][1]["attchmntFile"], "call")
 
     def test_a_stock_with_only_investor_meets_is_still_marked_as_looked_at(self):
-        found, _ = self.collect([notice("AAA", "31-Oct-2026 11:00:00")], read={"https://x/AAA.pdf": None})
-        self.assertEqual(found["AAA"][1], None)
+        found, _ = self.read([notice("AAA", "31-Oct-2026 11:00:00")], results={"https://x/AAA.pdf": None})
+        self.assertEqual(found[0][2], None)
 
     def test_a_download_failure_leaves_the_stock_untouched(self):
-        def failing(record, folder, *, filed):
+        def failing(record, fetch, *, filed):
             raise ValueError("403")
 
-        found = collect_notices(
-            {}, folder=Path(tempfile.gettempdir()), pause=0,
-            discover=lambda days, matches: [notice("AAA", "31-Oct-2026 11:00:00")], read=failing,
-        )
-        self.assertEqual(found, {})
+        with self.assertLogs("workers.upcoming_events", "WARNING"):
+            found = list(read_notices(fresh([notice("AAA", "31-Oct-2026 11:00:00")]), None, pause=0, read=failing))
+        self.assertEqual(found, [])
 
     def test_a_run_reads_at_most_the_limit_newest_first(self):
         records = [notice(f"S{n}", f"31-Oct-2026 {10 + n:02d}:00:00") for n in range(3)]
-        _, reads = self.collect(records, limit=2)
+        _, reads = self.read(records, limit=2)
         self.assertEqual(reads, ["S2", "S1"])
+
+    def test_a_spent_time_budget_starts_no_new_stock(self):
+        found, reads = self.read([notice("AAA", "31-Oct-2026 11:00:00")], deadline=0)
+        self.assertEqual((found, reads), ([], []))
 
 
 class FakeRepo:
@@ -251,56 +256,101 @@ class FakeRepo:
         return self.stored
 
     def upsert_upcoming_events(self, rows):
-        self.written += rows
+        self.written.append(rows)
         return len(rows)
 
 
+CALL_PDF = b"%PDF-"
+
+
+class FakeNSE:
+    """One exchange session: the feeds a run reads and the PDF download."""
+
+    sessions = 0
+
+    def __init__(self, meetings=None, notices=(), fail_meetings=False, call=(date(2026, 11, 5), time(12, 0))):
+        self.meetings, self.notices, self.fail_meetings, self.call = meetings, list(notices), fail_meetings, call
+        self.downloads = []
+
+    def __enter__(self):
+        type(self).sessions += 1
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def boardMeetings(self, **kwargs):
+        if self.fail_meetings:
+            raise TimeoutError("nse")
+        return self.meetings or []
+
+    def announcements(self, **kwargs):
+        return self.notices
+
+    def download_document(self, url):
+        self.downloads.append(url)
+        return Path(url)
+
+
 class RunTests(unittest.TestCase):
-    def run_with(self, repo, **kwargs):
+    def run_with(self, repo, nse, **kwargs):
         from unittest.mock import patch
 
+        def fake_read(record, fetch, *, filed):
+            fetch(record["attchmntFile"])
+            return nse.call
+
+        FakeNSE.sessions = 0
         with (
-            patch("workers.upcoming_events.fetch_board_meetings", return_value=[meeting("AAA", "03-Nov-2026")]),
-            patch("workers.upcoming_events.discover_nse_announcements", return_value=[]),
+            patch("workers.upcoming_events.open_session", return_value=nse),
+            patch("workers.upcoming_events.read_notice", fake_read),
+            patch("workers.upcoming_events.NOTICE_PAUSE_SECONDS", 0),
         ):
             return run(repo, now=NOW, **kwargs)
 
+    def call_notices(self, count):
+        return [
+            {"desc": "Analysts/Institutional Investor Meet/Con. Call Updates", "attchmntText": "Schedule of meet",
+             "symbol": f"S{n:02d}", "an_dt": "31-Oct-2026 10:00:00", "attchmntFile": f"https://x/S{n:02d}.pdf", "sm_name": "S"}
+            for n in range(count)
+        ]
+
     def test_a_dry_run_writes_nothing(self):
         repo = FakeRepo()
-        counts = self.run_with(repo, dry_run=True)
+        counts = self.run_with(repo, FakeNSE([meeting("AAA", "03-Nov-2026")]), dry_run=True)
         self.assertEqual((counts["results"], counts["written"], repo.written), (1, 0, []))
 
     def test_rows_are_written(self):
         repo = FakeRepo()
-        self.assertEqual(self.run_with(repo)["written"], 1)
-        self.assertEqual(repo.written[0]["next_result_date"], "2026-11-03")
+        self.assertEqual(self.run_with(repo, FakeNSE([meeting("AAA", "03-Nov-2026")]))["written"], 1)
+        self.assertEqual(repo.written[0][0]["next_result_date"], "2026-11-03")
+
+    def test_one_exchange_session_serves_the_feeds_and_every_pdf(self):
+        nse = FakeNSE([meeting("AAA", "03-Nov-2026")], self.call_notices(3))
+        self.run_with(FakeRepo(), nse)
+        self.assertEqual((FakeNSE.sessions, len(nse.downloads)), (1, 3))
+
+    def test_progress_is_written_in_batches_so_a_run_cut_short_keeps_it(self):
+        repo = FakeRepo()
+        counts = self.run_with(repo, FakeNSE([meeting("AAA", "03-Nov-2026")], self.call_notices(25)))
+        # the result dates first, then 10 + 10 + 5 stocks
+        self.assertEqual([len(rows) for rows in repo.written], [1, 10, 10, 5])
+        self.assertEqual((counts["read"], counts["calls"]), (25, 25))
 
     def test_a_failed_board_meeting_read_warns_and_keeps_the_dates(self):
-        from unittest.mock import patch
-
         repo = FakeRepo({"AAA": call_row(next_result_date="2026-11-03", result_purpose="Financial Results")})
-        with (
-            patch("workers.upcoming_events.fetch_board_meetings", side_effect=TimeoutError("nse")),
-            patch("workers.upcoming_events.discover_nse_announcements", return_value=[]),
-            self.assertLogs("workers.upcoming_events", "WARNING"),
-        ):
-            counts = run(repo, now=NOW)
+        with self.assertLogs("workers.upcoming_events", "WARNING"):
+            counts = self.run_with(repo, FakeNSE(fail_meetings=True))
         self.assertEqual((counts["written"], repo.written), (0, []))
 
     def test_an_empty_board_meeting_feed_clears_nothing(self):
-        from unittest.mock import patch
-
         repo = FakeRepo({"AAA": call_row(next_result_date="2026-11-03", result_purpose="Financial Results")})
-        with (
-            patch("workers.upcoming_events.fetch_board_meetings", return_value=[]),
-            patch("workers.upcoming_events.discover_nse_announcements", return_value=[]),
-        ):
-            run(repo, now=NOW)
+        self.run_with(repo, FakeNSE([]))
         self.assertEqual(repo.written, [])
 
     def test_a_missing_table_is_a_warning_not_a_failure(self):
         with self.assertLogs("workers.upcoming_events", "WARNING"):
-            self.assertEqual(self.run_with(FakeRepo(unreadable=True))["written"], 0)
+            self.assertEqual(self.run_with(FakeRepo(unreadable=True), FakeNSE())["written"], 0)
 
 
 if __name__ == "__main__":
