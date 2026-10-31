@@ -3,6 +3,7 @@ import "server-only";
 import { fixtureRows } from "@/lib/upcoming-fixtures.mjs";
 import type { MarketCode } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/server";
+import { runCompanyNames } from "@/lib/results";
 import { eventsFromRows } from "@/lib/upcoming.mjs";
 
 /**
@@ -13,7 +14,8 @@ import { eventsFromRows } from "@/lib/upcoming.mjs";
  * call with a time (`next_call_at`) or, when the notice gave none, a date
  * (`next_call_date`). It is read as the signed-in viewer, and reads degrade to
  * nothing while the table does not exist, so the pages simply show no
- * Upcoming button. UPCOMING_FIXTURES=1 reads sample rows instead, for
+ * Upcoming button. Company names come from the latest run, as on the Results
+ * page. UPCOMING_FIXTURES=1 reads sample rows instead, for
  * developing the UI.
  */
 
@@ -29,13 +31,12 @@ export type UpcomingEvent = {
   event_time: string | null;
 };
 
-const COLUMNS = "symbol, company, next_result_date, next_call_at, next_call_date";
+const COLUMNS = "symbol, next_result_date, next_call_at, next_call_date";
 /** PostgREST returns at most this many rows per request; a peak week holds about 900 stocks. */
 const READ_WINDOW = 1000;
 
 type UpcomingRow = {
   symbol: string;
-  company: string | null;
   next_result_date: string | null;
   next_call_at: string | null;
   next_call_date: string | null;
@@ -49,6 +50,7 @@ export async function getUpcoming(
 ): Promise<UpcomingEvent[] | null> {
   if (market !== "NSE") return null;
   if (process.env.UPCOMING_FIXTURES === "1") return eventsFromRows(fixtureRows(today), kind, today);
+  const names = await runCompanyNames(market);
   const supabase = await createClient();
   const rows: UpcomingRow[] = [];
   for (let from = 0; ; from += READ_WINDOW) {
@@ -67,7 +69,7 @@ export async function getUpcoming(
     rows.push(...(data as UpcomingRow[]));
     if (data.length < READ_WINDOW) break;
   }
-  return eventsFromRows(rows, kind, today);
+  return eventsFromRows(rows.map((row) => ({ ...row, company: names.get(row.symbol) ?? null })), kind, today);
 }
 
 /** The date of this company's coming results, or null. */

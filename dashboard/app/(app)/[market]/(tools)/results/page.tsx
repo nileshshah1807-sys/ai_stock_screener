@@ -8,7 +8,7 @@ import { AutoRefresh } from "@/components/results/auto-refresh";
 import { QuarterPicker } from "@/components/results/quarter-picker";
 import { ResultCard, type ResultCardData } from "@/components/results/result-card";
 import { ResultsLinedUpTile } from "@/components/upcoming/upcoming-tiles";
-import { UpcomingSheet } from "@/components/upcoming/upcoming-sheet";
+import { UpcomingButton, UpcomingProvider } from "@/components/upcoming/upcoming-sheet";
 import { searchTerm } from "@/lib/concalls.mjs";
 import { monthsBefore } from "@/lib/financials.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
@@ -194,7 +194,7 @@ export default async function ResultsPage({
   }
   moreParams.set("shown", String(shown + PAGE_SIZE));
 
-  return (
+  const page = (
     <div className="space-y-4 px-4 py-5 sm:px-6">
       {/* Only this season's results are still arriving. */}
       {quarter === newest ? <AutoRefresh /> : null}
@@ -209,15 +209,7 @@ export default async function ResultsPage({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {upcoming ? (
-            <UpcomingSheet
-              kind="results"
-              rows={upcoming}
-              today={today}
-              lists={watchlists}
-              defaultOpen={query.upcoming !== undefined}
-            />
-          ) : null}
+          {upcoming ? <UpcomingButton /> : null}
           <QuarterPicker value={quarter} options={quarters} />
         </div>
       </div>
@@ -315,5 +307,18 @@ export default async function ResultsPage({
         </div>
       )}
     </div>
+  );
+  return upcoming ? (
+    <UpcomingProvider
+      kind="results"
+      rows={upcoming}
+      today={today}
+      lists={watchlists}
+      defaultOpen={query.upcoming !== undefined}
+    >
+      {page}
+    </UpcomingProvider>
+  ) : (
+    page
   );
 }

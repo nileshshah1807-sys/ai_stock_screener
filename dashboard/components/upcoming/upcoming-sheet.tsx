@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 import { CalendarClock } from "lucide-react";
 
 import { SearchInput } from "@/components/filters/live-search";
 import { StockIdentity } from "@/components/stock-identity";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { UpcomingEvent, UpcomingKind } from "@/lib/upcoming";
 import { callTime, filterUpcoming, groupUpcoming } from "@/lib/upcoming.mjs";
 import { cn } from "@/lib/utils";
@@ -94,28 +93,53 @@ function Day({
   );
 }
 
+const OpenContext = createContext<(open: boolean) => void>(() => {});
+
+/** Anything that opens the page's Upcoming sheet: the button, and the tiles. */
+export function UpcomingTrigger({ className, children }: { className?: string; children: ReactNode }) {
+  const setOpen = useContext(OpenContext);
+  return (
+    <button type="button" onClick={() => setOpen(true)} className={className}>
+      {children}
+    </button>
+  );
+}
+
+export function UpcomingButton() {
+  return (
+    <UpcomingTrigger className="inline-flex h-8 items-center gap-1.5 rounded-lg border bg-background px-2.5 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <CalendarClock className="size-3.5 text-muted-foreground" aria-hidden />
+      Upcoming
+    </UpcomingTrigger>
+  );
+}
+
 /**
- * The Upcoming button and the sheet it opens: one list, by day, of what the
+ * The sheet of one page's upcoming list, and what opens it: wrap the page's
+ * header and tiles in this, and any UpcomingTrigger inside opens the sheet.: one list, by day, of what the
  * exchange has been told is coming. Searchable, and narrowed to a watchlist by
  * its chip. Days with nothing on them fold into a single line.
  *
  * The rows arrive with the page (a peak week is under a thousand), so
  * searching and switching list answer on the keystroke.
  */
-export function UpcomingSheet({
+export function UpcomingProvider({
   kind,
   rows,
   today,
   lists,
   defaultOpen = false,
+  children,
 }: {
   kind: UpcomingKind;
   rows: UpcomingEvent[];
   today: string;
   lists: UpcomingList[];
   defaultOpen?: boolean;
+  children: ReactNode;
 }) {
   const copy = COPY[kind];
+  const [open, setOpen] = useState(defaultOpen);
   const [search, setSearch] = useState("");
   const [listId, setListId] = useState<string | null>(null);
   const symbols = lists.find((list) => list.id === listId)?.symbols ?? null;
@@ -126,11 +150,9 @@ export function UpcomingSheet({
   )[];
 
   return (
-    <Sheet defaultOpen={defaultOpen}>
-      <SheetTrigger render={<Button variant="outline" className="gap-1.5" />}>
-        <CalendarClock className="size-3.5 text-muted-foreground" aria-hidden />
-        Upcoming
-      </SheetTrigger>
+    <OpenContext.Provider value={setOpen}>
+      {children}
+      <Sheet open={open} onOpenChange={setOpen}>
       <SheetContent side="right" className="gap-0 data-[side=right]:w-[calc(100vw-1rem)] data-[side=right]:sm:max-w-2xl">
         <SheetHeader className="space-y-1 border-b p-4 pr-12">
           <SheetTitle className="text-base">{copy.title}</SheetTitle>
@@ -182,6 +204,7 @@ export function UpcomingSheet({
           )}
         </div>
       </SheetContent>
-    </Sheet>
+      </Sheet>
+    </OpenContext.Provider>
   );
 }

@@ -70,7 +70,7 @@ export async function getLatestResultQuarter(
 }
 
 /** The latest run's company names, by symbol. */
-async function runCompanyNames(market: MarketCode): Promise<Map<string, string>> {
+export async function runCompanyNames(market: MarketCode): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   const run = await getLatestRun(market);
   if (!run) return names;

@@ -5,7 +5,7 @@ import { ConcallRow } from "@/components/concalls/concall-row";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { LiveSearch } from "@/components/filters/live-search";
 import { Reveal } from "@/components/motion";
-import { UpcomingSheet } from "@/components/upcoming/upcoming-sheet";
+import { UpcomingButton, UpcomingProvider } from "@/components/upcoming/upcoming-sheet";
 import { NextConcallTile } from "@/components/upcoming/upcoming-tiles";
 import { getConcalls } from "@/lib/concalls";
 import { STANCE_FILTERS, groupByCallDate, searchTerm } from "@/lib/concalls.mjs";
@@ -71,7 +71,7 @@ export default async function ConcallsPage({
 
   const base = marketPath(market.slug, "/concalls");
 
-  return (
+  const page = (
     <div className="space-y-4 px-4 py-5 sm:px-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -82,15 +82,7 @@ export default async function ConcallsPage({
               : `Earnings calls are read for NSE only; there is no recording or transcript source for ${market.label} yet.`}
           </p>
         </div>
-        {upcoming ? (
-          <UpcomingSheet
-            kind="call"
-            rows={upcoming}
-            today={today}
-            lists={watchlists}
-            defaultOpen={query.upcoming !== undefined}
-          />
-        ) : null}
+        {upcoming ? <UpcomingButton /> : null}
       </div>
 
       {next ? (
@@ -170,5 +162,18 @@ export default async function ConcallsPage({
         </div>
       )}
     </div>
+  );
+  return upcoming ? (
+    <UpcomingProvider
+      kind="call"
+      rows={upcoming}
+      today={today}
+      lists={watchlists}
+      defaultOpen={query.upcoming !== undefined}
+    >
+      {page}
+    </UpcomingProvider>
+  ) : (
+    page
   );
 }

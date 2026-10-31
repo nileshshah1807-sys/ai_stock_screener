@@ -20,7 +20,7 @@ import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { AnalysisChart } from "@/components/results/analysis-chart";
 import { QuarterPicker } from "@/components/results/quarter-picker";
 import { UpcomingResultChip } from "@/components/upcoming/upcoming-result-chip";
-import { UpcomingSheet } from "@/components/upcoming/upcoming-sheet";
+import { UpcomingButton, UpcomingProvider } from "@/components/upcoming/upcoming-sheet";
 import { NextConcallTile, ResultsLinedUpTile } from "@/components/upcoming/upcoming-tiles";
 import { fixtureRows } from "@/lib/upcoming-fixtures.mjs";
 import { eventsFromRows, upcomingSummary } from "@/lib/upcoming.mjs";
@@ -67,14 +67,18 @@ function UpcomingPreview() {
   const lists = [{ id: "a", name: "Core", symbols: results.slice(0, 20).map((row) => row.symbol) }];
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-3">
-        <ResultsLinedUpTile lined={results.length} declared={612} soonest={results} logos={new Map()} />
-        {next ? <NextConcallTile next={next} today={today} logoDomain={null} /> : null}
-      </div>
-      <div className="flex gap-2">
-        <UpcomingSheet kind="results" rows={results} today={today} lists={lists} />
-        <UpcomingSheet kind="call" rows={calls} today={today} lists={lists} />
-      </div>
+      <UpcomingProvider kind="results" rows={results} today={today} lists={lists}>
+        <div className="flex flex-wrap items-start gap-3">
+          <ResultsLinedUpTile lined={results.length} declared={612} soonest={results} logos={new Map()} />
+          <UpcomingButton />
+        </div>
+      </UpcomingProvider>
+      <UpcomingProvider kind="call" rows={calls} today={today} lists={lists}>
+        <div className="flex flex-wrap items-start gap-3">
+          {next ? <NextConcallTile next={next} today={today} logoDomain={null} /> : null}
+          <UpcomingButton />
+        </div>
+      </UpcomingProvider>
       <UpcomingResultChip date={results[results.length - 1].event_date} />
     </div>
   );
