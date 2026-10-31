@@ -70,7 +70,7 @@ export async function getLatestResultQuarter(
 }
 
 /** The latest run's company names, by symbol. */
-async function runCompanyNames(market: MarketCode): Promise<Map<string, string>> {
+export async function runCompanyNames(market: MarketCode): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   const run = await getLatestRun(market);
   if (!run) return names;
@@ -153,6 +153,28 @@ export async function getResultFeed(
   );
   if (error) console.error("getResultFeed failed", error);
   return { entries: rows, total: null };
+}
+
+/** The companies that have filed for a quarter: "declared so far", and not "lined up" any more. */
+export async function getDeclaredSymbols(market: MarketCode, quarter: string): Promise<Set<string> | null> {
+  const supabase = await createClient();
+  const symbols = new Set<string>();
+  for (let from = 0; ; from += READ_WINDOW) {
+    const { data, error } = await supabase
+      .from("quarterly_result_feed")
+      .select("symbol")
+      .eq("market", market)
+      .eq("period_end", quarter)
+      .order("symbol", { ascending: true })
+      .range(from, from + READ_WINDOW - 1);
+    if (error) {
+      console.error("getDeclaredSymbols failed", error.message);
+      return null;
+    }
+    for (const row of data) symbols.add(row.symbol as string);
+    if (data.length < READ_WINDOW) break;
+  }
+  return symbols;
 }
 
 /** Every filing of these companies for these quarters, on both bases. */

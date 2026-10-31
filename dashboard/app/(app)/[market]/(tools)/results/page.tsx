@@ -7,14 +7,19 @@ import { Reveal } from "@/components/motion";
 import { AutoRefresh } from "@/components/results/auto-refresh";
 import { QuarterPicker } from "@/components/results/quarter-picker";
 import { ResultCard, type ResultCardData } from "@/components/results/result-card";
+import { ResultsLinedUpTile } from "@/components/upcoming/upcoming-tiles";
+import { UpcomingButton, UpcomingProvider } from "@/components/upcoming/upcoming-sheet";
 import { searchTerm } from "@/lib/concalls.mjs";
 import { monthsBefore } from "@/lib/financials.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
 import { formatDate, formatInteger } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { getCompanyFacts, getLatestRun } from "@/lib/queries";
+import { getUpcoming } from "@/lib/upcoming";
+import { getWatchlists } from "@/lib/watchlists";
 import {
   getCompanyNames,
+  getDeclaredSymbols,
   getLatestResultQuarter,
   getQuarterFilings,
   getQuarterLines,
@@ -102,6 +107,17 @@ export default async function ResultsPage({
   const quarter = chosenQuarter(query.quarter, ended) ?? newest;
   const quarters = ended.map((end) => ({ value: end, label: quarterLabel(end, { fiscal: true }) }));
 
+  const [dated, declaredSymbols, lists] = await Promise.all([
+    getUpcoming(market.code, "results", today),
+    // The quarter that ended most recently, not `newest`: until someone files for it `newest` is the
+    // season before, and its filers are not the ones the upcoming dates belong to.
+    getDeclaredSymbols(market.code, offered[0]),
+    getWatchlists(market.code),
+  ]);
+  // A company that has filed is no longer lined up, even while its date is today's.
+  const upcoming = dated && declaredSymbols ? dated.filter((row) => !declaredSymbols.has(row.symbol)) : dated;
+  const watchlists = lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }));
+
   const search = searchTerm(query.q);
   const shown = shownCount(query.shown);
   const filtered = Boolean(search) || !feed.isDefault;
@@ -182,7 +198,7 @@ export default async function ResultsPage({
   }
   moreParams.set("shown", String(shown + PAGE_SIZE));
 
-  return (
+  const page = (
     <div className="space-y-4 px-4 py-5 sm:px-6">
       {/* Only this season's results are still arriving. */}
       {quarter === newest ? <AutoRefresh /> : null}
@@ -196,8 +212,22 @@ export default async function ResultsPage({
             earlier.
           </p>
         </div>
-        <QuarterPicker value={quarter} options={quarters} />
+        <div className="flex items-center gap-2">
+          {upcoming ? <UpcomingButton /> : null}
+          <QuarterPicker value={quarter} options={quarters} />
+        </div>
       </div>
+
+      {upcoming?.length ? (
+        <div className="flex flex-wrap gap-3">
+          <ResultsLinedUpTile
+            lined={upcoming.length}
+            declared={declaredSymbols?.size ?? null}
+            soonest={upcoming}
+            logos={new Map((facts ?? []).map((fact) => [fact.symbol, fact.logo_domain]))}
+          />
+        </div>
+      ) : null}
 
       <LiveSearch
         label="Search results by company or symbol"
@@ -281,5 +311,18 @@ export default async function ResultsPage({
         </div>
       )}
     </div>
+  );
+  return upcoming ? (
+    <UpcomingProvider
+      kind="results"
+      rows={upcoming}
+      today={today}
+      lists={watchlists}
+      defaultOpen={query.upcoming !== undefined}
+    >
+      {page}
+    </UpcomingProvider>
+  ) : (
+    page
   );
 }

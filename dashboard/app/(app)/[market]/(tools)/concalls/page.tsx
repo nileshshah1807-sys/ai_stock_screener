@@ -5,12 +5,17 @@ import { ConcallRow } from "@/components/concalls/concall-row";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { LiveSearch } from "@/components/filters/live-search";
 import { Reveal } from "@/components/motion";
+import { UpcomingButton, UpcomingProvider } from "@/components/upcoming/upcoming-sheet";
+import { NextConcallTile } from "@/components/upcoming/upcoming-tiles";
 import { getConcalls } from "@/lib/concalls";
 import { STANCE_FILTERS, groupByCallDate, searchTerm } from "@/lib/concalls.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { getCompanyFacts } from "@/lib/queries";
+import { getUpcoming } from "@/lib/upcoming";
+import { upcomingSummary } from "@/lib/upcoming.mjs";
+import { getWatchlists } from "@/lib/watchlists";
 
 export const metadata: Metadata = { title: "Concalls" };
 export const dynamic = "force-dynamic";
@@ -45,7 +50,9 @@ export default async function ConcallsPage({
   const search = searchTerm(query.q);
   const filtered = Boolean(search) || !feed.isDefault;
 
-  const [calls, facts] = await Promise.all([
+  // The exchange files by India's calendar.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const [calls, facts, upcoming, lists] = await Promise.all([
     getConcalls(market.code, {
       symbols: feed.symbols,
       search,
@@ -54,22 +61,35 @@ export default async function ConcallsPage({
     }),
     // Already read for the filter bar; React's cache() makes this free.
     getCompanyFacts(market.code),
+    getUpcoming(market.code, "call", today),
+    getWatchlists(market.code),
   ]);
+  const next = upcoming ? upcomingSummary(upcoming, today).next : null;
+  const watchlists = lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }));
   const logos = new Map((facts ?? []).map((fact) => [fact.symbol, fact.logo_domain]));
   const groups = groupByCallDate(calls);
 
   const base = marketPath(market.slug, "/concalls");
 
-  return (
+  const page = (
     <div className="space-y-4 px-4 py-5 sm:px-6">
-      <div>
-        <h1 className="text-title font-semibold">Concalls</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          {market.code === "NSE"
-            ? "Earnings calls the day they are held. A call is first read from the recording the company files that evening, then from its transcript once that is filed. Open a highlight for the sentence it came from."
-            : `Earnings calls are read for NSE only; there is no recording or transcript source for ${market.label} yet.`}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-title font-semibold">Concalls</h1>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            {market.code === "NSE"
+              ? "Earnings calls the day they are held. A call is first read from the recording the company files that evening, then from its transcript once that is filed. Open a highlight for the sentence it came from."
+              : `Earnings calls are read for NSE only; there is no recording or transcript source for ${market.label} yet.`}
+          </p>
+        </div>
+        {upcoming ? <UpcomingButton /> : null}
       </div>
+
+      {next ? (
+        <div className="flex flex-wrap gap-3">
+          <NextConcallTile next={next} today={today} logoDomain={logos.get(next.symbol)} />
+        </div>
+      ) : null}
 
       <LiveSearch
         label="Search calls by company or symbol"
@@ -142,5 +162,18 @@ export default async function ConcallsPage({
         </div>
       )}
     </div>
+  );
+  return upcoming ? (
+    <UpcomingProvider
+      kind="call"
+      rows={upcoming}
+      today={today}
+      lists={watchlists}
+      defaultOpen={query.upcoming !== undefined}
+    >
+      {page}
+    </UpcomingProvider>
+  ) : (
+    page
   );
 }

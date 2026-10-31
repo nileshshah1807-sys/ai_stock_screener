@@ -19,6 +19,11 @@ import { ActiveFilters } from "@/components/screener/active-filters";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { AnalysisChart } from "@/components/results/analysis-chart";
 import { QuarterPicker } from "@/components/results/quarter-picker";
+import { UpcomingResultChip } from "@/components/upcoming/upcoming-result-chip";
+import { UpcomingButton, UpcomingProvider } from "@/components/upcoming/upcoming-sheet";
+import { NextConcallTile, ResultsLinedUpTile } from "@/components/upcoming/upcoming-tiles";
+import { fixtureRows } from "@/lib/upcoming-fixtures.mjs";
+import { eventsFromRows, upcomingSummary } from "@/lib/upcoming.mjs";
 import { ExportLink } from "@/components/screener/export-link";
 import { FilterBar } from "@/components/screener/filter-bar";
 import { SavedViews } from "@/components/screener/saved-views";
@@ -52,6 +57,32 @@ import {
  * in a production build this file compiles to a route that always 404s.
  */
 export const dynamic = "force-static";
+
+function UpcomingPreview() {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const rows = fixtureRows(today);
+  const results = eventsFromRows(rows, "results", today) as import("@/lib/upcoming").UpcomingEvent[];
+  const calls = eventsFromRows(rows, "call", today) as import("@/lib/upcoming").UpcomingEvent[];
+  const next = upcomingSummary(calls, today).next;
+  const lists = [{ id: "a", name: "Core", symbols: results.slice(0, 20).map((row) => row.symbol) }];
+  return (
+    <div className="space-y-3">
+      <UpcomingProvider kind="results" rows={results} today={today} lists={lists}>
+        <div className="flex flex-wrap items-start gap-3">
+          <ResultsLinedUpTile lined={results.length} declared={612} soonest={results} logos={new Map()} />
+          <UpcomingButton />
+        </div>
+      </UpcomingProvider>
+      <UpcomingProvider kind="call" rows={calls} today={today} lists={lists}>
+        <div className="flex flex-wrap items-start gap-3">
+          {next ? <NextConcallTile next={next} today={today} logoDomain={null} /> : null}
+          <UpcomingButton />
+        </div>
+      </UpcomingProvider>
+      <UpcomingResultChip date={results[results.length - 1].event_date} />
+    </div>
+  );
+}
 
 export default function PreviewPage() {
   if (process.env.NODE_ENV !== "development") notFound();
@@ -201,6 +232,11 @@ export default function PreviewPage() {
               }))}
             />
           </div>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h2 className="text-heading">Upcoming events</h2>
+          <UpcomingPreview />
         </section>
 
         <section className="flex flex-col gap-3">
