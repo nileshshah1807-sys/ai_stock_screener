@@ -1,6 +1,6 @@
 import "server-only";
 
-import { fixtureRows, usFixtureRows } from "@/lib/upcoming-fixtures.mjs";
+import { fixtureRows } from "@/lib/upcoming-fixtures.mjs";
 import type { MarketCode } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/server";
 import { runCompanyNames } from "@/lib/results";
@@ -46,9 +46,6 @@ type UpcomingRow = {
   next_call_date: string | null;
 };
 
-const fixtures = (market: MarketCode, today: string) =>
-  market === "US" ? usFixtureRows(today) : fixtureRows(today);
-
 /** Events of one kind from `today` on, soonest first; null when they cannot be read. */
 export async function getUpcoming(
   market: MarketCode,
@@ -57,7 +54,7 @@ export async function getUpcoming(
 ): Promise<UpcomingEvent[] | null> {
   // The US has result dates (Alpha Vantage's calendar) but no earnings-call notices.
   if (market !== "NSE" && kind !== "results") return null;
-  if (process.env.UPCOMING_FIXTURES === "1") return eventsFromRows(fixtures(market, today), kind, today);
+  if (market === "NSE" && process.env.UPCOMING_FIXTURES === "1") return eventsFromRows(fixtureRows(today), kind, today);
   const names = await runCompanyNames(market);
   const supabase = await createClient();
   const rows: UpcomingRow[] = [];
@@ -86,8 +83,8 @@ export async function getUpcomingResultDate(
   symbol: string,
   today: string,
 ): Promise<string | null> {
-  if (process.env.UPCOMING_FIXTURES === "1") {
-    return eventsFromRows(fixtures(market, today), "results", today).find((event: UpcomingEvent) => event.symbol === symbol)?.event_date ?? null;
+  if (market === "NSE" && process.env.UPCOMING_FIXTURES === "1") {
+    return eventsFromRows(fixtureRows(today), "results", today).find((event: UpcomingEvent) => event.symbol === symbol)?.event_date ?? null;
   }
   const supabase = await createClient();
   const { data, error } = await supabase

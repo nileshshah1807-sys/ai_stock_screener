@@ -7,7 +7,6 @@ import type { MarketCode } from "@/lib/markets";
 import { getLatestRun, getSearchIndex } from "@/lib/queries";
 import { createClient } from "@/lib/supabase/server";
 import { bucketOf, quarterWindow } from "@/lib/results.mjs";
-import { fixtureFilings } from "@/lib/us-results-fixtures.mjs";
 import { PUSH_DOWN_MAX, readForSymbols } from "@/lib/symbol-scope.mjs";
 
 /**
@@ -75,28 +74,11 @@ function inQuarters<T>(query: T, market: MarketCode, ends: string[]): T {
   );
 }
 
-/**
- * US_RESULTS_FIXTURES=1 serves invented US filings in the stored shape
- * (lib/us-results-fixtures.mjs), for developing the page before those rows exist.
- */
-function fixtureOn(market: MarketCode) {
-  return market === "US" && process.env.US_RESULTS_FIXTURES === "1";
-}
-
-/** Fixture rows in `ends`' windows, by the same rule `inQuarters` sends to the database. */
-function fixtureIn(ends: string[]) {
-  return fixtureFilings().filter((row) => bucketOf(row.period_end, ends));
-}
-
 /** The newest of `offered` that anyone has filed for, or null. */
 export async function getLatestResultQuarter(
   market: MarketCode,
   offered: string[],
 ): Promise<string | null> {
-  if (fixtureOn(market)) {
-    const newest = fixtureFilings().map((row) => row.period_end).sort().at(-1);
-    return newest ? bucketOf(newest, offered) : null;
-  }
   const supabase = await createClient();
   if (market === "US") {
     const { data, error } = await supabase
@@ -160,29 +142,6 @@ export async function getResultFeed(
   { quarter, symbols = null, search = "", limit = 30, byPeriodEnd = false }: ResultFeedQuery,
 ): Promise<{ entries: ResultFeedEntry[]; total: number | null }> {
   if (symbols && symbols.length === 0) return { entries: [], total: 0 };
-  if (fixtureOn(market)) {
-    const term = search.toLowerCase();
-    const rows = fixtureIn([quarter])
-      .filter((row) => !symbols || symbols.includes(row.symbol))
-      .filter((row) => !term || row.symbol.toLowerCase().includes(term) || row.company.toLowerCase().includes(term))
-      .sort(
-        (a, b) =>
-          (byPeriodEnd ? b.period_end.localeCompare(a.period_end) : 0) ||
-          b.announced_at.localeCompare(a.announced_at) ||
-          a.symbol.localeCompare(b.symbol),
-      );
-    return {
-      entries: rows.slice(0, limit).map((row) => ({
-        symbol: row.symbol,
-        period_end: row.period_end,
-        announced_at: row.announced_at,
-        company: row.company,
-        has_consolidated: true,
-        has_standalone: false,
-      })),
-      total: rows.length,
-    };
-  }
   const supabase = await createClient();
 
   // A filing stored before the company's name was kept with it has none of
@@ -245,7 +204,6 @@ export async function getResultFeed(
 
 /** The companies that have filed for a quarter: "declared so far", and not "lined up" any more. */
 export async function getDeclaredSymbols(market: MarketCode, quarter: string): Promise<Set<string> | null> {
-  if (fixtureOn(market)) return new Set(fixtureIn([quarter]).map((row) => row.symbol));
   const supabase = await createClient();
   const symbols = new Set<string>();
   for (let from = 0; ; from += READ_WINDOW) {
@@ -273,9 +231,6 @@ export async function getQuarterFilings(
   periods: string[],
 ): Promise<QuarterFiling[]> {
   if (!symbols.length) return [];
-  if (fixtureOn(market)) {
-    return fixtureIn(periods).filter((row) => symbols.includes(row.symbol)) as unknown as QuarterFiling[];
-  }
   const supabase = await createClient();
   const read = (columns: string) =>
     inQuarters(supabase.from("quarterly_filings").select(columns).eq("market", market).in("symbol", symbols), market, periods)
@@ -412,9 +367,6 @@ export async function getQuarterLines(
   symbols: string[] | null = null,
 ): Promise<QuarterFiling[]> {
   if (symbols && symbols.length === 0) return [];
-  if (fixtureOn(market)) {
-    return fixtureIn(periods).filter((row) => !symbols || symbols.includes(row.symbol)) as unknown as QuarterFiling[];
-  }
   try {
     const supabase = await createClient();
     return symbols && symbols.length <= PUSH_DOWN_MAX
