@@ -588,12 +588,10 @@ class DashboardRepository:
         """What is stored for each (symbol, quarter, basis), to tell what is new."""
         rows = self._paged(
             "quarterly_filings",
-            self._scoped(
-                {
-                    "select": "symbol,period_end,is_consolidated,seq_id,parser_version,broadcast_at",
-                    "order": "symbol.asc,period_end.asc,is_consolidated.asc",
-                }
-            ),
+            {
+                "select": "symbol,period_end,is_consolidated,seq_id,parser_version,broadcast_at",
+                "order": "symbol.asc,period_end.asc,is_consolidated.asc",
+            },
         )
         return {
             (str(row["symbol"]), str(row["period_end"])[:10], bool(row["is_consolidated"])): row
@@ -622,13 +620,11 @@ class DashboardRepository:
             symbols_csv = ",".join(f'"{symbol}"' for symbol in chunk)
             for row in self._paged(
                 "quarterly_filings",
-                self._scoped(
-                    {
-                        "select": "symbol,period_end,is_consolidated,filed_at,taxonomy,lines",
-                        "symbol": f"in.({symbols_csv})",
-                        "order": "symbol.asc,period_end.asc,is_consolidated.asc",
-                    }
-                ),
+                {
+                    "select": "symbol,period_end,is_consolidated,filed_at,taxonomy,lines",
+                    "symbol": f"in.({symbols_csv})",
+                    "order": "symbol.asc,period_end.asc,is_consolidated.asc",
+                },
             ):
                 found.setdefault(str(row["symbol"]), []).append(row)
         return found
@@ -637,23 +633,21 @@ class DashboardRepository:
         """Stored filings of quarters first announced at or after ``since``."""
         return self._paged(
             "quarterly_filings",
-            self._scoped(
-                {
-                    "select": (
-                        "symbol,period_end,broadcast_at,"
-                        "revenue:lines->revenue,net_profit:lines->net_profit"
-                    ),
-                    "broadcast_at": f"gte.{since}",
-                    "order": "broadcast_at.asc,symbol.asc",
-                }
-            ),
+            {
+                "select": (
+                    "symbol,period_end,broadcast_at,"
+                    "revenue:lines->revenue,net_profit:lines->net_profit"
+                ),
+                "broadcast_at": f"gte.{since}",
+                "order": "broadcast_at.asc,symbol.asc",
+            },
         )
 
     def result_first_seen(self) -> dict[tuple[str, str], str]:
         """When the bell first recorded each (symbol, quarter end) result, baselines included."""
         rows = self._paged(
             "market_events",
-            self._scoped({"select": "symbol,event_key,occurred_at", "kind": "eq.results", "order": "id.asc"}),
+            {"select": "symbol,event_key,occurred_at", "kind": "eq.results", "order": "id.asc"},
         )
         return {(str(row["symbol"]), str(row["event_key"])[:10]): str(row["occurred_at"]) for row in rows}
 

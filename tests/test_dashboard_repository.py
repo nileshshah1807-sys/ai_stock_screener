@@ -242,17 +242,29 @@ class MarketScopingTests(unittest.TestCase):
 
         self.assertEqual(repository.calls[0][2]["params"]["market"], "eq.US")
 
-    def test_the_filings_readers_are_narrowed_too(self):
-        # A US ticker can equal an NSE symbol; an unscoped read would mix two companies.
-        for call in (
-            lambda r: r.quarterly_filing_state(),
-            lambda r: r.quarterly_filings(["TCS"]),
-            lambda r: r.recent_filed_results("2026-10-01T00:00:00"),
-            lambda r: r.result_first_seen(),
-        ):
-            repository = RecordingDashboardRepository([[]], market="US")
-            call(repository)
-            self.assertEqual(repository.calls[0][2]["params"]["market"], "eq.US")
+    def test_an_nse_and_a_us_tcs_never_share_a_filings_read(self):
+        # The NSE's TCS and the US's TCS coexist in quarterly_filings and market_events.
+        filings = [
+            {"market": m, "symbol": "TCS", "period_end": "2026-09-30", "is_consolidated": True, "seq_id": m,
+             "parser_version": 4, "broadcast_at": "2026-10-10T00:00:00+00:00", "filed_at": "2026-10-10T00:00:00+00:00",
+             "taxonomy": "X", "lines": {}, "revenue": 1, "net_profit": 1}
+            for m in ("NSE", "US")
+        ]
+        events = [{"market": m, "kind": "results", "symbol": "TCS", "event_key": "2026-09-30", "occurred_at": m} for m in ("NSE", "US")]
+
+        class Store(RecordingDashboardRepository):
+            def _request(self, method, path, **kwargs):
+                rows = filings if path == "quarterly_filings" else events
+                market = kwargs["params"]["market"].removeprefix("eq.")
+                return [row for row in rows if row["market"] == market]
+
+        for market in ("NSE", "US"):
+            repository = Store(market=market)
+            self.assertEqual([r["seq_id"] for r in repository.quarterly_filing_state().values()], [market])
+            self.assertEqual([r["filed_at"] for r in repository.quarterly_filings(["TCS"])["TCS"]], ["2026-10-10T00:00:00+00:00"])
+            self.assertEqual(len(repository.quarterly_filings(["TCS"])["TCS"]), 1)
+            self.assertEqual(len(repository.recent_filed_results("2026-10-01T00:00:00")), 1)
+            self.assertEqual(repository.result_first_seen(), {("TCS", "2026-09-30"): market})
 
     def test_snapshot_writes_are_stamped(self):
         repository = RecordingDashboardRepository(market="US")
