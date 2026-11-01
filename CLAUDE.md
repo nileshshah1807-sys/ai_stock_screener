@@ -287,6 +287,14 @@ the scheduled workflows set the same flag.
   a notice once (`updated_at` is when it last looked at the stock), and
   skips BSE-only names. Display evidence; the table is in
   `storage/upcoming_events_schema.sql`, applied by hand.
+- **US upcoming results come from Alpha Vantage's earnings calendar.**
+  `workers/us_upcoming.py` (a step of the US Financial statements workflow, the
+  03:00 UTC run only) makes one request a day, keyed by the `ALPHAVANTAGE_API_KEY`
+  secret, and writes `next_result_date` and a before/after-market note to
+  `upcoming_events` for universe stocks (`market = 'US'`; NSE rows untouched). No
+  estimates are kept. A missing key or a refusal warns and keeps the step green.
+  Alpha Vantage free key: personal, non-commercial use only (ToS s.2a); if the
+  dashboard gains other viewers, this source must be dropped or licensed.
 - **Live prices are display-only, every five minutes during the session.**
   `workers/live_quotes.py` (the Live quotes workflow, dispatch-only:
   cron-job.org calls it every 5 minutes on weekdays; do not add a
