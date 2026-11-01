@@ -1,6 +1,6 @@
 import "server-only";
 
-import { fixtureRows } from "@/lib/upcoming-fixtures.mjs";
+import { fixtureRows, usFixtureRows } from "@/lib/upcoming-fixtures.mjs";
 import type { MarketCode } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/server";
 import { runCompanyNames } from "@/lib/results";
@@ -10,7 +10,8 @@ import { eventsFromRows } from "@/lib/upcoming.mjs";
  * Reads for the Upcoming lists on Results and Concalls.
  *
  * `upcoming_events` is one row per stock, filled from the exchange's
- * board-meeting and earnings-call notices: its next result date, and its next
+ * board-meeting and earnings-call notices (in the US, result dates only, from
+ * a calendar): its next result date, and its next
  * call with a time (`next_call_at`) or, when the notice gave none, a date
  * (`next_call_date`). It is read as the signed-in viewer, and reads degrade to
  * nothing while the table does not exist, so the pages simply show no
@@ -45,14 +46,18 @@ type UpcomingRow = {
   next_call_date: string | null;
 };
 
+const fixtures = (market: MarketCode, today: string) =>
+  market === "US" ? usFixtureRows(today) : fixtureRows(today);
+
 /** Events of one kind from `today` on, soonest first; null when they cannot be read. */
 export async function getUpcoming(
   market: MarketCode,
   kind: UpcomingKind,
   today: string,
 ): Promise<UpcomingEvent[] | null> {
-  if (market !== "NSE") return null;
-  if (process.env.UPCOMING_FIXTURES === "1") return eventsFromRows(fixtureRows(today), kind, today);
+  // The US has result dates (Alpha Vantage's calendar) but no earnings-call notices.
+  if (market !== "NSE" && kind !== "results") return null;
+  if (process.env.UPCOMING_FIXTURES === "1") return eventsFromRows(fixtures(market, today), kind, today);
   const names = await runCompanyNames(market);
   const supabase = await createClient();
   const rows: UpcomingRow[] = [];
@@ -81,9 +86,8 @@ export async function getUpcomingResultDate(
   symbol: string,
   today: string,
 ): Promise<string | null> {
-  if (market !== "NSE") return null;
   if (process.env.UPCOMING_FIXTURES === "1") {
-    return eventsFromRows(fixtureRows(today), "results", today).find((event: UpcomingEvent) => event.symbol === symbol)?.event_date ?? null;
+    return eventsFromRows(fixtures(market, today), "results", today).find((event: UpcomingEvent) => event.symbol === symbol)?.event_date ?? null;
   }
   const supabase = await createClient();
   const { data, error } = await supabase

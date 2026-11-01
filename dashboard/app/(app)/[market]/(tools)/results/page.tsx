@@ -106,7 +106,7 @@ export default async function ResultsPage({
     getUpcoming(market.code, "results", today),
     // The quarter that ended most recently, not `newest`: until someone files for it `newest` is the
     // season before, and its filers are not the ones the upcoming dates belong to.
-    us ? Promise.resolve(null) : getDeclaredSymbols(market.code, offered[0]),
+    getDeclaredSymbols(market.code, offered[0]),
     getWatchlists(market.code),
   ]);
   // A company that has filed is no longer lined up, even while its date is today's.
