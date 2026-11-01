@@ -73,11 +73,12 @@ function shiftDays(iso, days) {
 /**
  * The fiscal quarter ends a US calendar quarter `end` holds: after `after`,
  * up to and including `through`. US companies' quarters end in any month, so
- * the Sep 2026 quarter is every one ending 16 Aug to 14 Nov. Ninety days
- * wide, so a company never has two in one window.
+ * the Sep 2026 quarter is every one ending 15 Aug to 14 Nov. The window opens
+ * 45 days after the previous calendar quarter end and closes 45 days after
+ * this one, so neighbouring windows meet exactly and every date is in one.
  */
 export function quarterWindow(end) {
-  return { after: shiftDays(end, -WINDOW_DAYS), through: shiftDays(end, WINDOW_DAYS) };
+  return { after: shiftDays(monthsBefore(end, 3), WINDOW_DAYS), through: shiftDays(end, WINDOW_DAYS) };
 }
 
 /** The calendar quarter end among `ends` whose window holds `periodEnd`, or null. */

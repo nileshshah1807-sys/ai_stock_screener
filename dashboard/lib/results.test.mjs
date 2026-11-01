@@ -235,12 +235,22 @@ test("a filing that reports neither revenue nor net profit is not a result, as i
 });
 
 test("a US calendar quarter holds the fiscal quarters ending within 45 days of it", () => {
-  assert.deepEqual(quarterWindow("2026-09-30"), { after: "2026-08-16", through: "2026-11-14" });
+  assert.deepEqual(quarterWindow("2026-09-30"), { after: "2026-08-14", through: "2026-11-14" });
   const ends = ["2026-09-30", "2026-06-30"];
   assert.equal(bucketOf("2026-08-31", ends), "2026-09-30");
   assert.equal(bucketOf("2026-11-14", ends), "2026-09-30");
-  assert.equal(bucketOf("2026-08-16", ends), null);
+  assert.equal(bucketOf("2026-08-14", ends), "2026-06-30");
+  assert.equal(bucketOf("2026-08-15", ends), "2026-09-30");
   assert.equal(bucketOf("2026-11-15", ends), null);
+});
+
+test("every date across a year is in exactly one quarter window", () => {
+  const ends = quarterEnds("2027-12-31", 8);
+  for (let day = Date.parse("2026-03-01T00:00:00Z"); day < Date.parse("2027-03-01T00:00:00Z"); day += 86_400_000) {
+    const date = new Date(day).toISOString().slice(0, 10);
+    const holding = ends.filter((end) => bucketOf(date, [end]));
+    assert.equal(holding.length, 1, date);
+  }
 });
 
 test("a 52-week filer's quarter finds the previous and year-ago quarters a few days off the month", () => {
