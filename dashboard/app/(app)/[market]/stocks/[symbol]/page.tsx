@@ -243,7 +243,7 @@ export default async function StockPage({
     getUpcomingResultDate(
       market.code,
       symbol,
-      new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date()),
+      new Intl.DateTimeFormat("en-CA", { timeZone: market.timezone }).format(new Date()),
     ),
   ]);
   if (!run) notFound();

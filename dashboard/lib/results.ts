@@ -245,6 +245,7 @@ export async function getResultFeed(
 
 /** The companies that have filed for a quarter: "declared so far", and not "lined up" any more. */
 export async function getDeclaredSymbols(market: MarketCode, quarter: string): Promise<Set<string> | null> {
+  if (fixtureOn(market)) return new Set(fixtureIn([quarter]).map((row) => row.symbol));
   const supabase = await createClient();
   const symbols = new Set<string>();
   for (let from = 0; ; from += READ_WINDOW) {

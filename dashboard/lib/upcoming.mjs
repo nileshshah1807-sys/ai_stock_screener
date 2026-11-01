@@ -120,3 +120,20 @@ export function eventsFromRows(rows, kind, today) {
   }
   return sortUpcoming(events, today);
 }
+
+/**
+ * The events still lined up: those whose company has not declared. With
+ * `through` (the US, whose companies report off the calendar quarter) a company
+ * counts as declared only when its date falls in the declared quarter's window,
+ * so one whose last stored quarter is in it but whose next report is later
+ * stays lined up.
+ *
+ * @template {{ symbol: string, event_date: string }} T
+ * @param {T[]} rows
+ * @param {Set<string> | null | undefined} declared
+ * @param {string | null} [through]
+ * @returns {T[]}
+ */
+export function notDeclared(rows, declared, through = null) {
+  return rows.filter((row) => !declared?.has(row.symbol) || (through !== null && row.event_date > through));
+}
