@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   amountDigits,
   basisTable,
+  bucketOf,
   chosenQuarter,
   formatChange,
   groupByAnnouncedDay,
@@ -11,6 +12,7 @@ import {
   median,
   passesGrowth,
   quarterEnds,
+  quarterWindow,
   quarterMedians,
   quarterLabel,
   resultCard,
@@ -230,4 +232,37 @@ test("a filing that reports neither revenue nor net profit is not a result, as i
   ];
   const [only] = quarterMedians(filings, ["2026-09-30"]);
   assert.equal(only.results, 2);
+});
+
+test("a US calendar quarter holds the fiscal quarters ending within 45 days of it", () => {
+  assert.deepEqual(quarterWindow("2026-09-30"), { after: "2026-08-14", through: "2026-11-14" });
+  const ends = ["2026-09-30", "2026-06-30"];
+  assert.equal(bucketOf("2026-08-31", ends), "2026-09-30");
+  assert.equal(bucketOf("2026-11-14", ends), "2026-09-30");
+  assert.equal(bucketOf("2026-08-14", ends), "2026-06-30");
+  assert.equal(bucketOf("2026-08-15", ends), "2026-09-30");
+  assert.equal(bucketOf("2026-11-15", ends), null);
+});
+
+test("every date across a year is in exactly one quarter window", () => {
+  const ends = quarterEnds("2027-12-31", 8);
+  for (let day = Date.parse("2026-03-01T00:00:00Z"); day < Date.parse("2027-03-01T00:00:00Z"); day += 86_400_000) {
+    const date = new Date(day).toISOString().slice(0, 10);
+    const holding = ends.filter((end) => bucketOf(date, [end]));
+    assert.equal(holding.length, 1, date);
+  }
+});
+
+test("a 52-week filer's quarter finds the previous and year-ago quarters a few days off the month", () => {
+  const filings = [
+    filing("2025-09-27", { revenue: 100 }),
+    filing("2025-06-28", { revenue: 80 }),
+    filing("2024-09-28", { revenue: 50 }),
+  ];
+  const [table] = resultCard({ symbol: "AAPL" }, filings, "2025-09-27").bases;
+  const revenue = table.rows.find((row) => row.key === "revenue");
+  assert.deepEqual(revenue.values, [100, 80, 50]);
+  assert.equal(revenue.yoy, 100);
+  assert.equal(revenue.qoq, 25);
+  assert.deepEqual(table.columns.map((column) => column.period), ["2025-09-27", "2025-06-28", "2024-09-28"]);
 });

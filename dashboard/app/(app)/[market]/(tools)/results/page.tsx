@@ -46,8 +46,8 @@ const MAX_SHOWN = 300;
 /** Results a growth filter reads before it filters: more than a quarter's NSE filings. */
 const GROWTH_SCAN = 4000;
 const SEARCH_RESETS = ["shown"];
-/** The exchange files by India's calendar; a result filed at 00:30 IST is that day's. */
-const TIME_ZONE = "Asia/Kolkata";
+/** The US keeps five quarters of each company (storage side), so the picker offers five. */
+const US_QUARTERS = 5;
 
 function shownCount(value: string | string[] | undefined) {
   const parsed = Number.parseInt(Array.isArray(value) ? (value[0] ?? "") : (value ?? ""), 10);
@@ -67,7 +67,11 @@ function shownCount(value: string | string[] | undefined) {
  * Filtered by the bar Notifications and Concalls use (`lib/event-filters.mjs`);
  * the quarter, the filters and the search are all in the URL.
  *
- * NSE only: the US has no exchange filing index.
+ * In the US there is no filing index: the figures are the quarters the
+ * vendor reports, and a company's fiscal quarter sits in the calendar quarter
+ * its end falls within 45 days of (`quarterWindow`). Its listing runs by the
+ * quarter's end, not day by day: a US result's time is when it first appeared
+ * here, not when the company reported.
  */
 export default async function ResultsPage({
   params,
@@ -77,19 +81,12 @@ export default async function ResultsPage({
   const query = await searchParams;
   const base = marketPath(market.slug, "/results");
 
-  if (market.code !== "NSE") {
-    return (
-      <div className="space-y-4 px-4 py-5 sm:px-6">
-        <h1 className="text-title font-semibold">Results</h1>
-        <div className="panel px-5 py-10 text-center">
-          <p className="text-sm font-medium">NSE only</p>
-        </div>
-      </div>
-    );
-  }
+  const us = market.code === "US";
+  // The exchange files by its own calendar; a result filed at 00:30 IST is that day's.
+  const timeZone = market.timezone;
 
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(new Date());
-  const offered = quarterEnds(today);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
+  const offered = us ? quarterEnds(today, US_QUARTERS) : quarterEnds(today);
   const [latest, feed, facts, run] = await Promise.all([
     getLatestResultQuarter(market.code, offered),
     loadFeedFilters(market.code, query, { defaultScope: "all", growth: true }),
@@ -103,13 +100,13 @@ export default async function ResultsPage({
   // Only a quarter the picker lists: one nobody has filed for yet would be
   // an empty page under another quarter's label.
   const quarter = chosenQuarter(query.quarter, ended) ?? newest;
-  const quarters = ended.map((end) => ({ value: end, label: quarterLabel(end, { fiscal: true }) }));
+  const quarters = ended.map((end) => ({ value: end, label: quarterLabel(end, { fiscal: !us }) }));
 
   const [dated, declaredSymbols, lists] = await Promise.all([
     getUpcoming(market.code, "results", today),
     // The quarter that ended most recently, not `newest`: until someone files for it `newest` is the
     // season before, and its filers are not the ones the upcoming dates belong to.
-    getDeclaredSymbols(market.code, offered[0]),
+    us ? Promise.resolve(null) : getDeclaredSymbols(market.code, offered[0]),
     getWatchlists(market.code),
   ]);
   // A company that has filed is no longer lined up, even while its date is today's.
@@ -126,6 +123,9 @@ export default async function ResultsPage({
   const search = searchTerm(query.q);
   const shown = shownCount(query.shown);
   const filtered = Boolean(search) || !feed.isDefault;
+  // A US result's time is when it first appeared here, and a first run puts a whole backlog on one day:
+  // US lists by quarter end, with no day headings, until a season has real spread.
+  const byAnnouncement = !us;
 
   const periods = [quarter, monthsBefore(quarter, 3), monthsBefore(quarter, 12)];
   const growthRules = feed.filters.rules.filter(isGrowthRule);
@@ -137,7 +137,7 @@ export default async function ResultsPage({
     // growth filter reads the whole quarter and keeps what passes; the cards
     // then page through that.
     const [scanned, lines] = await Promise.all([
-      getResultFeed(market.code, { quarter, symbols: feed.symbols, search, limit: GROWTH_SCAN }),
+      getResultFeed(market.code, { quarter, symbols: feed.symbols, search, limit: GROWTH_SCAN, byPeriodEnd: !byAnnouncement }),
       getQuarterLines(market.code, periods, feed.symbols),
     ]);
     scanCapped = scanned.entries.length >= GROWTH_SCAN;
@@ -148,7 +148,7 @@ export default async function ResultsPage({
       filingsOf.set(filing.symbol, list);
     }
     const passing = scanned.entries.filter((entry) =>
-      passesGrowth(resultCard(entry, filingsOf.get(entry.symbol) ?? [], quarter), growthRules),
+      passesGrowth(resultCard(entry, filingsOf.get(entry.symbol) ?? [], entry.period_end), growthRules),
     );
     entries = passing.slice(0, shown);
     total = passing.length;
@@ -158,6 +158,7 @@ export default async function ResultsPage({
       symbols: feed.symbols,
       search,
       limit: shown,
+      byPeriodEnd: !byAnnouncement,
     }));
   }
   const symbols = entries.map((entry) => entry.symbol);
@@ -179,7 +180,8 @@ export default async function ResultsPage({
 
   const cards = entries
     .map((entry) => {
-      const card = resultCard(entry, bySymbol.get(entry.symbol) ?? [], quarter);
+      // The company's own quarter end: a US fiscal quarter is any date within the calendar quarter's window.
+      const card = resultCard(entry, bySymbol.get(entry.symbol) ?? [], entry.period_end);
       const fact = factsBySymbol.get(entry.symbol);
       return {
         ...card,
@@ -191,7 +193,7 @@ export default async function ResultsPage({
       };
     })
     .filter((card) => card.bases.length > 0);
-  const groups = groupByAnnouncedDay(cards, TIME_ZONE) as {
+  const groups = (byAnnouncement ? groupByAnnouncedDay(cards, timeZone) : [{ date: "", entries: cards }]) as {
     date: string;
     entries: (ResultCardData & { announced_at: string | null })[];
   }[];
@@ -212,6 +214,20 @@ export default async function ResultsPage({
         <PageTitle
           title="Results"
           info={
+            us ? (
+              <>
+                <p>
+                  Quarterly results as the data vendor reports them, each set against the quarter before it
+                  and the same quarter a year earlier, listed by quarter end.
+                </p>
+                <p>
+                  Figures are in US dollars. A company&rsquo;s fiscal quarter sits under the calendar quarter
+                  it ends within 45 days of. Operating profit is profit before tax with interest and
+                  depreciation added back. There is no growth rate off a loss, and a figure not reported is
+                  a dash.
+                </p>
+              </>
+            ) : (
             <>
               <p>
                 Quarterly results as each company files them with the exchange, within a quarter of an
@@ -227,6 +243,7 @@ export default async function ResultsPage({
                 filing did not report is a dash.
               </p>
             </>
+            )
           }
         />
         <div className="flex items-center gap-2">
@@ -262,16 +279,18 @@ export default async function ResultsPage({
             <p className="tabular text-xs text-muted-foreground">Latest {formatInteger(GROWTH_SCAN)} scanned</p>
           ) : null}
           {groups.map((group) => (
-            <section key={group.date} aria-labelledby={`results-${group.date}`} className="space-y-3">
-              <h2
-                id={`results-${group.date}`}
-                className="flex items-center gap-2 text-base font-semibold tracking-[-0.011em]"
-              >
-                {group.date ? formatDate(group.date) : "Date not given"}
-                <span className="tabular font-mono text-xs font-normal text-muted-foreground">
-                  {group.entries.length}
-                </span>
-              </h2>
+            <section key={group.date} aria-labelledby={byAnnouncement ? `results-${group.date}` : undefined} className="space-y-3">
+              {byAnnouncement ? (
+                <h2
+                  id={`results-${group.date}`}
+                  className="flex items-center gap-2 text-base font-semibold tracking-[-0.011em]"
+                >
+                  {group.date ? formatDate(group.date) : "Date not given"}
+                  <span className="tabular font-mono text-xs font-normal text-muted-foreground">
+                    {group.entries.length}
+                  </span>
+                </h2>
+              ) : null}
               <div className="grid gap-4 xl:grid-cols-2">
                 {group.entries.map((card) => (
                   <ResultCard key={card.symbol} card={card} />

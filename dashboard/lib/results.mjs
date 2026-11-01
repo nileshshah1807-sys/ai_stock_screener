@@ -11,7 +11,7 @@
  */
 
 import { GROWTH_METRICS, isGrowthRule } from "./event-filters.mjs";
-import { growth, monthsBefore, periodLabel, ratio } from "./financials.mjs";
+import { findPeriod, growth, monthsBefore, periodLabel, ratio } from "./financials.mjs";
 
 /** The lines a card shows, in the stock page's words. */
 export const RESULT_LINES = [
@@ -63,6 +63,34 @@ export function chosenQuarter(value, offered) {
   return typeof text === "string" && offered.includes(text) ? text : null;
 }
 
+/** Days either side of a calendar quarter end a US fiscal quarter may end and still belong to it. */
+const WINDOW_DAYS = 45;
+
+function shiftDays(iso, days) {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * The fiscal quarter ends a US calendar quarter `end` holds: after `after`,
+ * up to and including `through`. US companies' quarters end in any month, so
+ * the Sep 2026 quarter is every one ending 15 Aug to 14 Nov. The window opens
+ * 45 days after the previous calendar quarter end and closes 45 days after
+ * this one, so neighbouring windows meet exactly and every date is in one.
+ */
+export function quarterWindow(end) {
+  return { after: shiftDays(monthsBefore(end, 3), WINDOW_DAYS), through: shiftDays(end, WINDOW_DAYS) };
+}
+
+/** The calendar quarter end among `ends` whose window holds `periodEnd`, or null. */
+export function bucketOf(periodEnd, ends) {
+  return (
+    ends.find((end) => {
+      const { after, through } = quarterWindow(end);
+      return periodEnd > after && periodEnd <= through;
+    }) ?? null
+  );
+}
+
 /** Filings keyed by `period_end`, then by basis. */
 function byPeriod(filings) {
   const periods = new Map();
@@ -72,6 +100,18 @@ function byPeriod(filings) {
     periods.get(filing.period_end)[key] = filing;
   }
   return periods;
+}
+
+/**
+ * The basis filings of the quarter ending `target`: that exact date, else the
+ * one within a few days of it -- a 52-week year's quarters drift off the
+ * month end, and the quarter before is then not exactly three months back.
+ */
+function near(periods, target) {
+  if (periods.has(target)) return { period: target, ...periods.get(target) };
+  const keys = [...periods.keys()];
+  const index = findPeriod(keys, target);
+  return index < 0 ? { period: target } : { period: keys[index], ...periods.get(keys[index]) };
 }
 
 function lineValue(filing, key) {
@@ -97,8 +137,9 @@ export function basisTable(filings, quarter, basis) {
   const periods = byPeriod(filings);
   const current = periods.get(quarter)?.[basis];
   if (!current) return null;
-  const columns = [quarter, monthsBefore(quarter, 3), monthsBefore(quarter, 12)];
-  const filed = columns.map((period) => periods.get(period)?.[basis] ?? null);
+  const matched = [quarter, monthsBefore(quarter, 3), monthsBefore(quarter, 12)].map((target) => near(periods, target));
+  const columns = matched.map((entry) => entry.period);
+  const filed = matched.map((entry) => entry[basis] ?? null);
 
   const rows = RESULT_LINES.map((line) => {
     const values = filed.map((filing) => lineValue(filing, line.key));
@@ -144,7 +185,7 @@ export function resultCard(entry, filings, quarter) {
   const bases = ["consolidated", "standalone"]
     .map((basis) => basisTable(filings, quarter, basis))
     .filter(Boolean);
-  const yearAgo = byPeriod(filings).get(monthsBefore(quarter, 12)) ?? {};
+  const yearAgo = near(byPeriod(filings), monthsBefore(quarter, 12));
   if (bases.length > 1 && !yearAgo.consolidated && yearAgo.standalone) bases.reverse();
   return { ...entry, bases };
 }
