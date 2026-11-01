@@ -11,6 +11,7 @@ import { ResultCard, type ResultCardData } from "@/components/results/result-car
 import { ResultsLinedUpTile } from "@/components/upcoming/upcoming-tiles";
 import { UpcomingButton, UpcomingProvider } from "@/components/upcoming/upcoming-sheet";
 import { searchTerm } from "@/lib/concalls.mjs";
+import { notDeclared } from "@/lib/upcoming.mjs";
 import { monthsBefore } from "@/lib/financials.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
 import { formatDate, formatInteger } from "@/lib/format";
@@ -32,6 +33,7 @@ import {
   groupByAnnouncedDay,
   quarterEnds,
   quarterLabel,
+  quarterWindow,
   passesGrowth,
   resultCard,
 } from "@/lib/results.mjs";
@@ -116,7 +118,10 @@ export default async function ResultsPage({
   const scope = feed.symbols ? new Set(feed.symbols) : null;
   const inScope = (symbol: string) => !scope || scope.has(symbol);
   const declaredInScope = declaredSymbols ? [...declaredSymbols].filter(inScope) : null;
-  const upcoming = dated?.filter((row) => !declaredSymbols?.has(row.symbol)) ?? null;
+  // The US window's end: a company reporting after it is for a later quarter, not declared.
+  const remaining = dated ? notDeclared(dated, declaredSymbols, us ? quarterWindow(offered[0]).through : null) : null;
+  // A US sheet with nothing in it is no button at all; NSE keeps its own.
+  const upcoming = us && !remaining?.length ? null : remaining;
   const lined = upcoming?.filter((row) => inScope(row.symbol)) ?? [];
   const watchlists = lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }));
 

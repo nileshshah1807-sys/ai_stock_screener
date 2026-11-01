@@ -6,6 +6,7 @@ import {
   eventsFromRows,
   filterUpcoming,
   groupUpcoming,
+  notDeclared,
   sortUpcoming,
   upcomingResultDate,
   upcomingSummary,
@@ -91,4 +92,16 @@ test("one row per stock gives a result event and a call event, each from today o
 test("a call's day is India's: late evening UTC is the next morning in IST", () => {
   const [event] = eventsFromRows([{ symbol: "A", next_call_at: "2026-11-04T20:00:00Z" }], "call", "2026-11-01");
   assert.equal(event.event_date, "2026-11-05");
+});
+
+test("a US company that declared an earlier quarter but reports again after the window stays lined up", () => {
+  const rows = [call("ORCL", "2026-12-10"), call("NFLX", "2026-11-12"), call("AAPL", "2026-11-14")].map((row) => ({
+    ...row,
+    kind: "results",
+  }));
+  const declared = new Set(["ORCL", "NFLX"]);
+  // NSE: every declared company drops, whatever its date.
+  assert.deepEqual(notDeclared(rows, declared).map((row) => row.symbol), ["AAPL"]);
+  // US, window through 14 Nov: ORCL (10 Dec) is for a later quarter and stays.
+  assert.deepEqual(notDeclared(rows, declared, "2026-11-14").map((row) => row.symbol), ["ORCL", "AAPL"]);
 });
