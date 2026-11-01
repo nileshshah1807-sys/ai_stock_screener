@@ -128,7 +128,7 @@ jobs:
 
       # The US Results page's "lined up" list: each universe stock's next report
       # date from Alpha Vantage's earnings calendar (workers/us_upcoming.py), one
-      # request a day, so only the 03:00 UTC run asks (the free key allows 25 a day).
+      # request a day, so only a run before 09:00 UTC asks (the free key allows 25 a day).
       # A missing key or a refusal warns and the step stays green.
       - name: Record US upcoming results
         if: ${{ !cancelled() && matrix.market == 'US' }}
@@ -136,10 +136,10 @@ jobs:
           ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: |
-          if [ "$(date -u +%H)" = "03" ]; then
+          if [ "$(date -u +%H)" -lt 09 ]; then
             python -m workers.us_upcoming --market US ${DRY_RUN}
           else
-            echo "Alpha Vantage is asked once a day (03:00 UTC run)"
+            echo "Alpha Vantage is asked once a day (the first run of the day)"
           fi
 
       # What the bell in the dashboard's header counts: a result filed, a call

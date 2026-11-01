@@ -289,10 +289,11 @@ the scheduled workflows set the same flag.
   `storage/upcoming_events_schema.sql`, applied by hand.
 - **US upcoming results come from Alpha Vantage's earnings calendar.**
   `workers/us_upcoming.py` (a step of the US Financial statements workflow, the
-  03:00 UTC run only) makes one request a day, keyed by the `ALPHAVANTAGE_API_KEY`
+  first run of the day, before 09:00 UTC) makes one request a day, keyed by the `ALPHAVANTAGE_API_KEY`
   secret, and writes `next_result_date` and a before/after-market note to
   `upcoming_events` for universe stocks (`market = 'US'`; NSE rows untouched). No
-  estimates are kept. A missing key or a refusal warns and keeps the step green.
+  estimates are kept. A missing key, a refusal or a calendar under 1,000 rows (it holds ~3,500) warns,
+  writes nothing and keeps the step green.
   Alpha Vantage free key: personal, non-commercial use only (ToS s.2a); if the
   dashboard gains other viewers, this source must be dropped or licensed.
 - **Live prices are display-only, every five minutes during the session.**

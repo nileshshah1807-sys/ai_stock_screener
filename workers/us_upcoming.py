@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 URL = "https://www.alphavantage.co/query"
 KEY_ENV = "ALPHAVANTAGE_API_KEY"
 TIMEOUT_SECONDS = 60
+# The 3-month calendar holds ~3,500 rows (1 Nov 2026); a short one is partial, and merge would clear every missing stock.
+MIN_CALENDAR_ROWS = 1000
 # Alpha Vantage's timing field, where the calendar carries one.
 TIMING = {"pre-market": "Before market open", "post-market": "After market close"}
 
@@ -76,14 +78,16 @@ def run(repo, *, now: datetime | None = None, dry_run: bool = False, fetch=fetch
     try:
         companies = repo.snapshot_companies()
         stored = repo.upcoming_events()
-        found = parse_calendar(fetch(key), companies, today=now.date())
+        text = fetch(key)
+        rows_in_calendar = sum(1 for _ in csv.DictReader(io.StringIO(text)))
+        found = parse_calendar(text, companies, today=now.date())
     except Exception as exc:  # noqa: BLE001 -- display evidence: a failure must not fail the workflow
         # An HTTP error's message carries the request URL, which holds the key.
         logger.warning("US upcoming results not stored: %s", str(exc).replace(key, "***"))
         return counts
     counts["calendar"] = len(found)
-    if not found:
-        logger.warning("US upcoming results: the calendar had no universe stock (a refusal or a limit); stored dates stand")
+    if rows_in_calendar < MIN_CALENDAR_ROWS or not found:
+        logger.warning("US upcoming results: the calendar has %s rows (a refusal, a limit or a partial file); stored dates stand", rows_in_calendar)
         return counts
     for symbol, row in found.items():
         row["company"] = companies.get(symbol)

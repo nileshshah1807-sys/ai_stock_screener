@@ -5,6 +5,7 @@ import unittest
 from datetime import UTC, date, datetime
 from unittest import mock
 
+import workers.us_upcoming as module
 from workers.us_upcoming import KEY_ENV, parse_calendar, run
 
 TODAY = date(2026, 11, 1)
@@ -50,12 +51,13 @@ class ParseTests(unittest.TestCase):
 
 
 class RunTests(unittest.TestCase):
-    def go(self, repo, fetch, key="k"):
+    def go(self, repo, fetch, key="k", floor=1):
         env = {KEY_ENV: key} if key else {}
         with mock.patch.dict(os.environ, env, clear=False):
             if not key:
                 os.environ.pop(KEY_ENV, None)
-            return run(repo, now=NOW, fetch=fetch)
+            with mock.patch.object(module, "MIN_CALENDAR_ROWS", floor):
+                return run(repo, now=NOW, fetch=fetch)
 
     def test_writes_dates_without_estimates(self):
         repo = FakeRepo()
@@ -78,6 +80,12 @@ class RunTests(unittest.TestCase):
         with self.assertLogs("workers.us_upcoming", "WARNING") as logs:
             self.go(FakeRepo(), boom, key="SECRET")
         self.assertNotIn("SECRET", "".join(logs.output))
+
+    def test_a_short_calendar_clears_nothing(self):
+        stored = {"AAPL": {"symbol": "AAPL", "next_result_date": "2026-11-06", "updated_at": "2026-11-01T00:00:00+00:00"}}
+        repo = FakeRepo(stored)
+        self.go(repo, lambda key: CSV, floor=1000)
+        self.assertEqual(repo.written, [])
 
     def test_other_markets_are_not_written(self):
         repo = FakeRepo()
