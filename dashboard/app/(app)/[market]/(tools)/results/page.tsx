@@ -69,9 +69,9 @@ function shownCount(value: string | string[] | undefined) {
  *
  * In the US there is no filing index: the figures are the quarters the
  * vendor reports, and a company's fiscal quarter sits in the calendar quarter
- * its end falls within 45 days of (`quarterWindow`). A result is dated by when
- * it first appeared here, which only the current season has; older quarters
- * list by the quarter's end instead.
+ * its end falls within 45 days of (`quarterWindow`). Its listing runs by the
+ * quarter's end, not day by day: a US result's time is when it first appeared
+ * here, not when the company reported.
  */
 export default async function ResultsPage({
   params,
@@ -123,8 +123,9 @@ export default async function ResultsPage({
   const search = searchTerm(query.q);
   const shown = shownCount(query.shown);
   const filtered = Boolean(search) || !feed.isDefault;
-  // Announcement times are known for the current US season only; an older one lists by quarter end.
-  const byAnnouncement = !us || quarter === newest;
+  // A US result's time is when it first appeared here, and a first run puts a whole backlog on one day:
+  // US lists by quarter end, with no day headings, until a season has real spread.
+  const byAnnouncement = !us;
 
   const periods = [quarter, monthsBefore(quarter, 3), monthsBefore(quarter, 12)];
   const growthRules = feed.filters.rules.filter(isGrowthRule);
@@ -217,8 +218,7 @@ export default async function ResultsPage({
               <>
                 <p>
                   Quarterly results as the data vendor reports them, each set against the quarter before it
-                  and the same quarter a year earlier. A result is dated by when it first appeared here,
-                  usually within a day of the company reporting; older quarters are listed by quarter end.
+                  and the same quarter a year earlier, listed by quarter end.
                 </p>
                 <p>
                   Figures are in US dollars. A company&rsquo;s fiscal quarter sits under the calendar quarter
