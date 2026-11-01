@@ -6,6 +6,8 @@ import { unstable_cache } from "next/cache";
 import type { MarketCode } from "@/lib/markets";
 import { getLatestRun, getSearchIndex } from "@/lib/queries";
 import { createClient } from "@/lib/supabase/server";
+import { bucketOf, quarterWindow } from "@/lib/results.mjs";
+import { fixtureFilings } from "@/lib/us-results-fixtures.mjs";
 import { PUSH_DOWN_MAX, readForSymbols } from "@/lib/symbol-scope.mjs";
 
 /**
@@ -48,12 +50,69 @@ const FEED_COLUMNS =
 // viewer_url arrived after the table first shipped; see getQuarterFilings.
 const FILING_COLUMNS = "symbol, period_end, is_consolidated, filed_at, document_url, lines";
 
+type Filterable<T> = {
+  eq(column: string, value: string): T;
+  in(column: string, values: string[]): T;
+  or(filters: string): T;
+};
+
+/**
+ * Narrow a read to the calendar quarters `ends`. NSE companies all end a
+ * quarter on the same dates, so it is those dates; a US company's fiscal
+ * quarter ends in any month, so it is every quarter ending within the window
+ * around each (`quarterWindow`).
+ */
+function inQuarters<T>(query: T, market: MarketCode, ends: string[]): T {
+  const built = query as unknown as Filterable<T>;
+  if (market !== "US") return ends.length === 1 ? built.eq("period_end", ends[0]) : built.in("period_end", ends);
+  return built.or(
+    ends
+      .map((end) => {
+        const { after, through } = quarterWindow(end);
+        return `and(period_end.gt.${after},period_end.lte.${through})`;
+      })
+      .join(","),
+  );
+}
+
+/**
+ * US_RESULTS_FIXTURES=1 serves invented US filings in the stored shape
+ * (lib/us-results-fixtures.mjs), for developing the page before those rows exist.
+ */
+function fixtureOn(market: MarketCode) {
+  return market === "US" && process.env.US_RESULTS_FIXTURES === "1";
+}
+
+/** Fixture rows in `ends`' windows, by the same rule `inQuarters` sends to the database. */
+function fixtureIn(ends: string[]) {
+  return fixtureFilings().filter((row) => bucketOf(row.period_end, ends));
+}
+
 /** The newest of `offered` that anyone has filed for, or null. */
 export async function getLatestResultQuarter(
   market: MarketCode,
   offered: string[],
 ): Promise<string | null> {
+  if (fixtureOn(market)) {
+    const newest = fixtureFilings().map((row) => row.period_end).sort().at(-1);
+    return newest ? bucketOf(newest, offered) : null;
+  }
   const supabase = await createClient();
+  if (market === "US") {
+    const { data, error } = await supabase
+      .from("quarterly_filings")
+      .select("period_end")
+      .eq("market", market)
+      .lte("period_end", quarterWindow(offered[0]).through)
+      .order("period_end", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.error("getLatestResultQuarter failed", error.message);
+      return null;
+    }
+    return data ? bucketOf(data.period_end as string, offered) : null;
+  }
   const { data, error } = await supabase
     .from("quarterly_filings")
     .select("period_end")
@@ -87,6 +146,8 @@ export type ResultFeedQuery = {
   /** Symbol or company containing this text, already through `searchTerm`. */
   search?: string;
   limit?: number;
+  /** Order by the quarter's end first: for a US season whose announcement times are not known. */
+  byPeriodEnd?: boolean;
 };
 
 /**
@@ -96,9 +157,32 @@ export type ResultFeedQuery = {
  */
 export async function getResultFeed(
   market: MarketCode,
-  { quarter, symbols = null, search = "", limit = 30 }: ResultFeedQuery,
+  { quarter, symbols = null, search = "", limit = 30, byPeriodEnd = false }: ResultFeedQuery,
 ): Promise<{ entries: ResultFeedEntry[]; total: number | null }> {
   if (symbols && symbols.length === 0) return { entries: [], total: 0 };
+  if (fixtureOn(market)) {
+    const term = search.toLowerCase();
+    const rows = fixtureIn([quarter])
+      .filter((row) => !symbols || symbols.includes(row.symbol))
+      .filter((row) => !term || row.symbol.toLowerCase().includes(term) || row.company.toLowerCase().includes(term))
+      .sort(
+        (a, b) =>
+          (byPeriodEnd ? b.period_end.localeCompare(a.period_end) : 0) ||
+          b.announced_at.localeCompare(a.announced_at) ||
+          a.symbol.localeCompare(b.symbol),
+      );
+    return {
+      entries: rows.slice(0, limit).map((row) => ({
+        symbol: row.symbol,
+        period_end: row.period_end,
+        announced_at: row.announced_at,
+        company: row.company,
+        has_consolidated: true,
+        has_standalone: false,
+      })),
+      total: rows.length,
+    };
+  }
   const supabase = await createClient();
 
   // A filing stored before the company's name was kept with it has none of
@@ -113,16 +197,20 @@ export async function getResultFeed(
   }
 
   const query = (count: boolean) => {
-    let built = supabase
-      .from("quarterly_result_feed")
-      .select(FEED_COLUMNS, count ? { count: "exact" } : undefined)
-      .eq("market", market)
-      .eq("period_end", quarter);
+    let built = inQuarters(
+      supabase
+        .from("quarterly_result_feed")
+        .select(FEED_COLUMNS, count ? { count: "exact" } : undefined)
+        .eq("market", market),
+      market,
+      [quarter],
+    );
     if (search) {
       const clauses = [`symbol.ilike.*${search}*`, `company.ilike.*${search}*`];
       if (named.length) clauses.push(`symbol.in.(${named.map((s) => `"${s}"`).join(",")})`);
       built = built.or(clauses.join(","));
     }
+    if (byPeriodEnd) built = built.order("period_end", { ascending: false });
     return built
       .order("announced_at", { ascending: false, nullsFirst: false })
       .order("symbol", { ascending: true });
@@ -160,11 +248,11 @@ export async function getDeclaredSymbols(market: MarketCode, quarter: string): P
   const supabase = await createClient();
   const symbols = new Set<string>();
   for (let from = 0; ; from += READ_WINDOW) {
-    const { data, error } = await supabase
-      .from("quarterly_result_feed")
-      .select("symbol")
-      .eq("market", market)
-      .eq("period_end", quarter)
+    const { data, error } = await inQuarters(
+      supabase.from("quarterly_result_feed").select("symbol").eq("market", market),
+      market,
+      [quarter],
+    )
       .order("symbol", { ascending: true })
       .range(from, from + READ_WINDOW - 1);
     if (error) {
@@ -184,14 +272,12 @@ export async function getQuarterFilings(
   periods: string[],
 ): Promise<QuarterFiling[]> {
   if (!symbols.length) return [];
+  if (fixtureOn(market)) {
+    return fixtureIn(periods).filter((row) => symbols.includes(row.symbol)) as unknown as QuarterFiling[];
+  }
   const supabase = await createClient();
   const read = (columns: string) =>
-    supabase
-      .from("quarterly_filings")
-      .select(columns)
-      .eq("market", market)
-      .in("symbol", symbols)
-      .in("period_end", periods)
+    inQuarters(supabase.from("quarterly_filings").select(columns).eq("market", market).in("symbol", symbols), market, periods)
       // Two bases for each quarter of each company, well inside one response.
       .limit(symbols.length * periods.length * 2);
   let { data, error } = await read(`${FILING_COLUMNS}, viewer_url`);
@@ -243,14 +329,17 @@ async function readQuarterLines(
   symbols: string[] | null,
 ): Promise<QuarterFiling[]> {
   const window = (from: number) => {
-    let built = supabase
-      .from("quarterly_filings")
-      .select(
-        "symbol, period_end, is_consolidated, revenue:lines->revenue, operating_profit:lines->operating_profit, net_profit:lines->net_profit",
-        { count: "exact" },
-      )
-      .eq("market", market)
-      .in("period_end", periods);
+    let built = inQuarters(
+      supabase
+        .from("quarterly_filings")
+        .select(
+          "symbol, period_end, is_consolidated, revenue:lines->revenue, operating_profit:lines->operating_profit, net_profit:lines->net_profit",
+          { count: "exact" },
+        )
+        .eq("market", market),
+      market,
+      periods,
+    );
     if (symbols) built = built.in("symbol", symbols);
     return built
       .order("symbol", { ascending: true })
@@ -322,6 +411,9 @@ export async function getQuarterLines(
   symbols: string[] | null = null,
 ): Promise<QuarterFiling[]> {
   if (symbols && symbols.length === 0) return [];
+  if (fixtureOn(market)) {
+    return fixtureIn(periods).filter((row) => !symbols || symbols.includes(row.symbol)) as unknown as QuarterFiling[];
+  }
   try {
     const supabase = await createClient();
     return symbols && symbols.length <= PUSH_DOWN_MAX

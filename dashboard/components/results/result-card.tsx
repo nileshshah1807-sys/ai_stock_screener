@@ -183,12 +183,15 @@ export function ResultCard({ card }: { card: ResultCardData }) {
           logoDomain={card.logoDomain}
           emphasis="company"
         />
-        <span className="tabular shrink-0 pt-0.5 text-right text-xs text-muted-foreground">
-          {formatDateTimeIST(table.filedAt)}
-        </span>
+        {/* A US result has no filing time: only when it first appeared here, which its day heading says. */}
+        {market.code === "US" ? null : (
+          <span className="tabular shrink-0 pt-0.5 text-right text-xs text-muted-foreground">
+            {formatDateTimeIST(table.filedAt)}
+          </span>
+        )}
       </header>
 
-      {card.bases.length > 1 ? (
+      {market.code === "US" ? null : card.bases.length > 1 ? (
         <SegmentedControl
           label={`${card.symbol} results basis`}
           value={table.basis}
