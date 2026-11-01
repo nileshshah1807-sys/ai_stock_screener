@@ -643,6 +643,14 @@ class DashboardRepository:
             },
         )
 
+    def result_first_seen(self) -> dict[tuple[str, str], str]:
+        """When the bell first recorded each (symbol, quarter end) result, baselines included."""
+        rows = self._paged(
+            "market_events",
+            {"select": "symbol,event_key,occurred_at", "kind": "eq.results", "order": "id.asc"},
+        )
+        return {(str(row["symbol"]), str(row["event_key"])[:10]): str(row["occurred_at"]) for row in rows}
+
     # -- shareholding ---------------------------------------------------------
 
     def shareholding_state(self) -> dict[tuple[str, str], dict[str, Any]]:
