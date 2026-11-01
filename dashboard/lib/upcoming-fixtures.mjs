@@ -37,28 +37,3 @@ export function fixtureRows(today) {
   });
   return [...rows.values()];
 }
-
-const US_COMPANIES = [
-  ["NFLX", "Netflix, Inc."], ["TSLA", "Tesla, Inc."], ["GOOGL", "Alphabet Inc."], ["META", "Meta Platforms, Inc."],
-  ["V", "Visa Inc."], ["MA", "Mastercard Incorporated"], ["PG", "The Procter & Gamble Company"], ["HD", "The Home Depot, Inc."],
-  ["WMT", "Walmart Inc."], ["CRM", "Salesforce, Inc."], ["DIS", "The Walt Disney Company"], ["PFE", "Pfizer Inc."],
-  ["INTC", "Intel Corporation"], ["AMD", "Advanced Micro Devices, Inc."], ["UBER", "Uber Technologies, Inc."], ["PYPL", "PayPal Holdings, Inc."],
-  ["SBUX", "Starbucks Corporation"], ["T", "AT&T Inc."], ["CVX", "Chevron Corporation"], ["BA", "The Boeing Company"],
-  ["LLY", "Eli Lilly and Company"], ["MRK", "Merck & Co., Inc."], ["CAT", "Caterpillar Inc."], ["GE", "GE Aerospace"],
-  ["SHOP", "Shopify Inc."], ["SNAP", "Snap Inc."], ["PLTR", "Palantir Technologies Inc."], ["ABNB", "Airbnb, Inc."],
-  ["COIN", "Coinbase Global, Inc."], ["DASH", "DoorDash, Inc."], ["F", "Ford Motor Company"], ["GM", "General Motors Company"],
-];
-const US_PER_DAY = [6, 4, 0, 0, 5, 7, 6, 2, 0, 0, 1, 1];
-
-/** Rows for the US, one per stock: result dates only, as Alpha Vantage's calendar gives them. */
-export function usFixtureRows(today) {
-  const rows = [];
-  let next = 0;
-  US_PER_DAY.forEach((count, offset) => {
-    for (let i = 0; i < count && next < US_COMPANIES.length; i += 1, next += 1) {
-      const [symbol, company] = US_COMPANIES[next];
-      rows.push({ symbol, company, next_result_date: day(today, offset), next_call_at: null, next_call_date: null });
-    }
-  });
-  return rows;
-}
