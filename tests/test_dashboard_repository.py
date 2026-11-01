@@ -242,6 +242,18 @@ class MarketScopingTests(unittest.TestCase):
 
         self.assertEqual(repository.calls[0][2]["params"]["market"], "eq.US")
 
+    def test_the_filings_readers_are_narrowed_too(self):
+        # A US ticker can equal an NSE symbol; an unscoped read would mix two companies.
+        for call in (
+            lambda r: r.quarterly_filing_state(),
+            lambda r: r.quarterly_filings(["TCS"]),
+            lambda r: r.recent_filed_results("2026-10-01T00:00:00"),
+            lambda r: r.result_first_seen(),
+        ):
+            repository = RecordingDashboardRepository([[]], market="US")
+            call(repository)
+            self.assertEqual(repository.calls[0][2]["params"]["market"], "eq.US")
+
     def test_snapshot_writes_are_stamped(self):
         repository = RecordingDashboardRepository(market="US")
 

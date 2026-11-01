@@ -117,6 +117,15 @@ jobs:
             ${SYMBOLS:+--symbols ${SYMBOLS}} \
             ${DRY_RUN}
 
+      # The US Results page: the statements' last quarters as quarterly_filings
+      # rows (workers/us_results.py). The US has no filing index, so they come
+      # from the refresh above; NSE's rows are the Quarterly filings workflow's.
+      - name: Store US results for the Results page
+        if: ${{ !cancelled() && matrix.market == 'US' }}
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.us_results --market US ${DRY_RUN}
+
       # What the bell in the dashboard's header counts: a result filed, a call
       # transcript stored (workers/market_events.py). After the refresh above
       # because the US has no filing index, so a US result is the statements

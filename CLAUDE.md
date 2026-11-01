@@ -267,6 +267,15 @@ the scheduled workflows set the same flag.
   sweep starts there. The deals export's JSON stops at 70 rows; its CSV form
   (`csv=true`) is complete. The tables are in `storage/shareholding_schema.sql`
   and must be applied by hand.
+- **The US Results page reads the same `quarterly_filings` table, filled from the
+  statements.** `workers/us_results.py` (a step of the US Financial statements
+  workflow) writes each stock's last five vendor quarters as `market = 'US'` rows,
+  so `quarterly_result_feed` and the page need no US branch. A US row has the
+  company's fiscal `period_end`, one basis, no document link, and `broadcast_at` =
+  when we first saw the quarter (the bell's `market_events` time), not the
+  company's release; a stored quarter is not rewritten. Every reader of the table
+  filters on `market` (`DashboardRepository._scoped`): a US ticker can equal an
+  NSE symbol.
 - **Upcoming results dates and earnings calls are one row per stock.**
   `workers/upcoming_events.py` (a step of the Quarterly filings workflow, NSE
   only) writes `upcoming_events`: `next_result_date` from the board-meeting
