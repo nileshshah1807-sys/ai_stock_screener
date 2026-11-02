@@ -216,7 +216,7 @@ export default async function ResultsAnalysisPage({
           </div>
           <p className="max-w-prose px-0.5 text-xs leading-relaxed text-muted-foreground">
             {us
-              ? "A result is a company whose fiscal quarter ends in the calendar quarter\u2019s window (15 days before to 45 days after its end). We hold five quarters per company, so earlier quarters have no year-ago base and show a dash."
+              ? "A result is a company whose fiscal quarter ends in the calendar quarter\u2019s window (about 45 days before to 45 days after its end). We hold five quarters per company, so earlier quarters have no year-ago base and show a dash."
               : "A result is a company that filed the quarter; each median is over the companies with a growth rate, in brackets. There is no rate off a loss or without the same quarter a year earlier, and the exchange\u2019s index of filings begins in April 2025, so earlier quarters show a dash."}
           </p>
         </div>

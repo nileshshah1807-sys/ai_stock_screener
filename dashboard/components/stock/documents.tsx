@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 
+import { SegmentedControl } from "@/components/segmented-control";
 import { formatDate } from "@/lib/format";
 import { groupDocuments } from "@/lib/documents.mjs";
 import type { DocumentRow } from "@/lib/documents";
@@ -12,9 +13,20 @@ const SHOWN = 5;
 const LINK =
   "inline-flex items-center gap-1 rounded font-medium hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-function Group({ id, label, items }: { id: string; label: string; items: ReturnType<typeof groupDocuments>[number]["items"] }) {
+function Group({
+  id,
+  label,
+  items,
+  everything,
+}: {
+  id: string;
+  label: string;
+  items: ReturnType<typeof groupDocuments>[number]["items"];
+  /** One kind on its own: every row, no "All N" cut. */
+  everything: boolean;
+}) {
   const [all, setAll] = useState(false);
-  const shown = all ? items : items.slice(0, SHOWN);
+  const shown = all || everything ? items : items.slice(0, SHOWN);
   return (
     <section id={id} aria-labelledby={`${id}-h`} className="min-w-0 scroll-mt-24">
       <h3 id={`${id}-h`} className="mb-1 text-sm font-semibold">
@@ -47,7 +59,7 @@ function Group({ id, label, items }: { id: string; label: string; items: ReturnT
           </li>
         ))}
       </ul>
-      {items.length > SHOWN ? (
+      {items.length > SHOWN && !everything ? (
         <button
           type="button"
           onClick={() => setAll((value) => !value)}
@@ -61,26 +73,37 @@ function Group({ id, label, items }: { id: string; label: string; items: ReturnT
   );
 }
 
-/** The Documents tab: links by kind, newest first, with jump chips. See lib/documents.mjs. */
+/** The Documents tab: links by kind, newest first; the control filters the grid to one kind. See lib/documents.mjs. */
 export function Documents({ rows, symbol }: { rows: DocumentRow[]; symbol: string }) {
   const groups = groupDocuments(rows);
+  const [kind, setKind] = useState("all");
   if (!groups.length) return <p className="text-sm text-muted-foreground">No documents yet.</p>;
+  const only = groups.find((group) => group.kind === kind);
+  const shown = only ? [only] : groups;
   return (
     <div className="flex flex-col gap-5">
-      <nav aria-label={`${symbol} document kinds`} className="flex flex-wrap gap-2">
-        {groups.map((group) => (
-          <a
-            key={group.kind}
-            href={`#doc-${group.kind}`}
-            className="rounded-md px-3 py-1 text-[0.8125rem] font-medium text-muted-foreground ring-1 ring-inset ring-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {group.label} <span className="tabular">{group.items.length}</span>
-          </a>
-        ))}
-      </nav>
-      <div className="grid gap-x-8 gap-y-6 lg:grid-cols-2">
-        {groups.map((group) => (
-          <Group key={group.kind} id={`doc-${group.kind}`} label={group.label} items={group.items} />
+      {/* Scrolls sideways rather than wrapping the track on a phone. */}
+      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <SegmentedControl
+          label={`${symbol} document kinds`}
+          value={only ? kind : "all"}
+          onChange={setKind}
+          options={[
+            { value: "all", label: "All" },
+            ...groups.map((group) => ({
+              value: group.kind,
+              label: (
+                <>
+                  {group.label} <span className="tabular ml-1 text-muted-foreground">{group.items.length}</span>
+                </>
+              ),
+            })),
+          ]}
+        />
+      </div>
+      <div className={cn("grid gap-x-8 gap-y-6", !only && "lg:grid-cols-2")}>
+        {shown.map((group) => (
+          <Group key={group.kind} id={`doc-${group.kind}`} label={group.label} items={group.items} everything={!!only} />
         ))}
       </div>
     </div>
