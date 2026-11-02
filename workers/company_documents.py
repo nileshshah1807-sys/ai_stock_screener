@@ -48,12 +48,12 @@ TITLES = {
 _DECK_SUBJECTS = ("general updates", "updates", "analysts/institutional investor meet/con. call updates")
 _DECK = re.compile(r"presentation", re.IGNORECASE)
 # A notice that schedules or invites to a meeting mentions a presentation without being one.
-_NOT_A_DECK = re.compile(r"schedule|intimation|invite|meet", re.IGNORECASE)
+_NOT_A_DECK = re.compile(r"schedule|invite|meet", re.IGNORECASE)
 _DECK_NAME = re.compile(r"present|ppt|deck", re.IGNORECASE)
 
 
 def is_deck(text: str, url: str) -> bool:
-    """A file named a presentation is one; otherwise a schedule, intimation, invite or meeting notice is not."""
+    """A file named a presentation is one; otherwise a schedule, invite or meeting notice is not."""
     name = url.rsplit("/", 1)[-1]
     return bool(_DECK_NAME.search(name)) or not _NOT_A_DECK.search(f"{text} {name}")
 
@@ -187,8 +187,10 @@ def prune(repo, *, now: datetime | None = None, dry_run: bool = False) -> None:
 
 
 def clean_presentations(repo, *, dry_run: bool = False) -> int:
-    """By hand: remove stored presentations whose file name says schedule/intimation/invite/meet and not presentation."""
+    """By hand: remove stored presentations whose file name says schedule/invite/meet and not presentation."""
     misfiled = [row for rows in repo.company_documents(kind="presentation").values() for row in rows if not is_deck("", row["url"])]
+    for row in misfiled:
+        logger.info("%s %s %s", "would delete" if dry_run else "deleting", row["symbol"], row["url"])
     logger.info("Misfiled presentations: %s%s", len(misfiled), " (dry run, nothing deleted)" if dry_run else "")
     return 0 if dry_run or not misfiled else repo.delete_company_documents(misfiled, kind="presentation")
 

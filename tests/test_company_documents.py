@@ -39,6 +39,10 @@ class KindTests(unittest.TestCase):
         self.assertEqual(kind_of(cifl), "presentation")  # the file says Presentation
         self.assertEqual(kind_of(note("Investor Presentation", "invite", url="https://x/Invite.pdf")), "presentation")  # the subject says so
 
+    def test_an_intimation_alone_does_not_make_a_notice_a_non_deck(self):
+        for name in ("MAXHEALTH_05022026134246_SE_Intimation_Press_Release_and_Earnings_Update_sd.pdf", "ANUP_28052026141643_IntimationIP.pdf"):
+            self.assertTrue(is_deck("", f"https://x/{name}"), name)
+
     def test_is_deck_by_file_name(self):
         self.assertFalse(is_deck("", "https://x/Schedule_of_Meet.pdf"))
         self.assertTrue(is_deck("", "https://x/Q2_Results.pdf"))
