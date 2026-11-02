@@ -33,3 +33,8 @@ test("rows without a link or a date are dropped; nothing gives no groups", () =>
   assert.deepEqual(groupDocuments([{ kind: "rating", announced_at: null, url: "u" }, { kind: "rating", announced_at: "2026-01-01" }]), []);
   assert.deepEqual(groupDocuments(null), []);
 });
+
+test("only http(s) links are kept", () => {
+  assert.deepEqual(groupDocuments([row("rating", "2026-01-01", { url: "javascript:alert(1)" }), row("rating", "2026-01-02", { url: "data:text/html,x" })]), []);
+  assert.equal(groupDocuments([row("rating", "2026-01-01", { url: "HTTPS://x/y" })]).length, 1);
+});
