@@ -25,7 +25,8 @@ const LINK_LABELS = { transcript: "Transcript", recording: "Recording" };
  */
 export function groupDocuments(rows) {
   const items = new Map();
-  const usable = (rows ?? []).filter((row) => row?.url && row.announced_at);
+  // http(s) only: a stored url is rendered as a link, so javascript: and data: never get that far.
+  const usable = (rows ?? []).filter((row) => /^https?:\/\//i.test(row?.url ?? "") && row.announced_at);
   const callOf = new Map(); // transcript url -> its recording row
   const taken = new Set();
   // The notice for a call comes the evening it is held, the transcript days later:

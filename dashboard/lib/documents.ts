@@ -12,7 +12,7 @@ export type DocumentRow = {
 };
 
 const quarterEnd = (iso: string) =>
-  new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).replace("Sept", "Sep");
 
 /**
  * A company's documents, as links. Results filings come from quarterly_filings

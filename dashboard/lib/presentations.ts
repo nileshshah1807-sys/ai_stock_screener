@@ -21,7 +21,10 @@ export async function getPresentations(
     .eq("market", market)
     .eq("kind", "presentation")
     .in("symbol", symbols)
-    .gte("announced_at", since);
+    .gte("announced_at", since)
+    // PostgREST returns at most 1,000 rows; newest first so a cut drops the oldest, not today's.
+    .order("announced_at", { ascending: false })
+    .limit(1000);
   if (error) return out;
   for (const row of data ?? []) {
     const list = out.get(row.symbol) ?? [];
