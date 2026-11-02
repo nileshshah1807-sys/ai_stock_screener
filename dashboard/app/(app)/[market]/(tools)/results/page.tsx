@@ -7,6 +7,8 @@ import { PageTitle } from "@/components/page-title";
 import { Reveal } from "@/components/motion";
 import { AutoRefresh } from "@/components/results/auto-refresh";
 import { QuarterPicker } from "@/components/results/quarter-picker";
+import { getPresentations } from "@/lib/presentations";
+import { presentationFor } from "@/lib/presentations.mjs";
 import { ResultCard, type ResultCardData } from "@/components/results/result-card";
 import { ResultsLinedUpTile } from "@/components/upcoming/upcoming-tiles";
 import { UpcomingButton, UpcomingProvider } from "@/components/upcoming/upcoming-sheet";
@@ -167,8 +169,12 @@ export default async function ResultsPage({
     }));
   }
   const symbols = entries.map((entry) => entry.symbol);
-  const [filings, names] = await Promise.all([
+  const earliest = entries.map((entry) => entry.announced_at).filter((at): at is string => !!at).sort()[0];
+  const [filings, presentations, names] = await Promise.all([
     getQuarterFilings(market.code, symbols, periods),
+    earliest
+      ? getPresentations(market.code, symbols, new Date(Date.parse(earliest) - 864e5).toISOString())
+      : Promise.resolve(new Map()),
     getCompanyNames(
       market.code,
       entries.filter((entry) => !entry.company).map((entry) => entry.symbol),
@@ -195,6 +201,7 @@ export default async function ResultsPage({
         pe: fact?.pe_ratio ?? null,
         barDate: run?.price_bar_as_of ?? null,
         logoDomain: fact?.logo_domain ?? null,
+        presentationUrl: presentationFor(presentations.get(entry.symbol), entry.announced_at),
       };
     })
     .filter((card) => card.bases.length > 0);

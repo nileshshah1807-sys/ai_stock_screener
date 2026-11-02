@@ -331,6 +331,7 @@ export function ResultCard({ card }: { card: ResultCardData }) {
       </div>
 
       <footer className="mt-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-3 text-xs">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         {table.documentUrl ? (
           <a
             href={table.documentUrl}
@@ -357,6 +358,7 @@ export function ResultCard({ card }: { card: ResultCardData }) {
             <span className="sr-only">(in a new tab)</span>
           </a>
         ) : null}
+        </div>
         <dl className="tabular flex items-center gap-3 text-muted-foreground">
           <div className="flex gap-1">
             <dt>MCap</dt>
