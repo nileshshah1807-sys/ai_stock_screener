@@ -18,9 +18,9 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   // consumes a single-use token and makes the real click look broken.
   const errorMessage =
     errorCode === "session_expired"
-      ? `You were signed out because that sign-in was more than ${sessionLifetimeLabel()} old. Request a new link to carry on.`
+      ? `You were signed out because that sign-in was more than ${sessionLifetimeLabel()} old. Request a new code to carry on.`
       : errorCode === "expired"
-      ? "That link had already been used or has expired. Sign-in links work once, and some mail providers open them automatically to scan for spam — which can use one up before you click it. Request a new one below."
+      ? "That link had already been used or has expired. Sign-in links and codes work once and last 15 minutes. Request a new code below."
       : errorCode === "denied"
         ? "That sign-in link was rejected. It may have been issued for a different address, or access may have been revoked."
         : errorCode === "invalid_link"
@@ -46,7 +46,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         <div className="panel animate-rise p-6 sm:p-8">
           <h1 className="text-heading font-semibold">Sign in</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Enter your email and we&rsquo;ll send you a link. No password
+            Enter your email and we&rsquo;ll send you a 6-digit code. No password
             needed.
           </p>
 

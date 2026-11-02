@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { EmailOtpType } from "@supabase/supabase-js";
 
+import { safeNext } from "@/lib/login-code.mjs";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -8,7 +8,8 @@ import { createClient } from "@/lib/supabase/server";
  * credential, accepting both forms Supabase issues:
  *
  *   ?code=...        PKCE, produced by signInWithOtp from the login form
- *   ?token_hash=...  OTP,  produced by the admin generate_link API
+ *   ?token_hash=...  OTP,  from the email template and the admin generate_link API;
+ *                    handed to /auth/confirm, which verifies it on a click
  *
  * The second matters because the admin API's `action_link` uses the implicit
  * flow, which returns the session in a URL *fragment* (`#access_token=...`).
@@ -16,15 +17,6 @@ import { createClient } from "@/lib/supabase/server";
  * one. Verifying `token_hash` here instead keeps the whole exchange on the
  * server and works regardless of which flow minted the link.
  */
-const OTP_TYPES = new Set<EmailOtpType>([
-  "magiclink",
-  "signup",
-  "invite",
-  "recovery",
-  "email_change",
-  "email",
-]);
-
 /**
  * Map Supabase's error codes onto the reasons the login page explains.
  *
@@ -64,13 +56,14 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     failed = Boolean(error);
   } else if (tokenHash) {
-    // Default to magiclink: that is what both the login form and the admin
-    // API issue, and an absent `type` should not fail an otherwise valid link.
-    const type = (rawType && OTP_TYPES.has(rawType as EmailOtpType)
-      ? rawType
-      : "magiclink") as EmailOtpType;
-    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
-    failed = Boolean(error);
+    // Not verified here: a mail scanner that opens the link would spend the
+    // one-time token (and the code beside it) before the person clicks.
+    // The confirm page verifies it when its button is pressed.
+    const to = new URL("/auth/confirm", origin);
+    to.searchParams.set("token_hash", tokenHash);
+    if (rawType) to.searchParams.set("type", rawType);
+    to.searchParams.set("next", safeNext(next));
+    return NextResponse.redirect(to);
   } else {
     // No credential in the query. Supabase's implicit flow puts the session in
     // the URL fragment, which never reaches the server, so an empty query here
@@ -88,6 +81,6 @@ export async function GET(request: NextRequest) {
 
   // Only same-origin relative paths are honoured, so a crafted `next` cannot
   // turn the sign-in flow into an open redirect to an attacker's page.
-  const destination = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+  const destination = safeNext(next);
   return NextResponse.redirect(`${origin}${destination}`);
 }

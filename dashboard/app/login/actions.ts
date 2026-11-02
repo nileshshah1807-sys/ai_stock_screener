@@ -1,7 +1,8 @@
 "use server";
 
-import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 
+import { isCode, normalizeCode, otpTypeOf, safeNext } from "@/lib/login-code.mjs";
 import { createClient } from "@/lib/supabase/server";
 
 export type LoginState = {
@@ -11,7 +12,7 @@ export type LoginState = {
 };
 
 /**
- * Send a magic link.
+ * Email a sign-in code (and a link that opens the Continue page).
  *
  * `shouldCreateUser: false` is the invite gate's first line: Supabase will not
  * provision an account for an unknown address, so an uninvited person cannot
@@ -22,7 +23,7 @@ export type LoginState = {
  * Saying "no such user" would turn this form into an oracle for which
  * addresses have access.
  */
-export async function requestMagicLink(
+export async function requestLoginCode(
   _prev: LoginState,
   formData: FormData,
 ): Promise<LoginState> {
@@ -35,17 +36,12 @@ export async function requestMagicLink(
   }
 
   const supabase = await createClient();
-  const headerList = await headers();
-  const origin =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    `https://${headerList.get("host") ?? "localhost:3000"}`;
 
+  // No redirect option: the email's link is built by the template, from the
+  // project's Site URL, and lands on /auth/callback.
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: {
-      shouldCreateUser: false,
-      emailRedirectTo: `${origin}/auth/callback`,
-    },
+    options: { shouldCreateUser: false },
   });
 
   // Rate limiting is worth surfacing: it is actionable ("wait and retry"),
@@ -61,11 +57,46 @@ export async function requestMagicLink(
   return {
     status: "sent",
     email,
-    message: "If that address has access, a sign-in link is on its way.",
+    message: "If that address has access, a 6-digit code is on its way.",
   };
 }
 
 export async function signOut() {
   const supabase = await createClient();
   await supabase.auth.signOut();
+}
+
+export type CodeState = { status: "idle" | "error"; message?: string };
+
+/**
+ * Check the code the person typed. The failure text is the same for a wrong,
+ * spent or unknown-address code, for the reason requestLoginCode answers every
+ * address alike.
+ */
+export async function verifyLoginCode(_prev: CodeState, formData: FormData): Promise<CodeState> {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const code = normalizeCode(formData.get("code"));
+  if (!isCode(code)) return { status: "error", message: "Enter the 6-digit code from the email." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
+  if (error?.status === 429) {
+    return { status: "error", message: "Too many attempts. Wait a few minutes and try again." };
+  }
+  if (error) {
+    return { status: "error", message: "That code is wrong or has expired. Codes last 15 minutes and work once." };
+  }
+  redirect("/");
+}
+
+/** The Continue page's button: spends the link's one-time token only when pressed. */
+export async function confirmLink(formData: FormData) {
+  const tokenHash = String(formData.get("token_hash") ?? "");
+  const type = otpTypeOf(String(formData.get("type") ?? ""));
+  const next = safeNext(formData.get("next"));
+  if (!tokenHash) redirect("/login?error=missing_code");
+  const supabase = await createClient();
+  const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
+  if (error) redirect("/login?error=expired");
+  redirect(next);
 }

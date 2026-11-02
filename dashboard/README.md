@@ -207,13 +207,24 @@ Supabase's built-in SMTP is rate-limited (a few messages per hour). That is
 workable for a small invite list; configure a custom SMTP provider if you add
 more people.
 
-**Sign-in email.** Supabase sends it, so the template cannot be deployed from
-this repo: `emails/magic-link.html` is the source of record. After editing it,
-paste the whole file into Authentication → Email Templates → Magic Link and set
-the subject to `Sign in to Winnow`. The template loads the brand mark from
-`{{ .SiteURL }}/email/winnow-mark.png`, so the project's Site URL (URL
-Configuration) must be the deployed dashboard's origin. The sender name is the
-one configured under SMTP Settings.
+**Sign-in email and code.** The login page asks for the email, then the
+6-digit code from it; the email's button opens `/auth/callback?token_hash=...`,
+which lands on a Continue page and spends the token only when pressed (mail
+scanners open links, and the code and link share one token). Supabase sends the
+email, so this cannot be deployed from the repo: `emails/magic-link.html` is the
+source of record. Before deploying a build that has the code step:
+
+1. Authentication, Email Templates, Magic Link: paste the whole file, subject
+   `Sign in to Winnow`. It prints `{{ .Token }}` and links to
+   `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email`.
+2. Authentication, Sign In / Providers, Email: set "Email OTP Expiration" to
+   `900` (15 minutes; the page and email say so) and keep "Email OTP Length" at 6.
+3. Site URL (URL Configuration) must be the deployed origin; the template also
+   loads the brand mark from `{{ .SiteURL }}/email/winnow-mark.png`.
+4. Check SMTP Settings: the built-in sender allows only a few messages an hour;
+   use a custom SMTP provider if more people sign in.
+
+The sender name is the one configured under SMTP Settings.
 
 **Session lifetime.** A sign-in lasts seven days from the moment the link was
 used, however recently the dashboard was opened; after that `proxy.ts` revokes

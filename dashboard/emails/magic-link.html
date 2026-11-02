@@ -11,7 +11,7 @@
   <body style="margin: 0; padding: 0; background-color: #eceef3; -webkit-text-size-adjust: 100%;">
     <!-- Inbox preview line; hidden in the opened message. -->
     <div style="display: none; max-height: 0; overflow: hidden; opacity: 0; color: transparent; mso-hide: all;">
-      Your sign-in link for Winnow. It works once and expires in one hour.
+      Your Winnow sign-in code is {{ .Token }}. It works once and expires in 15 minutes.
     </div>
 
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #eceef3;">
@@ -45,9 +45,14 @@
                   </tr>
                   <tr>
                     <td style="padding: 12px 0 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 24px; color: #5e5e63;">
-                      Use the button below to sign in as
+                      Enter this code on the sign-in page to sign in as
                       <span style="color: #1c1b1b; font-weight: 500;">{{ .Email }}</span>.
-                      The link works once and expires in one hour.
+                      It works once and expires in 15 minutes.
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 24px 0 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 32px; line-height: 40px; font-weight: 600; letter-spacing: 8px; color: #1c1b1b;">
+                      {{ .Token }}
                     </td>
                   </tr>
                   <tr>
@@ -55,8 +60,8 @@
                       <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                         <tr>
                           <td align="center" bgcolor="#000000" style="background-color: #000000; border-radius: 999px;">
-                            <a href="{{ .ConfirmationURL }}" target="_blank" style="display: inline-block; padding: 13px 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 20px; font-weight: 500; color: #ffffff; text-decoration: none; border-radius: 999px;">
-                              Sign in
+                            <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&amp;type=email" target="_blank" style="display: inline-block; padding: 13px 28px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 20px; font-weight: 500; color: #ffffff; text-decoration: none; border-radius: 999px;">
+                              Or sign in with this link
                             </a>
                           </td>
                         </tr>
@@ -74,14 +79,14 @@
                   </tr>
                   <tr>
                     <td style="padding: 20px 0 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 20px; color: #5e5e63;">
-                      Open the link in the same browser you requested it from.
-                      If the button does not work, copy this address into that
-                      browser:
+                      The link opens a page with a Continue button; nothing happens until
+                      you press it, so mail scanners that open links cannot use it up.
+                      If the button does not work, copy this address into your browser:
                     </td>
                   </tr>
                   <tr>
                     <td style="padding: 8px 0 0 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 13px; line-height: 20px; word-break: break-all;">
-                      <a href="{{ .ConfirmationURL }}" target="_blank" style="color: #1c1b1b; text-decoration: underline;">{{ .ConfirmationURL }}</a>
+                      <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&amp;type=email" target="_blank" style="color: #1c1b1b; text-decoration: underline;">{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&amp;type=email</a>
                     </td>
                   </tr>
                 </table>

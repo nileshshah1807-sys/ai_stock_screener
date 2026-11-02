@@ -3,11 +3,13 @@
 import { useActionState } from "react";
 import { Info, Loader2, MailCheck, TriangleAlert } from "lucide-react";
 
+import { CODE_LENGTH } from "@/lib/login-code.mjs";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { requestMagicLink, type LoginState } from "./actions";
+import { requestLoginCode, verifyLoginCode, type CodeState, type LoginState } from "./actions";
 
 const INITIAL: LoginState = { status: "idle" };
 
@@ -20,27 +22,69 @@ export function LoginForm({ notice }: { notice: string | null }) {
   // Explicit type arguments: inferring from the initial value widens `status`
   // to string and loses the discriminated union.
   const [state, formAction, pending] = useActionState<LoginState, FormData>(
-    requestMagicLink,
+    requestLoginCode,
     INITIAL,
   );
+  const [codeState, codeAction, verifying] = useActionState<CodeState, FormData>(verifyLoginCode, { status: "idle" });
 
   if (state.status === "sent") {
     return (
-      <div className="animate-rise" role="status" aria-live="polite">
+      <form action={codeAction} className="animate-rise space-y-4" aria-live="polite">
         <span className="flex size-10 items-center justify-center rounded-full bg-positive/10">
           <MailCheck className="size-5 text-positive" aria-hidden />
         </span>
-        <p className="mt-4 text-sm font-medium">Check your inbox</p>
-        <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
-        {state.email ? (
-          <p className="mt-3 truncate rounded-md bg-(--control) px-4 py-2 text-sm font-medium">
-            {state.email}
+        <div>
+          <p className="text-sm font-medium">Check your inbox</p>
+          <p className="mt-1 text-sm text-muted-foreground">{state.message}</p>
+          {state.email ? (
+            <p className="mt-3 truncate rounded-md bg-(--control) px-4 py-2 text-sm font-medium">{state.email}</p>
+          ) : null}
+        </div>
+        <input type="hidden" name="email" value={state.email ?? ""} />
+        <div className="space-y-2">
+          <Label htmlFor="code">6-digit code</Label>
+          <Input
+            id="code"
+            name="code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9 ]*"
+            maxLength={CODE_LENGTH + 3}
+            placeholder="123 456"
+            required
+            autoFocus
+            aria-invalid={codeState.status === "error"}
+            aria-describedby={codeState.status === "error" ? "code-error" : undefined}
+            className="h-10 font-mono tracking-[0.3em]"
+          />
+        </div>
+        {codeState.status === "error" && codeState.message ? (
+          <p id="code-error" role="alert" className="flex items-start gap-2 text-sm text-destructive">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+            {codeState.message}
           </p>
         ) : null}
-        <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-          The link works once and expires in one hour. Open it in this browser.
+        <Button type="submit" className="h-10 w-full" disabled={verifying}>
+          {verifying ? (
+            <>
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              Checking…
+            </>
+          ) : (
+            "Sign in"
+          )}
+        </Button>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          The code works once and expires in 15 minutes. Or open the link in the email and press Continue.{" "}
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Use a different address or send a new code
+          </button>
         </p>
-      </div>
+      </form>
     );
   }
 
@@ -87,10 +131,10 @@ export function LoginForm({ notice }: { notice: string | null }) {
         {pending ? (
           <>
             <Loader2 className="size-4 animate-spin" aria-hidden />
-            Sending link…
+            Sending code…
           </>
         ) : (
-          "Email me a sign-in link"
+          "Email me a code"
         )}
       </Button>
     </form>
