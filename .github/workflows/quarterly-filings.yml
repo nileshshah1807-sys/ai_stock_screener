@@ -66,8 +66,10 @@ jobs:
   store:
     name: NSE
     runs-on: ubuntu-latest
-    # Step budgets 22 + 12 + 6 minutes, plus setup and the events step.
-    timeout-minutes: 50
+    # Step budgets 22 + 12 + 6 minutes, plus setup and the events step, the
+    # upcoming-events step (8) and, in the full run only, the annual-report
+    # sweep (25).
+    timeout-minutes: 75
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -160,3 +162,20 @@ jobs:
         env:
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: python -m workers.upcoming_events --market NSE ${DRY_RUN}
+
+      # Annual-report links (workers/company_documents.py): one seventh of the
+      # universe in the daily full run, so each company is visited weekly. The
+      # decks, transcripts, recordings and ratings are recorded by the step above.
+      - name: Prune document links
+        if: ${{ !cancelled() && inputs.full }}
+        timeout-minutes: 3
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.company_documents --market NSE --prune ${DRY_RUN}
+
+      - name: Record annual-report links
+        if: ${{ !cancelled() && inputs.full }}
+        timeout-minutes: 25
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.company_documents --market NSE --annual-reports ${DRY_RUN}

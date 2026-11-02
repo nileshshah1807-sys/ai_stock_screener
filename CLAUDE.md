@@ -287,6 +287,17 @@ the scheduled workflows set the same flag.
   a notice once (`updated_at` is when it last looked at the stock), and
   skips BSE-only names. Display evidence; the table is in
   `storage/upcoming_events_schema.sql`, applied by hand.
+- **Company documents are links to the exchange's archive, one row each.**
+  `workers/company_documents.py` writes `company_documents` (NSE): investor
+  presentations, transcripts, recording notices and credit ratings classified from
+  the announcements `workers/upcoming_events.py` already fetches (so no extra
+  exchange call), and annual reports from the per-company endpoint, a seventh of
+  the universe a day in the full run. Links only; a year by `announced_at`
+  (annual reports: the latest three). The Results card does not store its deck:
+  it is the newest presentation within -1..+7 days of the result's broadcast
+  time. Transcripts and recordings use the collectors' own tests. Display
+  evidence; the table is in `storage/company_documents_schema.sql`, applied by
+  hand. The backfill (`--backfill-days 365`) is run by hand, never scheduled.
 - **US upcoming results come from Alpha Vantage's earnings calendar.**
   `workers/us_upcoming.py` (a step of the US Financial statements workflow, the
   first run of the day, before 09:00 UTC) makes one request a day, keyed by the `ALPHAVANTAGE_API_KEY`
