@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { ChevronRight, FileText } from "lucide-react";
+import { ChevronRight, FileText, Presentation } from "lucide-react";
 
 import { useExpand } from "@/components/motion";
 import { StockIdentity } from "@/components/stock-identity";
@@ -47,6 +47,8 @@ export type ResultCardData = {
   barDate: string | null;
   /** The company's web domain from the latest run, for its logo. */
   logoDomain: string | null;
+  /** The results presentation, once a source supplies one; the footer slot is hidden until then. */
+  presentationUrl?: string | null;
 };
 
 const BASIS_LABELS: Record<Basis, string> = {
@@ -67,7 +69,7 @@ function unitFor(market: Market) {
 function Opening({ children }: { children: React.ReactNode }) {
   return (
     <div data-expand>
-      <div className="py-1.5">{children}</div>
+      <div className="py-1">{children}</div>
     </div>
   );
 }
@@ -83,9 +85,11 @@ function ChangeCell({
   value,
   unit = "%",
   opening = false,
+  bold = false,
 }: {
   value: Value;
   unit?: string;
+  bold?: boolean;
   /** In a MarginRow: the content is wrapped so the row can open. */
   opening?: boolean;
 }) {
@@ -94,7 +98,8 @@ function ChangeCell({
     <td
       className={cn(
         "tabular whitespace-nowrap px-2 text-right font-mono text-[13px]",
-        opening ? "py-0" : "py-2",
+        opening ? "py-0" : "py-1.5",
+        bold && "font-semibold",
         value == null || value === 0
           ? "text-muted-foreground"
           : value > 0
@@ -127,7 +132,7 @@ function AmountCell({
     <td
       className={cn(
         "tabular whitespace-nowrap px-2 text-right font-mono text-[13px]",
-        opening ? "py-0" : "py-2",
+        opening ? "py-0" : "py-1.5",
         current ? "font-semibold text-foreground" : cn("text-muted-foreground", OLDER_QUARTER),
       )}
     >
@@ -176,33 +181,33 @@ export function ResultCard({ card }: { card: ResultCardData }) {
 
   return (
     <article className="panel flex min-w-0 flex-col gap-3 p-4">
-      <header className="flex items-start justify-between gap-4">
+      <header className="flex flex-col gap-1">
         <StockIdentity
           symbol={card.symbol}
           company={card.company}
           logoDomain={card.logoDomain}
           emphasis="company"
         />
-        {/* A US result has no filing time: only when it first appeared here, which its day heading says. */}
-        {market.code === "US" ? null : (
-          <span className="tabular shrink-0 pt-0.5 text-right text-xs text-muted-foreground">
-            {formatDateTimeIST(table.filedAt)}
-          </span>
-        )}
+        {/* One quiet line: quarter, basis and when it was filed. A US result has neither basis nor filing time. */}
+        <p className="tabular text-xs text-muted-foreground">
+          {[
+            table.columns[0]?.label,
+            market.code === "US" ? null : BASIS_LABELS[table.basis],
+            market.code === "US" ? null : formatDateTimeIST(table.filedAt),
+          ]
+            .filter((part) => part && part !== MISSING)
+            .join(" \u00b7 ")}
+        </p>
       </header>
 
-      {market.code === "US" ? null : card.bases.length > 1 ? (
+      {market.code !== "US" && card.bases.length > 1 ? (
         <SegmentedControl
           label={`${card.symbol} results basis`}
           value={table.basis}
           onChange={setBasis}
           options={card.bases.map((entry) => ({ value: entry.basis, label: BASIS_LABELS[entry.basis] }))}
         />
-      ) : (
-        <span className="w-max rounded-md px-3 py-1 text-[0.8125rem] font-medium text-muted-foreground ring-1 ring-inset ring-border">
-          {BASIS_LABELS[table.basis]}
-        </span>
-      )}
+      ) : null}
 
       <div className="-mx-1 overflow-x-auto">
         <table className="w-full border-collapse text-sm sm:min-w-[30rem]">
@@ -213,22 +218,25 @@ export function ResultCard({ card }: { card: ResultCardData }) {
           <thead>
             <tr className="whitespace-nowrap border-b text-[11px] text-muted-foreground">
               <th scope="col" className="px-2 py-1.5 text-left font-medium">
-                <span className="sr-only">Line</span>
+                <span className="sr-only">Line, amounts in </span>
+                {market.currencySymbol} {unit.label}
               </th>
+              {table.columns.slice(0, 1).map((column) => (
+                <th key={column.period} scope="col" className="px-2 py-1.5 text-right font-medium text-foreground">
+                  {column.label}
+                </th>
+              ))}
               <th scope="col" className="px-2 py-1.5 text-right font-medium">
                 YoY
               </th>
               <th scope="col" className="px-2 py-1.5 text-right font-medium">
                 QoQ
               </th>
-              {table.columns.map((column, index) => (
+              {table.columns.slice(1).map((column) => (
                 <th
                   key={column.period}
                   scope="col"
-                  className={cn(
-                    "px-2 py-1.5 text-right font-medium",
-                    index === 0 ? "text-foreground" : OLDER_QUARTER,
-                  )}
+                  className={cn("px-2 py-1.5 text-right font-medium", OLDER_QUARTER)}
                 >
                   {column.label}
                 </th>
@@ -242,15 +250,22 @@ export function ResultCard({ card }: { card: ResultCardData }) {
               const label = (
                 <>
                   {row.label}
-                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">
-                    {row.perShare ? market.currencySymbol : unit.label}
-                  </span>
+                  {row.perShare ? (
+                    <span className="ml-1 text-[10px] font-normal text-muted-foreground">{market.currencySymbol}</span>
+                  ) : null}
                 </>
               );
               return (
                 <Fragment key={row.key}>
-                  <tr>
-                    <th scope="row" className="px-2 py-2 text-left font-medium">
+                  <tr className={cn(row.key === "net_profit" && "border-t border-foreground/30")}>
+                    <th
+                      scope="row"
+                      className={cn(
+                        "px-2 py-1.5 text-left font-medium",
+                        row.key === "net_profit" && "font-semibold",
+                        row.perShare && "text-muted-foreground",
+                      )}
+                    >
                       {row.margin ? (
                         <button
                           type="button"
@@ -272,10 +287,11 @@ export function ResultCard({ card }: { card: ResultCardData }) {
                         label
                       )}
                     </th>
-                    <ChangeCell value={row.yoy} />
+                    <AmountCell text={amount(row, row.values[0], digits)} current />
+                    <ChangeCell value={row.yoy} bold />
                     <ChangeCell value={row.qoq} />
-                    {row.values.map((value, index) => (
-                      <AmountCell key={index} text={amount(row, value, digits)} current={index === 0} />
+                    {row.values.slice(1).map((value, index) => (
+                      <AmountCell key={index} text={amount(row, value, digits)} />
                     ))}
                   </tr>
                   {row.margin ? (
@@ -286,16 +302,25 @@ export function ResultCard({ card }: { card: ResultCardData }) {
                       >
                         <Opening>{row.margin.label}</Opening>
                       </th>
-                      <ChangeCell value={row.margin.yoy} unit=" pp" opening />
-                      <ChangeCell value={row.margin.qoq} unit=" pp" opening />
-                      {row.margin.values.map((value, index) => (
-                        <AmountCell
-                          key={index}
-                          text={value == null ? MISSING : `${value.toFixed(1)}%`}
-                          current={index === 0}
-                          opening
-                        />
-                      ))}
+                      {row.margin.values.map((value, index) => {
+                        const cell = (
+                          <AmountCell
+                            key={`v${index}`}
+                            text={value == null ? MISSING : `${value.toFixed(1)}%`}
+                            current={index === 0}
+                            opening
+                          />
+                        );
+                        return index === 0 ? (
+                          <Fragment key="first">
+                            {cell}
+                            <ChangeCell value={row.margin!.yoy} unit=" pp" opening />
+                            <ChangeCell value={row.margin!.qoq} unit=" pp" opening />
+                          </Fragment>
+                        ) : (
+                          cell
+                        );
+                      })}
                     </MarginRow>
                   ) : null}
                 </Fragment>
@@ -306,6 +331,7 @@ export function ResultCard({ card }: { card: ResultCardData }) {
       </div>
 
       <footer className="mt-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t pt-3 text-xs">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         {table.documentUrl ? (
           <a
             href={table.documentUrl}
@@ -320,6 +346,19 @@ export function ResultCard({ card }: { card: ResultCardData }) {
         ) : (
           <span />
         )}
+        {card.presentationUrl ? (
+          <a
+            href={card.presentationUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Presentation className="size-3.5" aria-hidden />
+            Investor presentation
+            <span className="sr-only">(in a new tab)</span>
+          </a>
+        ) : null}
+        </div>
         <dl className="tabular flex items-center gap-3 text-muted-foreground">
           <div className="flex gap-1">
             <dt>MCap</dt>
