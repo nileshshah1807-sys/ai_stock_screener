@@ -969,7 +969,7 @@ class DashboardRepository:
             "transcripts",
             {
                 "select": (
-                    "id,symbol,quarter,call_date,"
+                    "id,symbol,quarter,call_date,created_at,"
                     "transcript_documents(extraction_method),"
                     "transcript_sentiments(overall_score,guidance_direction,created_at),"
                     "transcript_outlooks(outlook_score,verified_fields,extraction,analysis_version,created_at)"
