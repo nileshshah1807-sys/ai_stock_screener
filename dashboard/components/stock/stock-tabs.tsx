@@ -63,7 +63,7 @@ export function StockTabs({
     <div className="space-y-4">
       {/* Scrolls inside itself when the strip is wider than the screen, and starts
           at the left; a centred flex box would spill off the left edge instead. */}
-      <div ref={strip} className="overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div ref={strip} className="overflow-x-auto overflow-y-hidden py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <SegmentedControl
           label="Stock sections"
           kind="tabs"
