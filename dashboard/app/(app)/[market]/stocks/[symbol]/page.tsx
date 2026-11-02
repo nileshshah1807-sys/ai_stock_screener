@@ -27,6 +27,8 @@ import { Financials } from "@/components/stock/financials";
 import { UpcomingResultChip } from "@/components/upcoming/upcoming-result-chip";
 import { getUpcomingResultDate } from "@/lib/upcoming";
 import { Shareholding } from "@/components/stock/shareholding";
+import { Documents } from "@/components/stock/documents";
+import { getCompanyDocuments } from "@/lib/documents";
 import { StockTabs } from "@/components/stock/stock-tabs";
 import { NewListingView } from "@/components/stock/new-listing-view";
 import {
@@ -224,6 +226,7 @@ export default async function StockPage({
     sessions,
     financials,
     shareholding,
+    documents,
     watchlists,
     watchlistMembership,
     latestCall,
@@ -237,6 +240,7 @@ export default async function StockPage({
     getPriceCalendar(market.code),
     getFinancialStatements(market.code, symbol),
     getShareholding(market.code, symbol),
+    getCompanyDocuments(market.code, symbol),
     getWatchlists(market.code),
     getWatchlistMembership(market.code, symbol),
     getLatestConcall(market.code, symbol),
@@ -1109,6 +1113,23 @@ export default async function StockPage({
                         info="Promoter, FII, DII and public stakes by quarter as filed with NSE, the named holders behind them, and bulk and block deals."
                       >
                         <Shareholding data={shareholding} market={market} symbol={row.symbol} />
+                      </Panel>
+                    ),
+                  },
+                ]
+              : []),
+            // NSE only: no other market has a source for them.
+            ...(market.code === "NSE"
+              ? [
+                  {
+                    key: "documents",
+                    label: "Documents",
+                    content: (
+                      <Panel
+                        title="Documents"
+                        info="Links to the company's filings and documents on the exchange, newest first. Nothing is copied here."
+                      >
+                        <Documents rows={documents} symbol={row.symbol} />
                       </Panel>
                     ),
                   },
