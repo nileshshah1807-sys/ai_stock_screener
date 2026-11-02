@@ -266,3 +266,18 @@ test("a 52-week filer's quarter finds the previous and year-ago quarters a few d
   assert.equal(revenue.qoq, 25);
   assert.deepEqual(table.columns.map((column) => column.period), ["2025-09-27", "2025-06-28", "2024-09-28"]);
 });
+
+test("quarterMedians, windowed, finds a US company's quarter by its own fiscal date", () => {
+  const filings = [
+    // a 52-week filer ending 28 Sep 2026 and a September filer; both are the Sep 2026 quarter
+    filed("A", "2026-09-28", 120), filed("A", "2025-09-27", 100),
+    filed("B", "2026-09-30", 150), filed("B", "2025-09-30", 100),
+    // a company whose fiscal quarter ends 31 Oct sits in the Sep window too
+    filed("C", "2026-10-31", 90), filed("C", "2025-10-31", 100),
+  ];
+  const [exact] = quarterMedians(filings, ["2026-09-30"]);
+  assert.equal(exact.results, 1);
+  const [windowed] = quarterMedians(filings, ["2026-09-30"], null, true);
+  assert.equal(windowed.results, 3);
+  assert.deepEqual(windowed.series.revenue, { median: 20, n: 3 });
+});
