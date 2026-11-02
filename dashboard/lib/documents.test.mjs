@@ -15,16 +15,18 @@ test("groups in the fixed order, newest first, empty kinds left out", () => {
   assert.deepEqual(groups[0].items.map((i) => i.date), ["2026-05-01", "2026-02-01"]);
 });
 
-test("a transcript and a recording of one period are one call", () => {
+test("a transcript pairs with the recording just before it; others stay apart", () => {
   const [group] = groupDocuments([
-    row("transcript", "2026-08-10", { period: "2026-06-30" }),
-    row("recording", "2026-08-02", { period: "2026-06-30" }),
-    row("recording", "2026-05-02", { period: "2026-03-31" }),
+    row("transcript", "2026-08-10T10:00:00Z"),
+    row("recording", "2026-08-02T10:00:00Z"),
+    row("recording", "2026-05-02T10:00:00Z"),
+    row("transcript", "2026-01-02T10:00:00Z"),
   ]);
   assert.equal(group.kind, "concall");
-  assert.equal(group.items.length, 2);
+  assert.equal(group.items.length, 3);
+  assert.equal(group.items[0].title, "Earnings call");
   assert.deepEqual(group.items[0].links.map((l) => l.label), ["Transcript", "Recording"]);
-  assert.equal(group.items[0].date, "2026-08-10");
+  assert.equal(group.items[0].date, "2026-08-10T10:00:00Z");
 });
 
 test("rows without a link or a date are dropped; nothing gives no groups", () => {
