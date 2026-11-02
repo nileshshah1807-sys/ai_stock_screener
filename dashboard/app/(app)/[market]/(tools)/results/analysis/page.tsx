@@ -4,10 +4,12 @@ import { PageTitle } from "@/components/page-title";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { AnalysisChart } from "@/components/results/analysis-chart";
 import { QuarterPicker } from "@/components/results/quarter-picker";
+import { SpanControl } from "@/components/results/span-control";
 import { intersectSymbols } from "@/lib/event-filters.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
 import { monthsBefore } from "@/lib/financials.mjs";
 import { formatInteger } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { marketFromSlug } from "@/lib/markets";
 import { getIndexDirectory, getIndexMembers } from "@/lib/queries";
 import { getQuarterLines } from "@/lib/results";
@@ -19,13 +21,12 @@ import {
   quarterEnds,
   quarterLabel,
   quarterMedians,
+  quarterWindow,
 } from "@/lib/results.mjs";
 
 export const metadata: Metadata = { title: "Results analysis" };
 export const dynamic = "force-dynamic";
 
-const TIME_ZONE = "Asia/Kolkata";
-const SERIES_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)"];
 
 /**
  * How the quarters compare: for each of the latest 4, 6 or 8, the median
@@ -38,7 +39,8 @@ const SERIES_COLORS = ["var(--series-1)", "var(--series-2)", "var(--series-3)"];
  * floor -- plus an index. Only the filings of the quarters shown and the
  * year-ago ones are read, and only their three lines.
  *
- * NSE only, like Results.
+ * NSE finds a company's quarter by its exact quarter end; the US by the calendar
+ * quarter's window, as its companies keep their own fiscal calendars.
  */
 export default async function ResultsAnalysisPage({
   params,
@@ -47,18 +49,7 @@ export default async function ResultsAnalysisPage({
   const market = marketFromSlug((await params).market)!;
   const query = await searchParams;
 
-  if (market.code !== "NSE") {
-    return (
-      <div className="space-y-4 px-4 py-5 sm:px-6">
-        <h1 className="text-title font-semibold">Results analysis</h1>
-        <div className="panel px-5 py-10 text-center">
-          <p className="text-sm font-medium">NSE only</p>
-        </div>
-      </div>
-    );
-  }
-
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE }).format(new Date());
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: market.timezone }).format(new Date());
   const span = chosenSpan(query.n);
   const quarters = quarterEnds(today, span);
   const periods = [...new Set(quarters.flatMap((end) => [end, monthsBefore(end, 12)]))];
@@ -76,15 +67,15 @@ export default async function ResultsAnalysisPage({
   );
 
   const lines = scope && scope.size === 0 ? [] : await getQuarterLines(market.code, periods, scope ? [...scope] : null);
-  const rows = quarterMedians(lines, quarters, scope);
+  const us = market.code === "US";
+  const rows = quarterMedians(lines, quarters, scope, us);
   const reported = rows.reduce((sum, row) => sum + row.results, 0);
 
-  const series = ANALYSIS_LINES.map((line, position) => ({ ...line, color: SERIES_COLORS[position] }));
-  const columns = rows.map((row) => ({
-    label: quarterLabel(row.quarter),
-    results: row.results,
-    values: ANALYSIS_LINES.map((line) => row.series[line.key]),
-  }));
+  const newest = rows[rows.length - 1];
+  // The newest quarter's results are still arriving until its window closes.
+  const inProgress = !!newest && today <= quarterWindow(newest.quarter).through;
+  const points = (key: string) =>
+    rows.map((row) => ({ label: quarterLabel(row.quarter), median: row.series[key].median, n: row.series[key].n }));
 
   return (
     <div className="space-y-4 px-4 py-5 sm:px-6">
@@ -117,53 +108,102 @@ export default async function ResultsAnalysisPage({
               ...indices.filter((item) => item.members).map((item) => ({ value: item.slug, label: item.name })),
             ]}
           />
-          <QuarterPicker
+          <SpanControl
             param="n"
             name="Quarters"
             value={String(span)}
-            options={[
-              { value: "6", label: "6 quarters" },
-              ...ANALYSIS_SPANS.filter((count) => count !== 6).map((count) => ({
-                value: String(count),
-                label: `${count} quarters`,
-              })),
-            ]}
+            defaultValue="6"
+            options={ANALYSIS_SPANS.map((count) => ({ value: String(count), label: String(count) }))}
           />
         </div>
       </div>
 
       <EventFilterBar {...feed.bar} />
 
-      {reported ? (
-        <div className="space-y-6">
-          <div className="panel p-4">
-            <AnalysisChart columns={columns} series={series} />
+      {reported && newest ? (
+        <div className="space-y-3">
+          <div className="panel grid divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            {ANALYSIS_LINES.map((line) => {
+              const cell = newest.series[line.key];
+              const value = cell.median;
+              return (
+                <div key={line.key} className="p-4">
+                  <p className="text-xs text-muted-foreground">
+                    {line.label}, {quarterLabel(newest.quarter)}
+                    {inProgress ? (
+                      <span className="ml-1.5 rounded-full border px-2 py-px text-[11px]">season in progress</span>
+                    ) : null}
+                  </p>
+                  <p
+                    className={cn(
+                      "tabular mt-0.5 text-[26px] font-semibold tracking-[-0.02em]",
+                      value == null || value === 0 ? "text-muted-foreground" : value > 0 ? "text-positive" : "text-negative",
+                    )}
+                  >
+                    {formatChange(value) ?? "–"}
+                    {cell.n ? (
+                      <small className="ml-1 text-[13px] font-medium tracking-normal text-muted-foreground">
+                        median of {formatInteger(cell.n)}
+                      </small>
+                    ) : null}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {formatInteger(newest.results)} {inProgress ? "results so far" : "results"}
+                  </p>
+                </div>
+              );
+            })}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[32rem] text-sm">
+          <div className="grid gap-3 lg:grid-cols-3">
+            {ANALYSIS_LINES.map((line) => (
+              <section key={line.key} className="panel p-4">
+                <h2 className="mb-2 text-[13px] font-semibold">{line.label}</h2>
+                <AnalysisChart title={line.label} points={points(line.key)} inProgress={inProgress} />
+              </section>
+            ))}
+          </div>
+          <div className="panel overflow-x-auto">
+            <table className="tabular w-full text-sm">
               <caption className="sr-only">Median year-on-year growth by quarter</caption>
               <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th scope="col" className="py-2 pr-4 font-medium">Quarter</th>
-                  <th scope="col" className="py-2 pr-4 text-right font-medium">Results</th>
+                <tr className="border-b text-xs text-muted-foreground">
+                  <th scope="col" className="px-3 py-2 text-left font-medium sm:px-4">Quarter</th>
+                  <th scope="col" className="hidden px-4 py-2 text-right font-medium sm:table-cell">Results</th>
                   {ANALYSIS_LINES.map((line) => (
-                    <th key={line.key} scope="col" className="py-2 pr-4 text-right font-medium">
+                    <th key={line.key} scope="col" className="px-2 py-2 text-right font-medium sm:px-4">
                       {line.label}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody>
-                {[...rows].reverse().map((row) => (
-                  <tr key={row.quarter} className="border-b last:border-0">
-                    <th scope="row" className="py-2 pr-4 text-left font-medium">{quarterLabel(row.quarter)}</th>
-                    <td className="tabular py-2 pr-4 text-right">{formatInteger(row.results)}</td>
+              <tbody className="divide-y">
+                {[...rows].reverse().map((row, position) => (
+                  <tr key={row.quarter}>
+                    <th scope="row" className="whitespace-nowrap px-3 py-2 text-left font-semibold sm:px-4">
+                      {quarterLabel(row.quarter)}
+                      {position === 0 && inProgress ? (
+                        <span className="ml-1.5 hidden rounded-full border px-2 py-px text-[11px] font-normal text-muted-foreground sm:inline">
+                          in progress
+                        </span>
+                      ) : null}
+                    </th>
+                    <td className="hidden px-4 py-2 text-right sm:table-cell">{formatInteger(row.results)}</td>
                     {ANALYSIS_LINES.map((line) => {
                       const cell = row.series[line.key];
                       return (
-                        <td key={line.key} className="tabular py-2 pr-4 text-right">
+                        <td
+                          key={line.key}
+                          className={cn(
+                            "whitespace-nowrap px-2 py-2 text-right sm:px-4",
+                            cell.median == null || cell.median === 0
+                              ? "text-muted-foreground"
+                              : cell.median > 0
+                                ? "text-positive"
+                                : "text-negative",
+                          )}
+                        >
                           {formatChange(cell.median) ?? "–"}
-                          <span className="ml-1 text-xs text-muted-foreground">
+                          <span className="ml-1 hidden text-[11px] text-muted-foreground sm:inline">
                             {cell.n ? `(${formatInteger(cell.n)})` : ""}
                           </span>
                         </td>
@@ -174,6 +214,11 @@ export default async function ResultsAnalysisPage({
               </tbody>
             </table>
           </div>
+          <p className="max-w-prose px-0.5 text-xs leading-relaxed text-muted-foreground">
+            {us
+              ? "A result is a company whose fiscal quarter ends in the calendar quarter\u2019s window (15 days before to 45 days after its end). We hold five quarters per company, so earlier quarters have no year-ago base and show a dash."
+              : "A result is a company that filed the quarter; each median is over the companies with a growth rate, in brackets. There is no rate off a loss or without the same quarter a year earlier, and the exchange\u2019s index of filings begins in April 2025, so earlier quarters show a dash."}
+          </p>
         </div>
       ) : (
         <div className="panel px-5 py-10 text-center">

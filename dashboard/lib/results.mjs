@@ -274,6 +274,18 @@ export function reportsResult(basis) {
   return ["revenue", "net_profit"].some((key) => basis.rows.find((row) => row.key === key)?.values[0] != null);
 }
 
+/** The latest period end of `filings` inside the window of calendar quarter `end`, or null. */
+function latestIn(filings, end) {
+  const { after, through } = quarterWindow(end);
+  let latest = null;
+  for (const filing of filings) {
+    if (filing.period_end > after && filing.period_end <= through && (!latest || filing.period_end > latest)) {
+      latest = filing.period_end;
+    }
+  }
+  return latest;
+}
+
 /**
  * Per quarter, how many companies reported and the median year-on-year growth
  * of each analysed line across them, oldest quarter first.
@@ -287,8 +299,10 @@ export function reportsResult(basis) {
  * @param {Array<{ symbol: string, period_end: string }>} filings  every filing read, any basis
  * @param {string[]} quarters  quarter ends, newest first
  * @param {Set<string> | null} [symbols]  restrict to these companies; null for all
+ * @param {boolean} [windowed]  find a company's quarter by `quarterWindow`, for a market whose
+ *   companies keep their own fiscal calendars (US), not by the exact quarter end (NSE)
  */
-export function quarterMedians(filings, quarters, symbols = null) {
+export function quarterMedians(filings, quarters, symbols = null, windowed = false) {
   const byCompany = new Map();
   for (const filing of filings) {
     if (symbols && !symbols.has(filing.symbol)) continue;
@@ -300,7 +314,9 @@ export function quarterMedians(filings, quarters, symbols = null) {
     const rates = Object.fromEntries(ANALYSIS_LINES.map((line) => [line.key, []]));
     let results = 0;
     for (const [symbol, list] of byCompany) {
-      const basis = resultCard({ symbol }, list, quarter).bases[0];
+      const own = windowed ? latestIn(list, quarter) : quarter;
+      if (!own) continue;
+      const basis = resultCard({ symbol }, list, own).bases[0];
       if (!basis || !reportsResult(basis)) continue;
       results += 1;
       for (const line of ANALYSIS_LINES) {
