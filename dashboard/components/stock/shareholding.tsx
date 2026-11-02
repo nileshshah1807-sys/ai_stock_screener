@@ -239,6 +239,7 @@ export function Shareholding({
     <div className="space-y-4">
       <SegmentedControl<View>
         label="Shareholding view"
+        className="max-w-full overflow-x-auto"
         value={view}
         onChange={setView}
         options={[
@@ -261,6 +262,7 @@ export function Shareholding({
 
             <SegmentedControl<Breakdown>
               label="Holder breakdown"
+              className="max-w-full overflow-x-auto"
               value={breakdown}
               onChange={setBreakdown}
               options={[

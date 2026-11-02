@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { SegmentedControl } from "@/components/segmented-control";
 
@@ -33,7 +33,18 @@ export function StockTabs({
 }) {
   const first = tabs.some((tab) => tab.key === initial) ? initial : tabs[0].key;
   const [active, setActive] = useState(first);
+  const strip = useRef<HTMLDivElement>(null);
   const [visited, setVisited] = useState<Set<string>>(() => new Set([first]));
+
+  // A deep link (?tab=documents) opens with its tab in view, not past the edge.
+  useEffect(() => {
+    const box = strip.current;
+    const tab = box?.querySelector<HTMLElement>("[aria-selected=true]");
+    if (!box || !tab) return;
+    // Only the strip moves, never the page.
+    const offset = tab.getBoundingClientRect().left - box.getBoundingClientRect().left;
+    box.scrollLeft += offset - (box.clientWidth - tab.offsetWidth) / 2;
+  }, [active]);
 
   const select = (key: string) => {
     setActive(key);
@@ -50,7 +61,9 @@ export function StockTabs({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-center sm:justify-start">
+      {/* Scrolls inside itself when the strip is wider than the screen, and starts
+          at the left; a centred flex box would spill off the left edge instead. */}
+      <div ref={strip} className="overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <SegmentedControl
           label="Stock sections"
           kind="tabs"
@@ -59,6 +72,7 @@ export function StockTabs({
           value={active}
           onChange={select}
           options={tabs.map((tab) => ({ value: tab.key, label: tab.label }))}
+          className="mx-auto sm:mx-0"
         />
       </div>
 
