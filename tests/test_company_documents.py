@@ -7,6 +7,7 @@ from workers.company_documents import (
     announcement_rows,
     annual_report_rows,
     kind_of,
+    prune,
     record_announcements,
     sweep_annual_reports,
     sweep_slice,
@@ -103,6 +104,25 @@ class RunTests(unittest.TestCase):
         with self.assertLogs("workers.company_documents", "WARNING"):
             self.assertEqual(record_announcements(repo, [note("Investor Presentation", at="01-Nov-2026 10:00:00")], now=NOW), 0)
 
+    def test_an_empty_universe_writes_nothing(self):
+        repo = FakeRepo()
+        repo.snapshot_companies = lambda: {}
+        with self.assertLogs("workers.company_documents", "WARNING"):
+            self.assertEqual(record_announcements(repo, [note("Investor Presentation", at="01-Nov-2026 10:00:00")], now=NOW), 0)
+        self.assertEqual(repo.written, [])
+
+    def test_the_sweep_writes_every_fifty_symbols(self):
+        repo = FakeRepo()
+        calls = []
+        repo.upsert_company_documents = lambda rows: calls.append(len(rows)) or len(rows)
+        sweep_annual_reports(repo, FakeNse(), [f"S{i}" for i in range(120)], pause=0)
+        self.assertEqual(calls, [50, 50, 20])
+
+    def test_prune_is_its_own_call(self):
+        repo = FakeRepo()
+        prune(repo, now=NOW)
+        self.assertEqual(len(repo.pruned), 1)
+
     def test_dry_run_writes_nothing(self):
         repo = FakeRepo()
         record_announcements(repo, [note("Investor Presentation", at="01-Nov-2026 10:00:00")], now=NOW, dry_run=True)
@@ -114,7 +134,7 @@ class RunTests(unittest.TestCase):
         counts = sweep_annual_reports(repo, FakeNse(), ["TCS"], pause=0)
         self.assertEqual((counts["written"], counts["dropped"]), (1, 1))
         self.assertEqual(repo.dropped[0]["url"], "https://x/old.pdf")
-        self.assertEqual(len(repo.pruned), 1)
+        self.assertEqual(repo.pruned, [])  # pruning is the prune step's, not the sweep's
 
 
 if __name__ == "__main__":

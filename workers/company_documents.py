@@ -36,6 +36,7 @@ FRESH_DAYS = 2
 BACKFILL_WINDOW_DAYS = 7
 SWEEP_PAUSE_SECONDS = 0.5
 SWEEP_BUDGET_SECONDS = 20 * 60
+SWEEP_WRITE_EVERY = 50  # symbols; a cancelled run keeps what it had
 
 TITLES = {
     "presentation": "Investor presentation",
@@ -117,7 +118,10 @@ def record_announcements(repo, announcements: list[dict[str, Any]], *, now: date
         return 0
     try:
         universe = set(repo.snapshot_companies())
-        rows = announcement_rows(announcements, since=now - timedelta(days=FRESH_DAYS), universe=universe or None)
+        if not universe:  # no list to keep to: write nothing rather than every symbol the exchange names
+            logger.warning("Company documents not recorded: the universe is empty")
+            return 0
+        rows = announcement_rows(announcements, since=now - timedelta(days=FRESH_DAYS), universe=universe)
         return 0 if dry_run or not rows else repo.upsert_company_documents(rows)
     except Exception as exc:  # noqa: BLE001 -- display evidence: never fail the step that fetched the announcements
         logger.warning("Company documents not recorded (%s). Apply storage/company_documents_schema.sql.", exc)
@@ -136,6 +140,15 @@ def sweep_annual_reports(repo, nse, symbols: list[str], *, dry_run: bool = False
     deadline = time.monotonic() + budget
     batch: list[dict[str, Any]] = []
     stale: list[dict[str, Any]] = []
+
+    def flush() -> None:
+        counts["rows"] += len(batch)
+        if not dry_run:
+            counts["written"] += repo.upsert_company_documents(batch) if batch else 0
+            counts["dropped"] += repo.delete_company_documents(stale) if stale else 0
+        batch.clear()
+        stale.clear()
+
     for symbol in symbols:
         if time.monotonic() > deadline:
             logger.warning("Annual-report sweep stopped at its time budget after %s symbols", counts["symbols"])
@@ -151,13 +164,17 @@ def sweep_annual_reports(repo, nse, symbols: list[str], *, dry_run: bool = False
         keep = {row["url"] for row in rows}
         stale += [d for d in stored.get(symbol, []) if d["url"] not in keep and rows]
         batch += rows
-    counts["rows"] = len(batch)
-    if not dry_run:
-        counts["written"] = repo.upsert_company_documents(batch) if batch else 0
-        counts["dropped"] = repo.delete_company_documents(stale) if stale else 0
-        repo.prune_company_documents((datetime.now(UTC) - timedelta(days=RETENTION_DAYS)).isoformat())
+        if counts["symbols"] % SWEEP_WRITE_EVERY == 0:
+            flush()
+    flush()
     logger.info("Annual-report sweep: %s%s", counts, " (dry run, nothing written)" if dry_run else "")
     return counts
+
+
+def prune(repo, *, now: datetime | None = None, dry_run: bool = False) -> None:
+    """Drop links announced more than a year ago (annual reports are kept to a count instead)."""
+    if not dry_run:
+        repo.prune_company_documents(((now or datetime.now(UTC)) - timedelta(days=RETENTION_DAYS)).isoformat())
 
 
 def backfill(repo, nse, *, days: int, now: datetime, dry_run: bool = False) -> int:
@@ -180,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--market", default="NSE")
     parser.add_argument("--annual-reports", action="store_true", help="sweep today's seventh of the universe")
+    parser.add_argument("--prune", action="store_true", help="drop links older than a year (needs no exchange session)")
     parser.add_argument("--all", action="store_true", help="with --annual-reports: the whole universe")
     parser.add_argument("--backfill-days", type=int, default=0, help="by hand: announcements back this many days")
     parser.add_argument("--dry-run", action="store_true")
@@ -190,10 +208,14 @@ def main(argv: list[str] | None = None) -> int:
     from workers.upcoming_events import open_session
 
     repo = DashboardRepository.from_environment(args.market)
-    if repo.market != "NSE" or not (args.annual_reports or args.backfill_days):
-        logger.warning("Nothing to do: pass --annual-reports or --backfill-days on the NSE")
+    if repo.market != "NSE" or not (args.annual_reports or args.backfill_days or args.prune):
+        logger.warning("Nothing to do: pass --prune, --annual-reports or --backfill-days on the NSE")
         return 0
     now = datetime.now(UTC)
+    if args.prune:
+        prune(repo, now=now, dry_run=args.dry_run)
+    if not (args.annual_reports or args.backfill_days):
+        return 0
     with TemporaryDirectory(prefix="company_documents_") as folder:
         try:
             nse = open_session(folder)
