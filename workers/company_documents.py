@@ -47,6 +47,15 @@ TITLES = {
 # Companies also file a deck under these subjects; the text names it.
 _DECK_SUBJECTS = ("general updates", "updates", "analysts/institutional investor meet/con. call updates")
 _DECK = re.compile(r"presentation", re.IGNORECASE)
+# A notice that schedules or invites to a meeting mentions a presentation without being one.
+_NOT_A_DECK = re.compile(r"schedule|invite|meet", re.IGNORECASE)
+_DECK_NAME = re.compile(r"present|ppt|deck", re.IGNORECASE)
+
+
+def is_deck(text: str, url: str) -> bool:
+    """A file named a presentation is one; otherwise a schedule, invite or meeting notice is not."""
+    name = url.rsplit("/", 1)[-1]
+    return bool(_DECK_NAME.search(name)) or not _NOT_A_DECK.search(f"{text} {name}")
 
 
 def kind_of(record: dict[str, Any]) -> str | None:
@@ -62,7 +71,7 @@ def kind_of(record: dict[str, Any]) -> str | None:
         return "recording"
     if desc.startswith("credit rating"):
         return "rating"
-    if desc == "investor presentation" or (desc in _DECK_SUBJECTS and _DECK.search(text)):
+    if desc == "investor presentation" or (desc in _DECK_SUBJECTS and _DECK.search(text) and is_deck(text, str(record.get("attchmntFile") or ""))):
         return "presentation"
     return None
 
@@ -177,6 +186,15 @@ def prune(repo, *, now: datetime | None = None, dry_run: bool = False) -> None:
         repo.prune_company_documents(((now or datetime.now(UTC)) - timedelta(days=RETENTION_DAYS)).isoformat())
 
 
+def clean_presentations(repo, *, dry_run: bool = False) -> int:
+    """By hand: remove stored presentations whose file name says schedule/invite/meet and not presentation."""
+    misfiled = [row for rows in repo.company_documents(kind="presentation").values() for row in rows if not is_deck("", row["url"])]
+    for row in misfiled:
+        logger.info("%s %s %s", "would delete" if dry_run else "deleting", row["symbol"], row["url"])
+    logger.info("Misfiled presentations: %s%s", len(misfiled), " (dry run, nothing deleted)" if dry_run else "")
+    return 0 if dry_run or not misfiled else repo.delete_company_documents(misfiled, kind="presentation")
+
+
 def backfill(repo, nse, *, days: int, now: datetime, dry_run: bool = False) -> int:
     """Seven-day announcement windows back ``days`` days: for a by-hand backfill, never scheduled."""
     universe = set(repo.snapshot_companies())
@@ -198,6 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--market", default="NSE")
     parser.add_argument("--annual-reports", action="store_true", help="sweep today's seventh of the universe")
     parser.add_argument("--prune", action="store_true", help="drop links older than a year (needs no exchange session)")
+    parser.add_argument("--clean-presentations", action="store_true", help="by hand: delete stored schedules misfiled as presentations (try --dry-run first)")
     parser.add_argument("--all", action="store_true", help="with --annual-reports: the whole universe")
     parser.add_argument("--backfill-days", type=int, default=0, help="by hand: announcements back this many days")
     parser.add_argument("--dry-run", action="store_true")
@@ -208,12 +227,14 @@ def main(argv: list[str] | None = None) -> int:
     from workers.upcoming_events import open_session
 
     repo = DashboardRepository.from_environment(args.market)
-    if repo.market != "NSE" or not (args.annual_reports or args.backfill_days or args.prune):
-        logger.warning("Nothing to do: pass --prune, --annual-reports or --backfill-days on the NSE")
+    if repo.market != "NSE" or not (args.annual_reports or args.backfill_days or args.prune or args.clean_presentations):
+        logger.warning("Nothing to do: pass --prune, --annual-reports, --backfill-days or --clean-presentations on the NSE")
         return 0
     now = datetime.now(UTC)
     if args.prune:
         prune(repo, now=now, dry_run=args.dry_run)
+    if args.clean_presentations:
+        clean_presentations(repo, dry_run=args.dry_run)
     if not (args.annual_reports or args.backfill_days):
         return 0
     with TemporaryDirectory(prefix="company_documents_") as folder:

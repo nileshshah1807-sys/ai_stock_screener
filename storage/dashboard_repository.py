@@ -1065,13 +1065,13 @@ class DashboardRepository:
             )
         return len(rows)
 
-    def delete_company_documents(self, rows: list[dict[str, Any]]) -> int:
-        """Remove the given ``symbol``/``url`` annual reports."""
+    def delete_company_documents(self, rows: list[dict[str, Any]], kind: str = "annual_report") -> int:
+        """Remove the given ``symbol``/``url`` documents of one kind."""
         for row in rows:
             self._request(
                 "DELETE",
                 "company_documents",
-                params=self._scoped({"symbol": f"eq.{row['symbol']}", "kind": "eq.annual_report", "url": f"eq.{row['url']}"}),
+                params=self._scoped({"symbol": f"eq.{row['symbol']}", "kind": f"eq.{kind}", "url": f"eq.{row['url']}"}),
                 headers={"Prefer": "return=minimal"},
             )
         return len(rows)
