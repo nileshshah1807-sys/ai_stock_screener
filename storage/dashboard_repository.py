@@ -1046,6 +1046,45 @@ class DashboardRepository:
             )
         return len(rows)
 
+    def company_documents(self, kind: str) -> dict[str, list[dict[str, Any]]]:
+        """Every stored document of one kind, by symbol."""
+        found: dict[str, list[dict[str, Any]]] = {}
+        for row in self._paged("company_documents", {"select": "symbol,url", "kind": f"eq.{kind}", "order": "symbol.asc,url.asc"}):
+            found.setdefault(str(row["symbol"]), []).append(row)
+        return found
+
+    def upsert_company_documents(self, rows: list[dict[str, Any]], chunk_size: int = 500) -> int:
+        """Write document links; one already stored is left as it is."""
+        for chunk in chunked(rows, chunk_size):
+            self._request(
+                "POST",
+                "company_documents?on_conflict=market,symbol,kind,url",
+                json=self._stamped(chunk),
+                headers={"Prefer": "resolution=ignore-duplicates,return=minimal"},
+                retries=2,
+            )
+        return len(rows)
+
+    def delete_company_documents(self, rows: list[dict[str, Any]]) -> int:
+        """Remove the given ``symbol``/``url`` annual reports."""
+        for row in rows:
+            self._request(
+                "DELETE",
+                "company_documents",
+                params=self._scoped({"symbol": f"eq.{row['symbol']}", "kind": "eq.annual_report", "url": f"eq.{row['url']}"}),
+                headers={"Prefer": "return=minimal"},
+            )
+        return len(rows)
+
+    def prune_company_documents(self, before: str) -> None:
+        """Drop links announced before ``before`` (an ISO timestamp); annual reports are kept to a count instead."""
+        self._request(
+            "DELETE",
+            "company_documents",
+            params=self._scoped({"announced_at": f"lt.{before}", "kind": "neq.annual_report"}),
+            headers={"Prefer": "return=minimal"},
+        )
+
     def prune_market_events(self, before: str) -> None:
         """Drop events first seen before ``before`` (an ISO timestamp)."""
         self._request(

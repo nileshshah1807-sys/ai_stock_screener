@@ -41,6 +41,7 @@ from zoneinfo import ZoneInfo
 
 from transcripts.collector import is_earnings_transcript
 from transcripts.recordings import is_recording_notice
+from workers.company_documents import record_announcements
 
 logger = logging.getLogger(__name__)
 
@@ -409,11 +410,10 @@ def run(repo, *, now: datetime | None = None, dry_run: bool = False) -> dict[str
 
         try:
             start = datetime.combine(today - timedelta(days=NOTICE_LOOKBACK_DAYS), datetime.min.time())
-            records = [
-                record
-                for record in nse.announcements(index="equities", from_date=start, to_date=datetime.combine(today, datetime.max.time()))
-                if is_call_notice(record)
-            ]
+            announcements = nse.announcements(index="equities", from_date=start, to_date=datetime.combine(today, datetime.max.time()))
+            records = [record for record in announcements if is_call_notice(record)]
+            # The same fetch also lists a company's decks, transcripts, recordings and ratings.
+            record_announcements(repo, announcements, now=now, dry_run=dry_run)
         except Exception as exc:  # the result dates are already written
             logger.warning("Call notices unavailable (%s)", exc)
             records = []

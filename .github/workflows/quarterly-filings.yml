@@ -160,3 +160,13 @@ jobs:
         env:
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: python -m workers.upcoming_events --market NSE ${DRY_RUN}
+
+      # Annual-report links (workers/company_documents.py): one seventh of the
+      # universe in the daily full run, so each company is visited weekly. The
+      # decks, transcripts, recordings and ratings are recorded by the step above.
+      - name: Record annual-report links
+        if: ${{ !cancelled() && inputs.full }}
+        timeout-minutes: 25
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.company_documents --market NSE --annual-reports ${DRY_RUN}
