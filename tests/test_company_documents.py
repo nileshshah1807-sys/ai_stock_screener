@@ -6,6 +6,8 @@ from datetime import UTC, date, datetime
 from workers.company_documents import (
     announcement_rows,
     annual_report_rows,
+    clean_presentations,
+    is_deck,
     kind_of,
     prune,
     record_announcements,
@@ -28,6 +30,18 @@ class KindTests(unittest.TestCase):
         self.assertEqual(kind_of(note("Credit Rating- Revision")), "rating")
         self.assertEqual(kind_of(note("Analysts/Institutional Investor Meet/Con. Call Updates", "X has informed the Exchange about Transcript")), "transcript")
         self.assertEqual(kind_of(note("Analysts/Institutional Investor Meet/Con. Call Updates", "X has informed the Exchange about Link of Recording")), "recording")
+
+    def test_a_schedule_or_invite_that_mentions_a_presentation_is_not_a_deck(self):
+        sub = "Analysts/Institutional Investor Meet/Con. Call Updates"
+        axis = note(sub, "Axis has informed the Exchange about schedule of analyst meet and presentation", url="https://x/AXISBANK_Schedule_of_Investor_Analyst_Meet_09092026Signed.pdf")
+        cifl = note(sub, "Intimation of investor meet; presentation attached", url="https://x/CIFL_SE_Intimation_Investors_Presentation.pdf")
+        self.assertIsNone(kind_of(axis))
+        self.assertEqual(kind_of(cifl), "presentation")  # the file says Presentation
+        self.assertEqual(kind_of(note("Investor Presentation", "invite", url="https://x/Invite.pdf")), "presentation")  # the subject says so
+
+    def test_is_deck_by_file_name(self):
+        self.assertFalse(is_deck("", "https://x/Schedule_of_Meet.pdf"))
+        self.assertTrue(is_deck("", "https://x/Q2_Results.pdf"))
 
     def test_other_announcements_are_not_documents(self):
         self.assertIsNone(kind_of(note("Outcome of Board Meeting")))
@@ -80,8 +94,9 @@ class FakeRepo:
     def company_documents(self, kind):
         return self.stored
 
-    def delete_company_documents(self, rows):
+    def delete_company_documents(self, rows, kind="annual_report"):
         self.dropped += rows
+        self.dropped_kind = kind
         return len(rows)
 
     def prune_company_documents(self, before):
@@ -117,6 +132,14 @@ class RunTests(unittest.TestCase):
         repo.upsert_company_documents = lambda rows: calls.append(len(rows)) or len(rows)
         sweep_annual_reports(repo, FakeNse(), [f"S{i}" for i in range(120)], pause=0)
         self.assertEqual(calls, [50, 50, 20])
+
+    def test_cleanup_counts_first_then_deletes_only_the_misfiled(self):
+        stored = {"AXIS": [{"symbol": "AXIS", "url": "https://x/Schedule_of_Analyst_Meet.pdf"}, {"symbol": "AXIS", "url": "https://x/Investor_Presentation.pdf"}]}
+        repo = FakeRepo(stored=stored)
+        self.assertEqual(clean_presentations(repo, dry_run=True), 0)
+        self.assertEqual(repo.dropped, [])
+        self.assertEqual(clean_presentations(repo), 1)
+        self.assertEqual((repo.dropped_kind, [r["url"] for r in repo.dropped]), ("presentation", ["https://x/Schedule_of_Analyst_Meet.pdf"]))
 
     def test_prune_is_its_own_call(self):
         repo = FakeRepo()
