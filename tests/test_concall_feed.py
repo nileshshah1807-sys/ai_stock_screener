@@ -161,6 +161,12 @@ class FeedTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual((rows[0]["source"], rows[0]["call_date"], rows[0]["tone_score"]), ("transcript", "2026-10-12", 58.0))
 
+    def test_a_row_is_stored_when_the_transcript_it_shows_was_stored(self):
+        recording = call("ALPHA", "2026-10-12", speech=True) | {"created_at": "2026-10-12T16:00:00+00:00"}
+        filed = call("ALPHA", "2026-10-16") | {"created_at": "2026-10-16T09:00:00+00:00"}
+        self.assertEqual(build_feed([recording], COMPANIES)[0]["stored_at"], "2026-10-12T16:00:00+00:00")
+        self.assertEqual(build_feed([recording, filed], COMPANIES)[0]["stored_at"], "2026-10-16T09:00:00+00:00")
+
     def test_the_day_held_survives_the_recording_transcript_being_removed(self):
         (row,) = build_feed(
             [call("ALPHA", "2026-10-16", tone=58.0)], COMPANIES, {("ALPHA", "2026-09-30"): "2026-10-12"}
@@ -262,6 +268,7 @@ class RunTests(unittest.TestCase):
         (row,) = repository.written[0]
         self.assertNotIn("management_stance", row)
         self.assertNotIn("outlook_detail", row)
+        self.assertNotIn("stored_at", row)
         self.assertEqual(row["outlook_score"], 64.0)
 
     def test_a_dry_run_writes_nothing(self):

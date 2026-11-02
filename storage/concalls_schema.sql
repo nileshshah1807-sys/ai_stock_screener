@@ -51,6 +51,10 @@ create table if not exists concall_feed (
     outlook_detail jsonb,
     -- Up to three of [{"text", "tone": "positive"|"negative", "quote"}].
     highlights jsonb not null default '[]'::jsonb,
+    -- When the text this row shows was first stored (transcripts.created_at):
+    -- the recording's, until the filed transcript replaces it, then the
+    -- filed one's. Unlike updated_at it does not move when the feed is rewritten.
+    stored_at timestamptz,
     updated_at timestamptz not null default now(),
 
     primary key (market, symbol, quarter)
@@ -61,6 +65,7 @@ create table if not exists concall_feed (
 alter table concall_feed add column if not exists management_stance text;
 alter table concall_feed add column if not exists management_stance_quote text;
 alter table concall_feed add column if not exists outlook_detail jsonb;
+alter table concall_feed add column if not exists stored_at timestamptz;
 
 create index if not exists concall_feed_recent_idx
     on concall_feed (market, call_date desc);

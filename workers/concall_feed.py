@@ -247,6 +247,7 @@ def build_feed(
             "outlook_score": None if outlook_score is None else round_half_up(outlook_score, 2),
             "highlights": highlights(outlook.get("extraction"), read_on),
             "outlook_detail": None,
+            "stored_at": chosen.get("created_at"),
         })
         # Dated as the screener dates it -- by the transcript read -- so "the
         # quarter before" is the same call here as in a run.
@@ -311,7 +312,7 @@ def run(repo, *, today: date | None = None, dry_run: bool = False) -> dict[str, 
 
 
 # Columns added after the table first shipped, newest first.
-STANCE_COLUMNS = ("outlook_detail", "management_stance", "management_stance_quote")
+STANCE_COLUMNS = ("stored_at", "outlook_detail", "management_stance", "management_stance_quote")
 
 
 def _write(repo, rows: list[dict[str, Any]], since: str) -> int:
