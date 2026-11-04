@@ -13,6 +13,7 @@ import { callPanelSource } from "@/lib/concalls.mjs";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, tailFromHistory, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
+import { isAdmin } from "@/lib/auth";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
@@ -321,6 +322,8 @@ export default async function StockPage({
   const capFlagged =
     row.decision_cap_applied === true || row.rating_capped === true;
   const gateWarning = text(payload, "Gate_Warning");
+  // Ratings are admin-only (lib/ratings.mjs); the row arrives without them.
+  const admin = await isAdmin();
 
   // Display-only diagnostics from screener/expectations.py. Read through the
   // payload rather than a promoted column: they change nothing that scores, so
@@ -370,17 +373,21 @@ export default async function StockPage({
       : null;
 
   const policyFields: Field[] = [
-    {
-      label: "Research rating",
-      value: row.research_rating ?? row.evidence_rating ?? MISSING,
-      hint: "The rating implied by research evidence before policy eligibility checks.",
-    },
-    {
-      label: "Policy-eligible rating",
-      value: row.policy_eligible_rating ?? row.decision_rating ?? MISSING,
-      tone: capFlagged ? "caution" : "default",
-      hint: "The highest rating allowed after applying this row's observed gates.",
-    },
+    ...(admin
+      ? ([
+          {
+            label: "Research rating",
+            value: row.research_rating ?? row.evidence_rating ?? MISSING,
+            hint: "The rating implied by research evidence before policy eligibility checks.",
+          },
+          {
+            label: "Policy-eligible rating",
+            value: row.policy_eligible_rating ?? row.decision_rating ?? MISSING,
+            tone: capFlagged ? "caution" : "default",
+            hint: "The highest rating allowed after applying this row's observed gates.",
+          },
+        ] satisfies Field[])
+      : []),
     {
       label: "Evidence score",
       value: formatScore(evidenceScore),
@@ -423,24 +430,28 @@ export default async function StockPage({
   ];
 
   const gateFields: Field[] = [
-    {
-      label: "Published rating",
-      value: <EntryBadge row={row} size="md" showReason={false} />,
-    },
-    {
-      label: "BUY gates",
-      value: row.buy_eligible ? "Passed" : "Failed",
-      tone: row.buy_eligible ? "positive" : "caution",
-      hint: row.buy_eligible ? undefined : text(payload, "Buy_Gate_Reason"),
-    },
-    {
-      label: "STRONG BUY gates",
-      value: row.strong_buy_eligible ? "Passed" : "Failed",
-      tone: row.strong_buy_eligible ? "positive" : "muted",
-      hint: row.strong_buy_eligible
-        ? undefined
-        : text(payload, "Strong_Buy_Gate_Reason"),
-    },
+    ...(admin
+      ? ([
+          {
+            label: "Published rating",
+            value: <EntryBadge row={row} size="md" showReason={false} />,
+          },
+          {
+            label: "BUY gates",
+            value: row.buy_eligible ? "Passed" : "Failed",
+            tone: row.buy_eligible ? "positive" : "caution",
+            hint: row.buy_eligible ? undefined : text(payload, "Buy_Gate_Reason"),
+          },
+          {
+            label: "STRONG BUY gates",
+            value: row.strong_buy_eligible ? "Passed" : "Failed",
+            tone: row.strong_buy_eligible ? "positive" : "muted",
+            hint: row.strong_buy_eligible
+              ? undefined
+              : text(payload, "Strong_Buy_Gate_Reason"),
+          },
+        ] satisfies Field[])
+      : []),
     {
       label: "Policy gate",
       value: capFlagged ? (capEnforced ? "Capped" : "Flagged, not applied") : "Clear",
@@ -985,7 +996,7 @@ export default async function StockPage({
                         score={row.final_score ?? row.evidence_score}
                         rating={row.rating}
                         caption={
-                          !capFlagged
+                          !capFlagged || !admin
                             ? undefined
                             : row.policy_eligible_rating && row.policy_eligible_rating !== row.rating
                               ? `${gate.label} would hold the rating at ${row.policy_eligible_rating}`
@@ -1163,7 +1174,9 @@ export default async function StockPage({
                             {capFlagged
                               ? capEnforced
                                 ? `${gate.label} limited the published decision.`
-                                : `${gate.label} would cap this at ${row.policy_eligible_rating ?? "a lower rating"}. Model 5.1 publishes research merit and reports the gate instead.`
+                                : admin
+                                  ? `${gate.label} would cap this at ${row.policy_eligible_rating ?? "a lower rating"}. Model 5.1 publishes research merit and reports the gate instead.`
+                                  : `${gate.label} is flagged. Model 5.1 publishes research merit and reports the gate instead.`
                               : "No policy ceiling reduced this decision."}
                           </p>
                           {capReasons.length ? (

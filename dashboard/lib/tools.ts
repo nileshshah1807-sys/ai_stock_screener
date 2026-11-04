@@ -10,8 +10,10 @@ import { FileSpreadsheet, MessagesSquare, TrendingUp, type LucideIcon } from "lu
  * a value imported from a client module arrives there as a reference, not as
  * the array.
  */
-export const TOOLS: readonly { path: string; label: string; icon: LucideIcon }[] = [
+export const TOOLS: readonly { path: string; label: string; icon: LucideIcon; adminOnly?: boolean }[] = [
   { path: "/concalls", label: "Concalls", icon: MessagesSquare },
   { path: "/results", label: "Results", icon: FileSpreadsheet },
-  { path: "/returns", label: "Returns", icon: TrendingUp },
+  // Past-performance figures; admin-only until they can be published
+  // (docs/commercialisation_readiness.md, section 1).
+  { path: "/returns", label: "Returns", icon: TrendingUp, adminOnly: true },
 ];

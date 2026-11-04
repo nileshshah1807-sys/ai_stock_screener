@@ -96,18 +96,22 @@ create policy market_breadth_members_read
 -- exactly as it does to a table, so the dashboard's grid query runs unchanged
 -- on top of this.
 --
--- `returns setof screener_snapshot` tracks the table's columns, so a column
--- added to the snapshot later needs no change here. `security invoker` keeps
--- both tables' row-level security in force for the caller.
-create or replace function breadth_snapshot(p_market text, p_metric text)
-returns setof screener_snapshot
+-- Reads screener_snapshot_visible, so a viewer who is not an admin gets no
+-- rating (storage/rating_access_schema.sql, which must be applied first).
+-- `returns setof screener_snapshot_visible` tracks the view's columns, so a
+-- column added to the snapshot later needs no change here. `security invoker`
+-- keeps row-level security in force for the caller. Dropped first because a
+-- function's return type cannot be replaced in place.
+drop function if exists breadth_snapshot(text, text);
+create function breadth_snapshot(p_market text, p_metric text)
+returns setof screener_snapshot_visible
 language sql
 stable
 security invoker
 set search_path = public
 as $$
     select s.*
-    from screener_snapshot s
+    from screener_snapshot_visible s
     where s.market = p_market
       and exists (
           select 1

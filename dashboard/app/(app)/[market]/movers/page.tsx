@@ -5,6 +5,7 @@ import { ArrowDownRight, ArrowUpRight, Sparkles, TrendingDown, TrendingUp } from
 import { RatingBadge } from "@/components/rating-badge";
 import { Reveal } from "@/components/motion";
 import { StockListRow } from "@/components/stock-identity";
+import { isAdmin } from "@/lib/auth";
 import { formatDate, formatScore, MISSING } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { getLatestRun, getMovers } from "@/lib/queries";
@@ -97,7 +98,7 @@ function MoverList({
                     <span className="tabular font-mono text-xs">
                       {formatScore(row.decision_score)}
                     </span>
-                    <RatingBadge rating={row.rating} />
+                    {row.rating ? <RatingBadge rating={row.rating} /> : null}
                   </>
                 ) : null}
               </StockListRow>
@@ -129,7 +130,7 @@ export default async function MoversPage({
     );
   }
 
-  const movers = await getMovers(market.code, run.run_date);
+  const [movers, admin] = await Promise.all([getMovers(market.code, run.run_date), isAdmin()]);
   const hasComparison = Boolean(movers.previousOn);
 
   return (
@@ -182,20 +183,25 @@ export default async function MoversPage({
               rows={movers.fallers}
               mode="rank"
             />
-            <MoverList
-              title="Rating upgrades"
-              description="Published rating moved up a class."
-              icon={ArrowUpRight}
-              rows={movers.upgrades}
-              mode="rating"
-            />
-            <MoverList
-              title="Rating downgrades"
-              description="Published rating moved down a class."
-              icon={ArrowDownRight}
-              rows={movers.downgrades}
-              mode="rating"
-            />
+            {/* Ratings are admin-only (lib/ratings.mjs). */}
+            {admin ? (
+              <>
+                <MoverList
+                  title="Rating upgrades"
+                  description="Published rating moved up a class."
+                  icon={ArrowUpRight}
+                  rows={movers.upgrades}
+                  mode="rating"
+                />
+                <MoverList
+                  title="Rating downgrades"
+                  description="Published rating moved down a class."
+                  icon={ArrowDownRight}
+                  rows={movers.downgrades}
+                  mode="rating"
+                />
+              </>
+            ) : null}
             <MoverList
               title="New to the universe"
               description="Scored for the first time in the recorded history."
@@ -207,8 +213,10 @@ export default async function MoversPage({
         ) : null}
 
       <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
-        A rating change reflects a change in evidence or in which policy ceiling
-        applies. It is not a trade signal, and the underlying model has not been
+        {admin
+          ? "A rating change reflects a change in evidence or in which policy ceiling applies. "
+          : "A rank change reflects a change in evidence. "}
+        It is not a trade signal, and the underlying model has not been
         validated out of sample.
       </p>
     </div>

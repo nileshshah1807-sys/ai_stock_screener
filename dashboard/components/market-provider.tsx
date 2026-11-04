@@ -19,6 +19,9 @@ import { DEFAULT_MARKET, marketPath, type Market } from "@/lib/markets";
  * not a type error. A context set once by the shell cannot be forgotten.
  */
 const MarketContext = createContext<Market>(DEFAULT_MARKET);
+// Whether this viewer may see buy/sell ratings (lib/ratings.mjs). The server
+// already redacted them; this only hides the controls that would be empty.
+const ShowRatingsContext = createContext(false);
 
 /**
  * The date of the market's latest published run, or null before the first.
@@ -30,15 +33,19 @@ const RunDateContext = createContext<string | null>(null);
 export function MarketProvider({
   market,
   runDate,
+  showRatings,
   children,
 }: {
   market: Market;
   runDate: string | null;
+  showRatings: boolean;
   children: React.ReactNode;
 }) {
   return (
     <MarketContext.Provider value={market}>
-      <RunDateContext.Provider value={runDate}>{children}</RunDateContext.Provider>
+      <RunDateContext.Provider value={runDate}>
+        <ShowRatingsContext.Provider value={showRatings}>{children}</ShowRatingsContext.Provider>
+      </RunDateContext.Provider>
     </MarketContext.Provider>
   );
 }
@@ -49,6 +56,10 @@ export function useMarket(): Market {
 
 export function useRunDate(): string | null {
   return useContext(RunDateContext);
+}
+
+export function useShowRatings(): boolean {
+  return useContext(ShowRatingsContext);
 }
 
 /** Build a link inside the current market: `useMarketPath()("/movers")`. */

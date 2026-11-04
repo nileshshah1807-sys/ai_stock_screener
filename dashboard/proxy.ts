@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { LEGAL_PAGES } from "@/lib/legal";
 import { isSessionExpired } from "@/lib/session-policy.mjs";
 
 /**
@@ -104,8 +105,11 @@ export async function proxy(request: NextRequest) {
   }
 
   const { pathname, search } = request.nextUrl;
+  // The legal pages are public: a visitor reads them before agreeing to them.
   const isPublicRoute =
-    pathname.startsWith("/login") || pathname.startsWith("/auth");
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth") ||
+    LEGAL_PAGES.some((page) => pathname === page.href);
 
   if (!signedIn && !isPublicRoute) {
     const redirectUrl = request.nextUrl.clone();

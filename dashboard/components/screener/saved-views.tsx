@@ -40,7 +40,8 @@ import {
 } from "@/lib/presets";
 import { PendingMarker } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
-import { useMarket } from "@/components/market-provider";
+import { useMarket, useShowRatings } from "@/components/market-provider";
+import { usesRatingFilter } from "@/lib/ratings.mjs";
 
 const CHIP =
   "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium " +
@@ -69,6 +70,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const market = useMarket();
+  const showRatings = useShowRatings();
   const [pending, startTransition] = useTransition();
 
   // localStorage does not exist on the server, so the server snapshot is empty
@@ -88,9 +90,10 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
       PRESETS.filter(
         (preset) =>
           (factorModel || !preset.factorOnly) &&
-          (!preset.market || preset.market === market.code),
+          (!preset.market || preset.market === market.code) &&
+          (showRatings || !usesRatingFilter(preset.query)),
       ),
-    [factorModel, market.code],
+    [factorModel, market.code, showRatings],
   );
 
   const apply = useCallback(

@@ -46,7 +46,7 @@ export type LiveMarket = {
 export const LIVE_MOVERS_LIMIT = 10;
 
 /** Numeric columns arrive as strings or numbers depending on the driver. */
-export function normalizeLiveMarket(data: unknown): LiveMarket | null {
+export function normalizeLiveMarket(data: unknown, showRatings: boolean): LiveMarket | null {
   const raw = data as LiveMarket | null;
   if (!raw?.session || !raw.indices?.length) return null;
   const num = (value: unknown) => (value === null || value === undefined ? null : Number(value));
@@ -54,6 +54,8 @@ export function normalizeLiveMarket(data: unknown): LiveMarket | null {
     ...row,
     price: Number(row.price),
     change_pct: Number(row.change_pct),
+    // Ratings are admin-only (lib/ratings.mjs).
+    rating: showRatings ? row.rating : null,
   });
   return {
     ...raw,

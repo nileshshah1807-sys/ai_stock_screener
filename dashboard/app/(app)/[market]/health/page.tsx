@@ -9,6 +9,7 @@ import {
   formatRelativeAge,
   MISSING,
 } from "@/lib/format";
+import { isAdmin } from "@/lib/auth";
 import { marketFromSlug } from "@/lib/markets";
 import { getLatestRun, getRecentRuns } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,8 @@ function short(value: string | null | undefined, length = 12): string {
 
 export default async function HealthPage({ params }: PageProps<"/[market]/health">) {
   const market = marketFromSlug((await params).market)!;
+  // The rating mix is admin-only, like the ratings (lib/ratings.mjs).
+  const ratingColumns = (await isAdmin()) ? RATING_COLUMNS : [];
   const [run, recent] = await Promise.all([
     getLatestRun(market.code),
     getRecentRuns(market.code, 20),
@@ -189,7 +192,7 @@ export default async function HealthPage({ params }: PageProps<"/[market]/health
                 <tr className="border-b text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <th scope="col" className="py-2 pr-3 text-left">Run</th>
                   <th scope="col" className="py-2 pr-3 text-right">Rows</th>
-                  {RATING_COLUMNS.map((column) => (
+                  {ratingColumns.map((column) => (
                     <th
                       key={column.label}
                       scope="col"
@@ -223,7 +226,7 @@ export default async function HealthPage({ params }: PageProps<"/[market]/health
                     <td className="tabular py-1.5 pr-3 text-right font-mono text-xs">
                       {formatInteger(item.row_count)}
                     </td>
-                    {RATING_COLUMNS.map((column) => (
+                    {ratingColumns.map((column) => (
                       <td
                         key={column.label}
                         className="tabular py-1.5 pr-3 text-right font-mono text-xs"

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ChevronRight } from "lucide-react";
 
 import { ReturnsView } from "@/components/returns/returns-view";
+import { requireAdmin } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug } from "@/lib/markets";
 import { COST_PER_SIDE_PCT, DEFAULT_TOP_N, INVESTED_OPTIONS, STOP_OPTIONS, SIZE_PICK_MARKETS, TOP_N_OPTIONS, pickKey } from "@/lib/returns.mjs";
@@ -24,6 +25,7 @@ function first(value: string | string[] | undefined) {
  * used, so every figure here is out of sample for the model that made it.
  */
 export default async function ReturnsPage({ params, searchParams }: PageProps<"/[market]/returns">) {
+  await requireAdmin();
   const market = marketFromSlug((await params).market)!;
   const query = await searchParams;
   const requestedTop = Number(first(query.top));

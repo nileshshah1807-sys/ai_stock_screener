@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 import { StockLink } from "@/components/screener/stock-link";
 import { Money } from "@/components/money";
-import { useMarket } from "@/components/market-provider";
+import { useMarket, useShowRatings } from "@/components/market-provider";
 import { EntryBadge } from "@/components/entry-badge";
 import { TickFlash } from "@/components/tick-flash";
 import {
@@ -158,7 +158,8 @@ function scoreWasReduced(row: SnapshotRow): boolean {
 function ScoreCell({ row }: { row: SnapshotRow }) {
   const published = row.final_score ?? row.evidence_score;
   const ceiling = row.decision_score;
-  const capped = scoreWasReduced(row);
+  // The cap is a rating ceiling, so its tooltip is admin-only too.
+  const capped = useShowRatings() && scoreWasReduced(row);
 
   if (!capped) {
     return (

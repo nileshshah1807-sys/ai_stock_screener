@@ -15,7 +15,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ELIGIBILITY_CLASSES, RATINGS, STAGES } from "@/lib/types";
+import { useShowRatings } from "@/components/market-provider";
 import { PendingMarker } from "@/components/nav-pending";
+import { RATING_FILTER_KEYS } from "@/lib/ratings.mjs";
 import { cn } from "@/lib/utils";
 
 const TOGGLES = [
@@ -87,6 +89,10 @@ export function FilterBar({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
+  const showRatings = useShowRatings();
+  const toggles = TOGGLES.filter(
+    (toggle) => showRatings || !RATING_FILTER_KEYS.includes(toggle.key),
+  );
 
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
 
@@ -166,7 +172,7 @@ export function FilterBar({
   const activeFilterCount =
     activeRatings.length +
     activeSectors.length +
-    TOGGLES.filter((toggle) => searchParams.get(toggle.key) === "1").length +
+    toggles.filter((toggle) => searchParams.get(toggle.key) === "1").length +
     (searchParams.get("minScore") ? 1 : 0) +
     // Factor filters are only reachable when the run used the factor model,
     // but count them unconditionally so a shared URL carrying one still shows
@@ -204,7 +210,7 @@ export function FilterBar({
           hiding behind the popover -- from `sm` up. On a phone five chips cost
           two full rows above the grid, so they move to the top of the Filters
           panel instead, and the trigger's badge still counts them. */}
-      <div
+      {showRatings ? <div
         className="hidden flex-wrap items-center gap-1 sm:flex"
         role="group"
         aria-label="Filter by rating"
@@ -235,7 +241,7 @@ export function FilterBar({
             </button>
           );
         })}
-      </div>
+      </div> : null}
 
       <Popover>
         <PopoverTrigger
@@ -275,7 +281,7 @@ export function FilterBar({
               ) : null}
             </div>
 
-            <fieldset className="space-y-2 sm:hidden">
+            {showRatings ? <fieldset className="space-y-2 sm:hidden">
               <legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Rating
               </legend>
@@ -303,7 +309,7 @@ export function FilterBar({
                   );
                 })}
               </div>
-            </fieldset>
+            </fieldset> : null}
 
             {exchanges ? (
               <fieldset className="space-y-2">
@@ -338,7 +344,7 @@ export function FilterBar({
               <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Evidence and execution
               </legend>
-              {TOGGLES.map((toggle) => (
+              {toggles.map((toggle) => (
                 <div key={toggle.key} className="flex items-start gap-2">
                   <Checkbox
                     id={toggle.key}

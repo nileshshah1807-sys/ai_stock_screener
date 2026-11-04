@@ -17,6 +17,7 @@ import { GlobalSearch, GlobalSearchButton } from "@/components/global-search";
 import { SmoothDetails } from "@/components/motion";
 import { formatDate } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
+import { LEGAL_PAGES } from "@/lib/legal";
 import { TOOLS } from "@/lib/tools";
 import type { BellState } from "@/lib/notifications";
 import type { ScreenerRun } from "@/lib/types";
@@ -253,7 +254,11 @@ export function AppShell({
           motion belongs to the components that actually change.
         */}
         <main className="flex-1 animate-fade">
-          <MarketProvider market={market} runDate={run?.run_date ?? null}>
+          <MarketProvider
+            market={market}
+            runDate={run?.run_date ?? null}
+            showRatings={viewer.role === "admin"}
+          >
             {children}
             {/* The header's search dialog: it reads the market, so it lives
                 inside the provider, and is opened from the header by event. */}
@@ -268,6 +273,17 @@ export function AppShell({
               "Research model; point-in-time out-of-sample validation pending."}{" "}
             Not investment advice. {market.advisor}
           </p>
+          <nav aria-label="Legal" className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+            {LEGAL_PAGES.map((page) => (
+              <Link
+                key={page.href}
+                href={page.href}
+                className="rounded underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {page.label}
+              </Link>
+            ))}
+          </nav>
           {/* Run health's way in on a phone, where the header has no room for it. */}
           <Link
             href={marketPath(market.slug, "/health")}

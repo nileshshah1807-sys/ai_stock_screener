@@ -182,7 +182,10 @@ export function buildStages(row: SnapshotRowWithPayload): Stage[] {
       from: 0,
       to: decision,
       kind: "total",
-      note: `Maps mechanically to ${row.rating ?? "—"}: STRONG BUY 70+, BUY 60-69.99, HOLD 50-59.99, REDUCE 40-49.99, SELL below 40.`,
+      // No rating means this viewer is not shown one (lib/ratings.mjs).
+      note: row.rating
+        ? `Maps mechanically to ${row.rating}: STRONG BUY 70+, BUY 60-69.99, HOLD 50-59.99, REDUCE 40-49.99, SELL below 40.`
+        : "The score after policy ceilings.",
     },
   ];
 
