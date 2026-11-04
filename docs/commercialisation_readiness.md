@@ -28,12 +28,18 @@ Done:
 
 Next, in this order:
 
-1. Commit and deploy the dashboard. It now reads the `*_visible` views; the
-   changes are not committed yet.
+1. Merge PR #198 (`feat/admin-only-ratings`), which deploys the dashboard that
+   reads the `*_visible` views.
 2. Only after that deploy, apply `storage/rating_access_lockdown.sql`, which
    revokes viewer access to the base tables. Until then a signed-in viewer can
    still read ratings from the base tables through the API.
-3. Fill in the placeholders in `dashboard/lib/legal.ts` (address, contact and
+3. Close the Storage gap. Since October the full row payload is a gzip object
+   in the `market-data` bucket (`snapshot-payload/…`), ratings included, and
+   `storage/market_data_storage.sql` lets any invited viewer read it. The
+   dashboard redacts it on the server, but a viewer calling Storage with their
+   own session can read it. One fix: the publisher writes the rating keys to a
+   separate admin-only object.
+4. Fill in the placeholders in `dashboard/lib/legal.ts` (address, contact and
    grievance emails, jurisdiction), then have a lawyer read the three pages.
 
 Open, not started: company and GST registration (§1.6), §2 (sign-up, billing,
