@@ -41,7 +41,7 @@ export function DecisionScore({
       role="img"
       aria-label={
         hasScore
-          ? `Decision score ${formatScore(clamped)} out of 100, rated ${rating ?? "unrated"}.`
+          ? `Decision score ${formatScore(clamped)} out of 100${rating ? `, rated ${rating}` : ""}.`
           : "Decision score unavailable."
       }
     >

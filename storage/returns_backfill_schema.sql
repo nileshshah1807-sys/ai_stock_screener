@@ -84,19 +84,20 @@ create table if not exists simulated_states (
 
 alter table simulated_states enable row level security;
 
+-- Admin-only, like the Returns page that reads it (storage/rating_access_schema.sql).
 drop policy if exists simulated_states_read on simulated_states;
 create policy simulated_states_read
     on simulated_states for select
-    using (dashboard_has_access());
+    using ((select dashboard_is_admin()));
 
 alter table simulated_rankings enable row level security;
 alter table universe_index enable row level security;
 
--- Same access rule as the rest of the read model: signed in and allowlisted.
+-- Admin-only, like the Returns page that reads it (storage/rating_access_schema.sql).
 drop policy if exists simulated_rankings_read on simulated_rankings;
 create policy simulated_rankings_read
     on simulated_rankings for select
-    using (dashboard_has_access());
+    using ((select dashboard_is_admin()));
 
 drop policy if exists universe_index_read on universe_index;
 create policy universe_index_read

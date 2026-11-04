@@ -353,6 +353,15 @@ the scheduled workflows set the same flag.
 
 ## Boundaries that matter
 
+- **Buy/sell ratings and the Returns page are admin-only.** Signed-in viewers
+  read `screener_snapshot`, `screener_history` and `screener_runs` only
+  through their `*_visible` views (`storage/rating_access_schema.sql`), which
+  null every rating field for a non-admin; the base tables are closed to
+  `authenticated` (`storage/rating_access_lockdown.sql`). A dashboard read of
+  those tables goes to the view, and a surface that shows a rating checks
+  `isAdmin()` (`dashboard/lib/ratings.mjs` holds the rule, kept equal to the
+  SQL by its test). Re-apply the schema file after adding a column to any of
+  the three tables, or the view will not carry it.
 - **`screener/recommendation.py` is the only writer of canonical decisions**
   (`Rating`, `Rank`, `Buy_Eligible`, `Final_Score`, ...). The scoring layer emits
   components and `Core_*` diagnostics only. A rescored export purges stale

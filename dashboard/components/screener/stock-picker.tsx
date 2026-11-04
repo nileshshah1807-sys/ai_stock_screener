@@ -378,7 +378,7 @@ export function StockPicker({
                     <span className="tabular shrink-0 font-mono text-xs">
                       {entry.d?.toFixed(1) ?? "—"}
                     </span>
-                    <RatingBadge rating={entry.g} />
+                    {entry.g ? <RatingBadge rating={entry.g} /> : null}
                     {/* Fixed-width slot whether or not a glyph is in it, so the
                         rating badges above and below stay on one vertical line as
                         the marked state changes. */}

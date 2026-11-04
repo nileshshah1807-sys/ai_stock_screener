@@ -1,4 +1,5 @@
 import { ToolsNav } from "@/components/tools-nav";
+import { isAdmin } from "@/lib/auth";
 import { marketFromSlug } from "@/lib/markets";
 
 /**
@@ -16,7 +17,7 @@ export default async function ToolsLayout({ params, children }: LayoutProps<"/[m
   return (
     <>
       <div className="px-4 pt-5 sm:px-6">
-        <ToolsNav market={market} />
+        <ToolsNav market={market} admin={await isAdmin()} />
       </div>
       {children}
     </>

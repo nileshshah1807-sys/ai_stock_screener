@@ -41,6 +41,8 @@ const rankLabel = (rank: number) => `#${formatInteger(rank)}`;
 
 export function RankHistoryChart({ history }: { history: HistoryRow[] }) {
   const points = history.filter((row) => row.investment_rank !== null);
+  // Absent for a viewer not shown ratings (lib/ratings.mjs).
+  const rated = points.some((row) => row.rating);
 
   if (points.length < 2) {
     return (
@@ -64,7 +66,7 @@ export function RankHistoryChart({ history }: { history: HistoryRow[] }) {
             <tr>
               <th scope="col">Date</th>
               <th scope="col">Rank</th>
-              <th scope="col">Rating</th>
+              {rated ? <th scope="col">Rating</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -72,7 +74,7 @@ export function RankHistoryChart({ history }: { history: HistoryRow[] }) {
               <tr key={row.observed_on}>
                 <td>{formatDate(row.observed_on)}</td>
                 <td>{rankLabel(row.investment_rank as number)}</td>
-                <td>{row.rating ?? "—"}</td>
+                {rated ? <td>{row.rating ?? "—"}</td> : null}
               </tr>
             ))}
           </tbody>

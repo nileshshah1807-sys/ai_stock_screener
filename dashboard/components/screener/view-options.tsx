@@ -20,6 +20,7 @@ import {
   type ColumnId,
   type Density,
 } from "@/lib/columns";
+import { useShowRatings } from "@/components/market-provider";
 import { PendingMarker } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
 
@@ -55,7 +56,9 @@ export function ViewOptions({ factorModel = false }: { factorModel?: boolean }) 
 
   // A run is one model or the other for its whole cross-section, so offering
   // the columns that did not run would list toggles with nothing behind them.
+  const showRatings = useShowRatings();
   const columns = HIDEABLE_COLUMNS.filter((column) => {
+    if (column.id === "rating" && !showRatings) return false;
     const availability = column.availability ?? "always";
     if (availability === "factor") return factorModel;
     if (availability === "legacy") return !factorModel;

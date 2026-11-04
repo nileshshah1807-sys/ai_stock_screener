@@ -2,7 +2,9 @@ import "server-only";
 
 import { cache } from "react";
 
+import { isAdmin } from "@/lib/auth";
 import { gridProjection } from "@/lib/columns";
+import { withoutRatings } from "@/lib/ratings.mjs";
 import {
   priceCalendarPath,
   priceSeriesPath,
@@ -270,6 +272,11 @@ const RUN_COLUMNS = [
  * Module scope, so it lives as long as the server instance and is simply empty
  * on a cold one.
  */
+/** `rows` as this viewer may see them: ratings are admin-only (lib/ratings.mjs). */
+async function forViewer<T>(rows: T[]): Promise<T[]> {
+  return (await isAdmin()) ? rows : (rows.map(withoutRatings) as T[]);
+}
+
 const RUN_MEMO_MS = 120_000;
 const RUN_MEMO_MAX = 500;
 const runMemo = new Map<string, { at: number; run: ScreenerRun }>();
@@ -288,11 +295,11 @@ export const getLatestRun = cache(
   const key = viewer ? `${viewer}:${market}` : null;
   const remembered = key ? runMemo.get(key) : undefined;
   if (remembered && Date.now() - remembered.at < RUN_MEMO_MS) {
-    return remembered.run;
+    return (await forViewer([remembered.run]))[0];
   }
 
   const { data, error } = await supabase
-    .from("screener_runs")
+    .from("screener_runs_visible")
     .select(RUN_COLUMNS)
     .eq("market", market)
     // The publisher reserves a run_date with row_count=0 before writing its
@@ -312,7 +319,7 @@ export const getLatestRun = cache(
     if (runMemo.size >= RUN_MEMO_MAX) runMemo.clear();
     runMemo.set(key, { at: Date.now(), run });
   }
-  return run;
+  return run && (await forViewer([run]))[0];
   },
 );
 
@@ -322,7 +329,7 @@ export async function getRecentRuns(
 ): Promise<ScreenerRun[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("screener_runs")
+    .from("screener_runs_visible")
     // Same exclusion as getLatestRun, and it matters more here: 30 runs of the
     // 7.1 KB manifest is ~213 KB transferred to render a list of dates.
     .select(RUN_COLUMNS)
@@ -337,7 +344,7 @@ export async function getRecentRuns(
   }
   // Double cast, as in getSnapshotPage: a runtime column string gives
   // PostgREST's generic no shape to infer, so it widens to GenericStringError[].
-  return (data ?? []) as unknown as ScreenerRun[];
+  return forViewer((data ?? []) as unknown as ScreenerRun[]);
 }
 
 /**
@@ -374,6 +381,11 @@ export async function getSnapshotPage(
   } = {},
 ): Promise<{ rows: SnapshotRow[]; total: number }> {
   const supabase = await createClient();
+  // A rating filter or sort would reveal the rating it filters on.
+  if (!(await isAdmin())) {
+    filters = { ...filters, rating: [], buyEligibleOnly: false, excludeCapped: false };
+    if (filters.sort === "rating") filters.sort = undefined;
+  }
   const projection =
     options.columns ??
     (filters.hiddenColumns?.length
@@ -390,7 +402,7 @@ export async function getSnapshotPage(
           { count: "exact" },
         )
         .select(projection)
-    : supabase.from("screener_snapshot").select(projection, { count: "exact" });
+    : supabase.from("screener_snapshot_visible").select(projection, { count: "exact" });
 
   let query = source.eq("market", market).eq("run_date", runDate);
 
@@ -512,7 +524,7 @@ export async function getSnapshotPage(
   }
 
   return {
-    rows: (data ?? []) as unknown as SnapshotRow[],
+    rows: await forViewer((data ?? []) as unknown as SnapshotRow[]),
     total: count ?? 0,
   };
 }
@@ -532,18 +544,20 @@ export const getSearchIndex = cache(
   ): Promise<SearchEntry[]> => {
     const supabase = await createClient();
     const select = "symbol, company, investment_rank, rating, final_score, logo_domain";
+    // The index is built here and shipped to the browser, so a viewer's copy carries no rating.
+    const admin = await isAdmin();
     const toEntry = (row: Record<string, unknown>): SearchEntry => ({
       s: row.symbol as string,
       c: (row.company as string) ?? "",
       r: row.investment_rank as number | null,
-      g: row.rating as string | null,
+      g: admin ? (row.rating as string | null) : null,
       d: row.final_score as number | null,
       l: (row.logo_domain as string | null) ?? null,
     });
 
     const chunk = (offset: number) =>
       supabase
-        .from("screener_snapshot")
+        .from("screener_snapshot_visible")
         .select(select)
         .eq("market", market)
         .eq("run_date", runDate)
@@ -607,7 +621,7 @@ export const getCompanyFacts = cache(
     const results = await Promise.all(
       chunkOffsets(run.row_count).map((offset) =>
         supabase
-          .from("screener_snapshot")
+          .from("screener_snapshot_visible")
           .select(
             "symbol, industry, market_cap, median_turnover_20d_inr, pe_ratio, decision_score, logo_domain",
           )
@@ -651,7 +665,7 @@ export const runUsesFactorModel = cache(
   async (market: MarketCode, runDate: string): Promise<boolean> => {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("screener_snapshot")
+    .from("screener_snapshot_visible")
     .select("symbol")
     .eq("market", market)
     .eq("run_date", runDate)
@@ -685,7 +699,7 @@ export async function getStock(
   const code = symbol.toUpperCase();
   const [{ data, error }, stored] = await Promise.all([
     supabase
-      .from("screener_snapshot")
+      .from("screener_snapshot_visible")
       .select("*")
       .eq("market", market)
       .eq("run_date", runDate)
@@ -699,7 +713,9 @@ export async function getStock(
     return null;
   }
   if (!data) return null;
-  return { ...data, payload: data.payload ?? stored ?? {} } as SnapshotRowWithPayload;
+  // The stored payload is the publisher's, ratings included, so it is redacted here.
+  const row = { ...data, payload: data.payload ?? stored ?? {} } as SnapshotRowWithPayload;
+  return (await forViewer([row]))[0];
 }
 
 /**
@@ -942,7 +958,7 @@ export async function getNotRatedRows(
   // `in` rides in the URL, so ask in slices.
   for (let i = 0; i < listings.length; i += 200) {
     const { data, error } = await supabase
-      .from("screener_snapshot")
+      .from("screener_snapshot_visible")
       .select("symbol")
       .eq("market", market)
       .eq("run_date", runDate)
@@ -970,7 +986,7 @@ export const countBseOnly = cache(
   async (market: MarketCode, runDate: string): Promise<number> => {
     const supabase = await createClient();
     const { count, error } = await supabase
-      .from("screener_snapshot")
+      .from("screener_snapshot_visible")
       .select("symbol", { count: "exact", head: true })
       .eq("market", market)
       .eq("run_date", runDate)
@@ -1021,7 +1037,7 @@ export async function getPriceTail(
 ): Promise<{ time: string; close: number; volume: number }[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("screener_history")
+    .from("screener_history_visible")
     .select("observed_on, current_price, volume")
     .eq("market", market)
     .eq("symbol", symbol.toUpperCase())
@@ -1052,7 +1068,7 @@ export async function getStockHistory(
 ): Promise<HistoryRow[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("screener_history")
+    .from("screener_history_visible")
     .select(
       "observed_on, symbol, investment_rank, decision_score, final_score, fundamental_score, technical_score, rating, current_price, volume",
     )
@@ -1066,7 +1082,7 @@ export async function getStockHistory(
     return [];
   }
   // Reversed so charts read left-to-right in time order.
-  return ((data ?? []) as HistoryRow[]).reverse();
+  return (await forViewer((data ?? []) as HistoryRow[])).reverse();
 }
 
 /**
@@ -1088,7 +1104,7 @@ export const getSectors = cache(
 
     const chunk = (offset: number) =>
       supabase
-        .from("screener_snapshot")
+        .from("screener_snapshot_visible")
         .select("sector")
         .eq("market", market)
         .eq("run_date", runDate)
@@ -1177,7 +1193,8 @@ export async function getMovers(
     };
   }
 
-  const rows = (data ?? []) as MoverRow[];
+  // Redacted rows carry no rating change, so upgrades and downgrades come out empty.
+  const rows = await forViewer((data ?? []) as MoverRow[]);
   const previousOn =
     rows.find((row) => row.prev_observed_on)?.prev_observed_on ?? null;
 
@@ -1256,7 +1273,7 @@ export async function getLiveMarket(
     console.error("getLiveMarket failed", error.message);
     return { live: null, failed: true };
   }
-  return { live: normalizeLiveMarket(data), failed: false };
+  return { live: normalizeLiveMarket(data, await isAdmin()), failed: false };
 }
 
 
@@ -1287,7 +1304,7 @@ export async function getStageBreaks(
   if (!runDate || !symbols.length) return [];
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("screener_snapshot")
+    .from("screener_snapshot_visible")
     .select("symbol, company, stage, breakdown_date, breakdown_age_days, breakdown_from")
     .eq("market", market)
     .eq("run_date", runDate)
@@ -1531,7 +1548,7 @@ export async function getRatedSymbols(
   if (!symbols.length) return new Set();
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("screener_snapshot")
+    .from("screener_snapshot_visible")
     .select("symbol")
     .eq("market", market)
     .eq("run_date", runDate)

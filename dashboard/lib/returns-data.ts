@@ -72,7 +72,7 @@ type HistoryRow = {
  * PostgREST cannot express.
  */
 async function rankingDatesIn(
-  table: "screener_history" | "simulated_rankings",
+  table: "screener_history_visible" | "simulated_rankings",
   market: MarketCode,
 ): Promise<string[]> {
   const supabase = await createClient();
@@ -97,7 +97,7 @@ async function rankingDatesIn(
 }
 
 /** Dates the dashboard actually published a ranking on. */
-export const getRankingDates = cache((market: MarketCode) => rankingDatesIn("screener_history", market));
+export const getRankingDates = cache((market: MarketCode) => rankingDatesIn("screener_history_visible", market));
 
 /** Dates the backtest reconstructed a ranking for. */
 const getSimulatedDates = cache((market: MarketCode) => rankingDatesIn("simulated_rankings", market));
@@ -166,7 +166,7 @@ async function readTails(
 ): Promise<void> {
   for (let offset = 0; ; offset += FETCH_CHUNK) {
     const { data, error } = await supabase
-      .from("screener_history")
+      .from("screener_history_visible")
       .select("symbol, observed_on, current_price")
       .eq("market", market)
       .in("symbol", symbols)
@@ -450,7 +450,7 @@ async function getRankingTops(
       const results = await Promise.all(
         Array.from({ length: chunks }, (_, index) =>
           supabase
-            .from("screener_history")
+            .from("screener_history_visible")
             .select(columns)
             .eq("market", market)
             .in("observed_on", liveDates)
@@ -466,7 +466,7 @@ async function getRankingTops(
     const results = await Promise.all(
       liveDates.map((date) => {
         let query = supabase
-          .from("screener_history")
+          .from("screener_history_visible")
           .select(columns)
           .eq("market", market)
           .eq("observed_on", date)
@@ -617,7 +617,7 @@ async function getKeepSets(
       parts.map(async (part) => {
         for (let offset = 0; ; offset += FETCH_CHUNK) {
           let query = supabase
-            .from("screener_history")
+            .from("screener_history_visible")
             .select("observed_on, symbol")
             .eq("market", market)
             .in("observed_on", liveDates)
@@ -695,13 +695,13 @@ async function getLatestState(
     chunks.map((part) =>
       fromSnapshot
         ? supabase
-            .from("screener_snapshot")
+            .from("screener_snapshot_visible")
             .select("symbol, company, investment_rank, rating, stage, logo_domain")
             .eq("market", market)
             .eq("run_date", stateDate)
             .in("symbol", part)
         : supabase
-            .from("screener_history")
+            .from("screener_history_visible")
             .select("symbol, company, investment_rank, rating, stage")
             .eq("market", market)
             .eq("observed_on", asOf)

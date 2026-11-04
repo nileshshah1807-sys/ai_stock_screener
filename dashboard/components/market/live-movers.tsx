@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 
+import { useShowRatings } from "@/components/market-provider";
 import { Expand } from "@/components/motion";
 import { RatingBadge } from "@/components/rating-badge";
 import { ScrollFade } from "@/components/scroll-fade";
@@ -244,6 +245,7 @@ function useLiveMarket(
   useEffect(() => {
     fetchedAt.current = data?.fetched_at ?? null;
   }, [data]);
+  const showRatings = useShowRatings();
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -261,7 +263,7 @@ function useLiveMarket(
         p_limit: limit,
       });
       if (stopped) return;
-      const next = error ? null : normalizeLiveMarket(fresh);
+      const next = error ? null : normalizeLiveMarket(fresh, showRatings);
       // A longer list is news even from the same worker run.
       if (next && (next.fetched_at !== fetchedAt.current || loadedRef.current !== limit)) {
         fetchedAt.current = next.fetched_at;
@@ -289,7 +291,7 @@ function useLiveMarket(
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [market.code, limit]);
+  }, [market.code, limit, showRatings]);
 
   return { data, limit: loaded };
 }

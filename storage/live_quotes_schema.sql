@@ -76,7 +76,8 @@ create policy index_members_read
 -- client state with no round trip, and the whole answer is ~15 KB. Only quotes
 -- from the newest session count, so a stock that has not traded today is
 -- neither a gainer nor a loser. Rank and rating come from the newest run in
--- screener_snapshot where the screener rates the stock.
+-- screener_snapshot_visible, so a viewer who is not an admin gets no rating
+-- (storage/rating_access_schema.sql, which must be applied first).
 --
 -- `security invoker` keeps every table's row-level security in force for the
 -- caller.
@@ -93,7 +94,7 @@ as $$
         where market = p_market and kind = 'stock'
     ),
     run as (
-        select max(run_date) as run_date from screener_snapshot where market = p_market
+        select max(run_date) as run_date from screener_snapshot_visible where market = p_market
     ),
     groups as (
         select index_name, min(position) as position, count(*) as members
@@ -124,7 +125,7 @@ as $$
             s.investment_rank,
             s.rating
         from ranked r
-        left join screener_snapshot s
+        left join screener_snapshot_visible s
             on s.market = p_market
            and s.run_date = (select run_date from run)
            and s.symbol = r.symbol

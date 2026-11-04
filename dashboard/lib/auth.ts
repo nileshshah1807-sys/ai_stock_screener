@@ -89,6 +89,11 @@ export async function requireAccess(): Promise<Viewer> {
   return viewer;
 }
 
+/** Buy/sell ratings and the Returns page are admin-only (lib/ratings.mjs). */
+export async function isAdmin(): Promise<boolean> {
+  return (await getViewer())?.role === "admin";
+}
+
 export async function requireAdmin(): Promise<Viewer> {
   const viewer = await requireAccess();
   if (viewer.role !== "admin") {

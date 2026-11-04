@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { BrandMark } from "@/components/brand-mark";
+import { LEGAL_PAGES } from "@/lib/legal";
 import { sessionMaxAgeSeconds } from "@/lib/session-policy.mjs";
 
 import { LoginForm } from "./login-form";
@@ -60,6 +62,16 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           <br />
           Research model output, not investment advice.
         </p>
+        <nav
+          aria-label="Legal"
+          className="mt-3 flex justify-center gap-4 text-xs text-muted-foreground"
+        >
+          {LEGAL_PAGES.map((page) => (
+            <Link key={page.href} href={page.href} className="hover:text-foreground hover:underline">
+              {page.label}
+            </Link>
+          ))}
+        </nav>
       </div>
     </main>
   );

@@ -16,12 +16,12 @@ import { cn } from "@/lib/utils";
  * URL. It is the smaller size of the three because it qualifies the Tools tab
  * above it rather than competing with it.
  */
-export function ToolsNav({ market }: { market: Market }) {
+export function ToolsNav({ market, admin }: { market: Market; admin: boolean }) {
   const pathname = usePathname();
 
   return (
     <GlassTrack label="Tools" className="w-max gap-0.5 p-0.5">
-      {TOOLS.map(({ path, label, icon: Icon }) => {
+      {TOOLS.filter((tool) => admin || !tool.adminOnly).map(({ path, label, icon: Icon }) => {
         const href = marketPath(market.slug, path);
         const active = pathname === href || pathname.startsWith(`${href}/`);
         return (

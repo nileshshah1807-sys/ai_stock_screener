@@ -4,6 +4,7 @@ import { GridKeyboard } from "@/components/screener/grid-keyboard";
 import { GridScroll } from "@/components/screener/grid-scroll";
 import { ScreenerRows } from "@/components/screener/screener-rows";
 import { PlainHeader, SortHeader } from "@/components/screener/sort-header";
+import { isAdmin } from "@/lib/auth";
 import { visibleColumns, type ColumnId, type Density } from "@/lib/columns";
 import { cn } from "@/lib/utils";
 import type { SnapshotRow } from "@/lib/types";
@@ -35,7 +36,7 @@ export type RowAction = {
   render: (row: SnapshotRow) => ReactNode;
 };
 
-export function ScreenerTable({
+export async function ScreenerTable({
   rows,
   params,
   sort,
@@ -64,7 +65,11 @@ export function ScreenerTable({
   // settles it. Showing both column sets would double the grid width and leave
   // whichever model did not run as a full column of dashes.
   const factorModel = rows.some((row) => row.factor_model_applied === true);
-  const columns = visibleColumns(hiddenColumns, factorModel);
+  // Ratings are admin-only (lib/ratings.mjs); the rows arrive without them.
+  const admin = await isAdmin();
+  const columns = visibleColumns(hiddenColumns, factorModel).filter(
+    (column) => admin || column.id !== "rating",
+  );
 
   if (!rows.length) {
     return (
