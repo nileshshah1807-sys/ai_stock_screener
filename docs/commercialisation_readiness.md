@@ -28,11 +28,11 @@ Done:
 
 Next, in this order:
 
-1. Merge PR #198 (`feat/admin-only-ratings`), which deploys the dashboard that
-   reads the `*_visible` views.
-2. Only after that deploy, apply `storage/rating_access_lockdown.sql`, which
-   revokes viewer access to the base tables. Until then a signed-in viewer can
-   still read ratings from the base tables through the API.
+1. ~~Merge PR #198 and deploy~~ (merged and live 4 Nov 2026).
+2. ~~Apply `storage/rating_access_lockdown.sql`~~ (applied 4 Nov 2026, after
+   the deploy). A viewer now gets "permission denied" on the three base tables,
+   and sees 0 ratings through the views; an admin sees all; the service role
+   keeps its grants.
 3. Close the Storage gap. Since October the full row payload is a gzip object
    in the `market-data` bucket (`snapshot-payload/…`), ratings included, and
    `storage/market_data_storage.sql` lets any invited viewer read it. The

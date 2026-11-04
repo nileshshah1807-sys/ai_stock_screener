@@ -66,10 +66,9 @@ export async function ScreenerTable({
   // whichever model did not run as a full column of dashes.
   const factorModel = rows.some((row) => row.factor_model_applied === true);
   // Ratings are admin-only (lib/ratings.mjs); the rows arrive without them.
-  const admin = await isAdmin();
-  const columns = visibleColumns(hiddenColumns, factorModel).filter(
-    (column) => admin || column.id !== "rating",
-  );
+  // Header and rows share one hidden list, or the cells shift under the headers.
+  const hidden: ColumnId[] = (await isAdmin()) ? hiddenColumns : [...hiddenColumns, "rating"];
+  const columns = visibleColumns(hidden, factorModel);
 
   if (!rows.length) {
     return (
@@ -146,7 +145,7 @@ export async function ScreenerTable({
 
           <ScreenerRows
             rows={rows}
-            hiddenColumns={hiddenColumns}
+            hiddenColumns={hidden}
             factorModel={factorModel}
             // The action is a render prop and cannot cross to the client, so
             // its cells are rendered here and handed over by symbol.
