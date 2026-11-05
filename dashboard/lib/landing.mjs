@@ -39,3 +39,25 @@ export function sampleRows(market, onlyStage2) {
   const rows = SAMPLE_MARKETS[market]?.rows ?? [];
   return onlyStage2 ? rows.filter((row) => row.stage === 2) : rows;
 }
+
+/**
+ * Invented rows for the Stage and RS picture. `rs` is a 1-99 percentile within
+ * the stock's own market, the same scale the screener prints.
+ */
+export const STAGES = [
+  { stage: 1, name: "Basing", rule: "Price drifting sideways under flat averages." },
+  { stage: 2, name: "Advancing", rule: "Price above the 50, 150 and 200-day averages, stacked in that order, with the 200-day rising." },
+  { stage: 3, name: "Topping", rule: "Price slips under the 150-day average while the long averages still hold up." },
+  { stage: 4, name: "Declining", rule: "Price under a falling 200-day average, and the 150-day below it or falling." },
+];
+
+/** The Stage 2 shape pulled back (stage.py's S2 Candidate), shown under the four stages. */
+export const S2_CANDIDATE_RULE = "A Stage 2 shape without the full stack, usually a pullback under the 50-day average; price still above the 150 and 200-day.";
+
+export const STAGE_SAMPLE = [
+  { symbol: "TARANG", name: "Tarang Power", stage: 2, rs: 91 },
+  { symbol: "AARAV", name: "Aarav Industries", stage: 2, rs: 78 },
+  { symbol: "KESARI", name: "Kesari Foods", stage: 3, rs: 52 },
+  { symbol: "VIHAAN", name: "Vihaan Pharma", stage: 1, rs: 38 },
+  { symbol: "SAGARIKA", name: "Sagarika Logistics", stage: 4, rs: 11 },
+];

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
+import { CallsBlock, StageBlock } from "@/components/landing/feature-blocks";
 import { HeroGrid } from "@/components/landing/hero-grid";
 import { LandingPricing } from "@/components/landing/landing-pricing";
 import { ProductTour } from "@/components/landing/product-tour";
@@ -56,6 +57,17 @@ const FAQ = [
 ];
 
 const ghost = "rounded-md px-2.5 py-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const X_URL = "https://x.com/ChirayuShah2103";
+const X_LABEL = "@ChirayuShah2103 on X (opens in a new tab)";
+
+function XIcon() {
+  return (
+    <svg aria-hidden viewBox="0 0 24 24" className="size-4 fill-current">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
+
 const section = "mx-auto w-full max-w-6xl px-4 sm:px-6";
 const h2 = "text-title max-w-[22ch] text-balance";
 
@@ -119,6 +131,16 @@ export default async function LandingPage() {
             <div className="min-w-0 motion-safe:animate-rise" style={{ animationDelay: "120ms" }}>
               <HeroGrid />
             </div>
+          </div>
+        </section>
+
+        <section id="calls" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
+          <CallsBlock />
+        </section>
+
+        <section id="stage" className="scroll-mt-16 border-y bg-card">
+          <div className={cn(section, "py-14 sm:py-20")}>
+            <StageBlock />
           </div>
         </section>
 
@@ -189,9 +211,14 @@ export default async function LandingPage() {
         <section id="about" className="border-t bg-card">
           <div className={cn(section, "grid gap-6 py-14 sm:py-20 md:grid-cols-2")}>
             <h2 className={h2}>Built by one person, for people who read filings</h2>
-            <p className="max-w-[56ch] text-sm leading-relaxed text-muted-foreground">
+            <div>
+              <p className="max-w-[56ch] text-sm leading-relaxed text-muted-foreground">
               Sievr is made and run by {LEGAL.operator}, {LEGAL.operatorForm}. It started as a personal screener for reading results and calls faster, and it stays small on purpose: a few pages, each doing one job well. Mistakes in the data are fixed when reported.
-            </p>
+              </p>
+              <a href={X_URL} target="_blank" rel="me noopener" aria-label={X_LABEL} className="mt-4 flex w-fit items-center gap-2 rounded-md text-sm font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <XIcon /> @ChirayuShah2103 on X
+              </a>
+            </div>
           </div>
         </section>
 
@@ -215,6 +242,9 @@ export default async function LandingPage() {
               <Link key={page.href} href={page.href} className="hover:text-foreground hover:underline">{page.label}</Link>
             ))}
             <Link href="/pricing" className="hover:text-foreground hover:underline">Pricing</Link>
+            <a href={X_URL} target="_blank" rel="me noopener" aria-label={X_LABEL} className="inline-flex items-center gap-1.5 hover:text-foreground hover:underline">
+              <XIcon /> X
+            </a>
             {contact ? <a href={`mailto:${contact}`} className="hover:text-foreground hover:underline">Contact: {contact}</a> : null}
           </nav>
           <p className="mt-6 text-xs text-muted-foreground">
