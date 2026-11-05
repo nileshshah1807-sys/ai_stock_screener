@@ -33,7 +33,7 @@ export function HeroGrid() {
               aria-pressed={market === key}
               onClick={() => setMarket(key)}
               className={cn(
-                "h-7 rounded px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "h-8 rounded px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 market === key ? "bg-(--lens) text-foreground shadow-(--lens-shadow)" : "text-muted-foreground hover:text-foreground",
               )}
             >

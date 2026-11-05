@@ -55,7 +55,7 @@ const FAQ = [
   ["How do I pay, and can I cancel?", "Payments go through Razorpay by UPI or card, and the early-bird price uses UPI Autopay. Cancel any time from your account. A payment is refunded in full within 7 days; see the Refund policy."],
 ];
 
-const ghost = "rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const ghost = "rounded-md px-2.5 py-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const section = "mx-auto w-full max-w-6xl px-4 sm:px-6";
 const h2 = "text-title max-w-[22ch] text-balance";
 
@@ -122,7 +122,7 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="product" className={cn(section, "scroll-mt-16 py-16 sm:py-24")}>
+        <section id="product" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
           <h2 className={h2}>Everything on one page per question</h2>
           <div className="mt-10">
             <ProductTour />
@@ -130,9 +130,9 @@ export default async function LandingPage() {
         </section>
 
         <section id="features" className="border-y bg-card">
-          <div className={cn(section, "py-16 sm:py-24")}>
+          <div className={cn(section, "grid gap-10 py-14 sm:py-20 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.2fr)]")}>
             <h2 className={h2}>What you get</h2>
-            <dl className="mt-10 grid gap-x-12 gap-y-8 md:grid-cols-2">
+            <dl className="grid gap-x-10 gap-y-7 md:grid-cols-2">
               {FEATURES.map(([name, body]) => (
                 <div key={name} className="border-t pt-4">
                   <dt className="text-lead font-semibold">{name}</dt>
@@ -143,7 +143,7 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="how" className={cn(section, "scroll-mt-16 py-16 sm:py-24")}>
+        <section id="how" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
           <h2 className={h2}>How it works</h2>
           <ol className="mt-10 grid gap-8 md:grid-cols-3">
             {STEPS.map(([name, body], i) => (
@@ -160,7 +160,7 @@ export default async function LandingPage() {
         </section>
 
         <section id="pricing" className="scroll-mt-16 border-y bg-card">
-          <div className={cn(section, "py-16 sm:py-24")}>
+          <div className={cn(section, "py-14 sm:py-20")}>
             <h2 className={h2}>One subscription, both markets</h2>
             <p className="mt-3 text-sm text-muted-foreground">Start with 7 days free. The plans below are read live from our billing records.</p>
             <div className="mt-10">
@@ -171,12 +171,12 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section id="faq" className={cn(section, "scroll-mt-16 py-16 sm:py-24")}>
+        <section id="faq" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
           <h2 className={h2}>Questions</h2>
           <div className="mt-8 max-w-3xl divide-y border-y">
             {FAQ.map(([q, a]) => (
               <details key={q} className="group py-4">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded text-lead font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 rounded text-lead font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                   {q}
                   <span aria-hidden className="text-muted-foreground transition-transform group-open:rotate-45">+</span>
                 </summary>
@@ -187,7 +187,7 @@ export default async function LandingPage() {
         </section>
 
         <section id="about" className="border-t bg-card">
-          <div className={cn(section, "grid gap-6 py-16 sm:py-24 md:grid-cols-2")}>
+          <div className={cn(section, "grid gap-6 py-14 sm:py-20 md:grid-cols-2")}>
             <h2 className={h2}>Built by one person, for people who read filings</h2>
             <p className="max-w-[56ch] text-sm leading-relaxed text-muted-foreground">
               Sievr is made and run by {LEGAL.operator}, {LEGAL.operatorForm}. It started as a personal screener for reading results and calls faster, and it stays small on purpose: a few pages, each doing one job well. Mistakes in the data are fixed when reported.
@@ -195,14 +195,14 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section className="border-t">
-          <div className={cn(section, "flex flex-col items-start gap-5 py-16 sm:py-20")}>
+        <section className="bg-primary text-primary-foreground">
+          <div className={cn(section, "flex flex-col items-start gap-5 py-14 sm:py-20")}>
             <h2 className={h2}>Try it on this week&apos;s results</h2>
             <div className="flex flex-wrap gap-3">
-              <Link href={session ? "/screener" : "/login?trial=1"} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
+              <Link href={session ? "/screener" : "/login?trial=1"} className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>
                 {session ? "Open the app" : "Start 7-day free trial"}
               </Link>
-              {session ? null : <Link href="/login" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>Sign in</Link>}
+              {session ? null : <Link href="/login" className="inline-flex h-11 items-center rounded-md px-4 text-sm font-medium underline underline-offset-4 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Sign in</Link>}
             </div>
           </div>
         </section>
