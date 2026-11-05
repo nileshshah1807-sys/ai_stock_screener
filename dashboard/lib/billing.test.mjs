@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import {
   hasAccess,
-  isNewEvent,
+  checkoutAction,
   newSubscriptionBody,
   subscriptionChange,
   verifySignature,
@@ -81,13 +81,18 @@ test("subscription events map to our statuses; stages before payment change noth
   assert.equal(subscriptionChange(event("cancelled", { current_end: null }), "ev2").currentPeriodEnd, null);
 });
 
-test("an event already applied, or older than the stored one, is ignored", () => {
-  const change = subscriptionChange(event("active"), "ev2");
-  assert.equal(isNewEvent({}, change), true, "first event");
-  assert.equal(isNewEvent({ last_event_id: "ev2", last_event_at: change.eventAt }, change), false, "same event again");
-  assert.equal(isNewEvent({ last_event_id: "ev1", last_event_at: new Date((NOW + 10) * 1000).toISOString() }, change), false, "older");
-  assert.equal(isNewEvent({ last_event_id: "ev1", last_event_at: new Date((NOW - 10) * 1000).toISOString() }, change), true, "newer");
-  assert.equal(isNewEvent({}, { ...change, eventId: "" }), false, "no event id, no write");
+test("checkout never creates a second subscription beside one that is set up", () => {
+  const trialing = { status: "trialing", plan_id: null };
+  assert.equal(checkoutAction(null, null, "plan_X"), "create");
+  assert.equal(checkoutAction(trialing, null, "plan_X"), "create", "nothing started yet");
+  assert.equal(checkoutAction({ status: "trialing", plan_id: "pro" }, null, "plan_X"), "refuse", "mandate authorised in the trial");
+  assert.equal(checkoutAction({ status: "active", plan_id: "pro" }, null, "plan_X"), "refuse");
+  assert.equal(checkoutAction({ status: "past_due", plan_id: "pro" }, null, "plan_X"), "refuse");
+  assert.equal(checkoutAction(trialing, { status: "authenticated", plan_id: "plan_X" }, "plan_X"), "refuse", "webhook not yet seen");
+  assert.equal(checkoutAction(trialing, { status: "created", plan_id: "plan_X" }, "plan_X"), "reuse");
+  assert.equal(checkoutAction(trialing, { status: "created", plan_id: "plan_Y" }, "plan_X"), "create", "other plan chosen");
+  assert.equal(checkoutAction({ status: "cancelled", plan_id: "pro" }, { status: "cancelled", plan_id: "plan_X" }, "plan_X"), "create", "may subscribe again");
+  assert.equal(checkoutAction({ status: "expired", plan_id: null }, { status: "expired", plan_id: "plan_X" }, "plan_X"), "create");
 });
 
 test("new subscription: the first charge waits for the trial, else it is now", () => {

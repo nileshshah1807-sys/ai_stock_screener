@@ -70,13 +70,18 @@ export function subscriptionChange(event, eventId) {
 }
 
 /**
- * Whether an event is new to the stored subscription: not the one already
- * applied, and not older than it (Razorpay may deliver out of order or retry).
+ * What checkout does for a user, given their subscriptions row and, when the row
+ * holds a Razorpay subscription, that subscription as Razorpay reports it.
+ * Two authorised subscriptions would both charge, so: refuse when one is set up
+ * (the mandate is authorised, or it is paid), reuse one still awaiting
+ * authorisation, create only otherwise. Returns "refuse" | "reuse" | "create".
  */
-export function isNewEvent(stored, change) {
-  if (!change.eventId || !change.eventAt) return false;
-  if (stored?.last_event_id === change.eventId) return false;
-  return !stored?.last_event_at || Date.parse(change.eventAt) >= Date.parse(stored.last_event_at);
+export function checkoutAction(row, remote, razorpayPlanId) {
+  if (!row) return "create";
+  if (row.status === "active" || (row.plan_id && ["trialing", "past_due"].includes(row.status))) return "refuse";
+  if (!remote) return "create";
+  if (["authenticated", "active"].includes(remote.status)) return "refuse";
+  return remote.status === "created" && remote.plan_id === razorpayPlanId ? "reuse" : "create";
 }
 
 /** Subscriptions are charged until cancelled; Razorpay needs a finite count. */
