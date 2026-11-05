@@ -15,7 +15,7 @@ export function CallsBlock() {
       <div>
         <h2 className="text-title max-w-[22ch] text-balance">Hear what management said, without the hour-long call</h2>
         <p className="mt-4 max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
-          AI reads each earnings call and pulls out what management said about guidance, demand, margins, orders and capacity. Every quote is checked against the transcript, and the reading is one input to how a stock ranks.
+          AI reads each earnings call of an Indian company and pulls out what management said about guidance, demand, margins, orders and capacity. Every quote is checked against the transcript, and the reading is one input to how a stock ranks.
         </p>
         <ul className="mt-4 flex max-w-[52ch] list-disc flex-col gap-2 pl-5 text-sm marker:text-brand text-pretty leading-relaxed text-muted-foreground">
           <li>Each call is compared with the company&apos;s previous call: improved, held or worsened.</li>
@@ -29,7 +29,7 @@ export function CallsBlock() {
             Navdeep Chemicals
             <span className="flex flex-wrap gap-1.5">
               <span className="rounded bg-(--control) px-2 py-0.5 text-xs font-medium text-muted-foreground">Management tone: Optimistic</span>
-              <span className="rounded bg-(--control) px-2 py-0.5 text-xs font-medium text-muted-foreground">Versus last call: Improved</span>
+              <span className="rounded bg-(--control) px-2 py-0.5 text-xs font-medium text-muted-foreground">Kept to the previous call and improved on 3 of 5 items</span>
             </span>
           </figcaption>
           <blockquote className="mt-3 border-l-2 border-brand pl-3 text-sm leading-relaxed text-muted-foreground">
