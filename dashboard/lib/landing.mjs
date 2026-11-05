@@ -1,0 +1,41 @@
+/**
+ * Sample rows for the landing page's product pictures. Every company here is
+ * invented and every figure is a placeholder: the pictures show the layout of
+ * the screener, not market data, and say so beside them. Nothing on the page
+ * reads the database for these.
+ */
+
+export const SAMPLE_MARKETS = {
+  ind: {
+    label: "India",
+    money: (v) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`,
+    cap: (v) => `₹${v.toLocaleString("en-IN")} Cr`,
+    rows: [
+      { symbol: "AARAV", name: "Aarav Industries", price: 1842.5, day: 1.42, cap: 48210, pe: 24.6, stage: 2 },
+      { symbol: "KESARI", name: "Kesari Foods", price: 612.1, day: -0.64, cap: 9320, pe: 31.2, stage: 3 },
+      { symbol: "NAVDEEP", name: "Navdeep Chemicals", price: 2290.0, day: 0.88, cap: 21740, pe: 18.9, stage: 2 },
+      { symbol: "SAGARIKA", name: "Sagarika Logistics", price: 340.75, day: -1.91, cap: 5110, pe: 14.3, stage: 4 },
+      { symbol: "TARANG", name: "Tarang Power", price: 905.3, day: 2.1, cap: 33680, pe: 27.5, stage: 2 },
+      { symbol: "VIHAAN", name: "Vihaan Pharma", price: 1288.9, day: 0.12, cap: 15450, pe: 22.1, stage: 1 },
+    ],
+  },
+  us: {
+    label: "US",
+    money: (v) => `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    cap: (v) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 1 })}B`,
+    rows: [
+      { symbol: "NORTHBAY", name: "Northbay Systems", price: 142.38, day: 0.74, cap: 61.2, pe: 28.4, stage: 2 },
+      { symbol: "LUMEN", name: "Lumenfield Energy", price: 48.9, day: -1.12, cap: 8.6, pe: 12.7, stage: 4 },
+      { symbol: "PINEWAY", name: "Pineway Retail", price: 87.15, day: 1.96, cap: 14.3, pe: 19.8, stage: 2 },
+      { symbol: "ORCHID", name: "Orchid Biotech", price: 23.47, day: -0.3, cap: 2.1, pe: null, stage: 1 },
+      { symbol: "HALCYON", name: "Halcyon Software", price: 311.02, day: 0.45, cap: 92.7, pe: 41.3, stage: 2 },
+      { symbol: "BRASSLINE", name: "Brassline Industrial", price: 64.8, day: -0.78, cap: 6.9, pe: 16.5, stage: 3 },
+    ],
+  },
+};
+
+/** The rows a chip leaves showing; no chip leaves all of them. */
+export function sampleRows(market, onlyStage2) {
+  const rows = SAMPLE_MARKETS[market]?.rows ?? [];
+  return onlyStage2 ? rows.filter((row) => row.stage === 2) : rows;
+}

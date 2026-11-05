@@ -933,3 +933,29 @@ details[data-closing] > summary svg {
     background-color: color-mix(in oklab, var(--negative) 26%, transparent);
   }
 }
+
+/* Landing page: a ruled-ledger backdrop for the hero, and the breadth line
+   drawing itself on once. Both are plain CSS; reduced motion shows the line
+   fully drawn. */
+.landing-ledger {
+  background-image: linear-gradient(to bottom, transparent calc(100% - 1px), var(--border) 0);
+  background-size: 100% 2.5rem;
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}
+.landing-ledger > * {
+  background: transparent;
+}
+.landing-draw {
+  stroke-dasharray: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .landing-draw {
+    stroke-dashoffset: 1;
+    animation: landing-draw 1.2s var(--ease-entrance) 0.1s forwards;
+  }
+}
+@keyframes landing-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}

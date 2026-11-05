@@ -67,7 +67,7 @@ export default function AuthCompletePage() {
         window.history.replaceState(null, "", "/auth/complete");
         // A full navigation, not a client transition: the server needs to read
         // the freshly written cookies to render the authenticated page.
-        window.location.replace("/");
+        window.location.replace("/screener");
       })
       .catch(() => router.replace("/login?error=invalid_link"));
   }, [router]);

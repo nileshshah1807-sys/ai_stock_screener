@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const rawType = searchParams.get("type");
-  const next = searchParams.get("next") ?? "/";
+  const next = searchParams.get("next") ?? "/screener";
 
   // Check for a reported failure before looking for a credential: when
   // Supabase rejects a link it sends these instead of one, and its reason is
