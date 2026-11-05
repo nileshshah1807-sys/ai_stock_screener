@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import re
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
@@ -31,6 +32,7 @@ from typing import Any
 from scoring.transcript_enricher import _outlook_breakdown
 from screener.numeric import round_half_up, safe_float
 from sentiment.outlook import OUTLOOK_VERSION, compare_outlooks, outlook_items, stance_from_score
+from sentiment.promises import ENV_FLAG, flag_on, guidance_dropped, guidance_outcome, promise_record
 from storage.supabase_repository import PREVIOUS_CALL_MIN_GAP_DAYS
 from transcripts.periods import reporting_period_end_for_call
 from transcripts.recordings import SPEECH_METHOD_PREFIX
@@ -195,12 +197,19 @@ def build_feed(
     transcripts: Iterable[dict[str, Any]],
     companies: dict[str, str | None],
     held: dict[tuple[str, str], str] | None = None,
+    filings: dict[str, list[dict[str, Any]]] | None = None,
+    today: date | None = None,
 ) -> list[dict[str, Any]]:
     """One row per (symbol, quarter) from the stored transcripts of a window.
 
     ``held`` is the call date each row already carries. A filed transcript is
     dated by its filing and replaces the recording's, so without it a call
     would move to the day its transcript was filed.
+
+    ``filings`` (symbol -> stored quarterly filings) switches on the two
+    promise readings beside each call's outlook: whether the growth it guided
+    came true, and whether it dropped guidance (`sentiment.promises`). Nothing
+    scores them.
     """
     held = held or {}
     calls: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -257,8 +266,36 @@ def build_feed(
         row["outlook_detail"] = outlook_detail(
             row["call_date"], outlook, _previous_call(outlooks[row["symbol"]], call_date)
         )
+    if filings is not None:
+        _attach_promises(rows, read, filings, today or datetime.now(UTC).date())
     _rank_tone(rows)
     return sorted(rows, key=lambda row: (row["call_date"], row["symbol"]), reverse=True)
+
+
+def _attach_promises(
+    rows: list[dict[str, Any]],
+    read: list[tuple[str, dict[str, Any]]],
+    filings: dict[str, list[dict[str, Any]]],
+    today: date,
+) -> None:
+    """Add each call's said-vs-did outcome, the company's record so far, and dropped guidance."""
+    outcomes = {
+        index: guidance_outcome(outlook.get("extraction"), filings.get(row["symbol"], []), today)
+        for index, (row, (_, outlook)) in enumerate(zip(rows, read))
+        if row["outlook_detail"]
+    }
+    by_symbol: dict[str, list[int]] = {}
+    for index in outcomes:
+        by_symbol.setdefault(rows[index]["symbol"], []).append(index)
+    for index, outcome in outcomes.items():
+        detail = rows[index]["outlook_detail"]
+        detail["Transcript_Said_Vs_Did"] = outcome
+        # Up to this call: a later call's miss is not known when this one is read.
+        detail["Transcript_Said_Vs_Did_Record"] = promise_record(
+            outcomes[other] for other in by_symbol[rows[index]["symbol"]]
+            if rows[other]["call_date"] <= rows[index]["call_date"]
+        )
+        detail["Transcript_Guidance_Dropped"] = guidance_dropped(detail.get("Transcript_Outlook_QoQ_Items"))
 
 
 def _previous_call(
@@ -302,7 +339,14 @@ def run(repo, *, today: date | None = None, dry_run: bool = False) -> dict[str, 
     except Exception as exc:  # noqa: BLE001 - nothing to write to either
         logger.warning("%s concall feed unreadable (%s). Apply storage/concalls_schema.sql.", repo.market, exc)
         return counts
-    rows = build_feed(repo.calls_since(since), repo.snapshot_companies(), held)
+    calls = repo.calls_since(since)
+    filings = None
+    if flag_on(os.getenv(ENV_FLAG)):
+        try:
+            filings = repo.quarterly_filings({str(call.get("symbol") or "").strip().upper() for call in calls})
+        except Exception as exc:  # noqa: BLE001 - the feed is written without the promise readings
+            logger.warning("%s promise tracking skipped, filings unreadable (%s)", repo.market, exc)
+    rows = build_feed(calls, repo.snapshot_companies(), held, filings, today)
     counts["calls"] = len(rows)
     counts["from_recording"] = sum(1 for row in rows if row["source"] == SOURCE_RECORDING)
     if not dry_run:
