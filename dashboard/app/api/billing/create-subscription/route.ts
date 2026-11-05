@@ -65,11 +65,18 @@ export async function POST(request: NextRequest) {
   const action = checkoutAction(sub, existing, plan.razorpay_plan_id);
   if (action === "refuse") return fail("already_subscribed", 409);
   if (action === "reuse" && existing?.id) {
+    const reused = Boolean(existing.offer_id);
+    const { data: marked, error: markError } = await admin
+      .from("subscriptions")
+      .update({ offer_applied: reused })
+      .eq("user_id", userId)
+      .select("user_id");
+    if (markError || !marked?.length) return fail("write_failed", 500);
     return NextResponse.json({
       subscription_id: existing.id,
       key_id: keyId,
       plan: { id: plan.id, name: plan.name, amount_paise: plan.amount_paise, period: plan.period },
-      offer_applied: Boolean(existing.offer_id),
+      offer_applied: reused,
       charged_amount_paise: existing.offer_id ? plan.offer_amount_paise : plan.amount_paise,
       trial_ends_at: existing.start_at ? new Date(existing.start_at * 1000).toISOString() : null,
     });
@@ -101,7 +108,11 @@ export async function POST(request: NextRequest) {
   // set up, not one that was only started.
   const { data: stored, error: storeError } = await admin
     .from("subscriptions")
-    .update({ razorpay_subscription_id: created.id, updated_at: new Date().toISOString() })
+    .update({
+      razorpay_subscription_id: created.id,
+      offer_applied: Boolean(body.offer_id),
+      updated_at: new Date().toISOString(),
+    })
     .eq("user_id", userId)
     .select("user_id");
   if (storeError || !stored?.length) return fail("write_failed", 500); // never charge a subscription we cannot match
