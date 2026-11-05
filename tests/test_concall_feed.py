@@ -339,4 +339,5 @@ class PromiseReadingTests(unittest.TestCase):
         )
         records = {row["call_date"]: row["outlook_detail"]["Transcript_Said_Vs_Did_Record"] for row in rows}
         self.assertEqual(records["2025-10-12"], {"kept": 0, "missed": 1})
-        self.assertEqual(records["2026-10-12"], {"kept": 0, "missed": 2})
+        # The same period guided again is the same promise.
+        self.assertEqual(records["2026-10-12"], {"kept": 0, "missed": 1})

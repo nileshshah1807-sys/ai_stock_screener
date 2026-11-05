@@ -3,7 +3,7 @@
 import unittest
 from datetime import date
 
-from sentiment.promises import KEPT, MISSED, NOT_YET_DUE, flag_on, guidance_outcome, period_quarters
+from sentiment.promises import KEPT, MISSED, NOT_YET_DUE, flag_on, guidance_outcome, period_quarters, promise_record
 
 
 def filings(ends, revenue, *, filed="2026-05-20T10:00:00", consolidated=True):
@@ -69,6 +69,14 @@ class OutcomeTests(unittest.TestCase):
         self.assertIsNone(self.outcome(120, pct=None))
         self.assertIsNone(self.outcome(120, then=0))
         self.assertIsNone(guidance_outcome({"guidance": {"direction": "none"}}, [], self.today))
+
+
+class RecordTests(unittest.TestCase):
+    def test_a_period_guided_on_several_calls_is_one_promise(self):
+        miss = {"outcome": MISSED, "metric": "revenue", "period": "FY27"}
+        again = {"outcome": MISSED, "metric": "revenue", "period": "FY 2027"}
+        other = {"outcome": KEPT, "metric": "profit", "period": "FY27"}
+        self.assertEqual(promise_record([miss, again, other, None]), {KEPT: 1, MISSED: 1})
 
 
 if __name__ == "__main__":
