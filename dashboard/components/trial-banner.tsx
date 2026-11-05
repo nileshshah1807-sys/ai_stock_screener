@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Hourglass } from "lucide-react";
 
-import { daysLeftLabel } from "@/lib/billing.mjs";
+import { daysLeftLabel, trialStartLine } from "@/lib/billing.mjs";
+import { getPlans, getSubscription } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
 /**
@@ -9,7 +10,7 @@ import { cn } from "@/lib/utils";
  * as the freshness notice. Quiet until the last two days, then caution-toned.
  * Nobody else sees it: paid, invited and admin accounts have nothing to count.
  */
-export function TrialBanner({ days }: { days: number }) {
+export function TrialBanner({ days, setUp }: { days: number; setUp?: string | null }) {
   const soon = days <= 2;
   return (
     <div
@@ -20,13 +21,24 @@ export function TrialBanner({ days }: { days: number }) {
       )}
     >
       <Hourglass className="size-4 shrink-0" aria-hidden />
-      <span className="font-medium">Free trial: {daysLeftLabel(days)}</span>
+      <span className="font-medium">
+        Free trial: {daysLeftLabel(days)}
+        {setUp ? ` · ${setUp}` : ""}
+      </span>
       <Link
-        href="/pricing"
+        href={setUp ? "/account" : "/pricing"}
         className="rounded underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        See the plan
+        {setUp ? "Manage" : "See the plan"}
       </Link>
     </div>
   );
+}
+
+/** The banner for a signed-in trial user: says so when a plan is already set up. */
+export async function TrialBannerFor({ days, userId }: { days: number; userId: string }) {
+  const subscription = await getSubscription(userId);
+  const plans = subscription?.plan_id ? await getPlans() : null;
+  const plan = plans?.find((candidate) => candidate.id === subscription?.plan_id) ?? null;
+  return <TrialBanner days={days} setUp={trialStartLine(subscription, plan)} />;
 }

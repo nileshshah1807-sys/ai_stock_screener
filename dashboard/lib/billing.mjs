@@ -215,3 +215,17 @@ export function perMonthLabel(plan) {
   const paise = perMonthPaise(plan);
   return paise === null ? "" : priceLabel(Math.round(paise / 100) * 100);
 }
+
+/**
+ * What the trial banner adds once a plan is set up: "Sievr Monthly starts 12 Nov,
+ * first charge ₹129". The price is the plan's own, as /account shows it. Null
+ * when nothing is set up, or the plan or the date is unknown.
+ */
+export function trialStartLine(subscription, plan) {
+  if (!isSetUp(subscription) || subscription.status !== "trialing" || !plan) return null;
+  if (!subscription.trial_ends_at) return null;
+  const when = new Date(subscription.trial_ends_at);
+  if (Number.isNaN(when.getTime())) return null;
+  const day = when.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
+  return `${plan.name} starts ${day}, first charge ${priceLabel(plan.amount_paise)}`;
+}

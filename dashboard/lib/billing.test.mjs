@@ -18,6 +18,7 @@ import {
   newSubscriptionBody,
   subscriptionChange,
   viewerFromClaims,
+  trialStartLine,
 } from "./billing.mjs";
 import { verifySignature } from "./webhook-signature.mjs";
 
@@ -181,4 +182,14 @@ test("the early-bird offer is UPI-only, so its checkout shows UPI alone", () => 
   assert.equal(r.config.display.preferences.show_default_blocks, false);
   assert.deepEqual(checkoutRestriction(false), {}, "no offer: every method stays on");
   assert.deepEqual(checkoutRestriction(undefined), {});
+});
+
+test("trialStartLine: only a trialing subscription with a plan set up gets the line", () => {
+  const plan = { name: "Sievr Monthly", amount_paise: 12900 };
+  const row = { status: "trialing", plan_id: "pro-monthly", trial_ends_at: "2026-11-12T10:00:00Z" };
+  assert.equal(trialStartLine(row, plan), "Sievr Monthly starts 12 Nov, first charge ₹129");
+  assert.equal(trialStartLine({ ...row, plan_id: null }, plan), null, "no plan set up");
+  assert.equal(trialStartLine({ ...row, status: "active" }, plan), null, "already paying");
+  assert.equal(trialStartLine(row, null), null, "plan unknown");
+  assert.equal(trialStartLine({ ...row, trial_ends_at: null }, plan), null, "no date");
 });
