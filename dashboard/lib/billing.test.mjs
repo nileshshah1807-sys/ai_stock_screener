@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { test } from "node:test";
+import { describe, test } from "node:test";
 
 import {
   accessFromClaims,
   daysLeftLabel,
+  currentPlanId,
   isSetUp,
+  planSummary,
+  planTitle,
   isEntitled,
   checkoutRestriction,
   lapseReason,
@@ -206,4 +209,37 @@ test("trialStartLine: only a trialing subscription with a plan set up gets the l
   assert.equal(trialStartLine({ ...row, status: "active" }, plan), null, "already paying");
   assert.equal(trialStartLine(row, null), null, "plan unknown");
   assert.equal(trialStartLine({ ...row, trial_ends_at: null }, plan), null, "no date");
+});
+
+describe("planSummary", () => {
+  const fmt = (d) => `D(${d})`;
+  const money = (p) => `R${p / 100}`;
+  const monthly = { name: "Sievr Monthly", period: "monthly", amount_paise: 12900 };
+  const yearly = { period: "yearly", amount_paise: 99900, offer: { amount_paise: 69900 } };
+
+  test("trial with a plan set up says when it starts and what it charges", () => {
+    const s = planSummary({ kind: "trial", subscription: { status: "trialing", plan_id: "m", trial_ends_at: "2026-11-12T10:00:00Z" }, plan: monthly }, fmt, money);
+    assert.equal(s.detail, "Free trial, Sievr Monthly starts 12 Nov, first charge ₹129.");
+    assert.deepEqual(s.nextCharge, { date: "2026-11-12T10:00:00Z", paise: 12900 });
+  });
+  test("first charge follows offer_applied: offer price, plan price, or no amount", () => {
+    const sub = { status: "trialing", plan_id: "y", trial_ends_at: "2026-11-12T10:00:00Z" };
+    const yearly2 = { ...yearly, name: "Sievr", offer_amount_paise: 69900 };
+    const amount = (offer_applied) => planSummary({ kind: "trial", subscription: { ...sub, offer_applied }, plan: yearly2 }, fmt, money).nextCharge?.paise;
+    assert.equal(amount(true), 69900);
+    assert.equal(amount(false), 99900);
+    assert.equal(amount(null), undefined);
+    const active = planSummary({ kind: "paid", subscription: { status: "active", plan_id: "y", current_period_end: "e" }, plan: yearly }, fmt, money);
+    assert.equal(active.nextCharge.paise, 99900, "a renewal never uses the offer");
+  });
+  test("cancelled with access left, and past due", () => {
+    assert.match(planSummary({ kind: "paid", subscription: { status: "cancelled", plan_id: "m", current_period_end: "e" }, plan: monthly }, fmt).detail, /Access until D\(e\)/);
+    assert.equal(planSummary({ kind: "lapsed", subscription: { status: "past_due", plan_id: "m" }, plan: monthly }, fmt).status, "Payment failed");
+  });
+  test("currentPlanId is set only for a plan that is set up", () => {
+    assert.equal(currentPlanId({ status: "active", plan_id: "m" }), "m");
+    assert.equal(currentPlanId({ status: "trialing", plan_id: null }), null);
+    assert.equal(currentPlanId({ status: "cancelled", plan_id: "m" }), null);
+    assert.equal(planTitle(yearly), "Yearly plan");
+  });
 });

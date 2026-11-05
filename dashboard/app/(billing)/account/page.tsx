@@ -24,6 +24,7 @@ export default async function AccountPage({
       kind={session.access.kind}
       subscription={subscription}
       plan={plan}
+      plans={plans}
       welcome={params.welcome === "1"}
     />
   );
