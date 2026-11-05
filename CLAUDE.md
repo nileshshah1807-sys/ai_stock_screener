@@ -234,6 +234,16 @@ the scheduled workflows set the same flag.
   make the label better, make the outlook score better. Do not label a call
   from the word-list tone score: its risk component counts vocabulary, and
   called a wealth manager "Bearish" for discussing market risk.
+- **Said vs did and dropped guidance are stored beside a call, never scored.**
+  With `OUTLOOK_PROMISE_TRACKING=true` (off by default) `workers/concall_feed.py`
+  adds to a call's `outlook_detail` (`sentiment/promises.py`): the growth it
+  guided for `FY27` / `H1 FY27` against the filed quarters of that period
+  (`kept`, `missed`, `not_yet_due`; company-wide revenue or profit only, 2
+  points of tolerance), the company's kept/missed count, and whether guidance
+  it gave last call was not restated. Margin, order-book and capacity
+  statements hold no figure the filings carry and are not checked. Nothing in
+  `screener/` reads either: they enter the ranking only after a point-in-time
+  check shows they add to it. No weight in `outlook_items` changed, so no rescore.
 - **The outlook model is paid in production and free in development.**
   `sentiment/llm_provider.py` sends the request to OpenRouter in GitHub
   Actions -- and refuses Token Harbor there -- and to Token Harbor's free

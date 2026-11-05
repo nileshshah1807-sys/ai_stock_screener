@@ -620,11 +620,11 @@ class DashboardRepository:
             symbols_csv = ",".join(f'"{symbol}"' for symbol in chunk)
             for row in self._paged(
                 "quarterly_filings",
-                {
+                self._scoped({
                     "select": "symbol,period_end,is_consolidated,filed_at,taxonomy,lines",
                     "symbol": f"in.({symbols_csv})",
                     "order": "symbol.asc,period_end.asc,is_consolidated.asc",
-                },
+                }),
             ):
                 found.setdefault(str(row["symbol"]), []).append(row)
         return found

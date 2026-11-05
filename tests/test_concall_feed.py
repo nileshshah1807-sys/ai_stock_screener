@@ -26,7 +26,7 @@ EXTRACTION = {
 }
 
 
-def call(symbol, call_date, *, speech=False, tone=None, outlook=None, quarter="2026-09-30", verified=4):
+def call(symbol, call_date, *, speech=False, tone=None, outlook=None, quarter="2026-09-30", verified=4, extraction=EXTRACTION):
     return {
         "id": f"{symbol}-{call_date}-{speech}",
         "symbol": symbol,
@@ -41,7 +41,7 @@ def call(symbol, call_date, *, speech=False, tone=None, outlook=None, quarter="2
         else [{
             "outlook_score": outlook,
             "verified_fields": verified,
-            "extraction": EXTRACTION,
+            "extraction": extraction,
             "analysis_version": OUTLOOK_VERSION,
             "created_at": "2026-10-12T15:05:00",
         }],
@@ -283,3 +283,48 @@ class RunTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PromiseReadingTests(unittest.TestCase):
+    """The two readings stay off unless filings are handed in, and never touch the score."""
+
+    guided = {**EXTRACTION, "guidance": {**EXTRACTION["guidance"], "period": "FY26", "growth_metric": "revenue", "growth_pct": 18}}
+
+    def filings(self, now):
+        ends = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31"]
+        rows = [{"period_end": e, "is_consolidated": True, "filed_at": "2026-05-20T10:00:00", "lines": {"revenue": now}} for e in ends]
+        rows += [{"period_end": e.replace("2025", "2024").replace("2026", "2025"), "is_consolidated": True,
+                  "filed_at": "2025-05-20T10:00:00", "lines": {"revenue": 100}} for e in ends]
+        return {"ALPHA": rows}
+
+    def detail(self, filings, extraction=None):
+        stored = call("ALPHA", "2025-10-12", tone=60, outlook=67, extraction=extraction or self.guided)
+        return build_feed([stored], COMPANIES, filings=filings, today=date(2026, 6, 1))[0]["outlook_detail"]
+
+    def test_nothing_is_added_without_filings(self):
+        detail = self.detail(None)
+        self.assertNotIn("Transcript_Said_Vs_Did", detail)
+        self.assertNotIn("Transcript_Guidance_Dropped", detail)
+
+    def test_guided_growth_is_checked_against_the_filed_year(self):
+        kept = self.detail(self.filings(120))
+        self.assertEqual((kept["Transcript_Said_Vs_Did"]["outcome"], kept["Transcript_Said_Vs_Did"]["actual_pct"]), ("kept", 20.0))
+        self.assertEqual(kept["Transcript_Said_Vs_Did_Record"], {"kept": 1, "missed": 0})
+        missed = self.detail(self.filings(105))
+        self.assertEqual(missed["Transcript_Said_Vs_Did"]["outcome"], "missed")
+        self.assertFalse(missed["Transcript_Guidance_Dropped"])
+
+    def test_a_year_not_yet_filed_is_not_due_and_a_vague_period_is_not_checked(self):
+        self.assertEqual(self.detail({"ALPHA": []})["Transcript_Said_Vs_Did"]["outcome"], "not_yet_due")
+        vague = {**self.guided, "guidance": {**self.guided["guidance"], "period": "next year"}}
+        self.assertIsNone(self.detail(self.filings(120), vague)["Transcript_Said_Vs_Did"])
+
+    def test_guidance_not_restated_is_marked_dropped(self):
+        silent = {**EXTRACTION, "guidance": {**EXTRACTION["guidance"], "direction": "none", "growth_pct": None}}
+        stored = [
+            call("ALPHA", "2026-10-12", tone=60, outlook=67, extraction=silent),
+            call("ALPHA", "2026-07-15", tone=55, outlook=53, quarter="2026-06-30"),
+        ]
+        rows = build_feed(stored, COMPANIES, filings={}, today=date(2026, 11, 1))
+        latest = next(row for row in rows if row["quarter"] == "2026-09-30")
+        self.assertTrue(latest["outlook_detail"]["Transcript_Guidance_Dropped"])
