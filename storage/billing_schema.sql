@@ -81,6 +81,9 @@ create table if not exists subscriptions (
     updated_at timestamptz not null default now()
 );
 alter table subscriptions add column if not exists delete_requested_at timestamptz;
+-- Whether the early-bird offer was applied to the subscription started at checkout
+-- (null until one is started): the first charge is the offer or the plan price.
+alter table subscriptions add column if not exists offer_applied boolean;
 
 alter table subscriptions enable row level security;
 
@@ -90,7 +93,7 @@ create policy subscriptions_self_read
     using (user_id = (select auth.uid()));
 
 revoke all on subscriptions from anon, authenticated;
-grant select (user_id, plan_id, status, trial_ends_at, current_period_end, updated_at)
+grant select (user_id, plan_id, status, trial_ends_at, current_period_end, offer_applied, updated_at)
     on subscriptions to authenticated;
 
 -- Users that already exist have no trial: a row with status 'expired' gives them

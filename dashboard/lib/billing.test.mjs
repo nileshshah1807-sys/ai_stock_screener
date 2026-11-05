@@ -37,6 +37,14 @@ test("access: admin and invited users never expire; trial and paid need a future
   assert.equal(hasAccess(null, NOW), false);
 });
 
+test("subscriptions records whether the offer applied, readable by its owner, never written by an event", () => {
+  const sql = readFileSync(new URL("../../storage/billing_schema.sql", import.meta.url), "utf8");
+  assert.ok(sql.includes("add column if not exists offer_applied boolean;"));
+  assert.match(sql, /grant select \([^)]*\boffer_applied\b[^)]*\)\s+on subscriptions to authenticated/);
+  const fn = sql.slice(sql.indexOf("function billing_apply_event"), sql.indexOf("billing_apply_event(text, uuid"));
+  assert.ok(!fn.includes("offer_applied"));
+});
+
 test("the database rule says the same", () => {
   const sql = readFileSync(new URL("../../storage/billing_schema.sql", import.meta.url), "utf8");
   assert.ok(sql.includes("'plan' in ('admin', 'allowlist') then true"));
