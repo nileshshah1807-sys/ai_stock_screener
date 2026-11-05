@@ -74,12 +74,24 @@ export function checkoutAction(row, remote, razorpayPlanId) {
 }
 
 /**
- * Razorpay Checkout's `method` option. The early-bird offer is attached to UPI
- * only, so a card payer would be charged the full price: while the offer is
- * applied, checkout offers UPI alone. Without it, undefined leaves every method on.
+ * What restricts Razorpay Checkout to UPI. The early-bird offer is attached to
+ * UPI only, so a card payer would be charged the full price: while the offer is
+ * applied, checkout offers UPI alone. `method` switches the plain methods off;
+ * a subscription still lists eMandate unless `config` shows only a UPI block
+ * (seen in test mode). Without the offer, {} leaves every method on.
  */
-export function checkoutMethods(offerApplied) {
-  return offerApplied ? { upi: true, card: false, netbanking: false, wallet: false, emi: false, paylater: false, emandate: false } : undefined;
+export function checkoutRestriction(offerApplied) {
+  if (!offerApplied) return {};
+  return {
+    method: { upi: true, card: false, netbanking: false, wallet: false, emi: false, paylater: false, emandate: false },
+    config: {
+      display: {
+        blocks: { upi: { name: "Pay with UPI", instruments: [{ method: "upi" }] } },
+        sequence: ["block.upi"],
+        preferences: { show_default_blocks: false },
+      },
+    },
+  };
 }
 
 /** Subscriptions are charged until cancelled; Razorpay needs a finite count. */

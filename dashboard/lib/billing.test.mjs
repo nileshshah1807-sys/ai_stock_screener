@@ -8,7 +8,7 @@ import {
   daysLeftLabel,
   isSetUp,
   isEntitled,
-  checkoutMethods,
+  checkoutRestriction,
   lapseReason,
   perMonthLabel,
   priceLabel,
@@ -174,9 +174,11 @@ test("yearly against monthly", () => {
 });
 
 test("the early-bird offer is UPI-only, so its checkout shows UPI alone", () => {
-  const m = checkoutMethods(true);
-  assert.equal(m.upi, true);
-  for (const off of ["card", "netbanking", "wallet", "emi", "paylater", "emandate"]) assert.equal(m[off], false, off);
-  assert.equal(checkoutMethods(false), undefined, "no offer: every method stays on");
-  assert.equal(checkoutMethods(undefined), undefined);
+  const r = checkoutRestriction(true);
+  assert.equal(r.method.upi, true);
+  for (const off of ["card", "netbanking", "wallet", "emi", "paylater", "emandate"]) assert.equal(r.method[off], false, off);
+  assert.deepEqual(r.config.display.sequence, ["block.upi"], "only the UPI block is shown");
+  assert.equal(r.config.display.preferences.show_default_blocks, false);
+  assert.deepEqual(checkoutRestriction(false), {}, "no offer: every method stays on");
+  assert.deepEqual(checkoutRestriction(undefined), {});
 });

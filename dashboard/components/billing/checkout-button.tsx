@@ -6,7 +6,7 @@ import { useState, useSyncExternalStore } from "react";
 import { Loader2, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { checkoutMethods, isSetUp } from "@/lib/billing.mjs";
+import { checkoutRestriction, isSetUp } from "@/lib/billing.mjs";
 import { createClient } from "@/lib/supabase/client";
 
 const CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
@@ -20,6 +20,7 @@ type RazorpayOptions = {
   description: string;
   prefill: { email: string };
   method?: Record<string, boolean>;
+  config?: unknown;
   handler: () => void;
   modal: { ondismiss: () => void };
 };
@@ -165,7 +166,7 @@ export function CheckoutButton({
         name: brand,
         description: body.plan.name,
         prefill: { email },
-        method: checkoutMethods(body.offer_applied),
+        ...checkoutRestriction(body.offer_applied),
         handler: () => {
           setPhase("confirming");
           void waitForSubscription();
