@@ -1,4 +1,4 @@
-# Winnow — working notes
+# Sievr — working notes
 
 Daily equity research screener across two markets, NSE and US. `app.py` is the
 composition root; the scheduled GitHub Actions workflows are the production

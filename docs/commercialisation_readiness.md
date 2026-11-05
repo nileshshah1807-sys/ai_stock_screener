@@ -2,7 +2,7 @@
 
 - **Status:** in progress, see "Progress" below
 - **Date:** 2026-11-04
-- **Scope:** what stands between Winnow as it runs today (invite-only, two
+- **Scope:** what stands between Sievr as it runs today (invite-only, two
   markets, scheduled GitHub Actions + Supabase + Vercel) and a paid product,
   plus a read path that holds 10,000 requests per second.
 
@@ -207,4 +207,4 @@ features?". Two limits:
 Setup (Python 3.11–3.12, Node 18+, `uv`): clone it outside this repo, copy
 `.env.example` to `.env`, fill in the keys, run `npm run setup:all`, then
 `npm run dev` (frontend :3000, backend :5001). Keep it out of this repo. AGPL
-code linked into Winnow would force Winnow's source open.
+code linked into Sievr would force Sievr's source open.

@@ -1,4 +1,4 @@
-# Winnow
+# Sievr
 
 Daily equity research screener with auditable fundamental, technical,
 reverse-DCF, and management-transcript evidence. Scheduled production runs use
@@ -8,7 +8,7 @@ explicitly.
 
 ## Markets
 
-Winnow screens two markets from one pipeline. `MARKET=NSE` (the default) runs
+Sievr screens two markets from one pipeline. `MARKET=NSE` (the default) runs
 the Indian universe; `MARKET=US` runs the S&P Composite 1500. The scoring,
 stage analysis, relative strength and gating are identical — they are
 cross-sectional within a run, so each market is ranked against itself — and

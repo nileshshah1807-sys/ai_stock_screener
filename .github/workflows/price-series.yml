@@ -152,7 +152,7 @@ jobs:
       # liquidity prefilter drops that day, which costs a few MB and means a
       # name that crosses the floor has its chart ready.
       US_UNIVERSE_SOURCE: "all_listed"
-      WIKIPEDIA_USER_AGENT: "winnow-screener/1.0 (+https://github.com/${{ github.repository }})"
+      WIKIPEDIA_USER_AGENT: "sievr-screener/1.0 (+https://github.com/${{ github.repository }})"
 
     steps:
       - uses: actions/checkout@v6

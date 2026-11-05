@@ -16,7 +16,7 @@ await page.pdf({
   path: out("report.pdf"), format: "A4", printBackground: true,
   margin: { top: "16mm", bottom: "16mm", left: "15mm", right: "15mm" },
   displayHeaderFooter: true, headerTemplate: "<span></span>",
-  footerTemplate: '<div style="font-size:7px;color:#94a3b8;width:100%;text-align:center;font-family:sans-serif">Winnow · Returns filter study · page <span class="pageNumber"></span> of <span class="totalPages"></span></div>',
+  footerTemplate: '<div style="font-size:7px;color:#94a3b8;width:100%;text-align:center;font-family:sans-serif">Sievr · Returns filter study · page <span class="pageNumber"></span> of <span class="totalPages"></span></div>',
 });
 await browser.close();
 console.log(out("report.pdf"));

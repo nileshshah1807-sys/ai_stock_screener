@@ -67,7 +67,7 @@ jobs:
       US_UNIVERSE_SOURCE: "all_listed"
       # Wikipedia's robot policy rejects a generic User-Agent, and the S&P 400
       # and 600 constituent lists come from its API.
-      WIKIPEDIA_USER_AGENT: "winnow-screener/1.0 (+https://github.com/${{ github.repository }})"
+      WIKIPEDIA_USER_AGENT: "sievr-screener/1.0 (+https://github.com/${{ github.repository }})"
 
       # Annual statements come from the filers' own SEC filings, with Yahoo
       # only for what EDGAR cannot serve (foreign filers reporting in another

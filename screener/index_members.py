@@ -32,7 +32,7 @@ NSE_INDEX_CSV_URL = "https://nsearchives.nseindia.com/content/indices/{name}.csv
 
 _TIMEOUT_SECONDS = 30
 # The archive host refuses requests that name no browser.
-_USER_AGENT = "Mozilla/5.0 (compatible; winnow-screener/1.0)"
+_USER_AGENT = "Mozilla/5.0 (compatible; sievr-screener/1.0)"
 
 
 def parse_nse_index_csv(text: str) -> list[tuple[str, str | None]]:
