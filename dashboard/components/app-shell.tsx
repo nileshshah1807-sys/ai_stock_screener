@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { FreshnessBanner } from "@/components/freshness-banner";
-import { TrialBanner } from "@/components/trial-banner";
+import { TrialBannerFor } from "@/components/trial-banner";
 import { HealthLink } from "@/components/health-link";
 import { NotificationBell, NotificationBellFallback } from "@/components/notifications/bell";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -245,7 +245,11 @@ export function AppShell({
       </header>
 
       <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col">
-        {viewer.access.kind === "trial" && viewer.access.daysLeft ? <TrialBanner days={viewer.access.daysLeft} /> : null}
+        {viewer.access.kind === "trial" && viewer.access.daysLeft ? (
+          <Suspense fallback={null}>
+            <TrialBannerFor days={viewer.access.daysLeft} userId={viewer.id} />
+          </Suspense>
+        ) : null}
         <FreshnessBanner run={run} />
 
         {/*
