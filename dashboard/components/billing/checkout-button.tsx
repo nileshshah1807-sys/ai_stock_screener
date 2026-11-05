@@ -1,0 +1,195 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useRef, useState } from "react";
+import { Loader2, TriangleAlert } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { isSetUp } from "@/lib/billing.mjs";
+import { createClient } from "@/lib/supabase/client";
+
+const CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
+const POLL_EVERY_MS = 2000;
+const POLL_FOR_MS = 90_000;
+
+type RazorpayOptions = {
+  key: string;
+  subscription_id: string;
+  name: string;
+  description: string;
+  prefill: { email: string };
+  handler: () => void;
+  modal: { ondismiss: () => void };
+};
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayOptions) => { open: () => void };
+  }
+}
+
+type Created = {
+  subscription_id: string;
+  key_id: string;
+  plan: { id: string; name: string; amount_paise: number; period: string };
+};
+
+const ERRORS: Record<string, string> = {
+  no_active_plan: "No plan is on sale right now. Try again later.",
+  razorpay_error: "The payment provider could not start checkout. Try again in a minute.",
+  billing_not_configured: "Payments are not switched on yet.",
+};
+
+/** Razorpay's checkout script is loaded when first needed, not on every page. */
+function loadCheckout(): Promise<boolean> {
+  if (window.Razorpay) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = CHECKOUT_SRC;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.head.appendChild(script);
+  });
+}
+
+type Phase = "idle" | "starting" | "paying" | "confirming" | "slow";
+
+/**
+ * Opens Razorpay Checkout for the plan.
+ *
+ * The checkout's own success callback is not proof of payment: the webhook
+ * writes the subscription, so the button waits for that row to read as set up,
+ * then refreshes the session so the token's plan claim catches up, and only
+ * then moves on. If the row has not changed after 90 seconds it says so and
+ * leaves the person to come back; their payment is not lost.
+ */
+export function CheckoutButton({
+  planId,
+  email,
+  brand,
+  label,
+}: {
+  planId: string;
+  email: string;
+  brand: string;
+  label: string;
+}) {
+  const router = useRouter();
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [error, setError] = useState<{ text: string; link?: boolean } | null>(null);
+  const busy = useRef(false);
+
+  async function waitForSubscription() {
+    const supabase = createClient();
+    const deadline = Date.now() + POLL_FOR_MS;
+    while (Date.now() < deadline) {
+      const { data } = await supabase.from("subscriptions").select("status, plan_id").maybeSingle();
+      if (isSetUp(data)) {
+        await supabase.auth.refreshSession();
+        router.push("/account?welcome=1");
+        router.refresh();
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_EVERY_MS));
+    }
+    setPhase("slow");
+  }
+
+  async function start() {
+    if (busy.current) return;
+    busy.current = true;
+    setError(null);
+    setPhase("starting");
+    try {
+      const [response, loaded] = await Promise.all([
+        fetch("/api/billing/create-subscription", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ plan_id: planId }),
+        }),
+        loadCheckout(),
+      ]);
+      const body = (await response.json().catch(() => ({}))) as Partial<Created> & { error?: string };
+      if (response.status === 401) {
+        router.push("/login?trial=1");
+        return;
+      }
+      if (response.status === 409) {
+        setError({ text: "You already have a subscription.", link: true });
+        setPhase("idle");
+        return;
+      }
+      if (!response.ok || !body.subscription_id || !body.key_id || !body.plan) {
+        setError({ text: ERRORS[body.error ?? ""] ?? "Checkout could not start. Try again." });
+        setPhase("idle");
+        return;
+      }
+      if (!loaded || !window.Razorpay) {
+        setError({ text: "The payment window could not load. Check your connection and try again." });
+        setPhase("idle");
+        return;
+      }
+      setPhase("paying");
+      new window.Razorpay({
+        key: body.key_id,
+        subscription_id: body.subscription_id,
+        name: brand,
+        description: body.plan.name,
+        prefill: { email },
+        handler: () => {
+          setPhase("confirming");
+          void waitForSubscription();
+        },
+        modal: { ondismiss: () => setPhase((now) => (now === "paying" ? "idle" : now)) },
+      }).open();
+    } catch {
+      setError({ text: "Checkout could not start. Check your connection and try again." });
+      setPhase("idle");
+    } finally {
+      busy.current = false;
+    }
+  }
+
+  const working = phase === "starting" || phase === "confirming";
+  return (
+    <div className="space-y-3">
+      <Button type="button" className="h-10 w-full sm:w-auto sm:min-w-44" disabled={working || phase === "paying"} onClick={start}>
+        {working ? (
+          <>
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            {phase === "confirming" ? "Confirming payment…" : "Opening checkout…"}
+          </>
+        ) : (
+          label
+        )}
+      </Button>
+      <div aria-live="polite">
+        {phase === "slow" ? (
+          <p className="text-sm text-muted-foreground">
+            We have not heard back from the payment provider yet. This can take a minute. Check{" "}
+            <Link href="/account" className="underline underline-offset-2">
+              your account
+            </Link>{" "}
+            shortly; if you were charged, your plan will appear there.
+          </p>
+        ) : null}
+        {error ? (
+          <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span>
+              {error.text}
+              {error.link ? (
+                <>
+                  {" "}
+                  <Link href="/account" className="underline underline-offset-2">
+                    Open your account
+                  </Link>
+                </>
+              ) : null}
+            </span>
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}

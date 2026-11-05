@@ -317,3 +317,22 @@ the model.
 evidence score, the grid shows the decision score with the evidence score behind
 it. Showing only the published number would hide the most important fact about
 that row.
+
+## Sign-up, trial and billing
+
+- **Sign-up.** The email-code form creates an account for an unknown address
+  (`shouldCreateUser: true`); `/login?trial=1` frames it as "Start your 7-day
+  free trial". In Supabase, the **Confirm signup** email template must carry the
+  `{{ .Token }}` code like the magic-link one does (`emails/magic-link.html`).
+- **Access** is read from the token's `plan` and `access_until` claims
+  (`lib/billing.mjs`, `lib/auth.ts`). A token with no `plan` claim predates
+  plans and is judged by `dashboard_allowlist`, as before. A signed-in person
+  whose plan has run out is sent to `/pricing?lapsed=1`, not `/no-access`.
+- **Pages.** `/pricing` (public, plans read from the `plans` table, never
+  written into the page), `/account` (plan, status, renewal, cancel, deletion
+  request), the trial banner in the app header. Checkout loads Razorpay's
+  `checkout.js` on first press and calls `POST /api/billing/create-subscription`;
+  the payment is trusted only when the `subscriptions` row reads as set up, then
+  the session is refreshed so the claims catch up.
+- **Preview without a database.** In `next dev`, `/billing-preview?view=pricing|account&state=signedout|trial|setup|lapsed|active|past_due|cancelled`
+  renders both pages from made-up rows; `PREVIEW_TRIAL_DAYS=2` shows the banner on `/auth/preview`.

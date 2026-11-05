@@ -18,7 +18,7 @@ const INITIAL: LoginState = { status: "idle" };
  * out. It is drawn as a note above the field rather than as a field error:
  * nothing they typed was wrong, so the input is not marked invalid for it.
  */
-export function LoginForm({ notice }: { notice: string | null }) {
+export function LoginForm({ notice, trial = false }: { notice: string | null; trial?: boolean }) {
   // Explicit type arguments: inferring from the initial value widens `status`
   // to string and loses the discriminated union.
   const [state, formAction, pending] = useActionState<LoginState, FormData>(
@@ -134,7 +134,7 @@ export function LoginForm({ notice }: { notice: string | null }) {
             Sending code…
           </>
         ) : (
-          "Email me a code"
+          trial ? "Start free trial" : "Email me a code"
         )}
       </Button>
     </form>

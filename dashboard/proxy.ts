@@ -105,10 +105,15 @@ export async function proxy(request: NextRequest) {
   }
 
   const { pathname, search } = request.nextUrl;
-  // The legal pages are public: a visitor reads them before agreeing to them.
+  // The legal pages and the price are public: a visitor reads them before
+  // agreeing to them.
   const isPublicRoute =
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth") ||
+    pathname === "/pricing" ||
+    // Razorpay's server calls this, not a browser; the route verifies the
+    // payload's signature itself.
+    pathname === "/api/billing/webhook" ||
     LEGAL_PAGES.some((page) => pathname === page.href);
 
   if (!signedIn && !isPublicRoute) {
