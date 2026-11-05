@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Check } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
-import { PERIOD_LABEL, perMonthLabel, priceLabel, savingPercent } from "@/lib/billing.mjs";
+import { PERIOD_LABEL, perMonthLabel, planTitle, priceLabel, savingPercent } from "@/lib/billing.mjs";
 import { formatDate } from "@/lib/format";
 import { getPlans, type Plan } from "@/lib/plans";
 import { cn } from "@/lib/utils";
@@ -66,7 +66,7 @@ function Row({ plan, saving }: { plan: Plan; saving: number | null }) {
   return (
     <li className="py-5 first:pt-0 last:pb-0">
       <p className="flex flex-wrap items-center gap-x-2 text-lead font-semibold">
-        {plan.name}
+        {planTitle(plan)}
         {plan.offer ? <span className="rounded-md bg-brand-soft px-2 py-0.5 text-xs font-medium text-brand">{plan.offer.name}</span> : null}
       </p>
       <p className="mt-1 flex flex-wrap items-baseline gap-x-2 tabular-nums">
