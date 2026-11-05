@@ -285,7 +285,8 @@ def _attach_promises(
         if row["outlook_detail"]
     }
     by_symbol: dict[str, list[int]] = {}
-    for index in outcomes:
+    # Oldest first, so where a period is guided on twice the later guidance is the one counted.
+    for index in sorted(outcomes, key=lambda index: rows[index]["call_date"]):
         by_symbol.setdefault(rows[index]["symbol"], []).append(index)
     for index, outcome in outcomes.items():
         detail = rows[index]["outlook_detail"]
