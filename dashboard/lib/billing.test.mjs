@@ -16,9 +16,9 @@ import {
   checkoutAction,
   newSubscriptionBody,
   subscriptionChange,
-  verifySignature,
   viewerFromClaims,
 } from "./billing.mjs";
+import { verifySignature } from "./webhook-signature.mjs";
 
 const NOW = 1_762_000_000;
 

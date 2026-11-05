@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { subscriptionChange, verifySignature } from "@/lib/billing.mjs";
+import { subscriptionChange } from "@/lib/billing.mjs";
+import { verifySignature } from "@/lib/webhook-signature.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";

@@ -1,13 +1,11 @@
 /**
- * The pure rules of self-serve billing: who has access, whether a Razorpay
- * webhook is genuine, and what a subscription event changes.
+ * The pure rules of self-serve billing: who has access, and what a Razorpay
+ * subscription event changes.
  *
  * Plain .mjs so `node --test` covers it without a build step. The access rule
  * is kept equal to dashboard_has_access() in storage/billing_schema.sql by
  * its test; the price is never here (it is plans.amount_paise).
  */
-
-import { createHmac, timingSafeEqual } from "node:crypto";
 
 /** Plans that never expire: invited users and admins. */
 const PERMANENT_PLANS = ["admin", "allowlist"];
@@ -24,15 +22,6 @@ export function hasAccess(claims, nowSeconds) {
   if (plan === "none") return false;
   const until = claims.access_until;
   return Number.isInteger(until) && until > Math.floor(nowSeconds);
-}
-
-/** The Razorpay webhook signature: hex HMAC-SHA256 of the raw body. */
-export function verifySignature(rawBody, signature, secret) {
-  if (!secret || typeof signature !== "string" || !signature) return false;
-  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  const given = Buffer.from(signature, "utf8");
-  const wanted = Buffer.from(expected, "utf8");
-  return given.length === wanted.length && timingSafeEqual(given, wanted);
 }
 
 /** Razorpay subscription status -> ours; a missing one leaves the stored status alone. */
