@@ -83,7 +83,7 @@ export function Documents({ rows, symbol }: { rows: DocumentRow[]; symbol: strin
   return (
     <div className="flex flex-col gap-5">
       {/* Scrolls sideways rather than wrapping the track on a phone. */}
-      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+      <div className="-mx-1 overflow-x-auto overflow-y-hidden px-1 pb-1">
         <SegmentedControl
           label={`${symbol} document kinds`}
           value={only ? kind : "all"}
