@@ -132,7 +132,7 @@ export async function isAdmin(): Promise<boolean> {
 export async function requireAdmin(): Promise<Viewer> {
   const viewer = await requireAccess();
   if (viewer.role !== "admin") {
-    redirect("/");
+    redirect("/screener");
   }
   return viewer;
 }

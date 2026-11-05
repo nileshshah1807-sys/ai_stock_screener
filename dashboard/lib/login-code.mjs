@@ -21,5 +21,5 @@ export function otpTypeOf(raw) {
 
 /** Only a same-origin path is followed after sign-in, so `next` cannot be an open redirect. */
 export function safeNext(next) {
-  return typeof next === "string" && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/";
+  return typeof next === "string" && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") ? next : "/screener";
 }

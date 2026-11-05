@@ -111,6 +111,8 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth") ||
     pathname === "/pricing" ||
+    // The landing page; /screener is the app's entry and stays behind sign-in.
+    pathname === "/" ||
     // Razorpay's server calls this, not a browser; the route verifies the
     // payload's signature itself.
     pathname === "/api/billing/webhook" ||
@@ -133,7 +135,7 @@ export async function proxy(request: NextRequest) {
 
   if (signedIn && pathname.startsWith("/login")) {
     const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/";
+    redirectUrl.pathname = "/screener";
     redirectUrl.search = "";
     return NextResponse.redirect(redirectUrl);
   }

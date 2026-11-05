@@ -21,8 +21,8 @@ test("unknown link types fall back to email", () => {
 });
 test("next stays on this site", () => {
   assert.equal(safeNext("/ind/results"), "/ind/results");
-  assert.equal(safeNext("//evil.example"), "/");
-  assert.equal(safeNext("/\\evil.example"), "/");
-  assert.equal(safeNext("https://evil.example"), "/");
-  assert.equal(safeNext(undefined), "/");
+  assert.equal(safeNext("//evil.example"), "/screener");
+  assert.equal(safeNext("/\\evil.example"), "/screener");
+  assert.equal(safeNext("https://evil.example"), "/screener");
+  assert.equal(safeNext(undefined), "/screener");
 });
