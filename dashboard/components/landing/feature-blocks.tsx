@@ -14,15 +14,23 @@ export function CallsBlock() {
     <div className="grid items-center gap-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-14">
       <div>
         <h2 className="text-title max-w-[22ch] text-balance">Hear what management said, without the hour-long call</h2>
-        <p className="mt-4 max-w-[48ch] text-sm leading-relaxed text-muted-foreground">
-          For every call we have a transcript or recording of, the page gives management&apos;s tone in a word and quotes the statement that moved it most, so you can judge the wording yourself.
+        <p className="mt-4 max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
+          AI reads each earnings call and pulls out what management said about guidance, demand, margins, orders and capacity. Every quote is checked against the transcript, and the reading is one input to how a stock ranks.
         </p>
+        <ul className="mt-4 flex max-w-[52ch] flex-col gap-2 text-sm leading-relaxed text-muted-foreground">
+          <li>Each call is compared with the company&apos;s previous call: improved, held or worsened.</li>
+          <li>Raised guidance or stronger demand, margins or orders score higher; lowered guidance or weaker demand or margins score lower.</li>
+          <li>The tailwinds and headwinds management names are tracked.</li>
+        </ul>
       </div>
       <div>
         <figure className="panel p-4">
           <figcaption className="flex flex-wrap items-center justify-between gap-2 text-sm font-semibold">
             Navdeep Chemicals
-            <span className="rounded bg-(--control) px-2 py-0.5 text-xs font-medium text-muted-foreground">Management tone: Optimistic</span>
+            <span className="flex flex-wrap gap-1.5">
+              <span className="rounded bg-(--control) px-2 py-0.5 text-xs font-medium text-muted-foreground">Management tone: Optimistic</span>
+              <span className="rounded bg-(--control) px-2 py-0.5 text-xs font-medium text-muted-foreground">Versus last call: Improved</span>
+            </span>
           </figcaption>
           <blockquote className="mt-3 border-l-2 border-brand pl-3 text-sm leading-relaxed text-muted-foreground">
             “We expect volumes in the specialty range to keep growing through the second half as the new line ramps up.”
