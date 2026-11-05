@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { isNewEvent, subscriptionChange, verifySignature } from "@/lib/billing.mjs";
+import { subscriptionChange, verifySignature } from "@/lib/billing.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
  * Razorpay's webhook. Anyone can POST here, so nothing is read from the body
  * until its X-Razorpay-Signature (HMAC-SHA256 of the raw body, keyed by
  * RAZORPAY_WEBHOOK_SECRET) checks out. Each event is applied once and in
- * order: an event id already applied, or older than the last one, is
- * acknowledged and ignored, because Razorpay retries and may reorder.
+ * order by billing_apply_event (SQL): a repeat or an older one is acknowledged
+ * and ignored, because Razorpay retries and may reorder.
  * Register this URL for the subscription.* events.
  */
 export async function POST(request: NextRequest) {
@@ -32,27 +32,22 @@ export async function POST(request: NextRequest) {
   const change = subscriptionChange(event, request.headers.get("x-razorpay-event-id"));
   if (!change) return NextResponse.json({ ok: true, ignored: true });
 
-  // The row: by the Razorpay subscription id, else by the user id in the notes.
-  let query = admin.from("subscriptions").select("user_id, last_event_id, last_event_at");
-  query = change.userId
-    ? query.or(`razorpay_subscription_id.eq.${change.razorpaySubscriptionId},user_id.eq.${change.userId}`)
-    : query.eq("razorpay_subscription_id", change.razorpaySubscriptionId);
-  const { data: rows, error: readError } = await query.limit(1);
-  if (readError) return NextResponse.json({ error: "read_failed" }, { status: 500 }); // Razorpay retries
-  const stored = rows?.[0];
-  if (!stored) return NextResponse.json({ ok: true, ignored: true }); // not a user of ours
-  if (!isNewEvent(stored, change)) return NextResponse.json({ ok: true, duplicate: true });
-
-  const update: Record<string, unknown> = {
-    razorpay_subscription_id: change.razorpaySubscriptionId,
-    last_event_id: change.eventId,
-    last_event_at: change.eventAt,
-    updated_at: new Date().toISOString(),
-  };
-  if (change.status) update.status = change.status;
-  if (change.currentPeriodEnd) update.current_period_end = change.currentPeriodEnd;
-  if (change.planId) update.plan_id = change.planId;
-  const { error } = await admin.from("subscriptions").update(update).eq("user_id", stored.user_id);
+  // One statement decides and writes (billing_apply_event): a duplicate, a stale
+  // event, or a subscription that is not ours changes no row. Razorpay retries
+  // on 500.
+  const { data: applied, error } = await admin.rpc("billing_apply_event", {
+    p_razorpay_subscription_id: change.razorpaySubscriptionId,
+    p_user_id: change.userId,
+    p_plan_id: change.planId,
+    p_status: change.status,
+    p_current_period_end: change.currentPeriodEnd,
+    p_event_id: change.eventId,
+    p_event_at: change.eventAt,
+  });
   if (error) return NextResponse.json({ error: "write_failed" }, { status: 500 });
+  // A paying user whose subscription id we do not hold (e.g. a double-clicked checkout) would otherwise vanish silently.
+  if (!applied && change.userId && change.status === "active") {
+    console.warn("billing webhook: active event matched no row", change.razorpaySubscriptionId, change.userId);
+  }
   return NextResponse.json({ ok: true });
 }

@@ -3,7 +3,7 @@
 -- =====================================================================
 --
 -- Anyone may sign up and gets a 7-day full trial with no card; after it a paid
--- Razorpay subscription is needed. One plan, both markets. The price is DATA
+-- Razorpay subscription is needed. Two plans (yearly, monthly), both markets. The price is DATA
 -- (plans.amount_paise), never code. Ratings stay admin-only whatever the plan
 -- (rating_access_schema.sql reads dashboard_is_admin(), untouched here).
 --
@@ -93,6 +93,13 @@ revoke all on subscriptions from anon, authenticated;
 grant select (user_id, plan_id, status, trial_ends_at, current_period_end, updated_at)
     on subscriptions to authenticated;
 
+-- Users that already exist have no trial: a row with status 'expired' gives them
+-- somewhere for delete-request and checkout to write. Allowlisted users keep
+-- access through the allowlist branch of the hook, whatever their row says.
+insert into subscriptions (user_id, status)
+select id, 'expired' from auth.users
+on conflict (user_id) do nothing;
+
 -- The trial starts when the user is first created.
 create or replace function billing_start_trial()
 returns trigger
@@ -121,7 +128,8 @@ create trigger billing_start_trial_on_signup
 -- expiry), then the subscription.
 --   trialing   -> plan 'trial',   access until trial_ends_at
 --   active     -> plan <plan id>, until current_period_end
---   past_due / cancelled -> still until current_period_end (paid for)
+--   past_due / cancelled -> still until the later of current_period_end and
+--                           trial_ends_at (cancelling in the trial keeps its days)
 --   expired, or nothing -> plan 'none', no access_until
 -- ---------------------------------------------------------------------
 create or replace function custom_access_token_hook(event jsonb)
@@ -133,13 +141,14 @@ set search_path = public
 as $$
 declare
     claims jsonb := coalesce(event -> 'claims', '{}'::jsonb);
-    uid uuid := (event ->> 'user_id')::uuid;
+    uid uuid;
     mail text := lower(coalesce(claims ->> 'email', ''));
     member text;
     sub subscriptions%rowtype;
     until_at timestamptz;
     plan_claim text := 'none';
 begin
+    uid := (event ->> 'user_id')::uuid;  -- inside the handler's reach
     select a.role into member from dashboard_allowlist a where lower(a.email) = mail;
     if member = 'admin' then
         plan_claim := 'admin';
@@ -149,9 +158,8 @@ begin
         select * into sub from subscriptions s where s.user_id = uid;
         if found then
             until_at := case sub.status
-                when 'trialing' then sub.trial_ends_at
                 when 'expired' then null
-                else sub.current_period_end
+                else greatest(sub.current_period_end, sub.trial_ends_at)
             end;
             if until_at is not null and until_at > now() then
                 plan_claim := case sub.status when 'trialing' then 'trial' else coalesce(sub.plan_id, 'none') end;
@@ -168,20 +176,22 @@ begin
         claims := claims - 'access_until';
     end if;
     return jsonb_set(event, '{claims}', claims);
+exception when others then
+    raise warning 'token hook: %', sqlerrm;  -- visible in the Supabase auth log
+    -- A failing hook would block every sign-in, admins included: hand the token
+    -- back unchanged; dashboard_has_access() then uses the allowlist fallback.
+    return event;
 end;
 $$;
 
 grant usage on schema public to supabase_auth_admin;
 grant execute on function custom_access_token_hook(jsonb) to supabase_auth_admin;
 revoke execute on function custom_access_token_hook(jsonb) from public, anon, authenticated;
-grant select on dashboard_allowlist, subscriptions to supabase_auth_admin;
-
+-- security definer: it reads the tables as its owner, so supabase_auth_admin
+-- needs no table grants or policies.
 drop policy if exists dashboard_allowlist_auth_admin_read on dashboard_allowlist;
-create policy dashboard_allowlist_auth_admin_read
-    on dashboard_allowlist for select to supabase_auth_admin using (true);
 drop policy if exists subscriptions_auth_admin_read on subscriptions;
-create policy subscriptions_auth_admin_read
-    on subscriptions for select to supabase_auth_admin using (true);
+revoke select on dashboard_allowlist, subscriptions from supabase_auth_admin;
 
 -- ---------------------------------------------------------------------
 -- dashboard_has_access(): admin OR allowlisted OR trial/paid and not expired,
@@ -229,13 +239,76 @@ revoke all on function plan_offer_open(text) from public;
 grant execute on function plan_offer_open(text) to anon, authenticated;
 
 -- ---------------------------------------------------------------------
--- The launch plan, as data (human decision 5 Nov 2026): one yearly plan,
--- Rs 999, both markets; early bird Rs 699 for the first year to the first 500
--- subscribers or until 31 Dec 2026. No monthly plan. Seeded without the Razorpay
--- ids: create the plan and the offer in the Razorpay dashboard, then
+-- Applying a Razorpay event, atomically. One UPDATE decides whether the event
+-- is new: not the one already applied, and not older than it. Events carry
+-- second-resolution times, so on a tie a terminal status (expired > cancelled)
+-- is never reverted by a live one. Matches the stored Razorpay subscription, or
+-- the user's row while it has none yet. Returns whether a row changed (false
+-- = duplicate, stale, or not ours). Called by the webhook with the service role.
+-- ---------------------------------------------------------------------
+create or replace function billing_status_rank(p_status text)
+returns integer
+language sql
+immutable
+as $$
+    select case p_status when 'expired' then 2 when 'cancelled' then 1 else 0 end;
+$$;
+
+create or replace function billing_apply_event(
+    p_razorpay_subscription_id text,
+    p_user_id uuid,
+    p_plan_id text,
+    p_status text,
+    p_current_period_end timestamptz,
+    p_event_id text,
+    p_event_at timestamptz
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    changed integer;
+begin
+    if coalesce(p_event_id, '') = '' or p_event_at is null then
+        return false;
+    end if;
+    update subscriptions s set
+        razorpay_subscription_id = p_razorpay_subscription_id,
+        status = coalesce(p_status, s.status),
+        current_period_end = coalesce(p_current_period_end, s.current_period_end),
+        plan_id = coalesce(p_plan_id, s.plan_id),
+        last_event_id = p_event_id,
+        last_event_at = p_event_at,
+        updated_at = now()
+    where (s.razorpay_subscription_id = p_razorpay_subscription_id
+           or (s.razorpay_subscription_id is null and s.user_id = p_user_id))
+      and s.last_event_id is distinct from p_event_id
+      and (s.last_event_at is null
+           or s.last_event_at < p_event_at
+           or (s.last_event_at = p_event_at
+               and billing_status_rank(coalesce(p_status, s.status)) >= billing_status_rank(s.status)));
+    get diagnostics changed = row_count;
+    return changed > 0;
+end;
+$$;
+revoke all on function billing_apply_event(text, uuid, text, text, timestamptz, text, timestamptz) from public, anon, authenticated;
+grant execute on function billing_apply_event(text, uuid, text, text, timestamptz, text, timestamptz) to service_role;
+
+-- ---------------------------------------------------------------------
+-- The launch plans, as data (human decision 5 Nov 2026), both markets, same
+-- 7-day trial: yearly Rs 999 with an early bird of Rs 699 for the first year to
+-- the first 500 subscribers or until 31 Dec 2026 (yearly only), and monthly
+-- Rs 129. Seeded without the Razorpay ids: create the plans and the offer in the
+-- Razorpay dashboard, then
 --   update plans set razorpay_plan_id = 'plan_...', razorpay_offer_id = 'offer_...' where id = 'pro';
+--   update plans set razorpay_plan_id = 'plan_...' where id = 'pro-monthly';
 -- Until then create-subscription answers no_active_plan. Change a price here.
 -- ---------------------------------------------------------------------
 insert into plans (id, name, amount_paise, period, offer_name, offer_amount_paise, offer_ends_at, offer_limit)
-values ('pro', 'Winnow', 99900, 'yearly', 'Early bird', 69900, timestamptz '2026-12-31 23:59:59+05:30', 500)
+values ('pro', 'Sievr', 99900, 'yearly', 'Early bird', 69900, timestamptz '2026-12-31 23:59:59+05:30', 500)
+on conflict (id) do nothing;
+insert into plans (id, name, amount_paise, period)
+values ('pro-monthly', 'Sievr', 12900, 'monthly')
 on conflict (id) do nothing;
