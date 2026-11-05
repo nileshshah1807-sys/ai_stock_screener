@@ -45,11 +45,11 @@ export async function POST(request: NextRequest) {
 
   const update: Record<string, unknown> = {
     razorpay_subscription_id: change.razorpaySubscriptionId,
-    status: change.status,
     last_event_id: change.eventId,
     last_event_at: change.eventAt,
     updated_at: new Date().toISOString(),
   };
+  if (change.status) update.status = change.status;
   if (change.currentPeriodEnd) update.current_period_end = change.currentPeriodEnd;
   if (change.planId) update.plan_id = change.planId;
   const { error } = await admin.from("subscriptions").update(update).eq("user_id", stored.user_id);

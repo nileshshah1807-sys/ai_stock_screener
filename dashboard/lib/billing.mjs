@@ -48,14 +48,15 @@ const STATUS = {
 
 /**
  * What a webhook event changes, or null when it changes nothing we store
- * (not a subscription event, or a stage before payment: created, authenticated).
+ * (not a subscription event, or a plain `created`); `authenticated` carries no status.
  * `eventId` is Razorpay's X-Razorpay-Event-Id header.
  */
 export function subscriptionChange(event, eventId) {
   const entity = event?.payload?.subscription?.entity;
   if (!String(event?.event ?? "").startsWith("subscription.") || !entity?.id) return null;
-  const status = STATUS[entity.status];
-  if (!status) return null;
+  // A mandate authorised during the trial changes no status, only the plan.
+  const status = entity.status === "authenticated" ? null : STATUS[entity.status];
+  if (entity.status !== "authenticated" && !status) return null;
   const end = Number.isFinite(entity.current_end) ? new Date(entity.current_end * 1000).toISOString() : null;
   return {
     razorpaySubscriptionId: String(entity.id),
@@ -87,8 +88,8 @@ const MIN_TRIAL_LEAD_SECONDS = 60 * 60;
  * The body for Razorpay's create-subscription call. With trial time left the
  * first charge waits for it (the mandate is authorised now); else it is now.
  */
-export function newSubscriptionBody({ plan, userId, trialEndsAt }, nowSeconds) {
-  /** @type {{plan_id: string, total_count: number, customer_notify: number, notes: {user_id: string, plan_id: string}, start_at?: number}} */
+export function newSubscriptionBody({ plan, userId, trialEndsAt, offerId }, nowSeconds) {
+  /** @type {{plan_id: string, total_count: number, customer_notify: number, notes: {user_id: string, plan_id: string}, start_at?: number, offer_id?: string}} */
   const body = {
     plan_id: plan.razorpay_plan_id,
     total_count: TOTAL_COUNT[plan.period],
@@ -97,6 +98,7 @@ export function newSubscriptionBody({ plan, userId, trialEndsAt }, nowSeconds) {
   };
   const trialEnd = trialEndsAt ? Math.floor(Date.parse(trialEndsAt) / 1000) : 0;
   if (trialEnd - nowSeconds > MIN_TRIAL_LEAD_SECONDS) body.start_at = trialEnd;
+  if (offerId) body.offer_id = offerId;
   return body;
 }
 

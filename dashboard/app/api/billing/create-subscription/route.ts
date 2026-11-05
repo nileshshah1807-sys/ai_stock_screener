@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
   let query = admin
     .from("plans")
-    .select("id, name, amount_paise, period, razorpay_plan_id")
+    .select("id, name, amount_paise, period, razorpay_plan_id, razorpay_offer_id, offer_amount_paise")
     .eq("active", true)
     .not("razorpay_plan_id", "is", null);
   if (wanted) query = query.eq("id", wanted);
@@ -48,8 +48,17 @@ export async function POST(request: NextRequest) {
   const plan = plans?.[0];
   if (!plan) return fail("no_active_plan", 404);
 
+  // The introductory offer, while it is open (the database decides).
+  const { data: offerOpen } = plan.razorpay_offer_id
+    ? await admin.rpc("plan_offer_open", { p_plan: plan.id })
+    : { data: false };
   const body = newSubscriptionBody(
-    { plan, userId, trialEndsAt: sub?.status === "trialing" ? sub.trial_ends_at : null },
+    {
+      plan,
+      userId,
+      trialEndsAt: sub?.status === "trialing" ? sub.trial_ends_at : null,
+      offerId: offerOpen ? plan.razorpay_offer_id : null,
+    },
     Date.now() / 1000,
   );
   const response = await fetch(RAZORPAY_SUBSCRIPTIONS, {
@@ -63,16 +72,20 @@ export async function POST(request: NextRequest) {
   const created = response?.ok ? await response.json().catch(() => null) : null;
   if (!created?.id) return fail("razorpay_error", 502);
 
-  // Remember which Razorpay subscription is this user's; the webhook also
-  // carries user_id in the subscription's notes.
+  // Remember which Razorpay subscription is this user's. plan_id is set by the
+  // webhook when the mandate is authorised, so it marks a subscription that is
+  // set up, not one that was only started.
   await admin
     .from("subscriptions")
-    .upsert({ user_id: userId, plan_id: plan.id, razorpay_subscription_id: created.id, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    .update({ razorpay_subscription_id: created.id, updated_at: new Date().toISOString() })
+    .eq("user_id", userId);
 
   return NextResponse.json({
     subscription_id: created.id,
     key_id: keyId,
     plan: { id: plan.id, name: plan.name, amount_paise: plan.amount_paise, period: plan.period },
+    offer_applied: Boolean(body.offer_id),
+    charged_amount_paise: body.offer_id ? plan.offer_amount_paise : plan.amount_paise,
     trial_ends_at: body.start_at ? new Date(body.start_at * 1000).toISOString() : null,
   });
 }

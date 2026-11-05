@@ -69,7 +69,9 @@ test("subscription events map to our statuses; stages before payment change noth
     assert.equal(subscriptionChange(event(razorpay), "ev1").status, ours, razorpay);
   }
   assert.equal(subscriptionChange(event("created"), "ev1"), null);
-  assert.equal(subscriptionChange(event("authenticated"), "ev1"), null);
+  const authenticated = subscriptionChange(event("authenticated"), "ev1");
+  assert.equal(authenticated.status, null, "authorising the mandate changes no status");
+  assert.equal(authenticated.planId, "pro");
   assert.equal(subscriptionChange({ event: "payment.captured", payload: {} }, "ev1"), null);
   const change = subscriptionChange(event("active"), "ev1");
   assert.deepEqual(
@@ -96,5 +98,7 @@ test("new subscription: the first charge waits for the trial, else it is now", (
   const soon = newSubscriptionBody({ plan, userId: "u1", trialEndsAt: new Date((NOW + 600) * 1000).toISOString() }, NOW);
   assert.equal("start_at" in soon, false);
   assert.equal("start_at" in newSubscriptionBody({ plan, userId: "u1", trialEndsAt: null }, NOW), false);
+  assert.equal(newSubscriptionBody({ plan, userId: "u1", offerId: "offer_X" }, NOW).offer_id, "offer_X");
+  assert.equal("offer_id" in newSubscriptionBody({ plan, userId: "u1" }, NOW), false);
   assert.equal(newSubscriptionBody({ plan: { ...plan, period: "monthly" }, userId: "u1" }, NOW).total_count, 120);
 });

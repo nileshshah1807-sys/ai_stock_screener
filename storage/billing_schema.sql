@@ -34,8 +34,21 @@ create table if not exists plans (
     -- The plan created in the Razorpay dashboard (plan_...). Null until it is.
     razorpay_plan_id text,
     active boolean not null default true,
-    created_at timestamptz not null default now()
+    created_at timestamptz not null default now(),
+    -- An introductory offer off amount_paise (a Razorpay offer, not a second
+    -- plan): open until offer_ends_at or until offer_limit subscribers have
+    -- set the plan up, whichever comes first. All data, none of it code.
+    offer_name text,
+    offer_amount_paise integer check (offer_amount_paise >= 0),
+    offer_ends_at timestamptz,
+    offer_limit integer,
+    razorpay_offer_id text
 );
+alter table plans add column if not exists offer_name text;
+alter table plans add column if not exists offer_amount_paise integer;
+alter table plans add column if not exists offer_ends_at timestamptz;
+alter table plans add column if not exists offer_limit integer;
+alter table plans add column if not exists razorpay_offer_id text;
 
 alter table plans enable row level security;
 
@@ -43,7 +56,8 @@ drop policy if exists plans_read on plans;
 create policy plans_read on plans for select to anon, authenticated using (active);
 
 revoke all on plans from anon, authenticated;
-grant select (id, name, amount_paise, period, active) on plans to anon, authenticated;
+grant select (id, name, amount_paise, period, active, offer_name, offer_amount_paise, offer_ends_at, offer_limit)
+    on plans to anon, authenticated;
 
 -- ---------------------------------------------------------------------
 -- subscriptions: one row per user, written by the sign-up trigger and the
@@ -62,8 +76,11 @@ create table if not exists subscriptions (
     -- The last Razorpay event applied: an older or repeated event is ignored.
     last_event_id text,
     last_event_at timestamptz,
+    -- Set when the user asks to delete their account; a person acts on it.
+    delete_requested_at timestamptz,
     updated_at timestamptz not null default now()
 );
+alter table subscriptions add column if not exists delete_requested_at timestamptz;
 
 alter table subscriptions enable row level security;
 
@@ -191,9 +208,34 @@ as $$
     end;
 $$;
 
+-- Whether a plan's introductory offer is still open: before its end date and
+-- with fewer than offer_limit subscribers (plan_id is set when the mandate is
+-- authorised). The pricing page asks this rather than counting other users.
+create or replace function plan_offer_open(p_plan text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+    select coalesce(
+        p.offer_amount_paise is not null
+        and (p.offer_ends_at is null or p.offer_ends_at > now())
+        and (p.offer_limit is null or (select count(*) from subscriptions s where s.plan_id = p.id) < p.offer_limit),
+        false)
+    from plans p where p.id = p_plan and p.active;
+$$;
+revoke all on function plan_offer_open(text) from public;
+grant execute on function plan_offer_open(text) to anon, authenticated;
+
 -- ---------------------------------------------------------------------
--- The plan. The price is data: change it here, never in code. Create the plan
--- in the Razorpay dashboard first and paste its id. Example (not applied):
---   insert into plans (id, name, amount_paise, period, razorpay_plan_id)
---   values ('pro', 'Winnow', 99900, 'yearly', 'plan_XXXXXXXXXXXXXX');
+-- The launch plan, as data (human decision 5 Nov 2026): one yearly plan,
+-- Rs 999, both markets; early bird Rs 699 for the first year to the first 500
+-- subscribers or until 31 Dec 2026. No monthly plan. Seeded without the Razorpay
+-- ids: create the plan and the offer in the Razorpay dashboard, then
+--   update plans set razorpay_plan_id = 'plan_...', razorpay_offer_id = 'offer_...' where id = 'pro';
+-- Until then create-subscription answers no_active_plan. Change a price here.
 -- ---------------------------------------------------------------------
+insert into plans (id, name, amount_paise, period, offer_name, offer_amount_paise, offer_ends_at, offer_limit)
+values ('pro', 'Winnow', 99900, 'yearly', 'Early bird', 69900, timestamptz '2026-12-31 23:59:59+05:30', 500)
+on conflict (id) do nothing;
