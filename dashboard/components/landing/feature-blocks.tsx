@@ -17,7 +17,7 @@ export function CallsBlock() {
         <p className="mt-4 max-w-[52ch] text-sm leading-relaxed text-muted-foreground">
           AI reads each earnings call and pulls out what management said about guidance, demand, margins, orders and capacity. Every quote is checked against the transcript, and the reading is one input to how a stock ranks.
         </p>
-        <ul className="mt-4 flex max-w-[52ch] flex-col gap-2 text-sm leading-relaxed text-muted-foreground">
+        <ul className="mt-4 flex max-w-[52ch] list-disc flex-col gap-2 pl-5 text-sm marker:text-brand text-pretty leading-relaxed text-muted-foreground">
           <li>Each call is compared with the company&apos;s previous call: improved, held or worsened.</li>
           <li>Raised guidance or stronger demand, margins or orders score higher; lowered guidance or weaker demand or margins score lower.</li>
           <li>The tailwinds and headwinds management names are tracked.</li>
