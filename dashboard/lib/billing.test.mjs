@@ -176,7 +176,7 @@ test("yearly against monthly", () => {
 test("the early-bird offer is UPI-only, so its checkout shows UPI alone", () => {
   const m = checkoutMethods(true);
   assert.equal(m.upi, true);
-  for (const off of ["card", "netbanking", "wallet", "emi", "paylater"]) assert.equal(m[off], false, off);
+  for (const off of ["card", "netbanking", "wallet", "emi", "paylater", "emandate"]) assert.equal(m[off], false, off);
   assert.equal(checkoutMethods(false), undefined, "no offer: every method stays on");
   assert.equal(checkoutMethods(undefined), undefined);
 });

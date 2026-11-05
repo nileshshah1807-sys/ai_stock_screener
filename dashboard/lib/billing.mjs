@@ -79,7 +79,7 @@ export function checkoutAction(row, remote, razorpayPlanId) {
  * applied, checkout offers UPI alone. Without it, undefined leaves every method on.
  */
 export function checkoutMethods(offerApplied) {
-  return offerApplied ? { upi: true, card: false, netbanking: false, wallet: false, emi: false, paylater: false } : undefined;
+  return offerApplied ? { upi: true, card: false, netbanking: false, wallet: false, emi: false, paylater: false, emandate: false } : undefined;
 }
 
 /** Subscriptions are charged until cancelled; Razorpay needs a finite count. */
