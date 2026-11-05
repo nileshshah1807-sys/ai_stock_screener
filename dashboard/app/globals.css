@@ -981,8 +981,9 @@ details[data-closing] > summary svg {
   z-index: -1;
   pointer-events: none;
   border-radius: 9999px;
-  filter: blur(64px);
-  background: radial-gradient(closest-side, color-mix(in oklab, var(--brand) 46%, transparent), transparent);
+  /* Column rules, as in a broadsheet: neutral hairlines that fade out. */
+  background-image: repeating-linear-gradient(to right, var(--border) 0 1px, transparent 1px 3rem);
+  mask-image: radial-gradient(closest-side, #000, transparent);
 }
 .landing-dots {
   position: absolute;
@@ -999,7 +1000,10 @@ details[data-closing] > summary svg {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: radial-gradient(420px circle at var(--mx, 72%) var(--my, 30%), color-mix(in oklab, var(--brand) 13%, transparent), transparent 70%);
+  background-image: radial-gradient(var(--foreground) 1.1px, transparent 1.3px);
+  background-size: 22px 22px;
+  opacity: 0.35;
+  mask-image: radial-gradient(260px circle at var(--mx, 72%) var(--my, 30%), #000, transparent 70%);
 }
 .landing-progress {
   position: fixed;
@@ -1021,10 +1025,8 @@ details[data-closing] > summary svg {
   position: absolute;
   inset: -40%;
   z-index: -1;
-  background:
-    radial-gradient(40% 40% at 20% 30%, rgb(255 255 255 / 0.16), transparent 70%),
-    radial-gradient(35% 45% at 80% 70%, color-mix(in oklab, var(--brand) 60%, #fff 40%) , transparent 70%);
-  opacity: 0.5;
+  background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.5) 0 1px, transparent 1px 14px);
+  opacity: 0.12;
 }
 @media (prefers-reduced-motion: no-preference) {
   .landing-mesh::before {
@@ -1035,7 +1037,7 @@ details[data-closing] > summary svg {
   }
   .landing .panel:hover {
     transform: translateY(-3px);
-    box-shadow: 0 18px 40px -18px color-mix(in oklab, var(--brand) 38%, transparent), 0 2px 6px rgb(0 0 0 / 0.06);
+    box-shadow: 0 18px 40px -18px rgb(9 9 11 / 0.28), 0 2px 6px rgb(0 0 0 / 0.06);
   }
 }
 @keyframes landing-drift {
@@ -1073,4 +1075,11 @@ details[data-closing] > summary svg {
   .landing-tabmark {
     transition: none;
   }
+}
+
+/* The landing page's one accent is the app's Stage 2 green, not the app's
+   indigo: ink and paper everywhere else. */
+.landing {
+  --brand: var(--rating-strong-buy);
+  --brand-soft: color-mix(in oklab, var(--rating-strong-buy) 12%, var(--card));
 }
