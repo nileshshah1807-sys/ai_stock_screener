@@ -150,8 +150,11 @@ Invite-only, enforced at three layers:
 3. **RLS policies** — the authoritative gate. Every browser read runs as the
    signed-in user; `anon` has no policy and reads nothing.
 
-The service-role key never reaches the browser or this app's environment. It is
-used only by the ingestion job, from GitHub Actions secrets.
+The service-role key never reaches the browser. It is used by the ingestion job
+(GitHub Actions secrets) and, as `SUPABASE_SERVICE_ROLE_KEY`, by the two billing
+routes alone (`app/api/billing/*` via `lib/supabase/admin.ts`): the Razorpay
+webhook has no signed-in user to write as. Access itself is read from the
+token's `plan` and `access_until` claims (`storage/billing_schema.sql`).
 
 The weekly audit signs in with a password instead of an email code
 (`scripts/smoke-check.mjs`, read-only; the account is a viewer on the

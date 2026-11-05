@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
+import { viewerFromClaims } from "@/lib/billing.mjs";
 import { isSessionExpired } from "@/lib/session-policy.mjs";
 import { createClient } from "@/lib/supabase/server";
 
@@ -55,6 +56,15 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   // can cross its limit between the two checks.
   if (isSessionExpired(claims)) {
     return null;
+  }
+
+  // A token issued by the access-token hook (storage/billing_schema.sql)
+  // carries the answer: admin, invited, trial or paid, and until when. It is
+  // signed, so no table is read. A token from before the hook has no `plan`
+  // and takes the invite-list path below until it refreshes.
+  if (typeof claims.plan === "string") {
+    const entitled = viewerFromClaims(claims, Date.now() / 1000);
+    return entitled ? { id: String(claims.sub), email, role: entitled.role as AccessLevel } : null;
   }
 
   // Readable under the allowlist self-read policy. A signed-in but uninvited
