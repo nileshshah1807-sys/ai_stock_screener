@@ -239,8 +239,9 @@ the scheduled workflows set the same flag.
   adds to a call's `outlook_detail` (`sentiment/promises.py`): the growth it
   guided for `FY27` / `H1 FY27` against the filed quarters of that period
   (`kept`, `missed`, `not_yet_due`; company-wide revenue or profit only, 2
-  points of tolerance), the company's kept/missed count, and whether guidance
-  it gave last call was not restated. Margin, order-book and capacity
+  points of tolerance), the company's kept/missed count up to that call, and whether guidance
+  it gave last call was not restated. The feed grades against today's filings;
+  a point-in-time check must pass `as_of` = the call's date to `guidance_outcome`. Margin, order-book and capacity
   statements hold no figure the filings carry and are not checked. Nothing in
   `screener/` reads either: they enter the ranking only after a point-in-time
   check shows they add to it. No weight in `outlook_items` changed, so no rescore.

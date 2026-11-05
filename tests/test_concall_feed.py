@@ -328,3 +328,15 @@ class PromiseReadingTests(unittest.TestCase):
         rows = build_feed(stored, COMPANIES, filings={}, today=date(2026, 11, 1))
         latest = next(row for row in rows if row["quarter"] == "2026-09-30")
         self.assertTrue(latest["outlook_detail"]["Transcript_Guidance_Dropped"])
+
+    def test_the_record_counts_only_calls_up_to_the_row(self):
+        rows = build_feed(
+            [
+                call("ALPHA", "2025-10-12", tone=60, outlook=67, quarter="2025-09-30", extraction=self.guided),
+                call("ALPHA", "2026-10-12", tone=60, outlook=67, quarter="2026-09-30", extraction=self.guided),
+            ],
+            COMPANIES, filings=self.filings(105), today=date(2026, 6, 1),
+        )
+        records = {row["call_date"]: row["outlook_detail"]["Transcript_Said_Vs_Did_Record"] for row in rows}
+        self.assertEqual(records["2025-10-12"], {"kept": 0, "missed": 1})
+        self.assertEqual(records["2026-10-12"], {"kept": 0, "missed": 2})

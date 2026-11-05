@@ -284,12 +284,16 @@ def _attach_promises(
         for index, (row, (_, outlook)) in enumerate(zip(rows, read))
         if row["outlook_detail"]
     }
+    by_symbol: dict[str, list[int]] = {}
+    for index in outcomes:
+        by_symbol.setdefault(rows[index]["symbol"], []).append(index)
     for index, outcome in outcomes.items():
-        row = rows[index]
-        detail = row["outlook_detail"]
+        detail = rows[index]["outlook_detail"]
         detail["Transcript_Said_Vs_Did"] = outcome
+        # Up to this call: a later call's miss is not known when this one is read.
         detail["Transcript_Said_Vs_Did_Record"] = promise_record(
-            outcomes[other] for other in outcomes if rows[other]["symbol"] == row["symbol"]
+            outcomes[other] for other in by_symbol[rows[index]["symbol"]]
+            if rows[other]["call_date"] <= rows[index]["call_date"]
         )
         detail["Transcript_Guidance_Dropped"] = guidance_dropped(detail.get("Transcript_Outlook_QoQ_Items"))
 

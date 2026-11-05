@@ -33,7 +33,11 @@ TOLERANCE_POINTS = 2.0
 
 KEPT, MISSED, NOT_YET_DUE = "kept", "missed", "not_yet_due"
 
-_PERIOD = re.compile(r"(?:\b(H[12])\s*[-\s]?)?\bFY\s*'?(\d{4}|\d{2})\b(?:\s*[-\s]?(H[12])\b)?", re.IGNORECASE)
+_PERIOD = re.compile(
+    r"(?<![A-Za-z0-9])(?:(H[12])\s*[-\s]?)?FY\s*'?(\d{4}|\d{2})(?!-?\d)(?:\s*[-\s]?(H[12])\b)?", re.IGNORECASE
+)
+# A nine-month or single-quarter figure is not a year's: never graded against one.
+_PART_YEAR = re.compile(r"(?<![A-Za-z])(?:\d{1,2}M|Q[1-4])", re.IGNORECASE)
 _LINE = {"revenue": "revenue", "profit": "net_profit"}
 
 
@@ -45,10 +49,11 @@ def period_quarters(period: Any) -> list[date] | None:
     """Quarter ends of an Indian financial year, or of its half, named in ``period``.
 
     ``FY27`` is April 2026 to March 2027. Anything else -- a calendar year, "next
-    year", a quarter -- is None: it is not guessed.
+    year", ``FY26-27``, ``9M FY27``, a quarter -- is None: it is not guessed.
     """
-    found = _PERIOD.search(str(period or ""))
-    if not found:
+    text = str(period or "")
+    found = _PERIOD.search(text)
+    if not found or _PART_YEAR.search(text):
         return None
     half = (found.group(1) or found.group(3) or "").upper()
     year = int(found.group(2))

@@ -23,10 +23,11 @@ class PeriodTests(unittest.TestCase):
         self.assertEqual(period_quarters("FY27")[0], date(2026, 6, 30))
         self.assertEqual(period_quarters("FY 2027")[-1], date(2027, 3, 31))
         self.assertEqual(period_quarters("H2 FY27"), [date(2026, 12, 31), date(2027, 3, 31)])
+        self.assertEqual(period_quarters("H2FY27"), [date(2026, 12, 31), date(2027, 3, 31)])
         self.assertEqual(period_quarters("FY27 H1"), [date(2026, 6, 30), date(2026, 9, 30)])
 
     def test_anything_else_is_not_guessed(self):
-        for text in (None, "", "next year", "Q3", "calendar 2026"):
+        for text in (None, "", "next year", "Q3", "calendar 2026", "FY26-27", "FY2026-27", "9M FY27", "9MFY27", "Q3 FY27"):
             self.assertIsNone(period_quarters(text))
 
     def test_the_flag_reads_common_truthy_words_and_is_off_when_unset(self):
