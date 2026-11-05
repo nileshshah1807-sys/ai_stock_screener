@@ -21,5 +21,6 @@ export const LEGAL = {
 export const LEGAL_PAGES = [
   { href: "/terms", label: "Terms" },
   { href: "/privacy", label: "Privacy" },
+  { href: "/refunds", label: "Refunds" },
   { href: "/disclaimer", label: "Disclaimer & data" },
 ] as const;

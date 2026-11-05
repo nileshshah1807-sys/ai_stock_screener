@@ -14,10 +14,9 @@ export type LoginState = {
 /**
  * Email a sign-in code (and a link that opens the Continue page).
  *
- * `shouldCreateUser: false` is the invite gate's first line: Supabase will not
- * provision an account for an unknown address, so an uninvited person cannot
- * even reach the signed-in-but-unauthorized state. The allowlist table and RLS
- * remain the authoritative checks behind it.
+ * `shouldCreateUser: true` is sign-up: an address Supabase has not seen gets
+ * an account, and the database gives it a 7-day trial. The same code form
+ * serves a returning person, so there is no separate sign-up path to guess at.
  *
  * The response is deliberately identical whether or not the address is known.
  * Saying "no such user" would turn this form into an oracle for which
@@ -41,7 +40,7 @@ export async function requestLoginCode(
   // project's Site URL, and lands on /auth/callback.
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { shouldCreateUser: false },
+    options: { shouldCreateUser: true },
   });
 
   // Rate limiting is worth surfacing: it is actionable ("wait and retry"),
@@ -57,7 +56,7 @@ export async function requestLoginCode(
   return {
     status: "sent",
     email,
-    message: "If that address has access, a 6-digit code is on its way.",
+    message: "A 6-digit code is on its way.",
   };
 }
 

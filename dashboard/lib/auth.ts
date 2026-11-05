@@ -1,17 +1,23 @@
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
-import { viewerFromClaims } from "@/lib/billing.mjs";
+import { accessFromClaims, isEntitled } from "@/lib/billing.mjs";
 import { isSessionExpired } from "@/lib/session-policy.mjs";
 import { createClient } from "@/lib/supabase/server";
 
 export type AccessLevel = "viewer" | "admin";
 
+export type Access = ReturnType<typeof accessFromClaims>;
+
 export type Viewer = {
   id: string;
   email: string;
   role: AccessLevel;
+  /** What the token says the plan allows; "legacy" for a token issued before plans. */
+  access: Access;
 };
+
+export type Session = { id: string; email: string; access: Access };
 
 /**
  * Authorization check for every protected route and route handler.
@@ -24,7 +30,12 @@ export type Viewer = {
  * Wrapped in React's cache() so several Server Components in one render share
  * a single verification round trip.
  */
-export const getViewer = cache(async (): Promise<Viewer | null> => {
+/**
+ * Who is signed in and what their plan allows, whether or not it still allows
+ * anything. The pricing and account pages need a lapsed person too: they are
+ * where a lapsed person goes. Everything else asks getViewer().
+ */
+export const getSession = cache(async (): Promise<Session | null> => {
   const supabase = await createClient();
 
   // getClaims() rather than getUser(). It verifies the token's signature
@@ -35,14 +46,10 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   // The difference is revocation, and it is a deliberate trade. A deleted or
   // banned auth account keeps a cryptographically valid token until it expires
   // -- one hour by default -- and would still reach this app in that window.
-  // What it would *not* reach is data: removal from this dashboard happens
-  // through dashboard_allowlist, and both the query below and every RLS policy
-  // re-read that table on every request, so a de-invited account loses access
-  // immediately regardless of its token.
-  //
-  // Measured at 813ms for the two serial round trips this replaces, on every
-  // render. The proxy has already warmed the JWKS cache before this runs, so
-  // the local verification costs single-digit milliseconds.
+  // What it would *not* reach is data: every RLS policy re-reads the
+  // subscription (or, for a token with no plan claim, dashboard_allowlist) on
+  // every request, so an account that loses access loses it immediately
+  // regardless of its token.
   const { data, error } = await supabase.auth.getClaims();
   const claims = data?.claims;
   const email = typeof claims?.email === "string" ? claims.email.trim() : "";
@@ -58,18 +65,37 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     return null;
   }
 
-  // A token issued by the access-token hook (storage/billing_schema.sql)
-  // carries the answer: admin, invited, trial or paid, and until when. It is
-  // signed, so no table is read. A token from before the hook has no `plan`
-  // and takes the invite-list path below until it refreshes.
-  if (typeof claims.plan === "string") {
-    const entitled = viewerFromClaims(claims, Date.now() / 1000);
-    return entitled ? { id: String(claims.sub), email, role: entitled.role as AccessLevel } : null;
+  return { id: String(claims.sub), email, access: accessFromClaims(claims) };
+});
+
+/**
+ * Authorization for every protected route and route handler.
+ *
+ * Proxy performs only an optimistic "is there a session" redirect. This is the
+ * real gate. A token with a plan claim is judged by it (admin, invited, trial
+ * or paid, and still in date); a token without one predates plans and is
+ * judged by the invite list, as it always was. RLS enforces the same rule at
+ * the database, so a route that forgets to call this leaks nothing -- it just
+ * renders an empty page.
+ *
+ * Wrapped in React's cache() so several Server Components in one render share
+ * a single verification round trip.
+ */
+export const getViewer = cache(async (): Promise<Viewer | null> => {
+  const session = await getSession();
+  if (!session || !isEntitled(session.access)) {
+    return null;
+  }
+  const { id, email, access } = session;
+
+  if (access.kind !== "legacy") {
+    return { id, email, role: access.kind === "admin" ? "admin" : "viewer", access };
   }
 
   // Readable under the allowlist self-read policy. A signed-in but uninvited
   // user gets zero rows here, which is what distinguishes "not invited" from
   // "not signed in" -- the two need different messages.
+  const supabase = await createClient();
   const { data: membership } = await supabase
     .from("dashboard_allowlist")
     .select("email, role")
@@ -80,11 +106,7 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     return null;
   }
 
-  return {
-    id: String(claims.sub),
-    email,
-    role: (membership.role as AccessLevel) ?? "viewer",
-  };
+  return { id, email, role: (membership.role as AccessLevel) ?? "viewer", access };
 });
 
 /**
@@ -94,7 +116,10 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
 export async function requireAccess(): Promise<Viewer> {
   const viewer = await getViewer();
   if (!viewer) {
-    redirect("/no-access");
+    // A signed-in person whose plan has run out is sent to buy one, not told
+    // they were never invited.
+    const session = await getSession();
+    redirect(session?.access.kind === "lapsed" ? "/pricing?lapsed=1" : "/no-access");
   }
   return viewer;
 }

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
 import { Button } from "@/components/ui/button";
 import { FreshnessBanner } from "@/components/freshness-banner";
+import { TrialBanner } from "@/components/trial-banner";
 import { HealthLink } from "@/components/health-link";
 import { NotificationBell, NotificationBellFallback } from "@/components/notifications/bell";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -120,13 +121,14 @@ function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
 function Avatar({ viewer }: { viewer: Viewer }) {
   const initials = viewer.email.slice(0, 2).toUpperCase();
   return (
-    <span
-      className="ml-1 hidden size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[0.625rem] font-semibold tracking-[0.02em] text-muted-foreground ring-1 ring-border sm:flex"
-      title={viewer.email}
-      aria-label={`Signed in as ${viewer.email}`}
+    <Link
+      href="/account"
+      className="ml-1 hidden size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[0.625rem] font-semibold tracking-[0.02em] text-muted-foreground ring-1 ring-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex"
+      title={`${viewer.email} \u2013 account`}
+      aria-label={`Account for ${viewer.email}`}
     >
       {initials}
-    </span>
+    </Link>
   );
 }
 
@@ -243,6 +245,7 @@ export function AppShell({
       </header>
 
       <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col">
+        {viewer.access.kind === "trial" && viewer.access.daysLeft ? <TrialBanner days={viewer.access.daysLeft} /> : null}
         <FreshnessBanner run={run} />
 
         {/*

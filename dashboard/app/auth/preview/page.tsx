@@ -87,6 +87,11 @@ function UpcomingPreview() {
 
 export default function PreviewPage() {
   if (process.env.NODE_ENV !== "development") notFound();
+  // PREVIEW_TRIAL_DAYS=N previews the free-trial banner with N days left.
+  const trial = Number(process.env.PREVIEW_TRIAL_DAYS);
+  const access = Number.isFinite(trial) && trial > 0
+    ? { kind: "trial" as const, plan: "trial", until: null, daysLeft: trial }
+    : { kind: "legacy" as const, plan: null, until: null, daysLeft: null };
 
   return (
     // Wrapped in the real AppShell so the top bar, the tabs, the brand mark,
@@ -94,7 +99,7 @@ export default function PreviewPage() {
     // the surfaces a component-only preview would silently skip.
     <AppShell
       run={previewRun}
-      viewer={{ id: "preview", email: "preview@localhost", role: "viewer" }}
+      viewer={{ id: "preview", email: "preview@localhost", role: "viewer", access }}
       market={DEFAULT_MARKET}
       notifications={Promise.resolve(previewNotifications)}
     >

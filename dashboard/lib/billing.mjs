@@ -1,13 +1,11 @@
 /**
- * The pure rules of self-serve billing: who has access, whether a Razorpay
- * webhook is genuine, and what a subscription event changes.
+ * The pure rules of self-serve billing: who has access, and what a Razorpay
+ * subscription event changes.
  *
  * Plain .mjs so `node --test` covers it without a build step. The access rule
  * is kept equal to dashboard_has_access() in storage/billing_schema.sql by
  * its test; the price is never here (it is plans.amount_paise).
  */
-
-import { createHmac, timingSafeEqual } from "node:crypto";
 
 /** Plans that never expire: invited users and admins. */
 const PERMANENT_PLANS = ["admin", "allowlist"];
@@ -24,15 +22,6 @@ export function hasAccess(claims, nowSeconds) {
   if (plan === "none") return false;
   const until = claims.access_until;
   return Number.isInteger(until) && until > Math.floor(nowSeconds);
-}
-
-/** The Razorpay webhook signature: hex HMAC-SHA256 of the raw body. */
-export function verifySignature(rawBody, signature, secret) {
-  if (!secret || typeof signature !== "string" || !signature) return false;
-  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
-  const given = Buffer.from(signature, "utf8");
-  const wanted = Buffer.from(expected, "utf8");
-  return given.length === wanted.length && timingSafeEqual(given, wanted);
 }
 
 /** Razorpay subscription status -> ours; a missing one leaves the stored status alone. */
@@ -84,6 +73,27 @@ export function checkoutAction(row, remote, razorpayPlanId) {
   return remote.status === "created" && remote.plan_id === razorpayPlanId ? "reuse" : "create";
 }
 
+/**
+ * What restricts Razorpay Checkout to UPI. The early-bird offer is attached to
+ * UPI only, so a card payer would be charged the full price: while the offer is
+ * applied, checkout offers UPI alone. `method` switches the plain methods off;
+ * a subscription still lists eMandate unless `config` shows only a UPI block
+ * (seen in test mode). Without the offer, {} leaves every method on.
+ */
+export function checkoutRestriction(offerApplied) {
+  if (!offerApplied) return {};
+  return {
+    method: { upi: true, card: false, netbanking: false, wallet: false, emi: false, paylater: false, emandate: false },
+    config: {
+      display: {
+        blocks: { upi: { name: "Pay with UPI", instruments: [{ method: "upi" }] } },
+        sequence: ["block.upi"],
+        preferences: { show_default_blocks: false },
+      },
+    },
+  };
+}
+
 /** Subscriptions are charged until cancelled; Razorpay needs a finite count. */
 const TOTAL_COUNT = { monthly: 120, yearly: 10 };
 /** A first charge less than this far ahead is simply charged now. */
@@ -118,4 +128,90 @@ export function viewerFromClaims(claims, nowSeconds) {
     plan: String(claims.plan),
     accessUntil: Number.isInteger(claims.access_until) ? claims.access_until : null,
   };
+}
+
+// --- Pages: what the plan allows, in words (used by lib/auth.ts and the billing pages) ---
+
+const DAY_SECONDS = 24 * 60 * 60;
+
+/**
+ * What a token's claims allow, in the words the pages use. The yes/no is main's
+ * hasAccess() above (so the same integer access_until rule); this adds why not,
+ * and how long is left.
+ * @returns {{kind: "legacy"|"admin"|"allowlist"|"trial"|"paid"|"lapsed", plan: string|null, until: number|null, daysLeft: number|null}}
+ */
+export function accessFromClaims(claims, nowSeconds = Date.now() / 1000) {
+  const plan = typeof claims?.plan === "string" ? claims.plan : null;
+  const until = Number.isInteger(claims?.access_until) ? claims.access_until : null;
+  if (plan === null) return { kind: "legacy", plan, until, daysLeft: null };
+  if (PERMANENT_PLANS.includes(plan)) return { kind: plan, plan, until: null, daysLeft: null };
+  if (!hasAccess(claims, nowSeconds)) return { kind: "lapsed", plan, until, daysLeft: 0 };
+  // Whole days, rounded up: 2 hours left reads "1 day left", never "0 days".
+  const daysLeft = Math.ceil((until - nowSeconds) / DAY_SECONDS);
+  return { kind: plan === "trial" ? "trial" : "paid", plan, until, daysLeft };
+}
+
+/** Whether an accessFromClaims() result lets the person in. */
+export function isEntitled(access) {
+  return access.kind !== "lapsed";
+}
+
+/** "1 day left", "5 days left". */
+export function daysLeftLabel(days) {
+  return `${days} ${days === 1 ? "day" : "days"} left`;
+}
+
+/**
+ * A plan's price as stored: paise in, rupees out, shown exactly as held.
+ * Whole rupees print without decimals; anything else keeps two.
+ */
+export function priceLabel(amountPaise) {
+  const rupees = Number(amountPaise) / 100;
+  if (!Number.isFinite(rupees)) return "";
+  const text = new Intl.NumberFormat("en-IN", {
+    minimumFractionDigits: Number.isInteger(rupees) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(rupees);
+  return `₹${text}`;
+}
+
+export const PERIOD_LABEL = { monthly: "month", yearly: "year" };
+
+/**
+ * Why a lapsed person is on the pricing page, from their subscription row.
+ * No row, or a trial that ran out, is the trial ending.
+ */
+export function lapseReason(status) {
+  if (status === "cancelled") return "cancelled";
+  if (status === "past_due") return "past_due";
+  return "trial_ended";
+}
+
+/** The subscription is set up: paid now, or authorised and waiting for the trial to end. */
+export function isSetUp(row) {
+  return row?.status === "active" || (row?.status === "trialing" && Boolean(row?.plan_id));
+}
+
+/** A plan's monthly equivalent in paise: a yearly price over twelve. */
+export function perMonthPaise(plan) {
+  const amount = Number(plan?.amount_paise);
+  if (!Number.isFinite(amount)) return null;
+  return plan.period === "yearly" ? amount / 12 : amount;
+}
+
+/**
+ * How much less per month the yearly plan costs than the monthly one, as a
+ * whole percent; null unless there are both and the yearly really is cheaper.
+ */
+export function savingPercent(yearly, monthly) {
+  const year = perMonthPaise(yearly);
+  const month = perMonthPaise(monthly);
+  if (year === null || month === null || year >= month) return null;
+  return Math.round((1 - year / month) * 100);
+}
+
+/** The monthly equivalent for display: "about" is the caller's word, rounded to whole rupees. */
+export function perMonthLabel(plan) {
+  const paise = perMonthPaise(plan);
+  return paise === null ? "" : priceLabel(Math.round(paise / 100) * 100);
 }

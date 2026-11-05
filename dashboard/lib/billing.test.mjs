@@ -4,13 +4,22 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
+  accessFromClaims,
+  daysLeftLabel,
+  isSetUp,
+  isEntitled,
+  checkoutRestriction,
+  lapseReason,
+  perMonthLabel,
+  priceLabel,
+  savingPercent,
   hasAccess,
   checkoutAction,
   newSubscriptionBody,
   subscriptionChange,
-  verifySignature,
   viewerFromClaims,
 } from "./billing.mjs";
+import { verifySignature } from "./webhook-signature.mjs";
 
 const NOW = 1_762_000_000;
 
@@ -106,4 +115,70 @@ test("new subscription: the first charge waits for the trial, else it is now", (
   assert.equal(newSubscriptionBody({ plan, userId: "u1", offerId: "offer_X" }, NOW).offer_id, "offer_X");
   assert.equal("offer_id" in newSubscriptionBody({ plan, userId: "u1" }, NOW), false);
   assert.equal(newSubscriptionBody({ plan: { ...plan, period: "monthly" }, userId: "u1" }, NOW).total_count, 120);
+});
+
+// --- page helpers ---
+const DAY = 86_400;
+const ACCESS_NOW = 1_800_000_000;
+
+test("a token with no plan claim is legacy", () => {
+  assert.equal(accessFromClaims({ sub: "u" }, ACCESS_NOW).kind, "legacy");
+});
+test("admin and allowlist never expire", () => {
+  assert.equal(accessFromClaims({ plan: "admin" }, ACCESS_NOW).kind, "admin");
+  assert.equal(accessFromClaims({ plan: "allowlist", access_until: 5 }, ACCESS_NOW).kind, "allowlist");
+  assert.ok(isEntitled(accessFromClaims({ plan: "allowlist" }, ACCESS_NOW)));
+});
+test("a trial counts whole days, rounded up", () => {
+  const a = accessFromClaims({ plan: "trial", access_until: ACCESS_NOW + 2 * 3600 }, ACCESS_NOW);
+  assert.equal(a.kind, "trial");
+  assert.equal(a.daysLeft, 1);
+  assert.equal(accessFromClaims({ plan: "trial", access_until: ACCESS_NOW + 7 * DAY }, ACCESS_NOW).daysLeft, 7);
+});
+test("a paid plan id with time left is paid", () => {
+  assert.equal(accessFromClaims({ plan: "monthly_499", access_until: ACCESS_NOW + DAY }, ACCESS_NOW).kind, "paid");
+});
+test("none, a passed date and a missing date all lapse", () => {
+  assert.equal(accessFromClaims({ plan: "none" }, ACCESS_NOW).kind, "lapsed");
+  assert.equal(accessFromClaims({ plan: "trial", access_until: ACCESS_NOW - 1 }, ACCESS_NOW).kind, "lapsed");
+  assert.equal(accessFromClaims({ plan: "trial" }, ACCESS_NOW).kind, "lapsed");
+  assert.ok(!isEntitled(accessFromClaims({ plan: "trial", access_until: NOW }, ACCESS_NOW)));
+});
+test("labels", () => {
+  assert.equal(daysLeftLabel(1), "1 day left");
+  assert.equal(daysLeftLabel(5), "5 days left");
+  assert.equal(priceLabel(49900), "₹499");
+  assert.equal(priceLabel(49950), "₹499.50");
+  assert.equal(priceLabel(12345600), "₹1,23,456");
+  assert.equal(priceLabel("x"), "");
+});
+test("lapse reason and set-up check", () => {
+  assert.equal(lapseReason("cancelled"), "cancelled");
+  assert.equal(lapseReason("past_due"), "past_due");
+  assert.equal(lapseReason("expired"), "trial_ended");
+  assert.equal(lapseReason(undefined), "trial_ended");
+  assert.ok(isSetUp({ status: "active" }));
+  assert.ok(isSetUp({ status: "trialing", plan_id: "p" }));
+  assert.ok(!isSetUp({ status: "trialing", plan_id: null }));
+  assert.ok(!isSetUp(null));
+});
+
+test("yearly against monthly", () => {
+  const yearly = { amount_paise: 99900, period: "yearly" };
+  const monthly = { amount_paise: 12900, period: "monthly" };
+  assert.equal(perMonthLabel(yearly), "\u20B983");
+  assert.equal(perMonthLabel(monthly), "\u20B9129");
+  assert.equal(savingPercent(yearly, monthly), 35);
+  assert.equal(savingPercent(monthly, yearly), null, "not cheaper");
+  assert.equal(savingPercent(yearly, null), null);
+});
+
+test("the early-bird offer is UPI-only, so its checkout shows UPI alone", () => {
+  const r = checkoutRestriction(true);
+  assert.equal(r.method.upi, true);
+  for (const off of ["card", "netbanking", "wallet", "emi", "paylater", "emandate"]) assert.equal(r.method[off], false, off);
+  assert.deepEqual(r.config.display.sequence, ["block.upi"], "only the UPI block is shown");
+  assert.equal(r.config.display.preferences.show_default_blocks, false);
+  assert.deepEqual(checkoutRestriction(false), {}, "no offer: every method stays on");
+  assert.deepEqual(checkoutRestriction(undefined), {});
 });

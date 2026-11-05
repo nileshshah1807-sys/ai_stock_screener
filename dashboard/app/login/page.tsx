@@ -13,6 +13,9 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   // Next.js 16: searchParams is a Promise.
   const params = await searchParams;
   const errorCode = typeof params.error === "string" ? params.error : null;
+  // ?trial=1 is the sign-up path: the same code form, framed as the start of a
+  // free trial. A new address gets an account; a known one just signs in.
+  const trial = params.trial === "1";
 
   // Each case names what actually happened. "Expired or already used" is by far
   // the most common, and it is worth saying that a link can be spent before it
@@ -46,21 +49,25 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         </div>
 
         <div className="panel animate-rise p-6 sm:p-8">
-          <h1 className="text-heading font-semibold">Sign in</h1>
+          <h1 className="text-heading font-semibold">{trial ? "Start your 7-day free trial" : "Sign in"}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Enter your email and we&rsquo;ll send you a 6-digit code. No password
-            needed.
+            {trial
+              ? "Full access to both markets, no card needed. Enter your email and we\u2019ll send you a 6-digit code."
+              : "Enter your email and we\u2019ll send you a 6-digit code. No password needed."}
           </p>
 
           <div className="mt-6">
-            <LoginForm notice={errorMessage} />
+            <LoginForm notice={errorMessage} trial={trial} />
           </div>
         </div>
 
         <p className="mt-6 text-center text-xs leading-relaxed text-muted-foreground">
-          Private research dashboard, by invitation only.
+          {trial ? "Already have an account? " : "New here? "}
+          <Link href={trial ? "/login" : "/login?trial=1"} className="underline underline-offset-2 hover:text-foreground">
+            {trial ? "Sign in" : "Start your 7-day free trial"}
+          </Link>
           <br />
-          Research model output, not investment advice.
+          Data for research and education, not investment advice.
         </p>
         <nav
           aria-label="Legal"
