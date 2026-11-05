@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   // One statement decides and writes (billing_apply_event): a duplicate, a stale
   // event, or a subscription that is not ours changes no row. Razorpay retries
   // on 500.
-  const { error } = await admin.rpc("billing_apply_event", {
+  const { data: applied, error } = await admin.rpc("billing_apply_event", {
     p_razorpay_subscription_id: change.razorpaySubscriptionId,
     p_user_id: change.userId,
     p_plan_id: change.planId,
@@ -45,5 +45,9 @@ export async function POST(request: NextRequest) {
     p_event_at: change.eventAt,
   });
   if (error) return NextResponse.json({ error: "write_failed" }, { status: 500 });
+  // A paying user whose subscription id we do not hold (e.g. a double-clicked checkout) would otherwise vanish silently.
+  if (!applied && change.userId && change.status === "active") {
+    console.warn("billing webhook: active event matched no row", change.razorpaySubscriptionId, change.userId);
+  }
   return NextResponse.json({ ok: true });
 }

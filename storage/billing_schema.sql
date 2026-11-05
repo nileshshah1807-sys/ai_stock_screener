@@ -177,6 +177,7 @@ begin
     end if;
     return jsonb_set(event, '{claims}', claims);
 exception when others then
+    raise warning 'token hook: %', sqlerrm;  -- visible in the Supabase auth log
     -- A failing hook would block every sign-in, admins included: hand the token
     -- back unchanged; dashboard_has_access() then uses the allowlist fallback.
     return event;
