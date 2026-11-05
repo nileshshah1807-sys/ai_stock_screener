@@ -36,8 +36,8 @@ const geist = Geist({
 
 export const metadata: Metadata = {
   title: {
-    default: "Winnow",
-    template: "%s · Winnow",
+    default: "Sievr",
+    template: "%s · Sievr",
   },
   description:
     "Daily equity research screener across NSE and US markets: model decision " +

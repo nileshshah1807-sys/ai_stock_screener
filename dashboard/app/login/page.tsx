@@ -41,7 +41,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
             <BrandMark className="size-4" />
           </span>
           <span className="text-lead font-semibold tracking-[-0.011em]">
-            Winnow
+            Sievr
           </span>
         </div>
 
