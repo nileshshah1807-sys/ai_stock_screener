@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Hourglass } from "lucide-react";
 
-import { daysLeftLabel } from "@/lib/billing.mjs";
+import { daysLeftLabel } from "@/lib/plan-access.mjs";
 import { cn } from "@/lib/utils";
 
 /**

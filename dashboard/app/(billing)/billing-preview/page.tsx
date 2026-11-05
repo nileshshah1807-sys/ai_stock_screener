@@ -8,9 +8,16 @@ import type { Plan, Subscription } from "@/lib/plans";
  * Development only: the pricing and account pages in each state, from made-up
  * rows, so every state can be looked at without a database or a payment.
  * /billing-preview?view=pricing|account&state=signedout|trial|setup|lapsed|active|past_due|cancelled
- * The plan below is a placeholder for the picture, not a price.
+ * The plans below are placeholders for the picture, not prices; &offer=closed hides the early-bird price.
  */
-const PLAN: Plan = { id: "preview_plan", name: "Standard", amount_paise: 49900, period: "monthly" };
+const PLAN: Plan = {
+  id: "preview_plan",
+  name: "Yearly",
+  amount_paise: 99900,
+  period: "yearly",
+  offer: { name: "Early bird", amount_paise: 69900, ends_at: "2026-12-31T18:29:59Z" },
+};
+const MONTHLY: Plan = { id: "preview_monthly", name: "Monthly", amount_paise: 12900, period: "monthly" };
 const DAY = 86_400_000;
 const iso = (days: number) => new Date(Date.now() + days * DAY).toISOString();
 
@@ -38,6 +45,6 @@ export default async function BillingPreview({
   return params.view === "account" ? (
     <AccountView email={email ?? "reader@example.com"} kind={state.kind || "trial"} subscription={state.row} plan={plan} welcome={params.welcome === "1"} />
   ) : (
-    <PricingView plans={params.plans === "none" ? [] : [PLAN]} email={email} kind={state.kind || undefined} subscription={state.row} />
+    <PricingView plans={params.plans === "none" ? [] : [params.offer === "closed" ? { ...PLAN, offer: null } : PLAN, MONTHLY]} email={email} kind={state.kind || undefined} subscription={state.row} />
   );
 }

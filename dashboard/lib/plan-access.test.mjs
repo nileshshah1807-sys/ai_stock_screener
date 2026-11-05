@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { accessFromClaims, daysLeftLabel, hasAccess, isSetUp, lapseReason, priceLabel } from "./plan-access.mjs";
+import { accessFromClaims, daysLeftLabel, hasAccess, isSetUp, lapseReason, perMonthLabel, priceLabel, savingPercent } from "./plan-access.mjs";
 
 const NOW = 1_800_000_000;
 const DAY = 86_400;
@@ -46,4 +46,14 @@ test("lapse reason and set-up check", () => {
   assert.ok(isSetUp({ status: "trialing", plan_id: "p" }));
   assert.ok(!isSetUp({ status: "trialing", plan_id: null }));
   assert.ok(!isSetUp(null));
+});
+
+test("yearly against monthly", () => {
+  const yearly = { amount_paise: 99900, period: "yearly" };
+  const monthly = { amount_paise: 12900, period: "monthly" };
+  assert.equal(perMonthLabel(yearly), "\u20B983");
+  assert.equal(perMonthLabel(monthly), "\u20B9129");
+  assert.equal(savingPercent(yearly, monthly), 35);
+  assert.equal(savingPercent(monthly, yearly), null, "not cheaper");
+  assert.equal(savingPercent(yearly, null), null);
 });

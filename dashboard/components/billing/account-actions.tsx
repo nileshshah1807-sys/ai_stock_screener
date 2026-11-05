@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 type Props = {
   /** Cancelling is offered only while a plan is set up. */
   canCancel: boolean;
+  /** Still in the free trial: cancelling stops the plan before any charge. */
+  inTrial: boolean;
   /** Where the person can write if a request fails. */
   contactEmail: string;
 };
@@ -18,17 +20,21 @@ type Props = {
  * first press shows what will happen, the second does it. Not a modal -- the
  * explanation sits where the button was.
  */
-export function AccountActions({ canCancel, contactEmail }: Props) {
+export function AccountActions({ canCancel, inTrial, contactEmail }: Props) {
   return (
     <div className="divide-y">
       {canCancel ? (
         <Action
           title="Cancel your plan"
-          explain="Your plan stays active until the end of the period you have paid for, then stops. You will not be charged again."
+          explain={
+            inTrial
+              ? "Your plan is cancelled now and the first charge will not be made. Nothing has been charged."
+              : "Your plan stays active until the end of the period you have paid for, then stops. You will not be charged again."
+          }
           button="Cancel plan"
-          confirm="Yes, cancel at the end of the period"
+          confirm={inTrial ? "Yes, cancel my plan" : "Yes, cancel at the end of the period"}
           endpoint="/api/billing/cancel"
-          done="Your plan is cancelled and will not renew."
+          done={inTrial ? "Your plan is cancelled. You will not be charged." : "Your plan is cancelled and will not renew."}
           contactEmail={contactEmail}
         />
       ) : null}

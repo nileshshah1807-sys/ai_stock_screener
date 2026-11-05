@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 
 import { CheckoutButton } from "@/components/billing/checkout-button";
 import { buttonVariants } from "@/components/ui/button";
-import { PERIOD_LABEL, isSetUp, lapseReason, priceLabel } from "@/lib/billing.mjs";
+import { PERIOD_LABEL, isSetUp, lapseReason, perMonthLabel, priceLabel, savingPercent } from "@/lib/plan-access.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
 import type { Plan, Subscription } from "@/lib/plans";
@@ -48,6 +48,11 @@ export function PricingView({
   const setUp = isSetUp(subscription);
   const trialEnds = !lapsed && !setUp && kind === "trial" ? subscription?.trial_ends_at : null;
 
+  const saving = savingPercent(
+    plans?.find((plan) => plan.period === "yearly"),
+    plans?.find((plan) => plan.period === "monthly"),
+  );
+
   return (
     <>
       <h1 className="text-heading font-semibold">{headline}</h1>
@@ -61,7 +66,7 @@ export function PricingView({
         ) : (
           <ul className="divide-y">
             {plans.map((plan) => (
-              <PlanRow key={plan.id} plan={plan} email={email} kind={kind} setUp={setUp} trialEnds={trialEnds} />
+              <PlanRow key={plan.id} plan={plan} saving={plan.period === "yearly" ? saving : null} email={email} kind={kind} setUp={setUp} trialEnds={trialEnds} />
             ))}
           </ul>
         )}
@@ -89,25 +94,52 @@ export function PricingView({
 
 function PlanRow({
   plan,
+  saving,
   email,
   kind,
   setUp,
   trialEnds,
 }: {
   plan: Plan;
+  /** Whole percent the yearly plan saves against the monthly one, when it does. */
+  saving: number | null;
   email: string | null;
   kind: string | undefined;
   setUp: boolean;
   trialEnds: string | null | undefined;
 }) {
+  const period = PERIOD_LABEL[plan.period] ?? plan.period;
   return (
     <li className="flex flex-col gap-4 py-5 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p className="text-lead font-semibold">{plan.name}</p>
-        <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">
-          <span className="text-base font-semibold text-foreground">{priceLabel(plan.amount_paise)}</span> per{" "}
-          {PERIOD_LABEL[plan.period] ?? plan.period}
+        <p className="flex flex-wrap items-center gap-x-2 text-lead font-semibold">
+          {plan.name}
+          {saving ? (
+            <span className="rounded-md bg-positive/10 px-2 py-0.5 text-xs font-medium text-positive">Best value</span>
+          ) : null}
         </p>
+        {plan.offer ? (
+          <>
+            <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">
+              <span className="text-base font-semibold text-foreground">{priceLabel(plan.offer.amount_paise)}</span>{" "}
+              <s aria-label={`regular price ${priceLabel(plan.amount_paise)}`}>{priceLabel(plan.amount_paise)}</s> for the first {period}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+              {plan.offer.name}
+              {plan.offer.ends_at ? `, until ${formatDate(plan.offer.ends_at)} or while places last` : ""}. Then{" "}
+              {priceLabel(plan.amount_paise)} per {period}.
+            </p>
+          </>
+        ) : (
+          <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">
+            <span className="text-base font-semibold text-foreground">{priceLabel(plan.amount_paise)}</span> per {period}
+          </p>
+        )}
+        {saving ? (
+          <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+            About {perMonthLabel(plan)} a month, {saving}% less than paying monthly.
+          </p>
+        ) : null}
         {trialEnds ? (
           <p className="mt-1 text-xs text-muted-foreground">Nothing is charged until your trial ends on {formatDate(trialEnds)}.</p>
         ) : null}

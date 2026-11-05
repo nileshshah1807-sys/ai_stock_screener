@@ -3,7 +3,7 @@ import Link from "next/link";
 import { BrandMark } from "@/components/brand-mark";
 import { getSession } from "@/lib/auth";
 import { LEGAL, LEGAL_PAGES } from "@/lib/legal";
-import { hasAccess } from "@/lib/billing.mjs";
+import { hasAccess } from "@/lib/plan-access.mjs";
 
 const QUIET_LINK =
   "rounded text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";

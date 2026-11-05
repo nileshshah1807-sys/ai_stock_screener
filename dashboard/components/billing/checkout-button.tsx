@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Loader2, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { isSetUp } from "@/lib/billing.mjs";
+import { isSetUp } from "@/lib/plan-access.mjs";
 import { createClient } from "@/lib/supabase/client";
 
 const CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
@@ -52,6 +52,27 @@ function loadCheckout(): Promise<boolean> {
   });
 }
 
+/**
+ * One checkout at a time on the page, across every plan's button: a second
+ * press while one is starting or open could otherwise create two subscriptions.
+ */
+let inFlight = false;
+const watchers = new Set<() => void>();
+function setInFlight(value: boolean) {
+  inFlight = value;
+  watchers.forEach((notify) => notify());
+}
+function useInFlight() {
+  return useSyncExternalStore(
+    (notify) => {
+      watchers.add(notify);
+      return () => watchers.delete(notify);
+    },
+    () => inFlight,
+    () => false,
+  );
+}
+
 type Phase = "idle" | "starting" | "paying" | "confirming" | "slow";
 
 /**
@@ -77,7 +98,7 @@ export function CheckoutButton({
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<{ text: string; link?: boolean } | null>(null);
-  const busy = useRef(false);
+  const locked = useInFlight();
 
   async function waitForSubscription() {
     const supabase = createClient();
@@ -93,11 +114,12 @@ export function CheckoutButton({
       await new Promise((resolve) => setTimeout(resolve, POLL_EVERY_MS));
     }
     setPhase("slow");
+    setInFlight(false);
   }
 
   async function start() {
-    if (busy.current) return;
-    busy.current = true;
+    if (inFlight) return;
+    setInFlight(true);
     setError(null);
     setPhase("starting");
     try {
@@ -117,16 +139,19 @@ export function CheckoutButton({
       if (response.status === 409) {
         setError({ text: "You already have a subscription.", link: true });
         setPhase("idle");
+        setInFlight(false);
         return;
       }
       if (!response.ok || !body.subscription_id || !body.key_id || !body.plan) {
         setError({ text: ERRORS[body.error ?? ""] ?? "Checkout could not start. Try again." });
         setPhase("idle");
+        setInFlight(false);
         return;
       }
       if (!loaded || !window.Razorpay) {
         setError({ text: "The payment window could not load. Check your connection and try again." });
         setPhase("idle");
+        setInFlight(false);
         return;
       }
       setPhase("paying");
@@ -140,20 +165,24 @@ export function CheckoutButton({
           setPhase("confirming");
           void waitForSubscription();
         },
-        modal: { ondismiss: () => setPhase((now) => (now === "paying" ? "idle" : now)) },
+        modal: {
+          ondismiss: () => {
+            setPhase((now) => (now === "paying" ? "idle" : now));
+            setInFlight(false);
+          },
+        },
       }).open();
     } catch {
       setError({ text: "Checkout could not start. Check your connection and try again." });
       setPhase("idle");
-    } finally {
-      busy.current = false;
+      setInFlight(false);
     }
   }
 
   const working = phase === "starting" || phase === "confirming";
   return (
     <div className="space-y-3">
-      <Button type="button" className="h-10 w-full sm:w-auto sm:min-w-44" disabled={working || phase === "paying"} onClick={start}>
+      <Button type="button" className="h-10 w-full sm:w-auto sm:min-w-44" disabled={locked} onClick={start}>
         {working ? (
           <>
             <Loader2 className="size-4 animate-spin" aria-hidden />

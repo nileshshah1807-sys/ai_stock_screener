@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { AccountActions } from "@/components/billing/account-actions";
 import { buttonVariants } from "@/components/ui/button";
-import { PERIOD_LABEL, isSetUp, priceLabel } from "@/lib/billing.mjs";
+import { PERIOD_LABEL, isSetUp, priceLabel } from "@/lib/plan-access.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
 import type { Plan, Subscription } from "@/lib/plans";
@@ -61,7 +61,7 @@ export function AccountView({
       </section>
 
       <section aria-label="Cancel or delete" className="panel mt-4 p-6 sm:p-8">
-        <AccountActions canCancel={setUp && subscription?.status !== "cancelled"} contactEmail={LEGAL.contactEmail} />
+        <AccountActions canCancel={setUp && subscription?.status !== "cancelled"} inTrial={subscription?.status === "trialing"} contactEmail={LEGAL.contactEmail} />
       </section>
 
       <form action={signOut} className="mt-6">

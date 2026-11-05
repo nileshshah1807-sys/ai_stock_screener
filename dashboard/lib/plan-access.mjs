@@ -67,3 +67,27 @@ export function lapseReason(status) {
 export function isSetUp(row) {
   return row?.status === "active" || (row?.status === "trialing" && Boolean(row?.plan_id));
 }
+
+/** A plan's monthly equivalent in paise: a yearly price over twelve. */
+export function perMonthPaise(plan) {
+  const amount = Number(plan?.amount_paise);
+  if (!Number.isFinite(amount)) return null;
+  return plan.period === "yearly" ? amount / 12 : amount;
+}
+
+/**
+ * How much less per month the yearly plan costs than the monthly one, as a
+ * whole percent; null unless there are both and the yearly really is cheaper.
+ */
+export function savingPercent(yearly, monthly) {
+  const year = perMonthPaise(yearly);
+  const month = perMonthPaise(monthly);
+  if (year === null || month === null || year >= month) return null;
+  return Math.round((1 - year / month) * 100);
+}
+
+/** The monthly equivalent for display: "about" is the caller's word, rounded to whole rupees. */
+export function perMonthLabel(plan) {
+  const paise = perMonthPaise(plan);
+  return paise === null ? "" : priceLabel(Math.round(paise / 100) * 100);
+}
