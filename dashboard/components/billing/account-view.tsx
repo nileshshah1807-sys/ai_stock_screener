@@ -88,7 +88,9 @@ function describe(kind: string, subscription: Subscription | null, plan: Plan | 
     case "trialing":
       return subscription.plan_id
         ? { plan: planName ?? "Subscribed", status: "Free trial, plan set up", next: ["First charge", formatDate(subscription.trial_ends_at)] as const }
-        : { plan: "Free trial", status: "Free trial", next: ["Trial ends", formatDate(subscription.trial_ends_at)] as const };
+        : kind === "lapsed"
+          ? { plan: "None", status: "Free trial ended", next: ["Trial ended", formatDate(subscription.trial_ends_at)] as const }
+          : { plan: "Free trial", status: "Free trial", next: ["Trial ends", formatDate(subscription.trial_ends_at)] as const };
     case "past_due":
       return { plan: planName ?? "Subscribed", status: "Last payment did not go through", next: null };
     case "cancelled":
