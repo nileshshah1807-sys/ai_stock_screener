@@ -218,7 +218,7 @@ export function perMonthLabel(plan) {
 
 /**
  * What the trial banner adds once a plan is set up: "Sievr Monthly starts 12 Nov,
- * first charge ₹129" (monthly; a yearly plan names no amount). The price is the plan's own. Null
+ * first charge ₹129" (a yearly plan: its offer price if offer_applied, its price if not, none if unrecorded). The price is the plan's own. Null
  * when nothing is set up, or the plan or the date is unknown.
  */
 export function trialStartLine(subscription, plan) {
@@ -227,8 +227,11 @@ export function trialStartLine(subscription, plan) {
   const when = new Date(subscription.trial_ends_at);
   if (Number.isNaN(when.getTime())) return null;
   const day = when.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
-  // A yearly early-bird pays less than the plan price and the row does not say
-  // so yet (shortcut: amount for monthly only, until subscriptions.offer_applied lands).
-  if (plan.period === "yearly") return `${plan.name} starts ${day}`;
+  // A yearly plan may have been taken at its introductory price; the row says
+  // which (null: not recorded, so name no amount).
+  if (plan.period === "yearly") {
+    const paise = subscription.offer_applied === true ? plan.offer_amount_paise : subscription.offer_applied === false ? plan.amount_paise : null;
+    return paise == null ? `${plan.name} starts ${day}` : `${plan.name} starts ${day}, first charge ${priceLabel(paise)}`;
+  }
   return `${plan.name} starts ${day}, first charge ${priceLabel(plan.amount_paise)}`;
 }

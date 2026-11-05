@@ -7,6 +7,8 @@ export type Plan = {
   period: "monthly" | "yearly";
   /** An introductory price for the first period, while the offer is open. */
   offer?: { name: string; amount_paise: number; ends_at: string | null } | null;
+  /** The introductory price as stored, open or not: what someone who took it pays. */
+  offer_amount_paise?: number | null;
 };
 
 export type Subscription = {
@@ -14,6 +16,8 @@ export type Subscription = {
   status: "trialing" | "active" | "past_due" | "cancelled" | "expired";
   trial_ends_at: string | null;
   current_period_end: string | null;
+  /** Whether the introductory price was taken at checkout; null before it was recorded. */
+  offer_applied?: boolean | null;
 };
 
 /**
@@ -36,6 +40,7 @@ export async function getPlans(): Promise<Plan[] | null> {
     (data ?? []).map(async (row): Promise<Plan> => {
       const plan: Plan = { id: row.id, name: row.name, amount_paise: row.amount_paise, period: row.period };
       if (row.offer_amount_paise == null) return plan;
+      plan.offer_amount_paise = row.offer_amount_paise;
       // Whether the offer is still open (its date, and how many have taken it)
       // is the database's to say: it counts the subscribers.
       const { data: open } = await supabase.rpc("plan_offer_open", { p_plan: row.id });
@@ -54,7 +59,7 @@ export async function getSubscription(userId: string): Promise<Subscription | nu
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("subscriptions")
-    .select("plan_id, status, trial_ends_at, current_period_end")
+    .select("plan_id, status, trial_ends_at, current_period_end, offer_applied")
     .eq("user_id", userId)
     .maybeSingle();
   if (error) {
