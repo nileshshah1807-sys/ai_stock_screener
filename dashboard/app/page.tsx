@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 
 const TITLE = "Sievr: daily screener for NSE and US stocks";
 const DESCRIPTION =
-  "Screen every NSE and US stock, read quarterly results as companies file them, and follow what management said on earnings calls. Data for research and education, not investment advice.";
+  "Screen NSE and US stocks, read quarterly results as companies file them, and follow what management said on earnings calls. Data for research and education, not investment advice.";
 
 // The root layout is noindex for the signed-in app; the landing page is the
 // one public page meant to be found.
@@ -35,7 +35,7 @@ const NAV = [
 const FEATURES = [
   ["One screen, two markets", "NSE, BSE-only companies and the US in the same grid, with the same filters and saved views. Switch market without relearning the page."],
   ["Results the evening they land", "Quarterly results are read from the exchange's filings as they are stored, set beside the year-ago quarter on the same basis."],
-  ["Earnings calls, read for you", "Every call summarised, with management's tone in a word and the statement that moved it most quoted back."],
+  ["Earnings calls, read for you", "Management's tone in a word and the statement that moved it most, for calls we have a transcript or recording of."],
   ["Market breadth and Stage 2 counts", "How many stocks sit above their long averages and how many are in Stage 2, for each market, redrawn after the close."],
   ["Index pages", "Open an index and see its constituents in the screener's own grid, with live prices during the session."],
   ["Shareholding and documents", "Shareholding patterns, bulk and block deals, presentations and annual reports for Indian stocks, linked to the exchange archive."],
@@ -101,10 +101,10 @@ export default async function LandingPage() {
           <div className={cn(section, "grid items-center gap-10 py-14 sm:py-20 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-14")}>
             <div className="motion-safe:animate-rise">
               <h1 className="text-[clamp(2.25rem,5.4vw,4rem)] font-semibold leading-[1.04] tracking-[-0.035em] text-balance">
-                Every NSE and US stock, screened daily.
+                NSE and US stocks, screened daily.
               </h1>
               <p className="mt-5 max-w-[46ch] text-lead text-muted-foreground sm:text-base">
-                Filter the whole market, read results the evening companies file them, and see what management said on the earnings call. India and the US, one subscription.
+                Filter the market, read results the evening companies file them, and see what management said on the earnings call. India and the US, one subscription.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link href={session ? "/screener" : "/login?trial=1"} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
@@ -218,7 +218,7 @@ export default async function LandingPage() {
             {contact ? <a href={`mailto:${contact}`} className="hover:text-foreground hover:underline">Contact: {contact}</a> : null}
           </nav>
           <p className="mt-6 text-xs text-muted-foreground">
-            Data for research and education, not investment advice. © {new Date().getFullYear()} {LEGAL.service}.
+            Data for research and education, not investment advice. {LEGAL.service} is not a SEBI-registered investment adviser or research analyst. © {new Date().getFullYear()} {LEGAL.service}.
           </p>
         </div>
       </footer>

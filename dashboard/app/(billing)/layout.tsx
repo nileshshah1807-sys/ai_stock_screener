@@ -30,7 +30,7 @@ export default async function BillingLayout({ children }: LayoutProps<"/">) {
           <span className="text-lead font-semibold tracking-[-0.011em]">{LEGAL.service}</span>
         </Link>
         {inApp ? (
-          <Link href="/" className={QUIET_LINK}>
+          <Link href="/screener" className={QUIET_LINK}>
             Back to the app
           </Link>
         ) : !session ? (
