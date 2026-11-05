@@ -78,6 +78,11 @@ class RecordTests(unittest.TestCase):
         other = {"outcome": KEPT, "metric": "profit", "period": "FY27"}
         self.assertEqual(promise_record([miss, again, other, None]), {KEPT: 1, MISSED: 1})
 
+    def test_the_latest_guidance_of_a_period_is_the_one_counted(self):
+        first = {"outcome": KEPT, "metric": "revenue", "period": "FY27", "guided_pct": 15}
+        raised = {"outcome": MISSED, "metric": "revenue", "period": "FY27", "guided_pct": 20}
+        self.assertEqual(promise_record([first, raised]), {KEPT: 0, MISSED: 1})
+
 
 if __name__ == "__main__":
     unittest.main()

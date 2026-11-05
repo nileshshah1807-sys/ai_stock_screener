@@ -137,8 +137,9 @@ def guidance_dropped(changes: Iterable[dict[str, Any]] | None) -> bool:
 def promise_record(outcomes: Iterable[dict[str, Any] | None]) -> dict[str, int]:
     """A company's checked guidance so far: how many were kept and how many missed.
 
-    A period guided on several calls is one promise, counted once: the
-    outcome is the same whichever call it is read from.
+    A period guided on several calls is one promise, counted once. Pass the
+    outcomes oldest call first: where the figure changed, the latest guidance
+    is the one counted.
     """
     once: dict[tuple[Any, ...], str] = {}
     for item in outcomes:
