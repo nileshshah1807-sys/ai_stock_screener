@@ -58,7 +58,7 @@ const FAQ = [
 
 const ghost = "rounded-md px-2.5 py-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const X_URL = "https://x.com/ChirayuShah2103";
-const X_LABEL = "Chirayu Shah on X (opens in a new tab)";
+const X_LABEL = "@ChirayuShah2103 on X (opens in a new tab)";
 
 function XIcon() {
   return (

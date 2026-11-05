@@ -1,4 +1,4 @@
-import { STAGE_SAMPLE, STAGES } from "@/lib/landing.mjs";
+import { S2_CANDIDATE_RULE, STAGE_SAMPLE, STAGES } from "@/lib/landing.mjs";
 import { cn } from "@/lib/utils";
 
 /*
@@ -80,7 +80,7 @@ export function StageBlock() {
       <div className="order-1 lg:order-2">
         <h2 className="text-title max-w-[22ch] text-balance">See where each stock is in its cycle</h2>
         <p className="mt-4 max-w-[48ch] text-sm leading-relaxed text-muted-foreground">
-          Every stock is placed in one of four stages from its daily 50, 150 and 200-day averages, and given a relative strength (RS) rating from 1 to 99: its weighted 3 to 12 month return ranked against the rest of its own market. Filter the grid to Stage 2 and the Market page counts them each close.
+          Every stock is placed in Stage 1 to 4 from its daily 50, 150 and 200-day averages, and given a relative strength (RS) rating from 1 to 99: its weighted 3 to 12 month return ranked against the rest of its own market. It is relative strength, not a buy or sell rating. Filter the grid to Stage 2 and the Market page counts them each close.
         </p>
         <dl className="mt-5 grid gap-3">
           {STAGES.map((s) => (
@@ -89,6 +89,10 @@ export function StageBlock() {
               <dd className="text-muted-foreground">{s.rule}</dd>
             </div>
           ))}
+          <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3 border-t pt-3 text-sm">
+            <dt className="font-semibold">S2 Candidate<span className="block text-xs font-normal text-muted-foreground">Pullback</span></dt>
+            <dd className="text-muted-foreground">{S2_CANDIDATE_RULE}</dd>
+          </div>
         </dl>
       </div>
     </div>
