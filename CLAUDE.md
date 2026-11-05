@@ -307,6 +307,15 @@ the scheduled workflows set the same flag.
   writes nothing and keeps the step green.
   Alpha Vantage free key: personal, non-commercial use only (ToS s.2a); if the
   dashboard gains other viewers, this source must be dropped or licensed.
+- **Access is carried in the token; billing writes it.** `storage/billing_schema.sql`
+  adds `plans` (price is data: `amount_paise`), `subscriptions` (a 7-day trial row
+  per new user) and a Supabase custom access token hook that puts `plan` (admin,
+  allowlist, trial, a plan id, none) and `access_until` into the JWT.
+  `dashboard_has_access()` and `getViewer()` read those claims; a token without
+  `plan` falls back to `dashboard_allowlist` until it refreshes. The Razorpay
+  webhook (`dashboard/app/api/billing/webhook`) is the only writer of paid status
+  (service role, that route and `create-subscription` only); ratings stay
+  admin-only whatever the plan. Applied by hand.
 - **Live prices are display-only, every five minutes during the session.**
   `workers/live_quotes.py` (the Live quotes workflow, dispatch-only:
   cron-job.org calls it every 5 minutes on weekdays; do not add a
