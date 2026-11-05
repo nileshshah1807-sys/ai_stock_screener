@@ -43,7 +43,7 @@ export default async function BillingLayout({ children }: LayoutProps<"/">) {
       {children}
 
       <p className="mt-12 text-xs leading-relaxed text-muted-foreground">
-        Research model output, not investment advice. {LEGAL.service} is not a SEBI-registered
+        Data for research and education, not investment advice. {LEGAL.service} is not a SEBI-registered
         investment adviser or research analyst.
       </p>
       <nav aria-label="Legal" className="mt-3 flex flex-wrap gap-x-5 gap-y-2 border-t pt-5 text-xs text-muted-foreground">

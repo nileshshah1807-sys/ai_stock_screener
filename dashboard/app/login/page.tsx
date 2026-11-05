@@ -67,7 +67,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
             {trial ? "Sign in" : "Start your 7-day free trial"}
           </Link>
           <br />
-          Research model output, not investment advice.
+          Data for research and education, not investment advice.
         </p>
         <nav
           aria-label="Legal"
