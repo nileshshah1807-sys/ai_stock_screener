@@ -5,11 +5,6 @@ import { LEGAL } from "@/lib/legal";
 
 export const metadata: Metadata = { title: "Refunds & cancellation" };
 
-/*
- * shortcut: the refund terms in section 3 are a placeholder for the operator to
- * decide; the payment gateway asks for this page before it goes live. Have a
- * lawyer read it with the other three.
- */
 export default function RefundsPage() {
   return (
     <>
@@ -30,9 +25,23 @@ export default function RefundsPage() {
       </p>
 
       <h2>3. Refunds</h2>
-      <p>[Refund terms: to be set by the operator before launch.]</p>
       <p>
-        If you were charged in error, or twice, write to {LEGAL.contactEmail} and we will put it
+        If you ask within 7 days of a payment, we refund it in full. This holds for a first
+        payment and for a renewal, on the monthly plan and the yearly plan alike. The 7-day free
+        trial comes first and costs nothing, so the 7 days run from the day you are charged.
+      </p>
+      <p>
+        To ask, email {LEGAL.contactEmail} from the address on your account and say which payment
+        you mean. We send the refund back to the method you paid with, through Razorpay. It
+        usually reaches you in 5 to 7 working days. Your access ends when the refund is processed.
+      </p>
+      <p>
+        After 7 days a payment is not refunded. You can still{" "}
+        <Link href="/account">cancel</Link> at any time: that stops the next renewal, and your
+        access runs to the end of the period you have paid for.
+      </p>
+      <p>
+        If you were charged in error, or twice, write to the same address and we will put it
         right.
       </p>
 
