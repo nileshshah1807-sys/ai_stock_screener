@@ -21,7 +21,7 @@ export default async function BillingLayout({ children }: LayoutProps<"/">) {
     <main className="mx-auto w-full max-w-3xl px-4 py-10 sm:py-14">
       <div className="mb-8 flex items-center justify-between gap-4">
         <Link
-          href={inApp ? "/" : "/login"}
+          href={inApp ? "/screener" : "/login"}
           className="inline-flex items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
