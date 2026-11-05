@@ -197,7 +197,11 @@ test("trialStartLine: only a trialing subscription with a plan set up gets the l
   const row = { status: "trialing", plan_id: "pro-monthly", trial_ends_at: "2026-11-12T10:00:00Z" };
   assert.equal(trialStartLine(row, plan), "Sievr Monthly starts 12 Nov, first charge ₹129");
   const yearly = { name: "Sievr Yearly", amount_paise: 99900, period: "yearly" };
-  assert.equal(trialStartLine(row, yearly), "Sievr Yearly starts 12 Nov", "no amount: the early-bird may differ");
+  const early = { ...yearly, offer_amount_paise: 69900 };
+  assert.equal(trialStartLine(row, early), "Sievr Yearly starts 12 Nov", "offer_applied null: name no amount");
+  assert.equal(trialStartLine({ ...row, offer_applied: true }, early), "Sievr Yearly starts 12 Nov, first charge ₹699");
+  assert.equal(trialStartLine({ ...row, offer_applied: false }, early), "Sievr Yearly starts 12 Nov, first charge ₹999");
+  assert.equal(trialStartLine({ ...row, offer_applied: true }, yearly), "Sievr Yearly starts 12 Nov", "no stored offer amount");
   assert.equal(trialStartLine({ ...row, plan_id: null }, plan), null, "no plan set up");
   assert.equal(trialStartLine({ ...row, status: "active" }, plan), null, "already paying");
   assert.equal(trialStartLine(row, null), null, "plan unknown");

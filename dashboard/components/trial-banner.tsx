@@ -20,10 +20,12 @@ export function TrialBanner({ days, setUp }: { days: number; setUp?: string | nu
         soon ? "border-caution/30 bg-caution/8 text-caution" : "bg-(--control)",
       )}
     >
-      <Hourglass className="size-4 shrink-0" aria-hidden />
-      <span className="font-medium">
-        Free trial: {daysLeftLabel(days)}
-        {setUp ? ` · ${setUp}` : ""}
+      <span className="flex min-w-0 items-start gap-3">
+        <Hourglass className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span className="font-medium">
+          Free trial: {daysLeftLabel(days)}
+          {setUp ? ` · ${setUp}` : ""}
+        </span>
       </span>
       <Link
         href={setUp ? "/account" : "/pricing"}
