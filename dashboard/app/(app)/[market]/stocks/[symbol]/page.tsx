@@ -1156,7 +1156,7 @@ export default async function StockPage({
                     info="Every explanation below comes from this row's exported evidence and policy fields; no company-specific rules are used."
                   >
                     <Tabs defaultValue="policy" className="gap-4">
-                      <TabsList variant="line" aria-label="Decision audit views" className="max-w-full overflow-x-auto">
+                      <TabsList variant="line" aria-label="Decision audit views" className="max-w-full overflow-x-auto overflow-y-hidden">
                         <TabsTrigger value="policy">Policy ceiling</TabsTrigger>
                         <TabsTrigger value="gates">Gate checks</TabsTrigger>
                         <TabsTrigger value="coverage">Evidence coverage</TabsTrigger>
