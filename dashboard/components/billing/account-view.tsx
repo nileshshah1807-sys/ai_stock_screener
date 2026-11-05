@@ -2,12 +2,18 @@ import Link from "next/link";
 
 import { AccountActions } from "@/components/billing/account-actions";
 import { buttonVariants } from "@/components/ui/button";
-import { PERIOD_LABEL, isSetUp, priceLabel } from "@/lib/billing.mjs";
+import { PERIOD_LABEL, currentPlanId, isSetUp, planSummary, planTitle, priceLabel } from "@/lib/billing.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
 import type { Plan, Subscription } from "@/lib/plans";
 import { signOut } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
+
+/** "reader@example.com" -> "RE"; the avatar is initials, never a photo. */
+function initials(email: string) {
+  const letters = email.split("@")[0].split(/[^a-zA-Z0-9]+/).filter(Boolean);
+  return (letters.length > 1 ? letters[0][0] + letters[1][0] : (letters[0] ?? "?").slice(0, 2)).toUpperCase();
+}
 
 /** The account page's content, from data its caller has already read. */
 export function AccountView({
@@ -15,91 +21,106 @@ export function AccountView({
   kind,
   subscription,
   plan,
+  plans,
   welcome,
 }: {
   email: string;
   kind: string;
   subscription: Subscription | null;
+  /** The plan the subscription row names, when it names one. */
   plan: Plan | null;
+  /** Every plan on sale, to offer the one the person is not on. */
+  plans: Plan[] | null;
   welcome: boolean;
 }) {
-  const summary = describe(kind, subscription, plan);
+  const summary = planSummary({ kind, subscription, plan }, formatDate);
   const setUp = isSetUp(subscription);
-  const showSubscribe = !setUp && kind !== "admin" && kind !== "allowlist";
+  const permanent = kind === "admin" || kind === "allowlist";
+  const showSubscribe = !setUp && !permanent && subscription?.status !== "past_due";
+  const current = currentPlanId(subscription);
+  const other = current ? (plans?.find((candidate) => candidate.id !== current) ?? null) : null;
+  const price = plan ? `${priceLabel(plan.amount_paise)} per ${PERIOD_LABEL[plan.period] ?? plan.period}` : null;
 
   return (
     <>
-      <h1 className="text-heading font-semibold">Account</h1>
+      <header className="flex items-center gap-4">
+        <span
+          aria-hidden
+          className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-lead font-semibold text-primary-foreground"
+        >
+          {initials(email)}
+        </span>
+        <div className="min-w-0">
+          <h1 className="text-heading font-semibold">Profile</h1>
+          <p className="truncate text-sm text-muted-foreground">{email}</p>
+        </div>
+      </header>
 
       {welcome ? (
-        <p role="status" className="mt-4 rounded-row bg-(--control) px-4 py-3 text-sm">
+        <p role="status" className="mt-5 rounded-row bg-(--control) px-4 py-3 text-sm">
           Thank you. Your plan is set up.
         </p>
       ) : null}
 
-      <section aria-label="Your plan" className="panel mt-6 p-6 sm:p-8">
-        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-sm">
-          <dt className="text-muted-foreground">Email</dt>
-          <dd className="min-w-0 break-words font-medium">{email}</dd>
-          <dt className="text-muted-foreground">Plan</dt>
-          <dd className="font-medium">{summary.plan}</dd>
-          <dt className="text-muted-foreground">Status</dt>
-          <dd className="font-medium">{summary.status}</dd>
-          {summary.next ? (
-            <>
-              <dt className="text-muted-foreground">{summary.next[0]}</dt>
-              <dd className="font-medium tabular-nums">{summary.next[1]}</dd>
-            </>
-          ) : null}
-        </dl>
+      <section aria-labelledby="plan-heading" className="panel mt-6 p-6 sm:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div>
+            <h2 id="plan-heading" className="text-sm text-muted-foreground">
+              Your plan
+            </h2>
+            <p className="mt-1 text-lead font-semibold">{summary.title}</p>
+            {price ? <p className="text-sm text-muted-foreground tabular-nums">{price}</p> : null}
+          </div>
+          <span className="rounded-md bg-(--control) px-2.5 py-1 text-xs font-medium">{summary.status}</span>
+        </div>
+
+        <p className="mt-5 text-sm leading-relaxed">{summary.detail}</p>
+
+        {summary.nextCharge ? (
+          <dl className="mt-5 grid grid-cols-2 gap-4 border-t pt-5 text-sm">
+            <div>
+              <dt className="text-muted-foreground">Next charge</dt>
+              <dd className="mt-0.5 font-medium tabular-nums">{formatDate(summary.nextCharge.date)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Amount</dt>
+              <dd className="mt-0.5 font-medium tabular-nums">{priceLabel(summary.nextCharge.paise)}</dd>
+            </div>
+          </dl>
+        ) : null}
 
         {showSubscribe ? (
           <Link href="/pricing" className={cn(buttonVariants(), "mt-6 h-10 w-full sm:w-auto")}>
-            {kind === "lapsed" ? "Subscribe" : "See the plan"}
+            {kind === "lapsed" || subscription?.status === "cancelled" ? "Subscribe" : "Choose a plan"}
           </Link>
         ) : null}
       </section>
+
+      {other ? (
+        <section id="switch" aria-labelledby="switch-heading" className="panel mt-4 scroll-mt-6 p-6 sm:p-8">
+          <h2 id="switch-heading" className="text-sm font-semibold">
+            Switch plan
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            You can move to the {planTitle(other).toLowerCase()} ({priceLabel(other.amount_paise)} per {PERIOD_LABEL[other.period] ?? other.period}). Cancel
+            your current plan below; it stays active until {summary.nextCharge ? formatDate(summary.nextCharge.date) : "the end of the period"}, and nothing
+            more is charged. Then choose the new plan on the pricing page.
+          </p>
+          <Link href="/pricing" className={cn(buttonVariants({ variant: "outline" }), "mt-3 h-10 w-full sm:w-auto")}>
+            Compare plans
+          </Link>
+        </section>
+      ) : null}
 
       <section aria-label="Cancel or delete" className="panel mt-4 p-6 sm:p-8">
         <AccountActions canCancel={setUp && subscription?.status !== "cancelled"} inTrial={subscription?.status === "trialing"} contactEmail={LEGAL.contactEmail} />
       </section>
 
       <form action={signOut} className="mt-6">
-        <button
-          type="submit"
-          className="rounded text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
+        <button type="submit" className={cn(buttonVariants({ variant: "outline" }), "h-10")}>
           Sign out
         </button>
       </form>
     </>
   );
-}
-
-/** The plan, status and next date as sentences, from the token's kind and the subscription row. */
-function describe(kind: string, subscription: Subscription | null, plan: Plan | null) {
-  if (kind === "admin") return { plan: "Administrator", status: "Full access", next: null };
-  if (kind === "allowlist") return { plan: "Invited account", status: "Full access, no expiry", next: null };
-
-  const planName = plan ? `${plan.name} (${priceLabel(plan.amount_paise)} per ${PERIOD_LABEL[plan.period] ?? plan.period})` : null;
-  switch (subscription?.status) {
-    case "active":
-      return { plan: planName ?? "Subscribed", status: "Active", next: ["Renews", formatDate(subscription.current_period_end)] as const };
-    case "trialing":
-      return subscription.plan_id
-        ? { plan: planName ?? "Subscribed", status: "Free trial, plan set up", next: ["First charge", formatDate(subscription.trial_ends_at)] as const }
-        : kind === "lapsed"
-          ? { plan: "None", status: "Free trial ended", next: ["Trial ended", formatDate(subscription.trial_ends_at)] as const }
-          : { plan: "Free trial", status: "Free trial", next: ["Trial ends", formatDate(subscription.trial_ends_at)] as const };
-    case "past_due":
-      return { plan: planName ?? "Subscribed", status: "Last payment did not go through", next: null };
-    case "cancelled":
-      return {
-        plan: planName ?? "Subscribed",
-        status: kind === "lapsed" ? "Cancelled" : "Cancelled, active until the end of the period",
-        next: kind === "lapsed" ? null : (["Access until", formatDate(subscription.current_period_end)] as const),
-      };
-    default:
-      return { plan: "None", status: kind === "lapsed" ? "Free trial ended" : "No plan", next: null };
-  }
 }

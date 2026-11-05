@@ -227,11 +227,78 @@ export function trialStartLine(subscription, plan) {
   const when = new Date(subscription.trial_ends_at);
   if (Number.isNaN(when.getTime())) return null;
   const day = when.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
-  // A yearly plan may have been taken at its introductory price; the row says
-  // which (null: not recorded, so name no amount).
-  if (plan.period === "yearly") {
-    const paise = subscription.offer_applied === true ? plan.offer_amount_paise : subscription.offer_applied === false ? plan.amount_paise : null;
-    return paise == null ? `${plan.name} starts ${day}` : `${plan.name} starts ${day}, first charge ${priceLabel(paise)}`;
+  const paise = firstChargePaise(subscription, plan);
+  return paise == null ? `${plan.name} starts ${day}` : `${plan.name} starts ${day}, first charge ${priceLabel(paise)}`;
+}
+
+/**
+ * The first charge. A yearly plan may have been taken at its introductory price;
+ * the row says which (offer_applied null: not recorded, so no amount).
+ */
+export function firstChargePaise(subscription, plan) {
+  if (plan.period !== "yearly") return plan.amount_paise;
+  if (subscription.offer_applied === true) return plan.offer_amount_paise ?? null;
+  return subscription.offer_applied === false ? plan.amount_paise : null;
+}
+
+// --- The pricing and account pages' wording ---
+
+/** Both launch plans share one name, so the page names a plan by its period. */
+export function planTitle(plan) {
+  return plan?.period === "yearly" ? "Yearly plan" : plan?.period === "monthly" ? "Monthly plan" : "Your plan";
+}
+
+/** The plan a person has set up (paid, or authorised and waiting out the trial), else null. */
+export function currentPlanId(subscription) {
+  return isSetUp(subscription) ? (subscription.plan_id ?? null) : null;
+}
+
+/**
+ * The account page's plan card as words. `fmtDate` and `fmtMoney` are the page's
+ * formatters, so this stays plain and testable. `nextCharge` is null when no
+ * charge is coming. The first charge follows the row's offer_applied, never today's offer.
+ * @returns {{title: string, status: string, detail: string, nextCharge: {date: string|null, paise: number}|null}}
+ */
+export function planSummary({ kind, subscription, plan }, fmtDate, fmtMoney = priceLabel) {
+  if (kind === "admin") return { title: "Administrator", status: "Full access", detail: "Your account has full access, with no end date.", nextCharge: null };
+  if (kind === "allowlist") return { title: "Invited account", status: "Full access", detail: "Your account was invited and has full access, with no end date.", nextCharge: null };
+
+  const title = planTitle(plan);
+  const lapsed = kind === "lapsed";
+  switch (subscription?.status) {
+    case "active": {
+      const paise = plan?.amount_paise;
+      const date = subscription.current_period_end;
+      return {
+        title,
+        status: "Active",
+        detail: `Renews on ${fmtDate(date)}${paise != null ? ` for ${fmtMoney(paise)}` : ""}.`,
+        nextCharge: paise != null ? { date, paise } : null,
+      };
+    }
+    case "trialing": {
+      const date = subscription.trial_ends_at;
+      if (!subscription.plan_id) {
+        return lapsed
+          ? { title: "No plan", status: "Free trial ended", detail: "Subscribe to get access back.", nextCharge: null }
+          : { title: "Free trial", status: "Free trial", detail: `Your trial ends on ${fmtDate(date)}. Pick a plan before then to keep access. Nothing is charged until it ends.`, nextCharge: null };
+      }
+      const line = plan ? trialStartLine(subscription, plan) : null;
+      const paise = plan ? firstChargePaise(subscription, plan) : null;
+      return {
+        title,
+        status: "Free trial",
+        detail: line ? `Free trial, ${line}.` : "Free trial. Your plan starts when the trial ends.",
+        nextCharge: paise != null ? { date, paise } : null,
+      };
+    }
+    case "past_due":
+      return { title, status: "Payment failed", detail: "Your last payment did not go through, so access has paused.", nextCharge: null };
+    case "cancelled":
+      return lapsed
+        ? { title, status: "Cancelled", detail: "Your plan has ended. Subscribe to get access back.", nextCharge: null }
+        : { title, status: "Cancelled", detail: `Access until ${fmtDate(subscription.current_period_end ?? subscription.trial_ends_at)}. You will not be charged again.`, nextCharge: null };
+    default:
+      return { title: "No plan", status: lapsed ? "Free trial ended" : "No plan", detail: lapsed ? "Subscribe to get access back." : "Pick a plan to get started.", nextCharge: null };
   }
-  return `${plan.name} starts ${day}, first charge ${priceLabel(plan.amount_paise)}`;
 }

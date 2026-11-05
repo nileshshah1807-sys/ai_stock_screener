@@ -92,11 +92,13 @@ export function CheckoutButton({
   email,
   brand,
   label,
+  fullWidth = false,
 }: {
   planId: string;
   email: string;
   brand: string;
   label: string;
+  fullWidth?: boolean;
 }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("idle");
@@ -188,7 +190,7 @@ export function CheckoutButton({
   const working = phase === "starting" || phase === "confirming";
   return (
     <div className="space-y-3">
-      <Button type="button" className="h-10 w-full sm:w-auto sm:min-w-44" disabled={locked} onClick={start}>
+      <Button type="button" className={fullWidth ? "h-10 w-full" : "h-10 w-full sm:w-auto sm:min-w-44"} disabled={locked} onClick={start}>
         {working ? (
           <>
             <Loader2 className="size-4 animate-spin" aria-hidden />

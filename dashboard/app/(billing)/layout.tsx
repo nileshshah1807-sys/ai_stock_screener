@@ -18,7 +18,7 @@ export default async function BillingLayout({ children }: LayoutProps<"/">) {
   const inApp = session ? isEntitled(session.access) : false;
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-10 sm:py-14">
+    <main className="mx-auto w-full max-w-3xl px-4 py-10 sm:py-14">
       <div className="mb-8 flex items-center justify-between gap-4">
         <Link
           href={inApp ? "/" : "/login"}
