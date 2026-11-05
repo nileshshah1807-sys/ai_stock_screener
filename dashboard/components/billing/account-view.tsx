@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { AccountActions } from "@/components/billing/account-actions";
 import { buttonVariants } from "@/components/ui/button";
-import { PERIOD_LABEL, isSetUp, priceLabel } from "@/lib/plan-access.mjs";
+import { PERIOD_LABEL, isSetUp, priceLabel } from "@/lib/billing.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
 import type { Plan, Subscription } from "@/lib/plans";

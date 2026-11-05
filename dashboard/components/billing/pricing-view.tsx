@@ -3,7 +3,7 @@ import { Check } from "lucide-react";
 
 import { CheckoutButton } from "@/components/billing/checkout-button";
 import { buttonVariants } from "@/components/ui/button";
-import { PERIOD_LABEL, isSetUp, lapseReason, perMonthLabel, priceLabel, savingPercent } from "@/lib/plan-access.mjs";
+import { PERIOD_LABEL, isSetUp, lapseReason, perMonthLabel, priceLabel, savingPercent } from "@/lib/billing.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
 import type { Plan, Subscription } from "@/lib/plans";

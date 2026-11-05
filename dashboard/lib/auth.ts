@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { cache } from "react";
 
-import { accessFromClaims, hasAccess } from "@/lib/plan-access.mjs";
+import { accessFromClaims, isEntitled } from "@/lib/billing.mjs";
 import { isSessionExpired } from "@/lib/session-policy.mjs";
 import { createClient } from "@/lib/supabase/server";
 
@@ -83,7 +83,7 @@ export const getSession = cache(async (): Promise<Session | null> => {
  */
 export const getViewer = cache(async (): Promise<Viewer | null> => {
   const session = await getSession();
-  if (!session || !hasAccess(session.access)) {
+  if (!session || !isEntitled(session.access)) {
     return null;
   }
   const { id, email, access } = session;

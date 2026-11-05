@@ -6,7 +6,7 @@ import { useState, useSyncExternalStore } from "react";
 import { Loader2, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { isSetUp } from "@/lib/plan-access.mjs";
+import { isSetUp } from "@/lib/billing.mjs";
 import { createClient } from "@/lib/supabase/client";
 
 const CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
@@ -132,7 +132,9 @@ export function CheckoutButton({
         loadCheckout(),
       ]);
       const body = (await response.json().catch(() => ({}))) as Partial<Created> & { error?: string };
-      if (response.status === 401) {
+      // A signed-out or expired session is redirected to /login by the proxy
+      // (HTML, status 200 after the follow), so a redirect counts as a 401.
+      if (response.status === 401 || response.redirected) {
         router.push("/login?trial=1");
         return;
       }

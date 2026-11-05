@@ -28,13 +28,13 @@ export function AccountActions({ canCancel, inTrial, contactEmail }: Props) {
           title="Cancel your plan"
           explain={
             inTrial
-              ? "Your plan is cancelled now and the first charge will not be made. Nothing has been charged."
+              ? "The first charge will not be made. Nothing has been charged, and your trial access runs to its end."
               : "Your plan stays active until the end of the period you have paid for, then stops. You will not be charged again."
           }
           button="Cancel plan"
           confirm={inTrial ? "Yes, cancel my plan" : "Yes, cancel at the end of the period"}
           endpoint="/api/billing/cancel"
-          done={inTrial ? "Your plan is cancelled. You will not be charged." : "Your plan is cancelled and will not renew."}
+          done={inTrial ? "Your plan is cancelled. You will not be charged; your trial access runs to its end." : "Your plan is cancelled and will not renew."}
           contactEmail={contactEmail}
         />
       ) : null}

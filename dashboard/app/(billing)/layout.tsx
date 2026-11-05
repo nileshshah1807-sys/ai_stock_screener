@@ -3,7 +3,7 @@ import Link from "next/link";
 import { BrandMark } from "@/components/brand-mark";
 import { getSession } from "@/lib/auth";
 import { LEGAL, LEGAL_PAGES } from "@/lib/legal";
-import { hasAccess } from "@/lib/plan-access.mjs";
+import { isEntitled } from "@/lib/billing.mjs";
 
 const QUIET_LINK =
   "rounded text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -15,7 +15,7 @@ const QUIET_LINK =
  */
 export default async function BillingLayout({ children }: LayoutProps<"/">) {
   const session = await getSession();
-  const inApp = session ? hasAccess(session.access) : false;
+  const inApp = session ? isEntitled(session.access) : false;
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10 sm:py-14">
