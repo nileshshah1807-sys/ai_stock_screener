@@ -73,6 +73,15 @@ export function checkoutAction(row, remote, razorpayPlanId) {
   return remote.status === "created" && remote.plan_id === razorpayPlanId ? "reuse" : "create";
 }
 
+/**
+ * Razorpay Checkout's `method` option. The early-bird offer is attached to UPI
+ * only, so a card payer would be charged the full price: while the offer is
+ * applied, checkout offers UPI alone. Without it, undefined leaves every method on.
+ */
+export function checkoutMethods(offerApplied) {
+  return offerApplied ? { upi: true, card: false, netbanking: false, wallet: false, emi: false, paylater: false } : undefined;
+}
+
 /** Subscriptions are charged until cancelled; Razorpay needs a finite count. */
 const TOTAL_COUNT = { monthly: 120, yearly: 10 };
 /** A first charge less than this far ahead is simply charged now. */

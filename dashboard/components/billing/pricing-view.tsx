@@ -122,7 +122,7 @@ function PlanRow({
           <>
             <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">
               <span className="text-base font-semibold text-foreground">{priceLabel(plan.offer.amount_paise)}</span>{" "}
-              <s aria-label={`regular price ${priceLabel(plan.amount_paise)}`}>{priceLabel(plan.amount_paise)}</s> for the first {period}
+              <s aria-label={`regular price ${priceLabel(plan.amount_paise)}`}>{priceLabel(plan.amount_paise)}</s> for the first {period}, with UPI Autopay
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground tabular-nums">
               {plan.offer.name}
