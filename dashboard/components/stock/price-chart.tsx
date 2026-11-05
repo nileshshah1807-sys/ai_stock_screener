@@ -331,7 +331,7 @@ export function PriceChart({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {/* A range longer than the series renders an identical chart under a
             different label, which reads as a bug. Max always stays. */}
-        <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="max-w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <SegmentedControl
             label="Chart range"
             value={rangeLabel}
