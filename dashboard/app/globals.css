@@ -966,3 +966,111 @@ details[data-closing] > summary svg {
     stroke-dashoffset: 0;
   }
 }
+
+/* Landing page depth: layered backdrops that the scroll moves at different
+   speeds (LandingMotion, data-parallax), light that follows the pointer, and
+   hover lift on the sample panels. All decoration sits behind content and none
+   of it takes a layout box. */
+.landing-clip {
+  position: relative;
+  overflow: clip;
+  isolation: isolate;
+}
+.landing-glow {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: 9999px;
+  filter: blur(64px);
+  background: radial-gradient(closest-side, color-mix(in oklab, var(--brand) 46%, transparent), transparent);
+}
+.landing-dots {
+  position: absolute;
+  inset: -20% 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(var(--border) 1.1px, transparent 1.3px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 70% 60% at 70% 40%, #000, transparent);
+}
+.landing-spot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(420px circle at var(--mx, 72%) var(--my, 30%), color-mix(in oklab, var(--brand) 13%, transparent), transparent 70%);
+}
+.landing-progress {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 60;
+  height: 2px;
+  transform-origin: left;
+  transform: scaleX(0);
+  background: var(--brand);
+  pointer-events: none;
+}
+.landing-mesh {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+}
+.landing-mesh::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  z-index: -1;
+  background:
+    radial-gradient(40% 40% at 20% 30%, rgb(255 255 255 / 0.16), transparent 70%),
+    radial-gradient(35% 45% at 80% 70%, color-mix(in oklab, var(--brand) 60%, #fff 40%) , transparent 70%);
+  opacity: 0.5;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .landing-mesh::before {
+    animation: landing-drift 18s ease-in-out infinite alternate;
+  }
+  .landing .panel {
+    transition: transform 0.35s var(--ease-entrance), box-shadow 0.35s var(--ease-entrance);
+  }
+  .landing .panel:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 18px 40px -18px color-mix(in oklab, var(--brand) 38%, transparent), 0 2px 6px rgb(0 0 0 / 0.06);
+  }
+}
+@keyframes landing-drift {
+  to {
+    transform: translate3d(6%, -4%, 0) rotate(8deg);
+  }
+}
+.landing-feature {
+  transition: border-color 0.25s, transform 0.35s var(--ease-entrance);
+}
+.landing-feature:hover {
+  border-color: var(--brand);
+}
+.landing-feature:hover dt {
+  color: var(--brand);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .landing-feature:hover {
+    transform: translateY(-2px);
+  }
+}
+/* Sliding underline for the product tour tabs. */
+.landing-tabbar {
+  position: relative;
+}
+.landing-tabmark {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--brand);
+  transition: transform 0.4s var(--ease-entrance), width 0.4s var(--ease-entrance);
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-tabmark {
+    transition: none;
+  }
+}

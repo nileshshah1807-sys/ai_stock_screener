@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { BrandMark } from "@/components/brand-mark";
 import { CallsBlock, StageBlock } from "@/components/landing/feature-blocks";
 import { HeroGrid } from "@/components/landing/hero-grid";
+import { LandingMotion } from "@/components/landing/landing-motion";
 import { LandingPricing } from "@/components/landing/landing-pricing";
 import { ProductTour } from "@/components/landing/product-tour";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -81,6 +82,9 @@ export default async function LandingPage() {
         Skip to content
       </a>
 
+      <div aria-hidden data-progress className="landing-progress" />
+      <LandingMotion />
+
       <header className="sticky top-0 z-40 border-b bg-background">
         <div className={cn(section, "flex h-14 items-center gap-4")}>
           <Link href="/" className="flex items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -109,7 +113,10 @@ export default async function LandingPage() {
       </header>
 
       <main id="main" className="flex-1">
-        <section className="landing-ledger border-b">
+        <section data-spotlight className="landing-ledger landing-clip landing-spot border-b">
+          <div aria-hidden data-parallax="0.12" className="landing-dots" />
+          <div aria-hidden data-parallax="0.4" className="landing-glow -right-28 top-4 size-[34rem]" />
+          <div aria-hidden data-parallax="-0.25" className="landing-glow -bottom-32 -left-32 size-[24rem] opacity-60" />
           <div className={cn(section, "grid items-center gap-10 py-14 sm:py-20 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-14")}>
             <div className="motion-safe:animate-rise">
               <h1 className="text-[clamp(2.25rem,5.4vw,4rem)] font-semibold leading-[1.04] tracking-[-0.035em] text-balance">
@@ -129,7 +136,9 @@ export default async function LandingPage() {
               <p className="mt-4 text-xs text-muted-foreground">Data for research and education, not investment advice.</p>
             </div>
             <div className="min-w-0 motion-safe:animate-rise" style={{ animationDelay: "120ms" }}>
-              <HeroGrid />
+              <div data-parallax="0.07">
+                <HeroGrid />
+              </div>
             </div>
           </div>
         </section>
@@ -138,14 +147,15 @@ export default async function LandingPage() {
           <CallsBlock />
         </section>
 
-        <section id="stage" className="scroll-mt-16 border-y bg-card">
+        <section id="stage" className="landing-clip scroll-mt-16 border-y bg-card">
+          <div aria-hidden data-parallax="0.3" className="landing-glow -left-40 top-10 size-[30rem] opacity-50" />
           <div className={cn(section, "py-14 sm:py-20")}>
             <StageBlock />
           </div>
         </section>
 
         <section id="product" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
-          <h2 className={h2}>Everything on one page per question</h2>
+          <h2 data-reveal className={h2}>Everything on one page per question</h2>
           <div className="mt-10">
             <ProductTour />
           </div>
@@ -153,10 +163,10 @@ export default async function LandingPage() {
 
         <section id="features" className="border-y bg-card">
           <div className={cn(section, "grid gap-10 py-14 sm:py-20 lg:grid-cols-[minmax(0,1fr)_minmax(0,2.2fr)]")}>
-            <h2 className={h2}>What you get</h2>
-            <dl className="grid gap-x-10 gap-y-7 md:grid-cols-2">
+            <h2 data-reveal className={h2}>What you get</h2>
+            <dl data-stagger className="grid gap-x-10 gap-y-7 md:grid-cols-2">
               {FEATURES.map(([name, body]) => (
-                <div key={name} className="border-t pt-4">
+                <div key={name} className="landing-feature border-t pt-4">
                   <dt className="text-lead font-semibold">{name}</dt>
                   <dd className="mt-1.5 max-w-[52ch] text-sm leading-relaxed text-muted-foreground">{body}</dd>
                 </div>
@@ -166,8 +176,8 @@ export default async function LandingPage() {
         </section>
 
         <section id="how" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
-          <h2 className={h2}>How it works</h2>
-          <ol className="mt-10 grid gap-8 md:grid-cols-3">
+          <h2 data-reveal className={h2}>How it works</h2>
+          <ol data-stagger className="mt-10 grid gap-8 md:grid-cols-3">
             {STEPS.map(([name, body], i) => (
               <li key={name} className="relative border-t-2 border-foreground pt-4">
                 <span className="sr-only">Step {i + 1}: </span>
@@ -183,7 +193,7 @@ export default async function LandingPage() {
 
         <section id="pricing" className="scroll-mt-16 border-y bg-card">
           <div className={cn(section, "py-14 sm:py-20")}>
-            <h2 className={h2}>One subscription, both markets</h2>
+            <h2 data-reveal className={h2}>One subscription, both markets</h2>
             <p className="mt-3 text-sm text-muted-foreground">Start with 7 days free. The plans below are read live from our billing records.</p>
             <div className="mt-10">
               <Suspense fallback={<div className="panel h-72 motion-safe:animate-pulse" aria-hidden />}>
@@ -194,8 +204,8 @@ export default async function LandingPage() {
         </section>
 
         <section id="faq" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
-          <h2 className={h2}>Questions</h2>
-          <div className="mt-8 max-w-3xl divide-y border-y">
+          <h2 data-reveal className={h2}>Questions</h2>
+          <div data-stagger className="mt-8 max-w-3xl divide-y border-y">
             {FAQ.map(([q, a]) => (
               <details key={q} className="group py-4">
                 <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 rounded text-lead font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
@@ -210,7 +220,7 @@ export default async function LandingPage() {
 
         <section id="about" className="border-t bg-card">
           <div className={cn(section, "grid gap-6 py-14 sm:py-20 md:grid-cols-2")}>
-            <h2 className={h2}>Built by one person, for people who read filings</h2>
+            <h2 data-reveal className={h2}>Built by one person, for people who read filings</h2>
             <div>
               <p className="max-w-[56ch] text-sm leading-relaxed text-muted-foreground">
               Sievr is made and run by {LEGAL.operator}, {LEGAL.operatorForm}. It started as a personal screener for reading results and calls faster, and it stays small on purpose: a few pages, each doing one job well. Mistakes in the data are fixed when reported.
@@ -222,9 +232,9 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section className="bg-primary text-primary-foreground">
+        <section className="landing-mesh bg-primary text-primary-foreground">
           <div className={cn(section, "flex flex-col items-start gap-5 py-14 sm:py-20")}>
-            <h2 className={h2}>Try it on this week&apos;s results</h2>
+            <h2 data-reveal className={h2}>Try it on this week&apos;s results</h2>
             <div className="flex flex-wrap gap-3">
               <Link href={session ? "/screener" : "/login?trial=1"} className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>
                 {session ? "Open the app" : "Start 7-day free trial"}

@@ -1,7 +1,8 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 
+import { CountUp } from "@/components/motion";
 import { cn } from "@/lib/utils";
 
 /*
@@ -23,6 +24,16 @@ export function ProductTour() {
   const [tab, setTab] = useState<TabId>("results");
   const base = useId();
   const active = TABS.find((t) => t.id === tab)!;
+  const mark = useRef<HTMLSpanElement>(null);
+
+  // The underline slides to the chosen tab; it is measured, so it follows the
+  // real label widths and the tab strip's own scroll on a narrow screen.
+  useLayoutEffect(() => {
+    const button = document.getElementById(`${base}-${tab}`);
+    if (!button || !mark.current) return;
+    mark.current.style.width = `${button.offsetWidth}px`;
+    mark.current.style.transform = `translateX(${button.offsetLeft}px)`;
+  }, [tab, base]);
 
   const move = (event: React.KeyboardEvent, index: number) => {
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -35,7 +46,8 @@ export function ProductTour() {
 
   return (
     <div>
-      <div role="tablist" aria-label="Product pages" className="flex gap-1 overflow-x-auto border-b">
+      <div role="tablist" aria-label="Product pages" className="landing-tabbar flex gap-1 overflow-x-auto border-b">
+        <span ref={mark} aria-hidden className="landing-tabmark" />
         {TABS.map((t, i) => (
           <button
             key={t.id}
@@ -48,8 +60,8 @@ export function ProductTour() {
             onClick={() => setTab(t.id)}
             onKeyDown={(e) => move(e, i)}
             className={cn(
-              "-mb-px shrink-0 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              tab === t.id ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+              "shrink-0 px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              tab === t.id ? "text-foreground" : "text-muted-foreground hover:text-foreground",
             )}
           >
             {t.label}
@@ -144,11 +156,11 @@ function BreadthMock() {
       <div className="flex flex-wrap gap-x-8 gap-y-2">
         <div>
           <p className="text-xs text-muted-foreground">Above 200-day average</p>
-          <p className="text-title font-semibold tabular-nums">62%</p>
+          <p className="text-title font-semibold tabular-nums"><CountUp value={62} />%</p>
         </div>
         <div>
           <p className="text-xs text-muted-foreground">Stocks in Stage 2</p>
-          <p className="text-title font-semibold tabular-nums">412</p>
+          <p className="text-title font-semibold tabular-nums"><CountUp value={412} /></p>
         </div>
       </div>
       <svg viewBox={`0 0 ${w} ${h + 4}`} className="mt-3 h-32 w-full" role="img" aria-label="Sample line chart of the share of stocks above their 200-day average, rising over fifteen sessions">
