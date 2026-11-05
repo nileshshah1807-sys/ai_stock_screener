@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { newSubscriptionBody } from "@/lib/billing.mjs";
+import { checkoutAction, newSubscriptionBody } from "@/lib/billing.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -30,13 +30,14 @@ export async function POST(request: NextRequest) {
 
   const wanted = await request.json().then((b) => (typeof b?.plan_id === "string" ? b.plan_id : null)).catch(() => null);
 
-  // The viewer's own row (RLS), then the plan with its Razorpay id (service role).
-  const { data: sub } = await supabase
+  // The user's row (id from the verified token) and the plan with its Razorpay id.
+  const { data: sub } = await admin
     .from("subscriptions")
-    .select("status, trial_ends_at")
+    .select("status, plan_id, trial_ends_at, razorpay_subscription_id")
     .eq("user_id", userId)
     .maybeSingle();
-  if (sub?.status === "active") return fail("already_subscribed", 409);
+  if (!sub) return fail("no_subscription", 404);
+  if (checkoutAction(sub, null, "") === "refuse") return fail("already_subscribed", 409);
 
   let query = admin
     .from("plans")
@@ -47,6 +48,32 @@ export async function POST(request: NextRequest) {
   const { data: plans } = await query.order("created_at").limit(1);
   const plan = plans?.[0];
   if (!plan) return fail("no_active_plan", 404);
+
+  const auth = `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`;
+
+  // A subscription already started for this user is never duplicated: both would
+  // charge. Ask Razorpay where it stands.
+  let existing: { id?: string; status?: string; plan_id?: string; offer_id?: string | null; start_at?: number | null } | null = null;
+  if (sub.razorpay_subscription_id) {
+    const found = await fetch(`${RAZORPAY_SUBSCRIPTIONS}/${sub.razorpay_subscription_id}`, {
+      headers: { Authorization: auth },
+    }).catch(() => null);
+    if (!found?.ok) return fail("razorpay_error", 502);
+    existing = await found.json().catch(() => null);
+    if (!existing?.status) return fail("razorpay_error", 502);
+  }
+  const action = checkoutAction(sub, existing, plan.razorpay_plan_id);
+  if (action === "refuse") return fail("already_subscribed", 409);
+  if (action === "reuse" && existing?.id) {
+    return NextResponse.json({
+      subscription_id: existing.id,
+      key_id: keyId,
+      plan: { id: plan.id, name: plan.name, amount_paise: plan.amount_paise, period: plan.period },
+      offer_applied: Boolean(existing.offer_id),
+      charged_amount_paise: existing.offer_id ? plan.offer_amount_paise : plan.amount_paise,
+      trial_ends_at: existing.start_at ? new Date(existing.start_at * 1000).toISOString() : null,
+    });
+  }
 
   // The introductory offer, while it is open (the database decides).
   const { data: offerOpen } = plan.razorpay_offer_id
@@ -63,10 +90,7 @@ export async function POST(request: NextRequest) {
   );
   const response = await fetch(RAZORPAY_SUBSCRIPTIONS, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`,
-    },
+    headers: { "Content-Type": "application/json", Authorization: auth },
     body: JSON.stringify(body),
   }).catch(() => null);
   const created = response?.ok ? await response.json().catch(() => null) : null;
@@ -75,10 +99,12 @@ export async function POST(request: NextRequest) {
   // Remember which Razorpay subscription is this user's. plan_id is set by the
   // webhook when the mandate is authorised, so it marks a subscription that is
   // set up, not one that was only started.
-  await admin
+  const { data: stored, error: storeError } = await admin
     .from("subscriptions")
     .update({ razorpay_subscription_id: created.id, updated_at: new Date().toISOString() })
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .select("user_id");
+  if (storeError || !stored?.length) return fail("write_failed", 500); // never charge a subscription we cannot match
 
   return NextResponse.json({
     subscription_id: created.id,
