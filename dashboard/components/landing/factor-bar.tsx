@@ -1,46 +1,32 @@
-"use client";
+import { FACTORS } from "@/lib/landing.mjs";
 
-import { useLandingMarket } from "@/components/landing/landing-market";
-import { SAMPLE_MARKETS, factorsFor } from "@/lib/landing.mjs";
-import { cn } from "@/lib/utils";
+/** Fill for each block, darkest first; neutral ink at five strengths, so no block reads as the good one. */
+const SHADES = ["bg-foreground/55", "bg-foreground/42", "bg-foreground/32", "bg-foreground/22", "bg-foreground/14"];
 
 /**
- * What the ranking weighs, as one bar split into its factors for the market
- * chosen above. Guidance comes from earnings calls read for Indian companies
- * only, so on the US it is simply not there and the rest widen. The segments
- * are equal on purpose: the real weights are normalised per stock by what is
- * reported, so a drawn percentage would be a claim the page cannot keep.
+ * What the ranking weighs: five blocks, one bar, widths in proportion to each
+ * block's current weight. The same in both markets. The names and numbers are
+ * listed under the bar, so nothing depends on a label fitting inside a segment.
  */
 export function FactorBar() {
-  const { market, setMarket } = useLandingMarket();
-  const factors = factorsFor(market);
   return (
     <figure>
-      <div role="group" aria-label="Market" className="flex w-fit gap-1 rounded-md bg-(--glass) p-0.5">
-        {(Object.keys(SAMPLE_MARKETS) as (keyof typeof SAMPLE_MARKETS)[]).map((key) => (
-          <button
-            key={key}
-            type="button"
-            aria-pressed={market === key}
-            onClick={() => setMarket(key)}
-            className={cn("h-8 rounded px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", market === key ? "bg-(--lens) text-foreground shadow-(--lens-shadow)" : "text-muted-foreground hover:text-foreground")}
-          >
-            {SAMPLE_MARKETS[key].label}
-          </button>
+      <div aria-hidden className="flex h-10 overflow-hidden rounded-md border">
+        {FACTORS.map((f, i) => (
+          <div key={f.key} style={{ width: `${f.weight}%` }} className={`${SHADES[i]} ${i > 0 ? "border-l border-background" : ""}`} />
         ))}
       </div>
-      <ul className="mt-4 flex h-14 overflow-hidden rounded-md border text-xs font-medium sm:text-sm">
-        {factors.map((f, i) => (
-          <li
-            key={f.key}
-            className={cn("flex min-w-0 flex-1 items-center justify-center px-1 text-center leading-tight transition-[flex-grow] duration-500 [&:not(:first-child)]:border-l", i % 2 ? "bg-(--control)" : "bg-card", f.key === "guidance" && "bg-brand-soft text-brand")}
-          >
-            {f.label}
+      <ul className="mt-4 grid gap-2 sm:grid-cols-5">
+        {FACTORS.map((f, i) => (
+          <li key={f.key} className="flex items-center gap-2 text-sm sm:block">
+            <span aria-hidden className={`inline-block size-3 shrink-0 rounded-sm border sm:mb-1 sm:block ${SHADES[i]}`} />
+            <span className="font-medium">{f.label}</span>
+            <span className="tabular-nums text-muted-foreground sm:block"> {f.weight}%</span>
           </li>
         ))}
       </ul>
-      <figcaption className="mt-3 text-xs text-muted-foreground">
-        {market === "ind" ? "Six things, India: management guidance is read from earnings calls." : "Five things, US: there are no earnings-call readings, so the rest carry the ranking."} Segment widths are schematic, not exact weights.
+      <figcaption className="mt-4 text-xs text-muted-foreground">
+        Current weight of each block in the ranking. India: management tone from the latest call adjusts the ranking for companies with a call.
       </figcaption>
     </figure>
   );

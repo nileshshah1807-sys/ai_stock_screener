@@ -25,37 +25,63 @@ const LINES = [
 
 /**
  * A made-up price history with its 50, 150 and 200-day averages, in the four
- * stage bands. The bands shade in as the price line reaches them. The history
- * is invented and neutral ink throughout: no stage is coloured as the good one.
+ * stage bands. One reveal sweeps left to right over the price and its averages
+ * together, and each band shades in as the sweep reaches it. Every band has the
+ * same weight and the ink is neutral: no stage is drawn as the good one. The
+ * chart is taller than its width suggests on a phone (the svg stretches; its
+ * strokes do not) and the band names are HTML, so they stay readable.
  */
 export function StageLine() {
   const root = useRef<HTMLElement>(null);
 
   useScene(root, (gsap, el) => {
     const tl = gsap.timeline({ defaults: { ease: "none" } });
-    const bands = Array.from(el.querySelectorAll("[data-band]"));
-    tl.from(el.querySelector("[data-price]"), { attr: { "stroke-dashoffset": 1 }, duration: 4 }, 0);
-    el.querySelectorAll("[data-ma]").forEach((m, i) => tl.from(m, { opacity: 0, duration: 1 }, 0.4 + i * 0.3));
-    bands.forEach((b, i) => tl.from(b, { opacity: 0, duration: 0.6 }, S.bands[i].from * 4));
+    tl.from(el.querySelector("[data-reveal]"), { attr: { width: 0 }, duration: 4 }, 0);
+    el.querySelectorAll("[data-band]").forEach((b, i) => tl.from(b, { opacity: 0, duration: 0.5 }, S.bands[i].from * 4));
     return tl;
   });
 
   return (
     <figure ref={root}>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby="stage-caption" className="h-auto w-full">
-        {S.bands.map((b, i) => (
-          <g key={b.stage} data-band>
-            <rect x={b.from * W} y="0" width={(b.to - b.from) * W} height={H} className="fill-foreground" opacity={i % 2 ? 0.07 : 0.03} />
-            <text x={(b.from + b.to) * W / 2} y="16" textAnchor="middle" className="fill-muted-foreground text-[11px] font-medium">{STAGE_WORD[b.stage as 1 | 2 | 3 | 4]}</text>
+      <div className="relative h-64 sm:h-72">
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-labelledby="stage-caption" className="absolute inset-0 size-full">
+          <defs>
+            <clipPath id="stage-reveal">
+              <rect data-reveal x="0" y="0" width={W} height={H} />
+            </clipPath>
+          </defs>
+          {S.bands.map((b) => (
+            <g key={b.stage} data-band>
+              <rect x={b.from * W} y="0" width={(b.to - b.from) * W} height={H} className="fill-foreground" opacity="0.05" />
+              {b.from > 0 ? <line x1={b.from * W} x2={b.from * W} y1="0" y2={H} className="stroke-foreground" opacity="0.25" strokeWidth="1" vectorEffect="non-scaling-stroke" /> : null}
+            </g>
+          ))}
+          <g clipPath="url(#stage-reveal)" fill="none">
+            {LINES.map((l) => (
+              <path key={l.key} d={l.d} className="stroke-muted-foreground" strokeWidth={l.w} strokeDasharray={l.dash} vectorEffect="non-scaling-stroke" />
+            ))}
+            <path d={path(S.price)} className="stroke-foreground" strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
           </g>
+        </svg>
+        {S.bands.map((b) => (
+          <span
+            key={b.stage}
+            aria-hidden
+            style={{ left: `${((b.from + b.to) / 2) * 100}%` }}
+            className="absolute top-2 -translate-x-1/2 text-xs font-medium text-muted-foreground"
+          >
+            {STAGE_WORD[b.stage as 1 | 2 | 3 | 4]}
+          </span>
         ))}
-        {LINES.map((l) => (
-          <path key={l.key} data-ma d={l.d} fill="none" className="stroke-muted-foreground" strokeWidth={l.w} strokeDasharray={l.dash} />
-        ))}
-        <path data-price d={path(S.price)} pathLength={1} strokeDasharray={1} strokeDashoffset={0} fill="none" className="stroke-foreground" strokeWidth="2" strokeLinejoin="round" />
-      </svg>
+      </div>
+      <ul aria-hidden className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
+        <li>Price: solid, dark</li>
+        <li>50-day: thin line</li>
+        <li>150-day: dashes</li>
+        <li>200-day: dots</li>
+      </ul>
       <figcaption id="stage-caption" className="mt-2 text-xs text-muted-foreground">
-        An invented price history, solid, against its 50-day (line), 150-day (dashes) and 200-day (dots) averages. It rests under flat averages (basing), climbs above them stacked in order (advancing), slips under the 150-day while the long averages hold (topping), then falls under a falling 200-day (declining).
+        An invented price with its 50, 150 and 200-day averages, passing through four stages: basing, advancing, topping, declining.
       </figcaption>
     </figure>
   );

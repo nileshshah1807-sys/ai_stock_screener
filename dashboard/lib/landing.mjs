@@ -12,9 +12,9 @@ export const SAMPLE_MARKETS = {
     cap: (v) => `₹${v.toLocaleString("en-IN")} Cr`,
     rows: [
       { symbol: "AARAV", name: "Aarav Industries", price: 1842.5, day: 1.42, cap: 48210, pe: 24.6, stage: 2 },
-      { symbol: "KESARI", name: "Kesari Foods", price: 612.1, day: -0.64, cap: 9320, pe: 31.2, stage: 3 },
+      { symbol: "KESARI", name: "Kesari Foods", price: 612.1, day: -0.64, cap: 9320, pe: 31.2, stage: 1 },
       { symbol: "NAVDEEP", name: "Navdeep Chemicals", price: 2290.0, day: 0.88, cap: 21740, pe: 18.9, stage: 2 },
-      { symbol: "SAGARIKA", name: "Sagarika Logistics", price: 340.75, day: -1.91, cap: 5110, pe: 14.3, stage: 4 },
+      { symbol: "SAGARIKA", name: "Sagarika Logistics", price: 340.75, day: -1.91, cap: 5110, pe: 14.3, stage: 1 },
       { symbol: "TARANG", name: "Tarang Power", price: 905.3, day: 2.1, cap: 33680, pe: 27.5, stage: 2 },
       { symbol: "VIHAAN", name: "Vihaan Pharma", price: 1288.9, day: 0.12, cap: 15450, pe: 22.1, stage: 1 },
     ],
@@ -25,11 +25,11 @@ export const SAMPLE_MARKETS = {
     cap: (v) => `$${v.toLocaleString("en-US", { maximumFractionDigits: 1 })}B`,
     rows: [
       { symbol: "NORTHBAY", name: "Northbay Systems", price: 142.38, day: 0.74, cap: 61.2, pe: 28.4, stage: 2 },
-      { symbol: "LUMEN", name: "Lumenfield Energy", price: 48.9, day: -1.12, cap: 8.6, pe: 12.7, stage: 4 },
+      { symbol: "LUMEN", name: "Lumenfield Energy", price: 48.9, day: -1.12, cap: 8.6, pe: 12.7, stage: 1 },
       { symbol: "PINEWAY", name: "Pineway Retail", price: 87.15, day: 1.96, cap: 14.3, pe: 19.8, stage: 2 },
       { symbol: "ORCHID", name: "Orchid Biotech", price: 23.47, day: -0.3, cap: 2.1, pe: null, stage: 1 },
       { symbol: "HALCYON", name: "Halcyon Software", price: 311.02, day: 0.45, cap: 92.7, pe: 41.3, stage: 2 },
-      { symbol: "BRASSLINE", name: "Brassline Industrial", price: 64.8, day: -0.78, cap: 6.9, pe: 16.5, stage: 3 },
+      { symbol: "BRASSLINE", name: "Brassline Industrial", price: 64.8, day: -0.78, cap: 6.9, pe: 16.5, stage: 2 },
     ],
   },
 };
@@ -77,9 +77,9 @@ export function seeded(seed) {
 export const SIEVE_GATES = [
   ["Liquidity", "Can it be traded?"],
   ["Quality", "Are the basics sound?"],
-  ["Trend", "Is price in an uptrend?"],
+  ["Trend", "Is price out of a downtrend?"],
 ];
-export function sieveDots({ count = 84, survivors = 9, width = 480, top = 14, gateYs = [118, 170, 222], rowY = 276 } = {}) {
+export function sieveDots({ count = 84, survivors = 6, width = 480, top = 14, gateYs = [118, 170, 222], rowY = 276 } = {}) {
   const rand = seeded(20261106);
   const gates = gateYs.length;
   // Of what is left at each gate, roughly 38%, 33% and 30% stop there; the last fix makes the survivors exact.
@@ -146,16 +146,14 @@ export function stageSeries({ total = 420, shown = 220 } = {}) {
   };
 }
 
-/** The factors the ranking weighs, in a market. Guidance is read from Indian earnings calls only. */
+/** The blocks the ranking weighs and each one's current share (screener/runtime.py), the same in both markets. */
 export const FACTORS = [
-  { key: "quality", label: "Quality" },
-  { key: "growth", label: "Growth" },
-  { key: "value", label: "Value" },
-  { key: "momentum", label: "Momentum" },
-  { key: "risk", label: "Risk" },
-  { key: "guidance", label: "Management guidance", markets: ["ind"] },
+  { key: "momentum", label: "Momentum", weight: 30 },
+  { key: "quality", label: "Quality", weight: 25 },
+  { key: "growth", label: "Growth", weight: 25 },
+  { key: "value", label: "Value", weight: 15 },
+  { key: "risk", label: "Risk", weight: 5 },
 ];
-export const factorsFor = (market) => FACTORS.filter((f) => !f.markets || f.markets.includes(market));
 
 /** The evening, in order. Times are an example evening, not a schedule. */
 export const EVENING = [
@@ -165,6 +163,13 @@ export const EVENING = [
   ["20:40", "The call is read, its tone scored"],
   ["21:10", "The bell tells you"],
 ];
+/** The axis the evening is drawn on, in minutes after midnight. */
+export const EVENING_AXIS = { from: 15 * 60 + 30, to: 22 * 60 };
+/** Where a "HH:MM" time falls along the axis, as 0..1, to scale. */
+export function eveningPosition(time) {
+  const [h, m] = time.split(":").map(Number);
+  return (h * 60 + m - EVENING_AXIS.from) / (EVENING_AXIS.to - EVENING_AXIS.from);
+}
 
 /** Management-tone cuts as the app reads them (sentiment.outlook.stance_from_score), and the median call. */
 export const TONE = {

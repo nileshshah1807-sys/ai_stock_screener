@@ -20,18 +20,27 @@ test("every stage has a plain word", () => {
 });
 
 test("the sieve: gates only lose dots, survivors are ranked 1..n, and the picture is deterministic", async () => {
-  const { sieveDots, stageSeries, factorsFor, TONE } = await import("./landing.mjs");
+  const { sieveDots, stageSeries, FACTORS, TONE } = await import("./landing.mjs");
   const dots = sieveDots();
   assert.equal(dots.length, 84);
+  assert.equal(sampleRows("ind", false).length, 6);
   const survivors = dots.filter((d) => d.fate === 3);
-  assert.equal(survivors.length, 9);
-  assert.deepEqual(survivors.map((d) => d.rank).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.equal(survivors.length, 6);
+  assert.deepEqual(survivors.map((d) => d.rank).sort((a, b) => a - b), [1, 2, 3, 4, 5, 6]);
   assert.deepEqual(sieveDots(), dots);
   const s = stageSeries();
   assert.equal(s.price.length, 220);
   assert.equal(s.ma200.length, 220);
   assert.ok(s.ma200.every((v) => v !== null));
   assert.equal(s.bands.at(-1).to, 1);
-  assert.ok(factorsFor("us").every((f) => f.key !== "guidance") && factorsFor("ind").some((f) => f.key === "guidance"));
+  assert.equal(FACTORS.reduce((t, f) => t + f.weight, 0), 100);
   assert.ok(TONE.cuts.every(([cut], i, a) => !i || cut > a[i - 1][0]) && TONE.median > TONE.cuts[1][0]);
+});
+
+test("the evening is drawn to scale and no sampled row sits in a downtrend", async () => {
+  const { eveningPosition, EVENING } = await import("./landing.mjs");
+  assert.equal(eveningPosition("15:30"), 0);
+  assert.equal(eveningPosition("22:00"), 1);
+  assert.ok(EVENING.every(([t], i, a) => !i || eveningPosition(t) > eveningPosition(a[i - 1][0])));
+  for (const market of Object.keys(SAMPLE_MARKETS)) assert.ok(SAMPLE_MARKETS[market].rows.every((r) => r.stage <= 2));
 });

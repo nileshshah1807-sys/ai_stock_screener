@@ -25,7 +25,7 @@ export function Sieve() {
     const tl = gsap.timeline({ defaults: { ease: "power2.inOut" } });
     dots.forEach((dot, i) => {
       const d = DOTS[i];
-      gsap.set(dot, { attr: { cx: d.startX, cy: d.startY }, opacity: 1 });
+      gsap.set(dot, { attr: { cx: d.startX, cy: d.startY, r: 3.2 }, opacity: 1 });
       const passes = d.fate === 3;
       const stops = passes ? 3 : d.fate + 1;
       for (let g = 0; g < stops; g++) {
@@ -33,11 +33,10 @@ export function Sieve() {
         const share = (g + 1) / (passes ? 4 : stops);
         tl.to(dot, { attr: { cx: d.startX + (d.x - d.startX) * share, cy: stopsHere ? d.y : GATE_YS[g] - 8 }, duration: 1 }, g);
       }
-      if (passes) tl.to(dot, { attr: { cx: d.x, cy: d.y }, duration: 1 }, 3);
+      if (passes) tl.to(dot, { attr: { cx: d.x, cy: d.y, r: 5 }, duration: 1 }, 3);
       tl.fromTo(dot, { opacity: 1 }, { opacity: d.fate === 3 ? 1 : 0.35, duration: 0.3 }, Math.max(d.fate, 0) + 0.8);
     });
     el.querySelectorAll("[data-gate]").forEach((gate, g) => tl.from(gate, { opacity: 0.25, duration: 0.5 }, g));
-    el.querySelectorAll("[data-rank]").forEach((r) => tl.from(r, { opacity: 0, duration: 0.5 }, 3.4));
     return tl;
   });
 
@@ -53,16 +52,13 @@ export function Sieve() {
         {DOTS.map((d) => (
           <circle key={d.id} data-dot cx={d.x} cy={d.y} r={d.fate === 3 ? 5 : 3.2} className="fill-foreground" opacity={d.fate === 3 ? 1 : 0.35} />
         ))}
-        {DOTS.filter((d) => d.rank).map((d) => (
-          <text key={d.id} data-rank x={d.x} y={d.y + 18} textAnchor="middle" className="fill-muted-foreground text-[12px] tabular-nums">{d.rank}</text>
-        ))}
       </svg>
       <figcaption id="sieve-caption" className="mt-2 text-xs text-muted-foreground">
         <ol className="flex flex-wrap gap-x-5 gap-y-1">
           {SIEVE_GATES.map(([name, question], g) => (
             <li key={name}><span className="font-medium text-foreground">{g + 1}. {name}</span> {question}</li>
           ))}
-          <li><span className="font-medium text-foreground">Then ranked.</span> Each dot is a stock; an illustration, not data. A solid dot only means it passed the filters.</li>
+          <li><span className="font-medium text-foreground">Then ranked.</span> Each dot is a stock, the six that pass match the six rows below; an illustration, not data. A solid dot only means it passed the filters.</li>
         </ol>
       </figcaption>
     </figure>

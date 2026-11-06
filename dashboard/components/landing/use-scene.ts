@@ -10,8 +10,8 @@ import type gsapType from "gsap";
  *
  * The markup is always the END state, so without JS, or with reduced motion
  * (nothing runs at all), the scene is simply finished. gsap and ScrollTrigger
- * load on demand, after first paint. The pin is about one screen of travel,
- * and shorter on a phone, where holding the page for long reads as a stall.
+ * load on demand, after first paint. The pin is about one screen of travel;
+ * a phone is never pinned, the scene just plays as it scrolls past.
  */
 export function useScene(
   ref: RefObject<HTMLElement | null>,
@@ -28,14 +28,12 @@ export function useScene(
       const mm = gsap.matchMedia();
       mm.add("(prefers-reduced-motion: no-preference)", () => {
         const phone = window.matchMedia("(max-width: 639px)").matches;
-        ScrollTrigger.create({
-          trigger: root,
-          start: phone ? "center 55%" : "center center",
-          end: phone ? "+=70%" : "+=100%",
-          pin: true,
-          scrub: 0.5,
-          animation: build(gsap, root),
-        });
+        // A phone holds nothing: the scene plays as it scrolls through the screen, so it is never blank.
+        ScrollTrigger.create(
+          phone
+            ? { trigger: root, start: "top 85%", end: "bottom 55%", scrub: 0.5, animation: build(gsap, root) }
+            : { trigger: root, start: "center center", end: "+=100%", pin: true, scrub: 0.5, animation: build(gsap, root) },
+        );
       });
       revert = () => mm.revert();
     })();
