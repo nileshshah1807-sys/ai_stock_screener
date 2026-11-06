@@ -48,7 +48,18 @@ const periodName = (plan: Plan) => (plan.period === "yearly" ? "Yearly" : plan.p
  * cell, so the card is as tall as its tallest plan and a toggle never moves
  * what is below it.
  */
-export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[]; initialId: string; note?: React.ReactNode }) {
+export function PricingPlans({
+  panels,
+  initialId,
+  note,
+  embedded = false,
+}: {
+  panels: PlanPanel[];
+  initialId: string;
+  note?: React.ReactNode;
+  /** Inside another page (the landing's pricing section): the arrival waits to be scrolled to, and the page-wide ruled backdrop is left out. */
+  embedded?: boolean;
+}) {
   const [selectedId, setSelectedId] = useState(initialId);
   const root = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
@@ -69,6 +80,7 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
           ease: "expo.out",
           stagger: 0.09,
           clearProps: "transform,opacity",
+          scrollTrigger: embedded ? { trigger: root.current, start: "top 85%", once: true } : undefined,
         });
         const rows = table.current?.querySelectorAll("tbody tr");
         if (rows?.length) {
@@ -114,6 +126,7 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
       });
     }, root);
     return () => ctx.revert();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `embedded` is fixed per page; the effect runs once
   }, []);
 
   return (
@@ -121,6 +134,7 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
       {/* The backdrop is decoration: it carries no content and is out of the reading order. */}
       <div
         aria-hidden
+        hidden={embedded}
         className="pointer-events-none fixed inset-0 -z-10 [background-image:linear-gradient(to_bottom,transparent_calc(100%_-_1px),var(--border)_0)] [background-size:100%_2.5rem] [mask-image:linear-gradient(to_bottom,#000_40%,transparent)]"
       />
 
@@ -325,7 +339,8 @@ function Panel({ panel, active }: { panel: PlanPanel; active: boolean }) {
  */
 function PriceFigure({ to, from, active, className }: { to: number; from: number; active: boolean; className?: string }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const mounted = useRef(false);
+  /** True once a count has begun, or the panel was mounted unseen: later arrivals (a toggle) start at once. */
+  const started = useRef(false);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -335,15 +350,23 @@ function PriceFigure({ to, from, active, className }: { to: number; from: number
     };
     const mm = gsap.matchMedia();
     mm.add(MOTION_OK, () => {
-      if (!active || from === to) return settle();
+      if (!active || from === to) {
+        started.current = true;
+        return settle();
+      }
       const counter = { v: from };
       el.textContent = priceLabel(from);
       const tween = gsap.to(counter, {
         v: to,
         duration: 0.9,
         // The first arrival waits a beat for the card to settle.
-        delay: mounted.current ? 0 : 0.55,
+        delay: started.current ? 0 : 0.55,
+        // On the first arrival it also waits to be in view: below the fold (the landing) it counts when scrolled to; already in view (/pricing) it starts at once.
+        scrollTrigger: started.current ? undefined : { trigger: el, start: "top 92%", once: true },
         ease: "expo.out",
+        onStart: () => {
+          started.current = true;
+        },
         onUpdate: () => {
           el.textContent = priceLabel(Math.round(counter.v / 100) * 100);
         },
@@ -355,7 +378,6 @@ function PriceFigure({ to, from, active, className }: { to: number; from: number
       };
     });
     mm.add("(prefers-reduced-motion: reduce)", settle);
-    mounted.current = true;
     return () => mm.revert();
   }, [to, from, active]);
 
