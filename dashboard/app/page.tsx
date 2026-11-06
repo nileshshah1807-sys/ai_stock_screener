@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
+import { CuratedRanking } from "@/components/landing/curated-ranking";
 import { CallsBlock, StageBlock } from "@/components/landing/feature-blocks";
 import { HeroGrid } from "@/components/landing/hero-grid";
 import { LandingMotion } from "@/components/landing/landing-motion";
@@ -123,7 +124,7 @@ export default async function LandingPage() {
                 NSE and US stocks, screened daily.
               </h1>
               <p className="mt-5 max-w-[46ch] text-lead text-muted-foreground sm:text-base">
-                Filter the market, read results the evening companies file them, and see what management said on the earnings call. India and the US, one subscription.
+                A curated shortlist from the whole market, ranked daily on management guidance, value, momentum and risk, so there is far less to search and filter. Read results the evening companies file them. India and the US, one subscription.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link href={session ? "/screener" : "/login?trial=1"} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
@@ -141,6 +142,10 @@ export default async function LandingPage() {
               </div>
             </div>
           </div>
+        </section>
+
+        <section id="ranking" className={cn(section, "scroll-mt-16 border-b py-14 sm:py-20")}>
+          <CuratedRanking />
         </section>
 
         <section id="calls" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
