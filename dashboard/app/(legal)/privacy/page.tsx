@@ -36,6 +36,14 @@ export default function PrivacyPage() {
           (IP address, browser, time, page) to run and secure the Service.
         </li>
         <li>
+          <strong>Free-trial check:</strong> to give each person one free trial, when you sign in
+          we store scrambled (salted, one-way hashed) fingerprints of your IP address, of your
+          email address with dots and &ldquo;+&rdquo; tags removed, and of a random device
+          identifier kept in a cookie in your browser for about 13 months. We cannot turn them
+          back into the original values, and we use them for nothing else. They are deleted with
+          your account.
+        </li>
+        <li>
           <strong>Payment:</strong> when paid plans are offered, payments are handled by our
           payment provider. We receive confirmation of the payment, not your card or bank details.
         </li>

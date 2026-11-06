@@ -175,11 +175,17 @@ export function priceLabel(amountPaise) {
 
 export const PERIOD_LABEL = { monthly: "month", yearly: "year" };
 
+export const TRIAL_UNAVAILABLE =
+  "A free trial was already used from this device, network or email address, so this account has none. Subscribe to get access.";
+
 /**
  * Why a lapsed person is on the pricing page, from their subscription row.
- * No row, or a trial that ran out, is the trial ending.
+ * No row, or a trial that ran out, is the trial ending; a refused trial is its own reason.
+ * @param {string|undefined} status
+ * @param {string|null|undefined} [trialDeniedAt]
  */
-export function lapseReason(status) {
+export function lapseReason(status, trialDeniedAt) {
+  if (trialDeniedAt) return "trial_unavailable";
   if (status === "cancelled") return "cancelled";
   if (status === "past_due") return "past_due";
   return "trial_ended";
@@ -297,6 +303,7 @@ export function planSummary({ kind, subscription, plan }, fmtDate, fmtMoney = pr
         ? { title, status: "Cancelled", detail: "Your plan has ended. Subscribe to get access back.", nextCharge: null }
         : { title, status: "Cancelled", detail: `Access until ${fmtDate(subscription.current_period_end ?? subscription.trial_ends_at)}. You will not be charged again.`, nextCharge: null };
     default:
+      if (subscription?.trial_denied_at) return { title: "No plan", status: "No free trial", detail: TRIAL_UNAVAILABLE, nextCharge: null };
       return { title: "No plan", status: lapsed ? "Free trial ended" : "No plan", detail: lapsed ? "Subscribe to get access back." : "Pick a plan to get started.", nextCharge: null };
   }
 }
