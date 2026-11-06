@@ -5,7 +5,7 @@ import { cookies, headers } from "next/headers";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { TRIAL_WINDOW_DAYS, ipKey, isDisposableEmail, normalizeEmail, trialVerdict } from "@/lib/trial-guard.mjs";
+import { TRIAL_WINDOW_DAYS, ipKey, isDisposableEmail, isFreshSignup, mayRevokeTrial, normalizeEmail, trialVerdict } from "@/lib/trial-guard.mjs";
 import { DEVICE_COOKIE } from "@/lib/device-cookie";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -23,11 +23,15 @@ export async function guardTrial(input: {
   email: string;
   ip: string | null;
   deviceId: string | null;
+  createdAt: string | null;
+  planClaim?: string;
 }): Promise<boolean> {
   const salt = process.env.TRIAL_GUARD_SALT;
   const admin = createAdminClient();
   if (!salt || !admin) {
-    console.warn("Trial guard off: TRIAL_GUARD_SALT or the service key is not set");
+    console.warn(
+      `Trial guard OFF, trials are granted unchecked: ${!salt ? "TRIAL_GUARD_SALT" : "SUPABASE_SERVICE_ROLE_KEY"} is not set`,
+    );
     return false;
   }
   const hash = (value: string | null) => (value ? createHmac("sha256", salt).update(value).digest("hex") : null);
@@ -44,28 +48,35 @@ export async function guardTrial(input: {
   if (ipHash) matches.push(`ip_hash.eq.${ipHash}`);
   if (deviceHash) matches.push(`device_hash.eq.${deviceHash}`);
   const { data: priors, error } = await admin
-    .from("trial_signals").select("ip_hash, device_hash, email_hash")
-    .eq("granted", true).gte("created_at", since).or(matches.join(","));
+    .from("trial_signals").select("user_id, ip_hash, device_hash, email_hash")
+    .eq("granted", true).neq("user_id", input.userId).gte("created_at", since).or(matches.join(","));
   if (error) {
     console.error("Trial guard could not read earlier trials", error.message);
     return false;
   }
 
-  const verdict = trialVerdict(
-    { ipHash, deviceHash, emailHash, disposable: isDisposableEmail(input.email) },
+  // An account that existed before the guard is recorded, never refused.
+  const fresh = isFreshSignup(input.createdAt);
+  const verdict = fresh
+    ? trialVerdict(
+    { userId: input.userId, ipHash, deviceHash, emailHash, disposable: isDisposableEmail(input.email) },
     priors ?? [],
-  );
+      )
+    : { grant: true, reason: "existing" };
   const { error: writeError } = await admin.from("trial_signals").insert({
     user_id: input.userId, ip_hash: ipHash, device_hash: deviceHash, email_hash: emailHash,
     granted: verdict.grant, reason: verdict.reason,
   });
   if (writeError || verdict.grant) return false;
 
-  // Only a trial with no plan set up: never touch a paying row.
+  // Only an unpaid trial with nothing set up, never an admin or invited account.
+  const { data: row } = await admin
+    .from("subscriptions").select("status, plan_id, razorpay_subscription_id").eq("user_id", input.userId).maybeSingle();
+  if (!mayRevokeTrial(row, input.planClaim)) return false;
   const { error: revokeError } = await admin
     .from("subscriptions")
     .update({ status: "expired", trial_ends_at: new Date().toISOString(), trial_denied_at: new Date().toISOString() })
-    .eq("user_id", input.userId).eq("status", "trialing").is("plan_id", null);
+    .eq("user_id", input.userId).eq("status", "trialing").is("plan_id", null).is("razorpay_subscription_id", null);
   if (revokeError) console.error("Trial guard could not end the trial", revokeError.message);
   return !revokeError;
 }
@@ -78,6 +89,8 @@ export async function enforceTrialGuard(supabase: SupabaseClient) {
   try {
     const { data } = await supabase.auth.getUser();
     const user = data.user;
+    const { data: claimData } = await supabase.auth.getClaims();
+    const planClaim = typeof claimData?.claims?.plan === "string" ? claimData.claims.plan : undefined;
     if (!user?.email) return;
     const [h, c] = [await headers(), await cookies()];
     const ended = await guardTrial({
@@ -85,6 +98,8 @@ export async function enforceTrialGuard(supabase: SupabaseClient) {
       email: user.email,
       ip: h.get("x-real-ip") ?? h.get("x-forwarded-for"),
       deviceId: c.get(DEVICE_COOKIE)?.value ?? null,
+      createdAt: user.created_at ?? null,
+      planClaim,
     });
     if (ended) await supabase.auth.refreshSession();
   } catch (error) {

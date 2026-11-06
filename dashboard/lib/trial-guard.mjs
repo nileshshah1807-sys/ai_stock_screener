@@ -43,12 +43,32 @@ export function ipKey(raw) {
   return full.slice(0, 4).map((g) => g.padStart(4, "0")).join(":");
 }
 
+/** An account counts as a new signup, and so may be refused a trial, only this soon after it was created. */
+export const FRESH_SIGNUP_MINUTES = 15;
+
+export function isFreshSignup(createdAt, now = Date.now()) {
+  const made = Date.parse(createdAt ?? "");
+  return Number.isFinite(made) && now - made <= FRESH_SIGNUP_MINUTES * 60_000;
+}
+
 /**
- * @param {{ipHash: string|null, deviceHash: string|null, emailHash: string, disposable: boolean}} current
- * @param {{ip_hash: string|null, device_hash: string|null, email_hash: string}[]} priors trials GRANTED inside the window
+ * Whether the guard may end this account's trial: only an unpaid trial with no plan
+ * or Razorpay subscription set up, and never an admin or invited account.
+ * @param {{status?: string, plan_id?: string|null, razorpay_subscription_id?: string|null}|null|undefined} sub
+ * @param {string|undefined} planClaim the token's plan claim
+ */
+export function mayRevokeTrial(sub, planClaim) {
+  if (planClaim === "admin" || planClaim === "allowlist") return false;
+  return sub?.status === "trialing" && !sub.plan_id && !sub.razorpay_subscription_id;
+}
+
+/**
+ * @param {{userId?: string, ipHash: string|null, deviceHash: string|null, emailHash: string, disposable: boolean}} current
+ * @param {{user_id?: string, ip_hash: string|null, device_hash: string|null, email_hash: string}[]} allPriors trials GRANTED inside the window; the user's own row is ignored
  * @returns {{grant: boolean, reason: "ok"|"disposable_email"|"same_email"|"same_device"|"same_network"}}
  */
-export function trialVerdict(current, priors) {
+export function trialVerdict(current, allPriors) {
+  const priors = allPriors.filter((p) => !current.userId || p.user_id !== current.userId);
   if (current.disposable) return { grant: false, reason: "disposable_email" };
   if (priors.some((p) => p.email_hash === current.emailHash)) return { grant: false, reason: "same_email" };
   if (current.deviceHash && priors.some((p) => p.device_hash === current.deviceHash)) return { grant: false, reason: "same_device" };

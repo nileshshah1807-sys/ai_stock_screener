@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { IP_TRIAL_LIMIT, ipKey, isDisposableEmail, normalizeEmail, trialVerdict } from "./trial-guard.mjs";
+import { IP_TRIAL_LIMIT, ipKey, isDisposableEmail, isFreshSignup, mayRevokeTrial, normalizeEmail, trialVerdict } from "./trial-guard.mjs";
 
 const now = { ipHash: "ip1", deviceHash: "dev1", emailHash: "em1", disposable: false };
 const prior = (over = {}) => ({ ip_hash: "other", device_hash: "other", email_hash: "other", ...over });
@@ -53,4 +53,30 @@ test("a missing IP is not a network match", () => {
 
 test("a disposable domain is refused", () => {
   assert.equal(trialVerdict({ ...now, disposable: true }, []).reason, "disposable_email");
+});
+
+test("a user never matches their own signals", () => {
+  const own = prior({ user_id: "u1", email_hash: "em1", device_hash: "dev1", ip_hash: "ip1" });
+  assert.equal(trialVerdict({ ...now, userId: "u1" }, [own]).grant, true);
+  assert.equal(trialVerdict({ ...now, userId: "u2" }, [own]).grant, false);
+});
+
+test("only a recent account is a new signup", () => {
+  const t = Date.parse("2026-11-06T12:00:00Z");
+  assert.equal(isFreshSignup("2026-11-06T11:50:00Z", t), true);
+  assert.equal(isFreshSignup("2026-10-01T00:00:00Z", t), false);
+  assert.equal(isFreshSignup(null, t), false);
+});
+
+test("mayRevokeTrial touches only an unpaid, plan-less trial of an ordinary account", () => {
+  const trial = { status: "trialing", plan_id: null, razorpay_subscription_id: null };
+  assert.equal(mayRevokeTrial(trial, "trial"), true);
+  assert.equal(mayRevokeTrial({ ...trial, plan_id: "monthly" }, "trial"), false);
+  assert.equal(mayRevokeTrial({ ...trial, razorpay_subscription_id: "sub_1" }, "trial"), false);
+  for (const status of ["active", "past_due", "cancelled", "expired"]) {
+    assert.equal(mayRevokeTrial({ ...trial, status }, "monthly"), false);
+  }
+  assert.equal(mayRevokeTrial(trial, "admin"), false);
+  assert.equal(mayRevokeTrial(trial, "allowlist"), false);
+  assert.equal(mayRevokeTrial(null, "trial"), false);
 });
