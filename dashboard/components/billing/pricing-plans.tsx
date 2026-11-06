@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { Bell, Check, ChartColumn, ChartPie, Globe, Mic, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { Activity, Bell, Check, ChartColumn, ChartPie, Globe, ListOrdered, Mic, RadioTower, SlidersHorizontal, type LucideIcon } from "lucide-react";
 
 import { PERIOD_LABEL, planTitle, priceLabel } from "@/lib/billing.mjs";
 import type { Plan } from "@/lib/plans";
@@ -13,12 +13,15 @@ gsap.registerPlugin(ScrollTrigger);
 
 /** What a subscription covers. No price, rating or return is stated here. */
 const INCLUDED: { icon: LucideIcon; text: string }[] = [
-  { icon: Globe, text: "NSE and US stocks under one subscription" },
-  { icon: SlidersHorizontal, text: "A screener with filters and saved views, and a page for every stock" },
-  { icon: ChartColumn, text: "Quarterly results as companies file them, with a results analysis" },
-  { icon: Mic, text: "Earnings calls: upcoming dates and what management said" },
-  { icon: ChartPie, text: "Shareholding patterns and company documents for Indian stocks" },
+  { icon: Globe, text: "Indian and US stocks in one plan" },
+  { icon: ListOrdered, text: "A daily ranking on value, quality, growth, momentum and risk" },
+  { icon: SlidersHorizontal, text: "Screener filters and saved views" },
+  { icon: ChartColumn, text: "Quarterly results as they are filed, with analysis" },
+  { icon: Mic, text: "Earnings calls and management's outlook (India)" },
+  { icon: Activity, text: "Market breadth and a page for each index" },
+  { icon: ChartPie, text: "Shareholding and company documents (India)" },
   { icon: Bell, text: "Watchlists and a bell for new results and calls" },
+  { icon: RadioTower, text: "Live prices through the trading day" },
 ];
 
 /** One plan as the server worked it out: every sentence and button is made there, so no date or price is formatted twice. */
