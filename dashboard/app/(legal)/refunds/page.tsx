@@ -14,8 +14,8 @@ export default function RefundsPage() {
       <h2>1. The free trial</h2>
       <p>
         A new account starts with a 7-day free trial of full access. No card is needed to start it,
-        and nothing is charged during it. If you set up a plan during the trial, the first charge
-        is made when the trial ends.
+        and nothing is charged during it. If you subscribe during the trial, the trial ends and
+        your plan starts at once: the first payment is taken that day.
       </p>
 
       <h2>2. Cancelling</h2>
@@ -27,8 +27,8 @@ export default function RefundsPage() {
       <h2>3. Refunds</h2>
       <p>
         If you ask within 7 days of a payment, we refund it in full. This holds for a first
-        payment and for a renewal, on the monthly plan and the yearly plan alike. The 7-day free
-        trial comes first and costs nothing, so the 7 days run from the day you are charged.
+        payment and for a renewal, on the monthly plan and the yearly plan alike. The 7 days run
+        from the day of the payment, including a first payment made during the free trial.
       </p>
       <p>
         To ask, email {LEGAL.contactEmail} from the address on your account and say which payment

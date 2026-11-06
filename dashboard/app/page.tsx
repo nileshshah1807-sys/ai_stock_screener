@@ -53,7 +53,7 @@ const FAQ = [
   ["Is this investment advice?", "No. Cupel shows data and measurements for research and education. It does not tell you what to buy or sell, and nothing on it is a recommendation. Read the Disclaimer for the details."],
   ["Which markets are covered?", "India (NSE, plus companies listed on BSE alone) and the US, under one subscription."],
   ["Where does the data come from?", "Quarterly results and shareholding from the exchange's filings, US statements from SEC EDGAR, prices from Yahoo Finance. Live prices refresh about every five minutes in market hours and are indicative; the daily measurements update after the close."],
-  ["How does the free trial work?", "Sign in with your email and get 7 days of full access. Subscribe from the pricing page when you want to carry on."],
+  ["How does the free trial work?", "Sign in with your email and get 7 days of full access. Subscribing during the trial ends it and starts your plan at once, with the first payment that day, and it is refunded in full within 7 days of a payment."],
   ["How do I pay, and can I cancel?", "Payments go through Razorpay by UPI or card, and the early-bird price uses UPI Autopay. Cancel any time from your account. A payment is refunded in full within 7 days; see the Refund policy."],
 ];
 
