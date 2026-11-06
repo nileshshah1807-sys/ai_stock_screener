@@ -56,7 +56,7 @@ function Invite() {
   );
 }
 
-function Manage({ row, adminId, razorpayKeyId }: { row: AdminRow; adminId: string; razorpayKeyId: string }) {
+function Manage({ row, adminId, razorpayKeyId, trialDays }: { row: AdminRow; adminId: string; razorpayKeyId: string; trialDays: number }) {
   const [trial, trialAction, trialPending] = useActionState(changeTrial, IDLE);
   const [comp, compAction, compPending] = useActionState(setComplimentary, IDLE);
   const [undo, undoAction, undoPending] = useActionState(undoTrialDenial, IDLE);
@@ -121,7 +121,7 @@ function Manage({ row, adminId, razorpayKeyId }: { row: AdminRow; adminId: strin
         {denied ? (
           <form action={undoAction}>
             <input type="hidden" name="id" value={row.id} />
-            <Submit pending={undoPending} variant="outline">Undo denial (7-day trial)</Submit>
+            <Submit pending={undoPending} variant="outline">Undo denial ({trialDays}-day trial)</Submit>
           </form>
         ) : null}
         <Result state={undo} />
@@ -168,8 +168,8 @@ function Manage({ row, adminId, razorpayKeyId }: { row: AdminRow; adminId: strin
 
 const when = (value: string | null) => (value ? formatDate(value) : "–");
 
-export function AdminView({ rows, total, q, status, adminId, razorpayKeyId, initialOpen = null }: {
-  rows: AdminRow[]; total: number; q: string; status: string; adminId: string; razorpayKeyId: string; initialOpen?: string | null;
+export function AdminView({ rows, total, q, status, adminId, razorpayKeyId, trialDays, initialOpen = null }: {
+  rows: AdminRow[]; total: number; q: string; status: string; adminId: string; razorpayKeyId: string; trialDays: number; initialOpen?: string | null;
 }) {
   const [open, setOpen] = useState<string | null>(initialOpen);
   return (
@@ -226,7 +226,7 @@ export function AdminView({ rows, total, q, status, adminId, razorpayKeyId, init
                   </td>
                 </tr>
                 {open === row.id ? (
-                  <tr><td colSpan={9} className="p-0"><Manage row={row} adminId={adminId} razorpayKeyId={razorpayKeyId} /></td></tr>
+                  <tr><td colSpan={9} className="p-0"><Manage row={row} adminId={adminId} razorpayKeyId={razorpayKeyId} trialDays={trialDays} /></td></tr>
                 ) : null}
               </tbody>
             ))}

@@ -24,5 +24,5 @@ export default async function AdminPreview({ searchParams }: { searchParams: Pro
   if (process.env.NODE_ENV !== "development") notFound();
   const { q = "", status = "all", open } = await searchParams;
   const rows = filterRows(ALL, { q, status });
-  return <AdminView rows={rows} total={ALL.length} q={q} status={status} adminId={ALL[5].id} razorpayKeyId="rzp_test_x" initialOpen={open ? ALL[Number(open) - 1]?.id : null} />;
+  return <AdminView rows={rows} total={ALL.length} q={q} status={status} adminId={ALL[5].id} razorpayKeyId="rzp_test_x" trialDays={14} initialOpen={open ? ALL[Number(open) - 1]?.id : null} />;
 }

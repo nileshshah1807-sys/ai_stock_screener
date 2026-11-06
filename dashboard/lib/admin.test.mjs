@@ -108,6 +108,7 @@ test("undo denial writes the two statements of trial_guard_schema.sql", () => {
   const plan = undoDenialPlan({ trial_denied_at: at(-1) }, { granted: false }, NOW);
   assert.deepEqual(plan.subscription, { status: "trialing", trial_ends_at: at(7), trial_denied_at: null, updated_at: at(0) });
   assert.deepEqual(plan.signal, { granted: false, reason: "overridden" });
+  assert.equal(undoDenialPlan({ trial_denied_at: at(-1) }, { granted: false }, NOW, 14).subscription.trial_ends_at, at(14));
   assert.equal(undoDenialPlan({ trial_denied_at: null }, { granted: true }, NOW).ok, false);
 });
 

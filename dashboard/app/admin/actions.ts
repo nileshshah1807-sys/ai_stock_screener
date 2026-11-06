@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { getTrialDays } from "@/lib/trial-days";
 import { adminContext, cancelRazorpay, logAdminAction } from "@/lib/admin";
 import {
   cleanEmail, complimentaryPlan, exactLike, deletePlan, isEmail, namePlan, parseDays, trialPlan, undoDenialPlan,
@@ -80,17 +81,18 @@ export async function undoTrialDenial(_prev: AdminState, formData: FormData): Pr
   if (!ctx) return NOT_ADMIN;
   const target = await targetOf(ctx, formData);
   if (!target) return fail("User not found.");
-  const [{ data: sub }, { data: signal }] = await Promise.all([
+  const [trialDays, { data: sub }, { data: signal }] = await Promise.all([
+    getTrialDays(),
     ctx.db.from("subscriptions").select("trial_denied_at").eq("user_id", target.id).maybeSingle(),
     ctx.db.from("trial_signals").select("granted").eq("user_id", target.id).maybeSingle(),
   ]);
-  const plan = undoDenialPlan(sub, signal);
+  const plan = undoDenialPlan(sub, signal, Date.now(), trialDays);
   if (!plan.ok) return fail(plan.message ?? "Not allowed.");
   const first = await ctx.db.from("subscriptions").update(plan.subscription ?? {}).eq("user_id", target.id);
   if (first.error) return fail("The denial was not undone.");
   const second = await ctx.db.from("trial_signals").update(plan.signal ?? {}).eq("user_id", target.id);
   if (second.error) return fail("The trial was granted but the guard record was not updated.");
-  return done(`Denial undone: a 7-day trial starts now.${await record(ctx, "undo_denial", target)}`);
+  return done(`Denial undone: a ${trialDays}-day trial starts now.${await record(ctx, "undo_denial", target)}`);
 }
 
 export async function renameUser(_prev: AdminState, formData: FormData): Promise<AdminState> {
