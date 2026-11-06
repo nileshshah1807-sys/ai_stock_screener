@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { DEVICE_COOKIE } from "@/lib/device-cookie";
 import { LEGAL_PAGES } from "@/lib/legal";
 import { isSessionExpired } from "@/lib/session-policy.mjs";
 
@@ -21,6 +22,11 @@ import { isSessionExpired } from "@/lib/session-policy.mjs";
  * and is told so; they cannot read any row.
  */
 export async function proxy(request: NextRequest) {
+  // A random id, set once, that lets the free-trial check (lib/trial-guard.ts)
+  // recognise a browser that has already had a trial. Put on the request too, so
+  // a route that runs on this very request can read it.
+  const newDeviceId = request.cookies.has(DEVICE_COOKIE) ? null : crypto.randomUUID();
+  if (newDeviceId) request.cookies.set(DEVICE_COOKIE, newDeviceId);
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -138,6 +144,12 @@ export async function proxy(request: NextRequest) {
     redirectUrl.pathname = "/screener";
     redirectUrl.search = "";
     return NextResponse.redirect(redirectUrl);
+  }
+
+  if (newDeviceId) {
+    response.cookies.set(DEVICE_COOKIE, newDeviceId, {
+      httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 400 * 86_400,
+    });
   }
 
   // Returning this exact response object matters: it carries the refreshed

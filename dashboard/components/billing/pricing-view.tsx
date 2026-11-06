@@ -4,7 +4,7 @@ import { CheckoutButton } from "@/components/billing/checkout-button";
 import { PricingPlans, type PlanPanel } from "@/components/billing/pricing-plans";
 import { Reveal } from "@/components/motion";
 import { buttonVariants } from "@/components/ui/button";
-import { PERIOD_LABEL, currentPlanId, lapseReason, perMonthLabel, planTitle, priceLabel, savingPercent } from "@/lib/billing.mjs";
+import { PERIOD_LABEL, TRIAL_UNAVAILABLE, currentPlanId, lapseReason, perMonthLabel, planTitle, priceLabel, savingPercent } from "@/lib/billing.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
 import type { Plan, Subscription } from "@/lib/plans";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 const LAPSED_HEADLINE = {
   trial_ended: ["Your free trial has ended", "Subscribe to carry on where you left off."],
+  trial_unavailable: ["No free trial on this account", TRIAL_UNAVAILABLE],
   cancelled: ["Your subscription has ended", "Subscribe again to get access back."],
   past_due: ["Your last payment did not go through", "Open your profile to see where your plan stands."],
 } as const;
@@ -73,7 +74,7 @@ export function PricingView({
 }) {
   const lapsed = kind === "lapsed";
   const [headline, lead] = lapsed
-    ? LAPSED_HEADLINE[lapseReason(subscription?.status)]
+    ? LAPSED_HEADLINE[lapseReason(subscription?.status, subscription?.trial_denied_at)]
     : ["Pricing", "One subscription covers both markets. Every plan includes everything below."];
   const { panels, initialId, trialEnds, permanent } = planPanels(plans ?? [], { email, kind, subscription });
 

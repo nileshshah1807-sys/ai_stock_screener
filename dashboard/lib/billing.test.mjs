@@ -243,3 +243,11 @@ describe("planSummary", () => {
     assert.equal(planTitle(yearly), "Yearly plan");
   });
 });
+
+test("a refused trial is its own lapse reason and plan card", async () => {
+  const { lapseReason, planSummary } = await import("./billing.mjs");
+  assert.equal(lapseReason("expired", "2026-11-06T00:00:00Z"), "trial_unavailable");
+  assert.equal(lapseReason("expired"), "trial_ended");
+  const card = planSummary({ kind: "lapsed", subscription: { status: "expired", trial_denied_at: "x" }, plan: null }, String);
+  assert.equal(card.status, "No free trial");
+});

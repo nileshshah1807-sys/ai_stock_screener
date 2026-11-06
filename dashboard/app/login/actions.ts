@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { isCode, normalizeCode, otpTypeOf, safeNext } from "@/lib/login-code.mjs";
+import { enforceTrialGuard } from "@/lib/trial-guard";
 import { createClient } from "@/lib/supabase/server";
 
 export type LoginState = {
@@ -97,5 +98,6 @@ export async function confirmLink(formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
   if (error) redirect("/login?error=expired");
+  await enforceTrialGuard(supabase);
   redirect(next);
 }

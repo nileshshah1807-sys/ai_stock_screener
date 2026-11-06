@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { safeNext } from "@/lib/login-code.mjs";
+import { enforceTrialGuard } from "@/lib/trial-guard";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -78,6 +79,8 @@ export async function GET(request: NextRequest) {
   if (failed) {
     return NextResponse.redirect(`${origin}/login?error=invalid_link`);
   }
+
+  await enforceTrialGuard(supabase);
 
   // Only same-origin relative paths are honoured, so a crafted `next` cannot
   // turn the sign-in flow into an open redirect to an attacker's page.
