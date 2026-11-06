@@ -14,7 +14,7 @@ gsap.registerPlugin(ScrollTrigger);
 /** What a subscription covers. No price, rating or return is stated here. */
 const INCLUDED: { icon: LucideIcon; text: string }[] = [
   { icon: Globe, text: "Indian and US stocks in one plan" },
-  { icon: ListOrdered, text: "A daily ranking on value, quality, growth, momentum and risk" },
+  { icon: ListOrdered, text: "A daily ranking on management guidance (India), value, quality, growth, momentum and risk; not a buy or sell call" },
   { icon: SlidersHorizontal, text: "Screener filters and saved views" },
   { icon: ChartColumn, text: "Quarterly results as they are filed, with analysis" },
   { icon: Mic, text: "Earnings calls and management's outlook (India)" },
