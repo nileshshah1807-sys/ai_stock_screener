@@ -141,11 +141,18 @@ export function AccountView({
         <AccountActions canCancel={setUp && subscription?.status !== "cancelled"} inTrial={subscription?.status === "trialing"} contactEmail={LEGAL.contactEmail} />
       </section>
 
-      <form action={signOut} data-arrive className="mt-6">
-        <button type="submit" className={cn(buttonVariants({ variant: "outline" }), "h-10")}>
-          Sign out
-        </button>
-      </form>
+      <div data-arrive className="mt-6 flex flex-wrap gap-3">
+        <form action={signOut}>
+          <button type="submit" className={cn(buttonVariants({ variant: "outline" }), "h-10")}>
+            Sign out
+          </button>
+        </form>
+        {kind === "admin" ? (
+          <Link href="/admin" className={cn(buttonVariants({ variant: "outline" }), "h-10")}>
+            Admin: users
+          </Link>
+        ) : null}
+      </div>
     </AccountMotion>
   );
 }
