@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 
 import { LEGAL } from "@/lib/legal";
 
-export const metadata: Metadata = { title: "Privacy Policy" };
+export const metadata: Metadata = {
+  title: "Privacy Policy",
+  robots: { index: true, follow: true },
+  alternates: { canonical: "/privacy" },
+};
 
 export default function PrivacyPage() {
   return (

@@ -5,7 +5,11 @@ import { trialName } from "@/lib/billing.mjs";
 import { LEGAL } from "@/lib/legal";
 import { getTrialDays } from "@/lib/trial-days";
 
-export const metadata: Metadata = { title: "Refunds & cancellation" };
+export const metadata: Metadata = {
+  title: "Refunds & cancellation",
+  robots: { index: true, follow: true },
+  alternates: { canonical: "/refunds" },
+};
 
 export default async function RefundsPage() {
   const trialDays = await getTrialDays();

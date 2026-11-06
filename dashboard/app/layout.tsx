@@ -5,6 +5,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
+import { SITE_URL } from "@/lib/seo.mjs";
+
 import "./globals.css";
 
 /*
@@ -35,6 +37,7 @@ const geist = Geist({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "Cupel",
     template: "%s · Cupel",

@@ -15,6 +15,7 @@ import { getSession } from "@/lib/auth";
 import { daysPhrase, trialName } from "@/lib/billing.mjs";
 import { getTrialDays } from "@/lib/trial-days";
 import { LEGAL, LEGAL_PAGES } from "@/lib/legal";
+import { faqJsonLd } from "@/lib/seo.mjs";
 import { cn } from "@/lib/utils";
 
 const TITLE = "Cupel: daily screener for NSE and US stocks";
@@ -27,6 +28,7 @@ export const metadata: Metadata = {
   title: { absolute: TITLE },
   description: DESCRIPTION,
   robots: { index: true, follow: true },
+  alternates: { canonical: "/" },
   openGraph: { title: TITLE, description: DESCRIPTION, siteName: "Cupel", type: "website" },
 };
 
@@ -212,6 +214,7 @@ export default async function LandingPage() {
 
         <section id="faq" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
           <h2 data-reveal className={h2}>Questions</h2>
+          <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: faqJsonLd(faq(trialDays)) }} />
           <div data-stagger className="mt-8 max-w-3xl divide-y border-y">
             {faq(trialDays).map(([q, a]) => (
               <details key={q} className="group py-4">

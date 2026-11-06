@@ -3,7 +3,11 @@ import Link from "next/link";
 
 import { LEGAL } from "@/lib/legal";
 
-export const metadata: Metadata = { title: "Terms of Service" };
+export const metadata: Metadata = {
+  title: "Terms of Service",
+  robots: { index: true, follow: true },
+  alternates: { canonical: "/terms" },
+};
 
 export default function TermsPage() {
   return (

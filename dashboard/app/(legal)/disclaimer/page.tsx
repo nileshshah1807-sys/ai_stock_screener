@@ -3,7 +3,11 @@ import Link from "next/link";
 
 import { LEGAL } from "@/lib/legal";
 
-export const metadata: Metadata = { title: "Disclaimer & data sources" };
+export const metadata: Metadata = {
+  title: "Disclaimer & data sources",
+  robots: { index: true, follow: true },
+  alternates: { canonical: "/disclaimer" },
+};
 
 export default function DisclaimerPage() {
   return (
