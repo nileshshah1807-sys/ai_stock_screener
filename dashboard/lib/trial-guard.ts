@@ -59,8 +59,8 @@ export async function guardTrial(input: {
   const fresh = isFreshSignup(input.createdAt);
   const verdict = fresh
     ? trialVerdict(
-    { userId: input.userId, ipHash, deviceHash, emailHash, disposable: isDisposableEmail(input.email) },
-    priors ?? [],
+        { userId: input.userId, ipHash, deviceHash, emailHash, disposable: isDisposableEmail(input.email) },
+        priors ?? [],
       )
     : { grant: true, reason: "existing" };
   // Revoke before recording: if the revoke fails there is no row, so the next sign-in tries again.
@@ -83,7 +83,8 @@ export async function guardTrial(input: {
   }
   const { error: writeError } = await admin.from("trial_signals").insert({
     user_id: input.userId, ip_hash: ipHash, device_hash: deviceHash, email_hash: emailHash,
-    granted: verdict.grant, reason: verdict.reason,
+    // An account from before the guard is recorded but is not a trial the guard granted, so it never counts as a prior.
+    granted: verdict.reason === "ok", reason: verdict.reason,
   });
   if (writeError) console.error("Trial guard could not record the signal", writeError.message);
   return ended;
@@ -106,7 +107,8 @@ export async function enforceTrialGuard(supabase: SupabaseClient) {
       email: user.email,
       ip: h.get("x-real-ip"),
       deviceId: c.get(DEVICE_COOKIE)?.value ?? null,
-      createdAt: user.created_at ?? null,
+      // Confirmed, not created: Supabase creates the user when the code is requested.
+      createdAt: user.email_confirmed_at ?? user.created_at ?? null,
       planClaim,
     });
     if (ended) await supabase.auth.refreshSession();
