@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { PlansAdmin } from "@/components/admin/plans/plans-admin";
-import { loadPlansAdmin } from "@/lib/admin-plans";
+import { loadPlansAdmin } from "@/lib/admin-plans-server";
 import { requireAdmin } from "@/lib/auth";
 
 export const metadata: Metadata = { title: "Plans" };

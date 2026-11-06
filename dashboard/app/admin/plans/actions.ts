@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { changePrice, saveOffer, setPlanOpen, setTrialDays, type OfferInput, type Result } from "@/lib/admin-plans";
+import { changePrice, saveOffer, setPlanOpen, setTrialDays, type OfferInput, type Result } from "@/lib/admin-plans-server";
 
 const done = (r: Result) => {
   if (r.ok) revalidatePath("/admin/plans");

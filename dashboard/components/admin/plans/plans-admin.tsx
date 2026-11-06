@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { validatePriceChange, validateTrialDays } from "@/lib/admin-plans.mjs";
 import { priceLabel } from "@/lib/billing.mjs";
-import type { AdminPlan, PlansAdminData, Result } from "@/lib/admin-plans";
+import type { AdminPlan, PlansAdminData, Result } from "@/lib/admin-plans-server";
 
 /** Admin-only plan and price management. Every control calls a server action that re-checks the admin. */
 export function PlansAdmin({ data, actions }: { data: PlansAdminData; actions?: Partial<Actions> }) {
@@ -61,6 +61,7 @@ function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers
   const open = useAction();
   const [rupees, setRupees] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   const [o, setO] = useState({
     name: plan.offer_name ?? "",
     rupees: plan.offer_amount_paise != null ? String(plan.offer_amount_paise / 100) : "",
@@ -79,7 +80,7 @@ function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers
         <span className={plan.active ? "text-sm text-positive" : "text-sm text-muted-foreground"}>{plan.active ? "On sale" : "Closed"}</span>
       </header>
 
-      <dl className="grid grid-cols-3 gap-4 text-sm">
+      <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
         <div><dt className="text-muted-foreground">Price</dt><dd className="tabular-nums">{priceLabel(plan.amount_paise)} / {plan.period === "yearly" ? "year" : "month"}</dd></div>
         <div><dt className="text-muted-foreground">Active subscribers</dt><dd className="tabular-nums">{stats?.subscribers ?? 0}</dd></div>
         <div><dt className="text-muted-foreground">Monthly revenue</dt><dd className="tabular-nums">{priceLabel(stats?.monthlyPaise ?? 0)}</dd></div>
@@ -130,9 +131,19 @@ function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers
       </form>
 
       <div className="space-y-2 border-t pt-4">
-        <Button type="button" variant="outline" disabled={open.pending} onClick={() => open.go(() => run.open(plan.id, !plan.active))}>
-          {plan.active ? "Close for sale" : "Open for sale"}
-        </Button>
+        {confirmClose ? (
+          <div className="space-y-2 rounded-md border p-3 text-sm" role="alertdialog" aria-label="Confirm closing the plan">
+            <p>New visitors will no longer be able to buy this plan. Existing subscribers are not affected.</p>
+            <div className="flex gap-2">
+              <Button type="button" disabled={open.pending} onClick={() => { setConfirmClose(false); open.go(() => run.open(plan.id, false)); }}>Close for sale</Button>
+              <Button type="button" variant="ghost" onClick={() => setConfirmClose(false)}>Cancel</Button>
+            </div>
+          </div>
+        ) : (
+          <Button type="button" variant="outline" disabled={open.pending} onClick={() => (plan.active ? setConfirmClose(true) : open.go(() => run.open(plan.id, true)))}>
+            {plan.active ? "Close for sale" : "Open for sale"}
+          </Button>
+        )}
         <Message result={open.result} />
       </div>
     </section>
