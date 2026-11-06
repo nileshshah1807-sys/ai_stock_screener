@@ -21,7 +21,7 @@ function MiniCard() {
   return (
     <span className="panel block p-2.5 text-left text-xs leading-4">
       <span className="block font-semibold">Aarav Industries</span>
-      <span className="block text-muted-foreground">Results · Sep quarter</span>
+      <span className="block text-muted-foreground">Invented · Sep quarter</span>
       <span className="mt-1.5 flex justify-between gap-4 tabular-nums"><span className="text-muted-foreground">Revenue</span>₹4,120 Cr</span>
       <span className="flex justify-between gap-4 tabular-nums"><span className="text-muted-foreground">Profit</span>₹512 Cr</span>
     </span>
