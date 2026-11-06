@@ -33,3 +33,7 @@ revoke all on trial_signals from anon, authenticated;
 -- Set when the guard refused the trial; the pricing page and account card say why.
 alter table subscriptions add column if not exists trial_denied_at timestamptz;
 grant select (trial_denied_at) on subscriptions to authenticated;
+
+-- Undo a wrong denial (run by hand, then delete the person's trial_signals row):
+--   update subscriptions set status = 'trialing', trial_ends_at = now() + interval '7 days', trial_denied_at = null where user_id = '<uuid>';
+--   update trial_signals set granted = false, reason = 'overridden' where user_id = '<uuid>';

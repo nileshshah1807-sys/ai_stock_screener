@@ -63,22 +63,30 @@ export async function guardTrial(input: {
     priors ?? [],
       )
     : { grant: true, reason: "existing" };
+  // Revoke before recording: if the revoke fails there is no row, so the next sign-in tries again.
+  let ended = false;
+  if (!verdict.grant) {
+    // Only an unpaid trial with nothing set up, never an admin or invited account.
+    const { data: row } = await admin
+      .from("subscriptions").select("status, plan_id, razorpay_subscription_id").eq("user_id", input.userId).maybeSingle();
+    if (!mayRevokeTrial(row, input.planClaim)) return false;
+    const now = new Date().toISOString();
+    const { error: revokeError } = await admin
+      .from("subscriptions")
+      .update({ status: "expired", trial_ends_at: now, trial_denied_at: now })
+      .eq("user_id", input.userId).eq("status", "trialing").is("plan_id", null).is("razorpay_subscription_id", null);
+    if (revokeError) {
+      console.error("Trial guard could not end the trial", revokeError.message);
+      return false;
+    }
+    ended = true;
+  }
   const { error: writeError } = await admin.from("trial_signals").insert({
     user_id: input.userId, ip_hash: ipHash, device_hash: deviceHash, email_hash: emailHash,
     granted: verdict.grant, reason: verdict.reason,
   });
-  if (writeError || verdict.grant) return false;
-
-  // Only an unpaid trial with nothing set up, never an admin or invited account.
-  const { data: row } = await admin
-    .from("subscriptions").select("status, plan_id, razorpay_subscription_id").eq("user_id", input.userId).maybeSingle();
-  if (!mayRevokeTrial(row, input.planClaim)) return false;
-  const { error: revokeError } = await admin
-    .from("subscriptions")
-    .update({ status: "expired", trial_ends_at: new Date().toISOString(), trial_denied_at: new Date().toISOString() })
-    .eq("user_id", input.userId).eq("status", "trialing").is("plan_id", null).is("razorpay_subscription_id", null);
-  if (revokeError) console.error("Trial guard could not end the trial", revokeError.message);
-  return !revokeError;
+  if (writeError) console.error("Trial guard could not record the signal", writeError.message);
+  return ended;
 }
 
 /**
@@ -96,7 +104,7 @@ export async function enforceTrialGuard(supabase: SupabaseClient) {
     const ended = await guardTrial({
       userId: user.id,
       email: user.email,
-      ip: h.get("x-real-ip") ?? h.get("x-forwarded-for"),
+      ip: h.get("x-real-ip"),
       deviceId: c.get(DEVICE_COOKIE)?.value ?? null,
       createdAt: user.created_at ?? null,
       planClaim,

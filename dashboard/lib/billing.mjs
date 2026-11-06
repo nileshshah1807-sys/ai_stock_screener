@@ -182,9 +182,7 @@ export const TRIAL_UNAVAILABLE =
 
 /**
  * Why a lapsed person is on the pricing page, from their subscription row.
- * No row, or a trial that ran out, is the trial ending.
- */
-/**
+ * No row, or a trial that ran out, is the trial ending; a refused trial is its own reason.
  * @param {string|undefined} status
  * @param {string|null|undefined} [trialDeniedAt]
  */
