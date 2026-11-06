@@ -14,7 +14,7 @@ export const LEGAL = {
   grievanceOfficer: "Chirayu Shah",
   grievanceEmail: "support@cupel.in",
   jurisdiction: "Bengaluru, India",
-  effective: "4 November 2026",
+  effective: "6 November 2026",
 } as const;
 
 export const LEGAL_PAGES = [
