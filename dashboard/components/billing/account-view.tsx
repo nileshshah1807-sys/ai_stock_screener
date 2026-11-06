@@ -1,23 +1,23 @@
 import Link from "next/link";
 
 import { AccountActions } from "@/components/billing/account-actions";
+import { AccountMotion } from "@/components/billing/account-motion";
+import { ProfileForm } from "@/components/billing/profile-form";
 import { buttonVariants } from "@/components/ui/button";
 import { PERIOD_LABEL, currentPlanId, isSetUp, planSummary, planTitle, priceLabel } from "@/lib/billing.mjs";
+import { initialsOf, shownName } from "@/lib/display-name.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
 import type { Plan, Subscription } from "@/lib/plans";
 import { signOut } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 
-/** "reader@example.com" -> "RE"; the avatar is initials, never a photo. */
-function initials(email: string) {
-  const letters = email.split("@")[0].split(/[^a-zA-Z0-9]+/).filter(Boolean);
-  return (letters.length > 1 ? letters[0][0] + letters[1][0] : (letters[0] ?? "?").slice(0, 2)).toUpperCase();
-}
-
 /** The account page's content, from data its caller has already read. */
 export function AccountView({
   email,
+  name,
+  createdAt,
+  payments,
   kind,
   subscription,
   plan,
@@ -25,6 +25,12 @@ export function AccountView({
   welcome,
 }: {
   email: string;
+  /** The display name saved in the person's auth metadata, if they set one. */
+  name: string | null;
+  /** When the account was created (auth created_at). */
+  createdAt: string | null;
+  /** The payment history, drawn by the caller: the live list on the page, fixtures in the preview. */
+  payments: React.ReactNode;
   kind: string;
   subscription: Subscription | null;
   /** The plan the subscription row names, when it names one. */
@@ -42,27 +48,34 @@ export function AccountView({
   const price = plan ? `${priceLabel(plan.amount_paise)} per ${PERIOD_LABEL[plan.period] ?? plan.period}` : null;
 
   return (
-    <>
-      <header className="flex items-center gap-4">
+    <AccountMotion>
+      <header data-arrive className="flex items-center gap-4">
         <span
           aria-hidden
           className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-lead font-semibold text-primary-foreground"
         >
-          {initials(email)}
+          {initialsOf(name, email)}
         </span>
         <div className="min-w-0">
-          <h1 className="text-heading font-semibold">Profile</h1>
+          <h1 className="truncate text-heading font-semibold">{shownName(name, email)}</h1>
           <p className="truncate text-sm text-muted-foreground">{email}</p>
         </div>
       </header>
 
       {welcome ? (
-        <p role="status" className="mt-5 rounded-row bg-(--control) px-4 py-3 text-sm">
+        <p role="status" data-arrive className="mt-5 rounded-row bg-brand-soft px-4 py-3 text-sm">
           Thank you. Your plan is set up.
         </p>
       ) : null}
 
-      <section aria-labelledby="plan-heading" className="panel mt-6 p-6 sm:p-8">
+      <section aria-labelledby="profile-heading" data-arrive className="panel mt-6 p-6 sm:p-8">
+        <h2 id="profile-heading" className="text-sm font-semibold">
+          Profile
+        </h2>
+        <ProfileForm name={name ?? ""} email={email} memberSince={formatDate(createdAt)} />
+      </section>
+
+      <section aria-labelledby="plan-heading" data-arrive className="panel mt-4 p-6 sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
           <div>
             <h2 id="plan-heading" className="text-sm text-muted-foreground">
@@ -71,7 +84,10 @@ export function AccountView({
             <p className="mt-1 text-lead font-semibold">{summary.title}</p>
             {price ? <p className="text-sm text-muted-foreground tabular-nums">{price}</p> : null}
           </div>
-          <span className="rounded-md bg-(--control) px-2.5 py-1 text-xs font-medium">{summary.status}</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-(--control) px-2.5 py-1 text-xs font-medium">
+            {summary.status === "Active" || summary.status === "Full access" ? <span aria-hidden className="size-1.5 rounded-full bg-brand" /> : null}
+            {summary.status}
+          </span>
         </div>
 
         <p className="mt-5 text-sm leading-relaxed">{summary.detail}</p>
@@ -96,8 +112,17 @@ export function AccountView({
         ) : null}
       </section>
 
+      {!permanent ? (
+        <section aria-labelledby="payments-heading" data-arrive className="panel mt-4 p-6 sm:p-8">
+          <h2 id="payments-heading" className="text-sm font-semibold">
+            Payment history
+          </h2>
+          {payments}
+        </section>
+      ) : null}
+
       {other ? (
-        <section id="switch" aria-labelledby="switch-heading" className="panel mt-4 scroll-mt-6 p-6 sm:p-8">
+        <section id="switch" aria-labelledby="switch-heading" data-arrive className="panel mt-4 scroll-mt-6 p-6 sm:p-8">
           <h2 id="switch-heading" className="text-sm font-semibold">
             Switch plan
           </h2>
@@ -112,15 +137,15 @@ export function AccountView({
         </section>
       ) : null}
 
-      <section aria-label="Cancel or delete" className="panel mt-4 p-6 sm:p-8">
+      <section aria-label="Cancel or delete" data-arrive className="panel mt-4 p-6 sm:p-8">
         <AccountActions canCancel={setUp && subscription?.status !== "cancelled"} inTrial={subscription?.status === "trialing"} contactEmail={LEGAL.contactEmail} />
       </section>
 
-      <form action={signOut} className="mt-6">
+      <form action={signOut} data-arrive className="mt-6">
         <button type="submit" className={cn(buttonVariants({ variant: "outline" }), "h-10")}>
           Sign out
         </button>
       </form>
-    </>
+    </AccountMotion>
   );
 }
