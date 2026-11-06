@@ -144,7 +144,7 @@ export default function TermsPage() {
       <h2>14. Contact and grievances</h2>
       <p>
         Questions about these terms: <a href={`mailto:${LEGAL.contactEmail}`}>{LEGAL.contactEmail}</a>. Grievances: {LEGAL.grievanceOfficer},
-        Grievance Officer, <a href={`mailto:${LEGAL.grievanceEmail}`}>{LEGAL.grievanceEmail}</a>, {LEGAL.address}. We acknowledge a grievance
+        Grievance Officer, <a href={`mailto:${LEGAL.grievanceEmail}`}>{LEGAL.grievanceEmail}</a>. We acknowledge a grievance
         within 48 hours and aim to resolve it within 15 days.
       </p>
     </>
