@@ -3,6 +3,7 @@
  * together, and what each action changes. No I/O, so `node --test` covers it;
  * lib/admin.ts runs the plans it returns with the service role.
  */
+import { DEFAULT_TRIAL_DAYS } from "./billing.mjs";
 import { cleanDisplayName } from "./display-name.mjs";
 
 const DAY_MS = 86_400_000;
@@ -147,12 +148,12 @@ export function complimentaryPlan(member, grant) {
   return member ? { ok: true, op: "delete" } : { ok: false, message: "No complimentary access to remove." };
 }
 
-/** The two statements at the bottom of storage/trial_guard_schema.sql, as patches. */
-export function undoDenialPlan(sub, signal, now = Date.now()) {
+/** The two statements at the bottom of storage/trial_guard_schema.sql, as patches; the trial is the configured length (trial_days()). */
+export function undoDenialPlan(sub, signal, now = Date.now(), trialDays = DEFAULT_TRIAL_DAYS) {
   if (!sub?.trial_denied_at && !(signal && !signal.granted)) return { ok: false, message: "No trial denial to undo." };
   return {
     ok: true,
-    subscription: { status: "trialing", trial_ends_at: iso(now + 7 * DAY_MS), trial_denied_at: null, updated_at: iso(now) },
+    subscription: { status: "trialing", trial_ends_at: iso(now + trialDays * DAY_MS), trial_denied_at: null, updated_at: iso(now) },
     signal: { granted: false, reason: "overridden" },
   };
 }
