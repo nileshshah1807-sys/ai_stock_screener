@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { Suspense } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
@@ -35,6 +36,13 @@ export const metadata: Metadata = {
   openGraph: { title: TITLE, description: DESCRIPTION, siteName: "Cupel", type: "website" },
 };
 
+const COVERAGE = [
+  ["Quarterly results", "From the exchange filing", "From the company's statements"],
+  ["Earnings calls", "Read the evening they are held", "Not covered"],
+  ["Management guidance", "Read and tracked", "Not covered"],
+  ["Shareholding and deals", "Exchange filings", "Not covered"],
+] as const;
+
 const NAV = [
   { href: "#how", label: "How it works" },
   { href: "#ranking", label: "Ranking" },
@@ -67,7 +75,8 @@ const section = "mx-auto w-full max-w-6xl px-4 sm:px-6";
 const h2 = "text-title max-w-[22ch] text-balance";
 
 export default async function LandingPage() {
-  const [session, trialDays] = await Promise.all([getSession(), getTrialDays()]);
+  const [session, trialDays, requestHeaders] = await Promise.all([getSession(), getTrialDays(), headers()]);
+  const country = requestHeaders.get("x-vercel-ip-country");
   const contact = LEGAL.contactEmail.startsWith("[") ? null : LEGAL.contactEmail;
 
   return (
@@ -110,7 +119,7 @@ export default async function LandingPage() {
       </header>
 
       <main id="main" className="flex-1">
-        <LandingMarket>
+        <LandingMarket initial={country === "US" ? "us" : "ind"}>
           <section className="border-b">
             <div className={cn(section, "py-12 sm:py-16")}>
               <div className="max-w-3xl motion-safe:animate-rise">
@@ -155,10 +164,28 @@ export default async function LandingPage() {
               <div data-reveal className="mt-10 max-w-3xl">
                 <FactorBar />
               </div>
+              <table className="mt-8 w-full max-w-3xl text-left text-sm">
+                <caption className="pb-2 text-left text-xs text-muted-foreground">What differs between the two markets</caption>
+                <thead>
+                  <tr className="border-b text-xs text-muted-foreground">
+                    <th scope="col" className="py-2 pr-4 font-medium">Evidence</th>
+                    <th scope="col" className="py-2 pr-4 font-medium">India</th>
+                    <th scope="col" className="py-2 font-medium">US</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {COVERAGE.map(([what, india, us]) => (
+                    <tr key={what}>
+                      <th scope="row" className="py-2 pr-4 font-medium">{what}</th>
+                      <td className="py-2 pr-4">{india}</td>
+                      <td className="py-2">{us}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
               <p className="mt-6 max-w-[60ch] text-sm font-medium">A way to decide what to read first. Not a buy or sell call, and not investment advice.</p>
             </div>
           </section>
-        </LandingMarket>
 
         <section id="stage" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
           <h2 data-reveal className={h2}>See where a stock is in its cycle</h2>
@@ -176,10 +203,12 @@ export default async function LandingPage() {
           </div>
         </section>
 
+        </LandingMarket>
+
         <section id="pricing" className="scroll-mt-16">
           <div className={cn(section, "py-14 sm:py-20")}>
             <h2 data-reveal className={h2}>One subscription, both markets</h2>
-            <p className="mt-3 text-sm text-muted-foreground">Start with {daysPhrase(trialDays)} free.</p>
+            <p className="mt-3 text-sm text-muted-foreground">Start with {daysPhrase(trialDays)} free. Prices are in Indian rupees (INR).</p>
             <div className="mt-10">
               <Suspense fallback={<div className="panel h-72 motion-safe:animate-pulse" aria-hidden />}>
                 <LandingPricing />
