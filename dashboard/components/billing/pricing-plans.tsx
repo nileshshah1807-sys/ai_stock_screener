@@ -339,7 +339,8 @@ function Panel({ panel, active }: { panel: PlanPanel; active: boolean }) {
  */
 function PriceFigure({ to, from, active, className }: { to: number; from: number; active: boolean; className?: string }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const mounted = useRef(false);
+  /** True once a count has begun, or the panel was mounted unseen: later arrivals (a toggle) start at once. */
+  const started = useRef(false);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -349,15 +350,23 @@ function PriceFigure({ to, from, active, className }: { to: number; from: number
     };
     const mm = gsap.matchMedia();
     mm.add(MOTION_OK, () => {
-      if (!active || from === to) return settle();
+      if (!active || from === to) {
+        started.current = true;
+        return settle();
+      }
       const counter = { v: from };
       el.textContent = priceLabel(from);
       const tween = gsap.to(counter, {
         v: to,
         duration: 0.9,
         // The first arrival waits a beat for the card to settle.
-        delay: mounted.current ? 0 : 0.55,
+        delay: started.current ? 0 : 0.55,
+        // On the first arrival it also waits to be in view: below the fold (the landing) it counts when scrolled to; already in view (/pricing) it starts at once.
+        scrollTrigger: started.current ? undefined : { trigger: el, start: "top 92%", once: true },
         ease: "expo.out",
+        onStart: () => {
+          started.current = true;
+        },
         onUpdate: () => {
           el.textContent = priceLabel(Math.round(counter.v / 100) * 100);
         },
@@ -369,7 +378,6 @@ function PriceFigure({ to, from, active, className }: { to: number; from: number
       };
     });
     mm.add("(prefers-reduced-motion: reduce)", settle);
-    mounted.current = true;
     return () => mm.revert();
   }, [to, from, active]);
 
