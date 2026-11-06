@@ -82,14 +82,21 @@ export async function changePrice(planId: string, rupees: string): Promise<Resul
   if (!created?.id) return fail("Razorpay did not create the plan. Nothing changed.");
 
   // The offer was priced against the old plan and attached to it: it ends with it.
-  const { error } = await db
+  // Compare-and-set on the old price: a double click or a second admin cannot overwrite a change made meanwhile.
+  const { data: changed, error } = await db
     .from("plans")
     .update({
       amount_paise: check.newPaise,
       razorpay_plan_id: created.id,
       offer_name: null, offer_amount_paise: null, offer_ends_at: null, offer_limit: null, razorpay_offer_id: null,
     })
-    .eq("id", planId);
+    .eq("id", planId)
+    .eq("amount_paise", check.oldPaise)
+    .select("id");
+  if (!error && !changed?.length) {
+    const note = await logAdminAction(ctx, "plan_price_failed", {}, { plan: planId, reason: "price changed meanwhile", unused_razorpay_plan_id: created.id, new_paise: check.newPaise });
+    return fail(`The price changed meanwhile, so nothing was saved. Reload the page. An unused Razorpay plan ${created.id} was created; ignore it.${note}`);
+  }
   if (error) {
     await logAdminAction(ctx, "plan_price_failed", {}, { plan: planId, new_razorpay_plan_id: created.id, new_paise: check.newPaise, error: error.message });
     return fail(`The Razorpay plan ${created.id} was created but our row did not update. Nothing is on sale at the new price; tell the developer.`);

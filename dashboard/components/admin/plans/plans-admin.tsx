@@ -85,9 +85,9 @@ function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers
       <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
         <div><dt className="text-muted-foreground">Price</dt><dd className="tabular-nums">{priceLabel(plan.amount_paise)} / {plan.period === "yearly" ? "year" : "month"}</dd></div>
         <div><dt className="text-muted-foreground">Active subscribers</dt><dd className="tabular-nums">{stats?.subscribers ?? 0}</dd></div>
-        <div><dt className="text-muted-foreground">Monthly revenue</dt><dd className="tabular-nums">{priceLabel(stats?.monthlyPaise ?? 0)}</dd></div>
+        <div><dt className="text-muted-foreground">Monthly revenue (estimate)</dt><dd className="tabular-nums">{priceLabel(stats?.monthlyPaise ?? 0)}</dd></div>
       </dl>
-      <p className="text-xs text-muted-foreground">Razorpay plan {plan.razorpay_plan_id ?? "not set"}. Revenue counts active subscribers at the price each took; a yearly price counts as a twelfth a month.</p>
+      <p className="text-xs text-muted-foreground">Razorpay plan {plan.razorpay_plan_id ?? "not set"}. Revenue is an estimate: active subscribers at the price each took, a yearly price as a twelfth a month; an early-bird subscriber counts at the offer price.</p>
 
       <form
         className="space-y-3"
@@ -120,7 +120,7 @@ function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers
         onSubmit={(e) => { e.preventDefault(); offer.go(() => run.offer(plan.id, o)); }}
       >
         <h3 className="text-sm font-semibold">Early-bird offer</h3>
-        <p className="text-xs text-muted-foreground">Make the offer in the Razorpay dashboard and paste its id. Leave every field empty to turn the offer off.</p>
+        <p className="text-xs text-muted-foreground">Make the offer in the Razorpay dashboard and paste its id. The offer price here must equal the offer&rsquo;s amount in Razorpay: this page cannot check it, and Razorpay charges its own. Leave every field empty to turn the offer off.</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field id={`on-${plan.id}`} label="Name" value={o.name} onChange={(v) => setO({ ...o, name: v })} />
           <Field id={`or-${plan.id}`} label="Offer price (₹)" value={o.rupees} onChange={(v) => setO({ ...o, rupees: v })} inputMode="decimal" />
