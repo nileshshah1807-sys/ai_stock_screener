@@ -9,7 +9,7 @@ import {
 } from "@/app/admin/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FILTERS, razorpayUrl } from "@/lib/admin.mjs";
+import { FILTERS, razorpayLinkLabel, razorpayUrl } from "@/lib/admin.mjs";
 import { formatDate } from "@/lib/format";
 import { NAME_MAX } from "@/lib/display-name.mjs";
 import type { AdminRow } from "@/lib/admin";
@@ -64,7 +64,7 @@ function Manage({ row, adminId, razorpayKeyId, trialDays }: { row: AdminRow; adm
   const [del, deleteAction, deletePending] = useActionState(deleteUser, IDLE);
   const dialog = useRef<HTMLDialogElement>(null);
   const [typed, setTyped] = useState("");
-  const link = razorpayUrl(row.razorpay_subscription_id, razorpayKeyId);
+  const link = razorpayUrl(row.razorpay_subscription_id);
   const isAdminRow = row.role === "admin";
   const denied = row.guard?.result === "denied";
 
@@ -130,7 +130,7 @@ function Manage({ row, adminId, razorpayKeyId, trialDays }: { row: AdminRow; adm
       <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4 md:col-span-2">
         {link ? (
           <a href={link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 underline-offset-2 hover:underline">
-            Subscription in Razorpay <ExternalLink className="size-3.5" aria-hidden />
+            {razorpayLinkLabel(razorpayKeyId)} <ExternalLink className="size-3.5" aria-hidden />
           </a>
         ) : (
           <span className="text-muted-foreground">No Razorpay subscription.</span>

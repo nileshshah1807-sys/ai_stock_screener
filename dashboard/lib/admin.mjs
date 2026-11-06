@@ -114,10 +114,15 @@ export function filterRows(rows, { q = "", status = "all" } = {}) {
 
 export const asFilter = (value) => (FILTERS.includes(value) ? value : "all");
 
-/** Razorpay dashboard record for a subscription; test keys have their own prefix. */
-export function razorpayUrl(subscriptionId, keyId = "") {
+/** Razorpay dashboard record for a subscription. Test and live share one URL: the mode is a toggle in the dashboard. */
+export function razorpayUrl(subscriptionId) {
   if (!subscriptionId || !/^sub_\w+$/.test(subscriptionId)) return null;
-  return `https://dashboard.razorpay.com/${String(keyId).startsWith("rzp_test") ? "test/" : ""}app/subscriptions/${subscriptionId}`;
+  return `https://dashboard.razorpay.com/app/subscriptions/${subscriptionId}`;
+}
+
+/** What the link says; a test key's subscription is only visible once the dashboard is switched to Test. */
+export function razorpayLinkLabel(keyId = "") {
+  return String(keyId).startsWith("rzp_test") ? "Subscription in Razorpay (test mode: switch the dashboard to Test)" : "Subscription in Razorpay";
 }
 
 /**

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   buildRow, canAdminister, exactLike, complimentaryPlan, deletePlan, filterRows, isEmail, logEntry, nextCharge, parseDays,
-  planClaim, razorpayUrl, trialPlan, undoDenialPlan,
+  planClaim, razorpayLinkLabel, razorpayUrl, trialPlan, undoDenialPlan,
 } from "./admin.mjs";
 
 const NOW = Date.parse("2026-11-06T00:00:00Z");
@@ -75,9 +75,10 @@ test("search and filter", () => {
 });
 
 test("razorpay link", () => {
-  assert.equal(razorpayUrl("sub_9", "rzp_live_x"), "https://dashboard.razorpay.com/app/subscriptions/sub_9");
-  assert.equal(razorpayUrl("sub_9", "rzp_test_x"), "https://dashboard.razorpay.com/test/app/subscriptions/sub_9");
-  assert.equal(razorpayUrl("../evil", ""), null);
+  assert.equal(razorpayUrl("sub_9"), "https://dashboard.razorpay.com/app/subscriptions/sub_9");
+  assert.equal(razorpayUrl("../evil"), null);
+  assert.equal(razorpayLinkLabel("rzp_live_x"), "Subscription in Razorpay");
+  assert.match(razorpayLinkLabel("rzp_test_x"), /test mode: switch the dashboard to Test/);
   assert.equal(razorpayUrl(null), null);
 });
 
