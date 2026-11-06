@@ -112,6 +112,7 @@ test("checkout never creates a second subscription beside one that is set up", (
   assert.equal(checkoutAction(trialing, { status: "authenticated", plan_id: "plan_X" }, "plan_X"), "refuse", "webhook not yet seen");
   assert.equal(checkoutAction(trialing, { status: "created", plan_id: "plan_X" }, "plan_X"), "reuse");
   assert.equal(checkoutAction(trialing, { status: "created", plan_id: "plan_Y" }, "plan_X"), "create", "other plan chosen");
+  assert.equal(checkoutAction(trialing, { status: "created", plan_id: "plan_X", start_at: NOW + 86400 }, "plan_X"), "create", "legacy start at trial end is not reused");
   assert.equal(checkoutAction({ status: "cancelled", plan_id: "pro" }, { status: "cancelled", plan_id: "plan_X" }, "plan_X"), "create", "may subscribe again");
   assert.equal(checkoutAction({ status: "expired", plan_id: null }, { status: "expired", plan_id: "plan_X" }, "plan_X"), "create");
 });

@@ -70,7 +70,9 @@ export function checkoutAction(row, remote, razorpayPlanId) {
   if (row.status === "active" || (row.plan_id && ["trialing", "past_due"].includes(row.status))) return "refuse";
   if (!remote) return "create";
   if (["authenticated", "active"].includes(remote.status)) return "refuse";
-  return remote.status === "created" && remote.plan_id === razorpayPlanId ? "reuse" : "create";
+  // A legacy subscription scheduled to start at the trial end would charge late: start afresh.
+  const waits = Number.isFinite(remote.start_at) && remote.start_at * 1000 > Date.now();
+  return remote.status === "created" && remote.plan_id === razorpayPlanId && !waits ? "reuse" : "create";
 }
 
 /**
