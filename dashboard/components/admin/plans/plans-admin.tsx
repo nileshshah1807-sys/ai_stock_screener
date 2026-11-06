@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 
 import { changePriceAction, saveOfferAction, setPlanOpenAction, setTrialDaysAction } from "@/app/admin/plans/actions";
@@ -16,6 +17,7 @@ export function PlansAdmin({ data, actions }: { data: PlansAdminData; actions?: 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-8">
       <div>
+        <p className="mb-2 text-sm"><Link href="/admin" className="underline underline-offset-2 hover:text-foreground">Users</Link></p>
         <h1 className="text-title font-semibold">Plans</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Prices, the early-bird offer, and which plans are on sale. Razorpay plans cannot be edited, so a price change makes a new one; people who already subscribed keep theirs. Refunds are made in Razorpay.

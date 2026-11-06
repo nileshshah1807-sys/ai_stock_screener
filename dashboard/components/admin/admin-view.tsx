@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useRef, useState } from "react";
 import { ExternalLink, Loader2, Search, UserPlus } from "lucide-react";
 
@@ -174,6 +175,7 @@ export function AdminView({ rows, total, q, status, adminId, razorpayKeyId, init
   return (
     <div className="space-y-6">
       <header>
+        <p className="mb-2 text-sm"><Link href="/admin/plans" className="underline underline-offset-2 hover:text-foreground">Plans and prices</Link></p>
         <h1 className="text-title font-semibold tracking-tight">Users</h1>
         <p className="mt-1 text-sm text-muted-foreground">{rows.length === total ? `${total} users` : `${rows.length} of ${total} users`}. Every action here is logged.</p>
       </header>

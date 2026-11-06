@@ -1,15 +1,18 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 import { PlansAdmin } from "@/components/admin/plans/plans-admin";
+import { adminContext } from "@/lib/admin";
 import { loadPlansAdmin } from "@/lib/admin-plans-server";
-import { requireAdmin } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 
 export const metadata: Metadata = { title: "Plans" };
 export const dynamic = "force-dynamic";
 
 export default async function AdminPlansPage() {
-  await requireAdmin();
+  // Checked on every request from the verified token; anyone else is sent away before any data is read.
+  if (!(await adminContext())) redirect((await getSession()) ? "/screener" : "/login");
   const data = await loadPlansAdmin();
-  if (!data) return <p className="p-6 text-sm text-muted-foreground">Could not read plans. Is the service role configured?</p>;
+  if (!data) return <p role="alert" className="panel p-4 text-sm text-destructive">Could not read plans. Check the Supabase service key and try again.</p>;
   return <PlansAdmin data={data} />;
 }

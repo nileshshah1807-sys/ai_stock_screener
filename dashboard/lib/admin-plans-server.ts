@@ -8,8 +8,7 @@ import {
   validatePriceChange,
   validateTrialDays,
 } from "@/lib/admin-plans.mjs";
-import { requireAdmin } from "@/lib/auth";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { adminContext, logAdminAction } from "@/lib/admin";
 
 /** Server-only plan management. Every export re-checks the admin from the token. */
 
@@ -37,23 +36,21 @@ export type Result = { ok: true; message: string } | { ok: false; error: string 
 
 const fail = (error: string): Result => ({ ok: false, error });
 
+/** The admin (re-checked from the verified token on every call) and the Razorpay auth header; null = not an admin. */
 async function context() {
-  const viewer = await requireAdmin(); // redirects a non-admin; reads the verified token each call
-  const db = createAdminClient();
+  const ctx = await adminContext();
+  if (!ctx) return null;
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
-  return { viewer, db, auth: keyId && keySecret ? `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}` : null };
+  return { ctx, db: ctx.db, auth: keyId && keySecret ? `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}` : null };
 }
 
-/** One row in admin_actions (Pam's log); a failed log is reported, never silent. */
-async function log(db: NonNullable<ReturnType<typeof createAdminClient>>, adminId: string, action: string, target: string, detail: object) {
-  const { error } = await db.from("admin_actions").insert({ admin_id: adminId, action, target, detail });
-  if (error) console.error("admin_actions insert failed", action, target, error.message);
-}
+const NOT_ADMIN = fail("Not allowed.");
 
 export async function loadPlansAdmin(): Promise<PlansAdminData | null> {
-  const { db } = await context();
-  if (!db) return null;
+  const c = await context();
+  if (!c) return null;
+  const { db } = c;
   const [plans, subs, setting] = await Promise.all([
     db.from("plans").select("id, name, period, amount_paise, active, razorpay_plan_id, razorpay_offer_id, offer_name, offer_amount_paise, offer_ends_at, offer_limit").order("created_at"),
     db.from("subscriptions").select("plan_id, status, plan_amount_paise, offer_applied").eq("status", "active"),
@@ -66,8 +63,10 @@ export async function loadPlansAdmin(): Promise<PlansAdminData | null> {
 }
 
 export async function changePrice(planId: string, rupees: string): Promise<Result> {
-  const { viewer, db, auth } = await context();
-  if (!db || !auth) return fail("Billing is not configured on this server.");
+  const c = await context();
+  if (!c) return NOT_ADMIN;
+  const { ctx, db, auth } = c;
+  if (!auth) return fail("Razorpay is not configured on this server.");
   const { data: plan } = await db.from("plans").select("*").eq("id", planId).maybeSingle();
   if (!plan) return fail("No such plan.");
   const check = validatePriceChange(plan, rupees);
@@ -92,22 +91,24 @@ export async function changePrice(planId: string, rupees: string): Promise<Resul
     })
     .eq("id", planId);
   if (error) {
-    await log(db, viewer.id, "plan.price_change_failed", planId, { new_razorpay_plan_id: created.id, new_paise: check.newPaise, error: error.message });
+    await logAdminAction(ctx, "plan_price_failed", {}, { plan: planId, new_razorpay_plan_id: created.id, new_paise: check.newPaise, error: error.message });
     return fail(`The Razorpay plan ${created.id} was created but our row did not update. Nothing is on sale at the new price; tell the developer.`);
   }
-  await log(db, viewer.id, "plan.price_change", planId, {
+  const note = await logAdminAction(ctx, "plan_price_change", {}, {
+    plan: planId,
     old_paise: check.oldPaise, new_paise: check.newPaise,
     old_razorpay_plan_id: plan.razorpay_plan_id, new_razorpay_plan_id: created.id,
     cleared_offer: plan.razorpay_offer_id,
   });
-  return { ok: true, message: "Price changed. New sign-ups pay it; existing subscribers keep their price. The early-bird offer was cleared: add it again for the new plan." };
+  return { ok: true, message: "Price changed. New sign-ups pay it; existing subscribers keep their price. The early-bird offer was cleared: add it again for the new plan." + note };
 }
 
 export type OfferInput = { name: string; rupees: string; offerId: string; endsAt: string; limit: string };
 
 export async function saveOffer(planId: string, input: OfferInput): Promise<Result> {
-  const { viewer, db, auth } = await context();
-  if (!db) return fail("Billing is not configured on this server.");
+  const c = await context();
+  if (!c) return NOT_ADMIN;
+  const { ctx, db, auth } = c;
   const { data: plan } = await db.from("plans").select("*").eq("id", planId).maybeSingle();
   if (!plan) return fail("No such plan.");
   const check = validateOffer(plan, input);
@@ -123,30 +124,33 @@ export async function saveOffer(planId: string, input: OfferInput): Promise<Resu
   }
   const { error } = await db.from("plans").update(check.offer).eq("id", planId);
   if (error) return fail("Could not save the offer.");
-  await log(db, viewer.id, check.offer.razorpay_offer_id ? "plan.offer_set" : "plan.offer_cleared", planId, {
+  const note = await logAdminAction(ctx, check.offer.razorpay_offer_id ? "plan_offer_set" : "plan_offer_cleared", {}, {
+    plan: planId,
     before: { name: plan.offer_name, paise: plan.offer_amount_paise, ends_at: plan.offer_ends_at, limit: plan.offer_limit, id: plan.razorpay_offer_id },
     after: check.offer,
   });
-  return { ok: true, message: check.offer.razorpay_offer_id ? (verified ? "Offer saved." : "Offer saved. Razorpay could not confirm the id; check it in the dashboard.") : "Offer removed." };
+  return { ok: true, message: check.offer.razorpay_offer_id ? (verified ? "Offer saved." : "Offer saved. Razorpay could not confirm the id; check it in the dashboard.") + note : "Offer removed." + note };
 }
 
 export async function setPlanOpen(planId: string, open: boolean): Promise<Result> {
-  const { viewer, db } = await context();
-  if (!db) return fail("Billing is not configured on this server.");
+  const c = await context();
+  if (!c) return NOT_ADMIN;
+  const { ctx, db } = c;
   const { data, error } = await db.from("plans").update({ active: open }).eq("id", planId).select("id");
   if (error || !data?.length) return fail("Could not update the plan.");
-  await log(db, viewer.id, open ? "plan.open" : "plan.close", planId, {});
-  return { ok: true, message: open ? "Plan is on sale." : "Plan closed for sale. Existing subscribers are not affected." };
+  const note = await logAdminAction(ctx, open ? "plan_open" : "plan_close", {}, { plan: planId });
+  return { ok: true, message: (open ? "Plan is on sale." : "Plan closed for sale. Existing subscribers are not affected.") + note };
 }
 
 export async function setTrialDays(input: string): Promise<Result> {
-  const { viewer, db } = await context();
-  if (!db) return fail("Billing is not configured on this server.");
+  const c = await context();
+  if (!c) return NOT_ADMIN;
+  const { ctx, db } = c;
   const check = validateTrialDays(input);
   if (!check.ok) return fail(check.error);
   const { data: before } = await db.from("app_settings").select("value").eq("key", "trial_days").maybeSingle();
   const { error } = await db.from("app_settings").upsert({ key: "trial_days", value: check.days, updated_at: new Date().toISOString() });
   if (error) return fail("Could not save the trial length. Has storage/admin_plans_schema.sql been applied?");
-  await log(db, viewer.id, "settings.trial_days", "trial_days", { before: before?.value ?? null, after: check.days });
-  return { ok: true, message: `New sign-ups get ${check.days} days. Trials already running are not changed.` };
+  const note = await logAdminAction(ctx, "setting_update", {}, { setting: "trial_days", before: before?.value ?? null, after: check.days });
+  return { ok: true, message: `New sign-ups get ${check.days} days. Trials already running are not changed.` + note };
 }
