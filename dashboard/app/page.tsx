@@ -37,10 +37,9 @@ export const metadata: Metadata = {
 };
 
 const COVERAGE = [
-  ["Quarterly results", "From the exchange filing", "From financial statements"],
-  ["Earnings calls", "Usually read the evening they are held", "Not covered"],
+  ["Quarterly results", "Exchange filing", "Financial statements"],
+  ["Earnings calls", "Usually read that evening", "Not covered"],
   ["Management guidance", "Read from the call", "Not covered"],
-  ["Shareholding and deals", "Exchange filings", "Not covered"],
 ] as const;
 
 const NAV = [
@@ -154,7 +153,7 @@ export default async function LandingPage() {
               <Pipeline />
             </div>
             <p className="mt-6 max-w-[64ch] text-xs text-muted-foreground">
-              Sources: NSE and BSE filings, SEC EDGAR, Yahoo Finance prices. Daily measurements update after each close; live prices are indicative and may be delayed.
+              Sources: NSE and BSE filings, SEC EDGAR, Yahoo Finance. Live prices are indicative.
             </p>
           </section>
 
@@ -165,7 +164,7 @@ export default async function LandingPage() {
                 <FactorBar />
               </div>
               <table className="mt-8 w-full max-w-3xl text-left text-sm">
-                <caption className="pb-2 text-left text-xs text-muted-foreground">What differs between the two markets</caption>
+                <caption className="pb-2 text-left text-xs text-muted-foreground">India and US differ here</caption>
                 <thead>
                   <tr className="border-b text-xs text-muted-foreground">
                     <th scope="col" className="py-2 pr-4 font-medium">Evidence</th>

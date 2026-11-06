@@ -56,9 +56,9 @@ export function Sieve() {
       <figcaption id="sieve-caption" className="mt-2 text-xs text-muted-foreground">
         <ol className="flex flex-wrap gap-x-5 gap-y-1">
           {SIEVE_GATES.map(([name, question], g) => (
-            <li key={name}><span className="font-medium text-foreground">{g + 1}. {name}</span> {question}</li>
+            <li key={name} title={question}><span className="font-medium text-foreground">{g + 1}. {name}</span><span className="sr-only"> {question}</span></li>
           ))}
-          <li><span className="font-medium text-foreground">Then ranked.</span> Each dot is a stock, the six that pass match the six rows below; an illustration, not data. A solid dot only means it passed the filters.</li>
+          <li><span className="font-medium text-foreground">Then ranked.</span> Each dot is a stock; an illustration, not data. A big dot only means it passed.</li>
         </ol>
       </figcaption>
     </figure>

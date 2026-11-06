@@ -1,5 +1,6 @@
 "use client";
 
+import { Bell } from "lucide-react";
 import { useRef } from "react";
 
 import { useScene } from "@/components/landing/use-scene";
@@ -11,6 +12,28 @@ const pct = (v: number) => `${((v - TONE.min) / span) * 100}%`;
 const edges: number[] = [TONE.min, ...TONE.cuts.map(([cut]) => Number(cut)), TONE.max];
 const HOURS = Array.from({ length: 7 }, (_, i) => 16 + i); // 16:00 .. 22:00
 const hourAt = (h: number) => (h * 60 - EVENING_AXIS.from) / (EVENING_AXIS.to - EVENING_AXIS.from);
+
+/** What the app shows at 18:25: the results card, as a miniature. Invented company and figures. */
+function MiniCard() {
+  return (
+    <span className="panel block p-2.5 text-left text-xs leading-4">
+      <span className="block font-semibold">Aarav Industries</span>
+      <span className="block text-muted-foreground">Results · Sep quarter</span>
+      <span className="mt-1.5 flex justify-between gap-4 tabular-nums"><span className="text-muted-foreground">Revenue</span>₹4,120 Cr</span>
+      <span className="flex justify-between gap-4 tabular-nums"><span className="text-muted-foreground">Profit</span>₹512 Cr</span>
+    </span>
+  );
+}
+
+/** What the app shows at 21:10: one row of the bell. */
+function MiniBell() {
+  return (
+    <span className="panel flex items-center gap-2 p-2.5 text-left text-xs leading-4">
+      <Bell className="size-4 shrink-0 text-brand" aria-hidden />
+      <span><span className="block font-semibold">Aarav Industries</span><span className="block text-muted-foreground">Call tone is in</span></span>
+    </span>
+  );
+}
 
 /**
  * An example evening on a real time axis, 15:30 to 22:00, every event where its
@@ -34,7 +57,7 @@ export function Evening() {
 
   return (
     <figure ref={root}>
-      <div className="relative ml-1 h-[26rem] md:ml-0 md:h-44">
+      <div className="relative ml-1 h-[26rem] md:ml-0 md:h-64">
         <div aria-hidden className="absolute inset-y-0 left-[0.45rem] w-px bg-border md:inset-x-0 md:inset-y-auto md:left-0 md:top-1/2 md:h-px md:w-auto" />
         <div aria-hidden data-rail className="absolute inset-y-0 left-[0.45rem] w-px bg-brand md:inset-x-0 md:inset-y-auto md:left-0 md:top-1/2 md:h-px md:w-auto" />
         {HOURS.map((h) => (
@@ -67,30 +90,40 @@ export function Evening() {
                 )}
               >
                 <time className="font-semibold tabular-nums">{time}</time> <span className="text-muted-foreground">{what}</span>
+                {i === 2 ? <span className="mt-2 hidden md:block"><MiniCard /></span> : null}
+                {i === 4 ? <span className="mt-2 hidden md:block"><MiniBell /></span> : null}
               </span>
             </li>
           ))}
         </ol>
-        <span className="absolute -bottom-5 left-7 text-xs text-muted-foreground md:bottom-0 md:left-auto md:right-0">22:00</span>
+        <span className="absolute -bottom-5 left-7 text-xs text-muted-foreground md:bottom-auto md:left-auto md:right-0 md:top-1/2 md:mt-3">22:00</span>
       </div>
 
-      <div data-tone className="mt-14">
+      <div className="mt-10 grid grid-cols-2 gap-2 md:hidden">
+        <MiniCard />
+        <MiniBell />
+      </div>
+
+      <div data-tone className="mt-10 md:mt-14">
         <p className="text-sm font-medium">How management sounded on the call</p>
-        <div className="relative mt-6 h-8" aria-hidden>
+        <div className="relative mt-6 h-12" aria-hidden>
           <div className="flex h-full overflow-hidden rounded-md border">
             {edges.slice(0, -1).map((from, i) => (
-              <div key={from} style={{ width: `${((edges[i + 1] - from) / span) * 100}%` }} className={cn(i % 2 ? "bg-(--control)" : "bg-card", i > 0 && "border-l")} />
+              <div key={from} style={{ width: `${((edges[i + 1] - from) / span) * 100}%` }} className={cn("flex items-end justify-center whitespace-nowrap pb-1.5 text-xs font-medium text-muted-foreground", i % 2 ? "bg-(--control)" : "bg-card", i > 0 && "border-l")}>
+                {i === 0 ? TONE.first : TONE.cuts[i - 1][1]}
+              </div>
             ))}
           </div>
           <span style={{ left: pct(TONE.median) }} className="absolute -top-5 -translate-x-1/2 whitespace-nowrap text-xs text-muted-foreground">median call</span>
-          <span style={{ left: pct(TONE.median) }} className="absolute inset-y-0 w-px bg-foreground/60" />
-          <span style={{ left: pct(TONE.sample) }} className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[1px] bg-foreground ring-2 ring-background" />
+          <span style={{ left: pct(TONE.median) }} className="absolute top-0 h-6 w-px bg-foreground/60" />
+          <span style={{ left: pct(TONE.sample) }} className="absolute top-3 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[1px] bg-foreground ring-2 ring-background" />
         </div>
         <p className="mt-5 text-xs text-muted-foreground">
-          {TONE.first} below {TONE.cuts[0][0]} · {TONE.cuts.map(([cut, name]) => `${name} from ${cut}`).join(" · ")}. The diamond is an invented call, read as Optimistic; the line is the median call, {TONE.median}.
+          <span className="sr-only">{TONE.first} below {TONE.cuts[0][0]}; {TONE.cuts.map(([cut, name]) => `${name} from ${cut}`).join("; ")}. </span>
+          Diamond: an invented call, Optimistic. Line: the median call.
         </p>
       </div>
-      <figcaption className="mt-4 text-xs text-muted-foreground">An example evening with an invented company; times are illustrative, not a schedule. The axis runs 15:30 to 22:00.</figcaption>
+      <figcaption className="mt-4 text-xs text-muted-foreground">An example evening, invented company, illustrative times.</figcaption>
     </figure>
   );
 }

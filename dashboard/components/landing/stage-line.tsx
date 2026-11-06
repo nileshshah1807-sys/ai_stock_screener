@@ -43,7 +43,7 @@ export function StageLine() {
 
   return (
     <figure ref={root}>
-      <div className="relative h-64 sm:h-72">
+      <div className="relative h-64 md:h-[26rem]">
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-labelledby="stage-caption" className="absolute inset-0 size-full">
           <defs>
             <clipPath id="stage-reveal">

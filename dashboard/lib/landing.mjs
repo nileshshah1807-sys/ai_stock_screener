@@ -173,8 +173,8 @@ export function eveningPosition(time) {
 
 /** Management-tone cuts as the app reads them (sentiment.outlook.stance_from_score), and the median call. */
 export const TONE = {
-  min: 30,
-  max: 90,
+  min: 35,
+  max: 85,
   median: 59,
   cuts: [
     [45, "Cautious"],
