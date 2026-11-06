@@ -125,7 +125,7 @@ export default function DisclaimerPage() {
 
       <h2>Contact</h2>
       <p>
-        Report an error in the data, or ask about this page: {LEGAL.contactEmail}.
+        Report an error in the data, or ask about this page: <a href={`mailto:${LEGAL.contactEmail}`}>{LEGAL.contactEmail}</a>.
       </p>
     </>
   );

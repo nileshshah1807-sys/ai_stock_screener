@@ -31,7 +31,7 @@ export default function RefundsPage() {
         from the day of the payment, including a first payment made during the free trial.
       </p>
       <p>
-        To ask, email {LEGAL.contactEmail} from the address on your account and say which payment
+        To ask, email <a href={`mailto:${LEGAL.contactEmail}`}>{LEGAL.contactEmail}</a> from the address on your account and say which payment
         you mean. We send the refund back to the method you paid with, through Razorpay. It
         usually reaches you in 5 to 7 working days. Your access ends when the refund is processed.
       </p>

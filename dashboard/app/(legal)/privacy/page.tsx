@@ -13,7 +13,7 @@ export default function PrivacyPage() {
       <p>
         This policy explains what personal data {LEGAL.service} collects, why, and what you can do
         about it. It is written to meet India&rsquo;s Digital Personal Data Protection Act, 2023
-        and the Information Technology Act, 2000. {LEGAL.operator} ({LEGAL.address}) is the Data
+        and the Information Technology Act, 2000. {LEGAL.operator} is the Data
         Fiduciary responsible for your data.
       </p>
 
@@ -107,7 +107,7 @@ export default function PrivacyPage() {
         </li>
       </ul>
       <p>
-        Write to {LEGAL.grievanceEmail}. We answer within 30 days. If you are not satisfied with
+        Write to <a href={`mailto:${LEGAL.grievanceEmail}`}>{LEGAL.grievanceEmail}</a>. We answer within 30 days. If you are not satisfied with
         our answer you may complain to the Data Protection Board of India.
       </p>
 
@@ -130,7 +130,7 @@ export default function PrivacyPage() {
 
       <h2>9. Grievance Officer</h2>
       <p>
-        {LEGAL.grievanceOfficer}, {LEGAL.grievanceEmail}, {LEGAL.address}.
+        {LEGAL.grievanceOfficer}, <a href={`mailto:${LEGAL.grievanceEmail}`}>{LEGAL.grievanceEmail}</a>.
       </p>
     </>
   );
