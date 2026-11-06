@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 
-import { adminContext, cancelRazorpay } from "@/lib/admin";
+import { adminContext, cancelRazorpay, logAdminAction } from "@/lib/admin";
 import {
-  cleanEmail, complimentaryPlan, deletePlan, isEmail, logEntry, namePlan, parseDays, trialPlan, undoDenialPlan,
+  cleanEmail, complimentaryPlan, deletePlan, isEmail, namePlan, parseDays, trialPlan, undoDenialPlan,
 } from "@/lib/admin.mjs";
 
 export type AdminState = { status: "idle" | "done" | "error"; message?: string };
@@ -26,11 +26,7 @@ async function targetOf({ db }: Ctx, formData: FormData): Promise<Target | null>
   return { id: data.user.id, email, role: member?.role ?? null };
 }
 
-async function record(ctx: Ctx, action: Parameters<typeof logEntry>[1], target: Partial<Target>, detail = {}) {
-  const { error } = await ctx.db.from("admin_actions").insert(logEntry(ctx.viewer, action, target, detail));
-  // The action has happened; a missing log table (not yet applied) must be seen, not hidden.
-  return error ? " It was not logged: apply storage/admin_actions_schema.sql." : "";
-}
+const record = (ctx: Ctx, action: string, target: Partial<Target>, detail = {}) => logAdminAction(ctx, action, target, detail);
 
 const done = (message: string): AdminState => {
   revalidatePath("/admin");

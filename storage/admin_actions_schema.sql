@@ -9,10 +9,7 @@ create table if not exists admin_actions (
     id bigint generated always as identity primary key,
     admin_id uuid not null,
     admin_email text not null,
-    action text not null check (action in (
-        'invite', 'trial_extend', 'trial_restart', 'comp_grant', 'comp_remove',
-        'undo_denial', 'rename', 'delete'
-    )),
+    action text not null,
     target_id uuid,
     target_email text,
     detail jsonb not null default '{}'::jsonb,

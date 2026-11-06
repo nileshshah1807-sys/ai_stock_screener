@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getViewer, type Viewer } from "@/lib/auth";
-import { buildRow, canAdminister } from "@/lib/admin.mjs";
+import { buildRow, canAdminister, logEntry } from "@/lib/admin.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export type AdminRow = ReturnType<typeof buildRow>;
@@ -59,4 +59,19 @@ export async function cancelRazorpay(subscriptionId: string): Promise<boolean> {
     body: JSON.stringify({ cancel_at_cycle_end: 0 }),
   }).catch(() => null);
   return Boolean(response?.ok);
+}
+
+/**
+ * Writes one admin_actions line (who, what, target, when) and returns "" or a
+ * sentence to show the admin when the log could not be written. Every admin
+ * page logs through this, with the context adminContext() returned.
+ */
+export async function logAdminAction(
+  ctx: NonNullable<Awaited<ReturnType<typeof adminContext>>>,
+  action: string,
+  target: { id?: string | null; email?: string | null } = {},
+  detail: Record<string, unknown> = {},
+): Promise<string> {
+  const { error } = await ctx.db.from("admin_actions").insert(logEntry(ctx.viewer, action, target, detail));
+  return error ? " It was not logged: apply storage/admin_actions_schema.sql." : "";
 }

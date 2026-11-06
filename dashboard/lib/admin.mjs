@@ -172,11 +172,12 @@ export function deletePlan({ actorId, target, sub, typedEmail }) {
   return { ok: true, cancelFirst: live ? sub.razorpay_subscription_id : null };
 }
 
-export const ACTIONS = ["invite", "trial_extend", "trial_restart", "comp_grant", "comp_remove", "undo_denial", "rename", "delete"];
+/** Other admin pages (plans, settings) log their own actions: a lower-case word with underscores. */
+export const isActionName = (action) => /^[a-z][a-z_]{2,39}$/.test(String(action));
 
 /** The line written to admin_actions. */
 export function logEntry(actor, action, target, detail = {}, now = Date.now()) {
-  if (!ACTIONS.includes(action)) throw new Error(`unknown admin action: ${action}`);
+  if (!isActionName(action)) throw new Error(`unknown admin action: ${action}`);
   return {
     admin_id: actor.id,
     admin_email: actor.email,
