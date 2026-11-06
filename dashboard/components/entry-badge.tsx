@@ -139,6 +139,10 @@ export function EntryBadge({
   );
   const glyphSize = size === "sm" ? "size-3" : "size-3.5";
 
+  // A viewer without rating access gets no rating on the row: show nothing,
+  // not a "—" pill.
+  if (!gated && !row.rating?.trim()) return null;
+
   if (!gated) {
     const token = ratingToken(row.rating);
     const Glyph = RATING_GLYPH[token as keyof typeof RATING_GLYPH] ?? Minus;
