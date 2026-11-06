@@ -308,10 +308,13 @@ grant execute on function billing_apply_event(text, uuid, text, text, timestampt
 --   update plans set razorpay_plan_id = 'plan_...', razorpay_offer_id = 'offer_...' where id = 'pro';
 --   update plans set razorpay_plan_id = 'plan_...' where id = 'pro-monthly';
 -- Until then create-subscription answers no_active_plan. Change a price here.
+-- The seed does nothing to rows already present; plans seeded under the old
+-- name were renamed by hand (6 Nov 2026):
+--   update plans set name = 'Cupel' where name = 'Sievr';
 -- ---------------------------------------------------------------------
 insert into plans (id, name, amount_paise, period, offer_name, offer_amount_paise, offer_ends_at, offer_limit)
-values ('pro', 'Sievr', 99900, 'yearly', 'Early bird', 69900, timestamptz '2026-12-31 23:59:59+05:30', 500)
+values ('pro', 'Cupel', 99900, 'yearly', 'Early bird', 69900, timestamptz '2026-12-31 23:59:59+05:30', 500)
 on conflict (id) do nothing;
 insert into plans (id, name, amount_paise, period)
-values ('pro-monthly', 'Sievr', 12900, 'monthly')
+values ('pro-monthly', 'Cupel', 12900, 'monthly')
 on conflict (id) do nothing;

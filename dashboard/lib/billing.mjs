@@ -217,7 +217,7 @@ export function perMonthLabel(plan) {
 }
 
 /**
- * What the trial banner adds once a plan is set up: "Sievr Monthly starts 12 Nov,
+ * What the trial banner adds once a plan is set up: "Cupel Monthly starts 12 Nov,
  * first charge ₹129" (a yearly plan: its offer price if offer_applied, its price if not, none if unrecorded). The price is the plan's own. Null
  * when nothing is set up, or the plan or the date is unknown.
  */

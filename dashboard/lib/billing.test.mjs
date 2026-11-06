@@ -196,15 +196,15 @@ test("the early-bird offer is UPI-only, so its checkout shows UPI alone", () => 
 });
 
 test("trialStartLine: only a trialing subscription with a plan set up gets the line", () => {
-  const plan = { name: "Sievr Monthly", amount_paise: 12900, period: "monthly" };
+  const plan = { name: "Cupel Monthly", amount_paise: 12900, period: "monthly" };
   const row = { status: "trialing", plan_id: "pro-monthly", trial_ends_at: "2026-11-12T10:00:00Z" };
-  assert.equal(trialStartLine(row, plan), "Sievr Monthly starts 12 Nov, first charge ₹129");
-  const yearly = { name: "Sievr Yearly", amount_paise: 99900, period: "yearly" };
+  assert.equal(trialStartLine(row, plan), "Cupel Monthly starts 12 Nov, first charge ₹129");
+  const yearly = { name: "Cupel Yearly", amount_paise: 99900, period: "yearly" };
   const early = { ...yearly, offer_amount_paise: 69900 };
-  assert.equal(trialStartLine(row, early), "Sievr Yearly starts 12 Nov", "offer_applied null: name no amount");
-  assert.equal(trialStartLine({ ...row, offer_applied: true }, early), "Sievr Yearly starts 12 Nov, first charge ₹699");
-  assert.equal(trialStartLine({ ...row, offer_applied: false }, early), "Sievr Yearly starts 12 Nov, first charge ₹999");
-  assert.equal(trialStartLine({ ...row, offer_applied: true }, yearly), "Sievr Yearly starts 12 Nov", "no stored offer amount");
+  assert.equal(trialStartLine(row, early), "Cupel Yearly starts 12 Nov", "offer_applied null: name no amount");
+  assert.equal(trialStartLine({ ...row, offer_applied: true }, early), "Cupel Yearly starts 12 Nov, first charge ₹699");
+  assert.equal(trialStartLine({ ...row, offer_applied: false }, early), "Cupel Yearly starts 12 Nov, first charge ₹999");
+  assert.equal(trialStartLine({ ...row, offer_applied: true }, yearly), "Cupel Yearly starts 12 Nov", "no stored offer amount");
   assert.equal(trialStartLine({ ...row, plan_id: null }, plan), null, "no plan set up");
   assert.equal(trialStartLine({ ...row, status: "active" }, plan), null, "already paying");
   assert.equal(trialStartLine(row, null), null, "plan unknown");
@@ -214,17 +214,17 @@ test("trialStartLine: only a trialing subscription with a plan set up gets the l
 describe("planSummary", () => {
   const fmt = (d) => `D(${d})`;
   const money = (p) => `R${p / 100}`;
-  const monthly = { name: "Sievr Monthly", period: "monthly", amount_paise: 12900 };
+  const monthly = { name: "Cupel Monthly", period: "monthly", amount_paise: 12900 };
   const yearly = { period: "yearly", amount_paise: 99900, offer: { amount_paise: 69900 } };
 
   test("trial with a plan set up says when it starts and what it charges", () => {
     const s = planSummary({ kind: "trial", subscription: { status: "trialing", plan_id: "m", trial_ends_at: "2026-11-12T10:00:00Z" }, plan: monthly }, fmt, money);
-    assert.equal(s.detail, "Free trial, Sievr Monthly starts 12 Nov, first charge ₹129.");
+    assert.equal(s.detail, "Free trial, Cupel Monthly starts 12 Nov, first charge ₹129.");
     assert.deepEqual(s.nextCharge, { date: "2026-11-12T10:00:00Z", paise: 12900 });
   });
   test("first charge follows offer_applied: offer price, plan price, or no amount", () => {
     const sub = { status: "trialing", plan_id: "y", trial_ends_at: "2026-11-12T10:00:00Z" };
-    const yearly2 = { ...yearly, name: "Sievr", offer_amount_paise: 69900 };
+    const yearly2 = { ...yearly, name: "Cupel", offer_amount_paise: 69900 };
     const amount = (offer_applied) => planSummary({ kind: "trial", subscription: { ...sub, offer_applied }, plan: yearly2 }, fmt, money).nextCharge?.paise;
     assert.equal(amount(true), 69900);
     assert.equal(amount(false), 99900);

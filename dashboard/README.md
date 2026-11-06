@@ -1,4 +1,4 @@
-# Sievr Dashboard
+# Cupel Dashboard
 
 Private web dashboard for the daily screener. Replaces the emailed spreadsheet
 and the static `dashboard_*.html` report with a searchable, filterable view of
@@ -168,7 +168,7 @@ header run date that is not the latest `screener_runs` date, a grid under 90%
 of `row_count`, or stale live prices while the market is open. It prints one
 line per finding and writes `smoke-summary.json` (`--json=path` to move it).
 `CREED_DASHBOARD_EMAIL` (default `creed.audit@example.com`) and `DASHBOARD_URL`
-(default `https://sievr.in`, or the first argument) override the
+(default `https://cupel.in`, or the first argument) override the
 account and site. "Nothing measured in this range" and "No stocks on this list
 today" print as `WARN` and do not fail the run.
 
@@ -218,12 +218,12 @@ email, so this cannot be deployed from the repo: `emails/magic-link.html` is the
 source of record. Before deploying a build that has the code step:
 
 1. Authentication, Email Templates, Magic Link: paste the whole file, subject
-   `Sign in to Sievr`. It prints `{{ .Token }}` and links to
+   `Sign in to Cupel`. It prints `{{ .Token }}` and links to
    `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email`.
 2. Authentication, Sign In / Providers, Email: set "Email OTP Expiration" to
    `900` (15 minutes; the page and email say so) and keep "Email OTP Length" at 6.
 3. Site URL (URL Configuration) must be the deployed origin; the template also
-   loads the brand mark from `{{ .SiteURL }}/email/sievr-mark.png`.
+   loads the brand mark from `{{ .SiteURL }}/email/cupel-mark.png`.
 4. Check SMTP Settings: the built-in sender allows only a few messages an hour;
    use a custom SMTP provider if more people sign in.
 
