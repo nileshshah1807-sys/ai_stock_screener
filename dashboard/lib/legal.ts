@@ -11,9 +11,9 @@ export const LEGAL = {
   operator: "Chirayu Shah",
   operatorForm: "an individual operating the service in India",
   address: "[Registered address]",
-  contactEmail: "[contact email]",
+  contactEmail: "support@cupel.in",
   grievanceOfficer: "Chirayu Shah",
-  grievanceEmail: "[grievance email]",
+  grievanceEmail: "support@cupel.in",
   jurisdiction: "[City], India",
   effective: "4 November 2026",
 } as const;
