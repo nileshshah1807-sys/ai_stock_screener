@@ -2,7 +2,6 @@
 
 import { useId, useLayoutEffect, useRef, useState } from "react";
 
-import { CountUp } from "@/components/motion";
 import { cn } from "@/lib/utils";
 
 /*
@@ -156,11 +155,11 @@ function BreadthMock() {
       <div className="flex flex-wrap gap-x-8 gap-y-2">
         <div>
           <p className="text-xs text-muted-foreground">Above 200-day average</p>
-          <p className="text-title font-semibold tabular-nums"><CountUp value={62} />%</p>
+          <p className="text-title font-semibold tabular-nums"><span data-count>62</span>%</p>
         </div>
         <div>
           <p className="text-xs text-muted-foreground">Stocks in Stage 2</p>
-          <p className="text-title font-semibold tabular-nums"><CountUp value={412} /></p>
+          <p className="text-title font-semibold tabular-nums"><span data-count>412</span></p>
         </div>
       </div>
       <svg viewBox={`0 0 ${w} ${h + 4}`} className="mt-3 h-32 w-full" role="img" aria-label="Sample line chart of the share of stocks above their 200-day average, rising over fifteen sessions">
