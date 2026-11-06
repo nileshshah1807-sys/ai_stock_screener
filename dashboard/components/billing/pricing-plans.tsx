@@ -55,7 +55,8 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
   const table = useRef<HTMLTableElement>(null);
   const selected = Math.max(0, panels.findIndex((p) => p.plan.id === selectedId));
 
-  useEffect(() => {
+  // Before paint, so the hidden start state of the arrival never shows after hydration.
+  useLayoutEffect(() => {
     const ctx = gsap.context(() => {
       const mm = gsap.matchMedia();
 
@@ -140,7 +141,7 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
         >
           <div className="relative grid">
             {panels.map((panel, index) => (
-              <Panel key={panel.plan.id} panel={panel} active={index === selected} other={panels.length > 1 ? panels[index === 0 ? 1 : 0] : undefined} />
+              <Panel key={panel.plan.id} panel={panel} active={index === selected} />
             ))}
           </div>
         </div>
@@ -263,11 +264,11 @@ function PeriodToggle({ panels, selected, onSelect }: { panels: PlanPanel[]; sel
 }
 
 /** One plan's card body. All are mounted; only the active one is seen, read or focusable. */
-function Panel({ panel, active, other }: { panel: PlanPanel; active: boolean; other: PlanPanel | undefined }) {
+function Panel({ panel, active }: { panel: PlanPanel; active: boolean }) {
   const { plan, isCurrent, badge, note, facts, action } = panel;
   const period = PERIOD_LABEL[plan.period] ?? plan.period;
   // A plan with an offer opens on its regular price and falls to the offer price: that is the moment.
-  const from = plan.offer ? plan.amount_paise : other ? shownPaise(other.plan) : shownPaise(plan);
+  const from = plan.offer ? plan.amount_paise : shownPaise(plan);
 
   return (
     <div
