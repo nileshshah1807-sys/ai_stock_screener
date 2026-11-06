@@ -17,7 +17,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   const params = await searchParams;
   const q = typeof params.q === "string" ? params.q.slice(0, 120) : "";
   const status = asFilter(typeof params.status === "string" ? params.status : "all");
-  const all = await loadUsers(ctx.db);
+  const all = await loadUsers(ctx.db).catch(() => null);
+  if (!all) return <p role="alert" className="panel p-4 text-sm text-destructive">The users could not be read. Check the Supabase service key and try again.</p>;
   const rows = filterRows(all, { q, status });
   return <AdminView rows={rows} total={all.length} q={q} status={status} adminId={ctx.viewer.id} razorpayKeyId={process.env.RAZORPAY_KEY_ID ?? ""} />;
 }

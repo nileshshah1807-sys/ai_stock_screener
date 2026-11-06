@@ -23,15 +23,15 @@ const FILTER_LABEL: Record<string, string> = {
 function Result({ state }: { state: AdminState }) {
   if (state.status === "idle" || !state.message) return null;
   return (
-    <p role={state.status === "error" ? "alert" : "status"} className={state.status === "error" ? "text-sm text-destructive" : "text-sm text-brand"}>
+    <p role={state.status === "error" ? "alert" : "status"} className={state.status === "error" ? "text-sm text-destructive" : "text-sm text-positive"}>
       {state.message}
     </p>
   );
 }
 
-function Submit({ pending, children, variant = "default" }: { pending: boolean; children: React.ReactNode; variant?: "default" | "destructive" | "outline" }) {
+function Submit({ pending, disabled = false, children, variant = "default" }: { pending: boolean; disabled?: boolean; children: React.ReactNode; variant?: "default" | "destructive" | "outline" }) {
   return (
-    <Button type="submit" size="sm" variant={variant} disabled={pending}>
+    <Button type="submit" size="sm" variant={variant} disabled={pending || disabled}>
       {pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
       {children}
     </Button>
@@ -44,7 +44,7 @@ function Invite() {
     <form action={action} className="flex flex-col gap-2">
       <label htmlFor="invite-email" className="text-sm font-medium">Invite a user</label>
       <div className="flex flex-col gap-2 sm:flex-row">
-        <Input id="invite-email" name="email" type="email" required placeholder="name@example.com" autoComplete="off" className="h-9 sm:max-w-xs" />
+        <Input key={state.status === "done" ? state.message : "new"} id="invite-email" name="email" type="email" required placeholder="name@example.com" autoComplete="off" className="h-9 sm:max-w-xs" />
         <Button type="submit" size="sm" className="h-9" disabled={pending}>
           {pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <UserPlus className="size-3.5" aria-hidden />}
           Send invite
@@ -62,6 +62,7 @@ function Manage({ row, adminId, razorpayKeyId }: { row: AdminRow; adminId: strin
   const [rename, renameAction, renamePending] = useActionState(renameUser, IDLE);
   const [del, deleteAction, deletePending] = useActionState(deleteUser, IDLE);
   const dialog = useRef<HTMLDialogElement>(null);
+  const [typed, setTyped] = useState("");
   const link = razorpayUrl(row.razorpay_subscription_id, razorpayKeyId);
   const isAdminRow = row.role === "admin";
   const denied = row.guard?.result === "denied";
@@ -73,7 +74,7 @@ function Manage({ row, adminId, razorpayKeyId }: { row: AdminRow; adminId: strin
         <input type="hidden" name="id" value={row.id} />
         <label htmlFor={`name-${row.id}`} className="font-medium">Display name</label>
         <div className="flex gap-2">
-          <Input id={`name-${row.id}`} name="name" defaultValue={row.name} maxLength={NAME_MAX + 20} className="h-9 max-w-xs" />
+          <Input id={`name-${row.id}`} name="name" defaultValue={row.name} placeholder="No name" maxLength={NAME_MAX + 20} className="h-9 max-w-xs" />
           <Submit pending={renamePending} variant="outline">Save</Submit>
         </div>
         <Result state={rename} />
@@ -149,11 +150,11 @@ function Manage({ row, adminId, razorpayKeyId }: { row: AdminRow; adminId: strin
                     : ""}
                 </p>
                 <label htmlFor={`confirm-${row.id}`} className="block">Type the address to confirm</label>
-                <Input id={`confirm-${row.id}`} name="confirm" autoComplete="off" placeholder={row.email} className="h-9" />
+                <Input id={`confirm-${row.id}`} name="confirm" value={typed} onChange={(event) => setTyped(event.target.value)} autoComplete="off" placeholder={row.email} className="h-9" />
                 <Result state={del} />
                 <div className="flex justify-end gap-2">
                   <Button type="button" size="sm" variant="outline" onClick={() => dialog.current?.close()}>Close</Button>
-                  <Submit pending={deletePending} variant="destructive">Delete user</Submit>
+                  <Submit pending={deletePending} disabled={typed.trim().toLowerCase() !== row.email} variant="destructive">Delete user</Submit>
                 </div>
               </form>
             </dialog>
@@ -184,7 +185,7 @@ export function AdminView({ rows, total, q, status, adminId, razorpayKeyId, init
           <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" aria-hidden />
           <Input name="q" defaultValue={q} placeholder="Search email or name" aria-label="Search by email or name" className="h-9 pl-8" />
         </div>
-        <select name="status" defaultValue={status} aria-label="Filter by status" className="h-9 rounded-md border bg-card px-2 text-sm">
+        <select name="status" defaultValue={status} aria-label="Filter by status" className="h-9 rounded-md border bg-card px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           {FILTERS.map((f: string) => <option key={f} value={f}>{FILTER_LABEL[f]}</option>)}
         </select>
         <Button type="submit" size="sm" className="h-9">Apply</Button>
@@ -204,16 +205,16 @@ export function AdminView({ rows, total, q, status, adminId, razorpayKeyId, init
               <tbody key={row.id} className="border-t">
                 <tr className="hover:bg-(--control)">
                   <td className="max-w-[14rem] px-3 py-2.5">
-                    <span className="block truncate font-medium">{row.email}</span>
+                    <span className="block truncate font-medium" title={row.email}>{row.email}</span>
                     {row.name ? <span className="block truncate text-xs text-muted-foreground">{row.name}</span> : null}
                   </td>
                   <td className="px-3 py-2.5">{row.plan_claim}</td>
-                  <td className="px-3 py-2.5">{row.status ?? "–"}</td>
+                  <td className={`px-3 py-2.5 ${row.status === "active" ? "text-positive" : row.status === "past_due" ? "text-destructive" : ""}`}>{row.status ?? "–"}</td>
                   <td className="tabular whitespace-nowrap px-3 py-2.5 text-muted-foreground">{when(row.created_at)}</td>
                   <td className="tabular whitespace-nowrap px-3 py-2.5 text-muted-foreground">{when(row.last_sign_in_at)}</td>
                   <td className="tabular whitespace-nowrap px-3 py-2.5 text-muted-foreground">{row.status === "trialing" ? when(row.trial_ends_at) : "–"}</td>
                   <td className="tabular whitespace-nowrap px-3 py-2.5 text-muted-foreground">{when(row.next_charge)}</td>
-                  <td className="max-w-[12rem] px-3 py-2.5">
+                  <td className={`max-w-[12rem] px-3 py-2.5 ${row.guard?.result === "denied" ? "text-destructive" : ""}`}>
                     {row.guard ? `${row.guard.result === "denied" ? "Denied" : "Granted"}${row.guard.reason ? ` · ${row.guard.reason}` : ""}` : "–"}
                   </td>
                   <td className="px-3 py-2.5 text-right">
