@@ -280,6 +280,8 @@ begin
     update subscriptions s set
         razorpay_subscription_id = p_razorpay_subscription_id,
         status = coalesce(p_status, s.status),
+        -- paying ends the trial: the row no longer carries a trial end
+        trial_ends_at = case when p_status = 'active' then null else s.trial_ends_at end,
         current_period_end = coalesce(p_current_period_end, s.current_period_end),
         plan_id = coalesce(p_plan_id, s.plan_id),
         last_event_id = p_event_id,

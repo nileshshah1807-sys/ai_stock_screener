@@ -96,23 +96,19 @@ export function checkoutRestriction(offerApplied) {
 
 /** Subscriptions are charged until cancelled; Razorpay needs a finite count. */
 const TOTAL_COUNT = { monthly: 120, yearly: 10 };
-/** A first charge less than this far ahead is simply charged now. */
-const MIN_TRIAL_LEAD_SECONDS = 60 * 60;
 
 /**
- * The body for Razorpay's create-subscription call. With trial time left the
- * first charge waits for it (the mandate is authorised now); else it is now.
+ * The body for Razorpay's create-subscription call. No start_at: buying ends
+ * the trial, so the first charge is made now, in or out of the trial.
  */
-export function newSubscriptionBody({ plan, userId, trialEndsAt, offerId }, nowSeconds) {
-  /** @type {{plan_id: string, total_count: number, customer_notify: number, notes: {user_id: string, plan_id: string}, start_at?: number, offer_id?: string}} */
+export function newSubscriptionBody({ plan, userId, offerId }) {
+  /** @type {{plan_id: string, total_count: number, customer_notify: number, notes: {user_id: string, plan_id: string}, offer_id?: string}} */
   const body = {
     plan_id: plan.razorpay_plan_id,
     total_count: TOTAL_COUNT[plan.period],
     customer_notify: 1,
     notes: { user_id: userId, plan_id: plan.id },
   };
-  const trialEnd = trialEndsAt ? Math.floor(Date.parse(trialEndsAt) / 1000) : 0;
-  if (trialEnd - nowSeconds > MIN_TRIAL_LEAD_SECONDS) body.start_at = trialEnd;
   if (offerId) body.offer_id = offerId;
   return body;
 }

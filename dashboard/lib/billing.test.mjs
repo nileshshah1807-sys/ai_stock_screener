@@ -116,17 +116,15 @@ test("checkout never creates a second subscription beside one that is set up", (
   assert.equal(checkoutAction({ status: "expired", plan_id: null }, { status: "expired", plan_id: "plan_X" }, "plan_X"), "create");
 });
 
-test("new subscription: the first charge waits for the trial, else it is now", () => {
+test("new subscription: buying ends the trial, so the first charge is now (no start_at)", () => {
   const plan = { id: "pro", razorpay_plan_id: "plan_X", period: "yearly" };
-  const waiting = newSubscriptionBody({ plan, userId: "u1", trialEndsAt: new Date((NOW + 3 * 86400) * 1000).toISOString() }, NOW);
-  assert.equal(waiting.start_at, NOW + 3 * 86400);
-  assert.deepEqual([waiting.plan_id, waiting.total_count, waiting.notes], ["plan_X", 10, { user_id: "u1", plan_id: "pro" }]);
-  const soon = newSubscriptionBody({ plan, userId: "u1", trialEndsAt: new Date((NOW + 600) * 1000).toISOString() }, NOW);
-  assert.equal("start_at" in soon, false);
-  assert.equal("start_at" in newSubscriptionBody({ plan, userId: "u1", trialEndsAt: null }, NOW), false);
-  assert.equal(newSubscriptionBody({ plan, userId: "u1", offerId: "offer_X" }, NOW).offer_id, "offer_X");
-  assert.equal("offer_id" in newSubscriptionBody({ plan, userId: "u1" }, NOW), false);
-  assert.equal(newSubscriptionBody({ plan: { ...plan, period: "monthly" }, userId: "u1" }, NOW).total_count, 120);
+  // A stray trialEndsAt is ignored: the trial never delays the charge.
+  const body = newSubscriptionBody({ plan, userId: "u1", trialEndsAt: new Date((NOW + 3 * 86400) * 1000).toISOString() });
+  assert.equal("start_at" in body, false);
+  assert.deepEqual([body.plan_id, body.total_count, body.notes], ["plan_X", 10, { user_id: "u1", plan_id: "pro" }]);
+  assert.equal(newSubscriptionBody({ plan, userId: "u1", offerId: "offer_X" }).offer_id, "offer_X");
+  assert.equal("offer_id" in newSubscriptionBody({ plan, userId: "u1" }), false);
+  assert.equal(newSubscriptionBody({ plan: { ...plan, period: "monthly" }, userId: "u1" }).total_count, 120);
 });
 
 // --- page helpers ---

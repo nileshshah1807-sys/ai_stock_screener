@@ -27,9 +27,8 @@ export function planPanels(plans: Plan[], { email, kind, subscription }: Who) {
   const lapsed = kind === "lapsed";
   const permanent = kind === "admin" || kind === "allowlist";
   const current = currentPlanId(subscription);
-  // Someone with time left on a trial sets the plan up now and is first charged
-  // when the trial ends; anyone else is charged at once.
-  const trialEnds = !lapsed && !current && kind === "trial" ? subscription?.trial_ends_at : null;
+  // Buying during the trial ends it: the first charge is made now.
+  const endsTrial = !lapsed && !current && kind === "trial";
 
   const saving = savingPercent(
     plans?.find((plan) => plan.period === "yearly"),
@@ -51,12 +50,12 @@ export function planPanels(plans: Plan[], { email, kind, subscription }: Who) {
         { label: "Works out to", value: `${perMonthLabel(plan)} a month` },
         { label: "Compared with monthly", value: planSaving ? `${planSaving}% less` : plan.period === "monthly" ? "Month to month" : "-" },
       ],
-      action: permanent ? null : <PlanAction plan={plan} email={email} subscription={subscription} current={current} trialEnds={trialEnds} />,
+      action: permanent ? null : <PlanAction plan={plan} email={email} subscription={subscription} current={current} />,
     };
   });
   // Opens on the plan someone holds, else the one that is better value, else the first.
   const initialId = current && panels.some((p) => p.plan.id === current) ? current : (panels.find((p) => p.badge === "value") ?? panels[0])?.plan.id;
-  return { panels, initialId, trialEnds, permanent };
+  return { panels, initialId, endsTrial, permanent };
 }
 
 /** The pricing page's content, from data its caller has already read. */
@@ -75,7 +74,7 @@ export function PricingView({
   const [headline, lead] = lapsed
     ? LAPSED_HEADLINE[lapseReason(subscription?.status)]
     : ["Pricing", "One subscription covers both markets. Every plan includes everything below."];
-  const { panels, initialId, trialEnds, permanent } = planPanels(plans ?? [], { email, kind, subscription });
+  const { panels, initialId, endsTrial, permanent } = planPanels(plans ?? [], { email, kind, subscription });
 
   return (
     <>
@@ -99,7 +98,7 @@ export function PricingView({
           <PricingPlans
             panels={panels}
             initialId={initialId}
-            note={trialEnds ? <p className="text-sm text-muted-foreground">Nothing is charged until your trial ends on {formatDate(trialEnds)}.</p> : null}
+            note={endsTrial ? <p className="text-sm text-muted-foreground">Subscribing ends your free trial and starts your plan today. Full refund within 7 days of a payment.</p> : null}
           />
         </div>
       )}
@@ -119,13 +118,11 @@ function PlanAction({
   email,
   subscription,
   current,
-  trialEnds,
 }: {
   plan: Plan;
   email: string | null;
   subscription: Subscription | null;
   current: string | null;
-  trialEnds: string | null | undefined;
 }) {
   const full = "h-10 w-full";
   if (!email) {
@@ -154,5 +151,5 @@ function PlanAction({
       </Link>
     );
   }
-  return <CheckoutButton planId={plan.id} email={email} brand={LEGAL.service} label={trialEnds ? "Subscribe, pay after trial" : "Subscribe"} fullWidth />;
+  return <CheckoutButton planId={plan.id} email={email} brand={LEGAL.service} label="Subscribe" fullWidth />;
 }

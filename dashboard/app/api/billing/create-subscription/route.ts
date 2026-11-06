@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   // The user's row (id from the verified token) and the plan with its Razorpay id.
   const { data: sub } = await admin
     .from("subscriptions")
-    .select("status, plan_id, trial_ends_at, razorpay_subscription_id")
+    .select("status, plan_id, razorpay_subscription_id")
     .eq("user_id", userId)
     .maybeSingle();
   if (!sub) return fail("no_subscription", 404);
@@ -86,15 +86,7 @@ export async function POST(request: NextRequest) {
   const { data: offerOpen } = plan.razorpay_offer_id
     ? await admin.rpc("plan_offer_open", { p_plan: plan.id })
     : { data: false };
-  const body = newSubscriptionBody(
-    {
-      plan,
-      userId,
-      trialEndsAt: sub?.status === "trialing" ? sub.trial_ends_at : null,
-      offerId: offerOpen ? plan.razorpay_offer_id : null,
-    },
-    Date.now() / 1000,
-  );
+  const body = newSubscriptionBody({ plan, userId, offerId: offerOpen ? plan.razorpay_offer_id : null });
   const response = await fetch(RAZORPAY_SUBSCRIPTIONS, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: auth },
@@ -123,6 +115,6 @@ export async function POST(request: NextRequest) {
     plan: { id: plan.id, name: plan.name, amount_paise: plan.amount_paise, period: plan.period },
     offer_applied: Boolean(body.offer_id),
     charged_amount_paise: body.offer_id ? plan.offer_amount_paise : plan.amount_paise,
-    trial_ends_at: body.start_at ? new Date(body.start_at * 1000).toISOString() : null,
+    trial_ends_at: null,
   });
 }
