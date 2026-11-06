@@ -98,7 +98,7 @@ export function PricingView({
           <PricingPlans
             panels={panels}
             initialId={initialId}
-            note={endsTrial ? <p className="text-sm text-muted-foreground">Subscribing ends your free trial and starts your plan today. Full refund within 7 days of a payment.</p> : null}
+            note={endsTrial ? <p className="text-sm text-muted-foreground">Subscribing ends your free trial, and your first charge is today. Full refund within 7 days of a payment.</p> : null}
           />
         </div>
       )}
