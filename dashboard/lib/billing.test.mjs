@@ -22,6 +22,7 @@ import {
   subscriptionChange,
   viewerFromClaims,
   trialStartLine,
+  firstChargePaise,
 } from "./billing.mjs";
 import { verifySignature } from "./webhook-signature.mjs";
 
@@ -249,4 +250,12 @@ test("a refused trial is its own lapse reason and plan card", async () => {
   assert.equal(lapseReason("expired"), "trial_ended");
   const card = planSummary({ kind: "lapsed", subscription: { status: "expired", trial_denied_at: "x" }, plan: null }, String);
   assert.equal(card.status, "No free trial");
+});
+
+test("a price change never rewrites what an existing subscriber pays", () => {
+  const plan = { name: "Cupel", period: "yearly", amount_paise: 119900, offer_amount_paise: 69900 };
+  const sub = { status: "active", current_period_end: "2027-11-06T00:00:00Z", plan_amount_paise: 99900 };
+  assert.equal(planSummary({ kind: "paid", subscription: sub, plan }, (d) => d).nextCharge.paise, 99900);
+  assert.equal(planSummary({ kind: "paid", subscription: { ...sub, plan_amount_paise: null }, plan }, (d) => d).nextCharge.paise, 119900, "unrecorded: the plan's price");
+  assert.equal(firstChargePaise({ plan_amount_paise: 99900, offer_applied: false }, plan), 99900);
 });
