@@ -4,13 +4,16 @@ import { Bell } from "lucide-react";
 import { useRef } from "react";
 
 import { useScene } from "@/components/landing/use-scene";
-import { EVENING, EVENING_AXIS, TONE, eveningPosition } from "@/lib/landing.mjs";
+import { EVENING, EVENING_AXIS, TONE, eveningPosition, labelShifts } from "@/lib/landing.mjs";
 import { cn } from "@/lib/utils";
 
 const span = TONE.max - TONE.min;
 const pct = (v: number) => `${((v - TONE.min) / span) * 100}%`;
 const edges: number[] = [TONE.min, ...TONE.cuts.map(([cut]) => Number(cut)), TONE.max];
 const HOURS = Array.from({ length: 7 }, (_, i) => 16 + i); // 16:00 .. 22:00
+/** Phone labels keep a minimum gap down the axis; a dot stays at its time, a label may sit a little below it. */
+const PHONE_AXIS_REM = 30;
+const shifts = labelShifts(EVENING.map(([t]) => eveningPosition(t) * PHONE_AXIS_REM), 1.75);
 const hourAt = (h: number) => (h * 60 - EVENING_AXIS.from) / (EVENING_AXIS.to - EVENING_AXIS.from);
 
 /** What the app shows at 18:25: the results card, as a miniature. Invented company and figures. */
@@ -51,13 +54,12 @@ export function Evening() {
     const vertical = window.matchMedia("(max-width: 767px)").matches;
     tl.from(el.querySelector("[data-rail]"), { clipPath: vertical ? "inset(0 0 100% 0)" : "inset(0 100% 0 0)", duration: 4 }, 0);
     el.querySelectorAll("[data-dot]").forEach((d, i) => tl.from(d, { scale: 0.4, opacity: 0.3, transformOrigin: "50% 50%", duration: 0.4 }, eveningPosition(EVENING[i][0]) * 4));
-    tl.from(el.querySelector("[data-tone]"), { opacity: 0, duration: 0.8 }, 3.3);
     return tl;
   });
 
   return (
     <figure ref={root}>
-      <div className="relative ml-1 h-[26rem] md:ml-0 md:h-64">
+      <div className="relative ml-1 h-[30rem] md:ml-0 md:h-64">
         <div aria-hidden className="absolute inset-y-0 left-[0.45rem] w-px bg-border md:inset-x-0 md:inset-y-auto md:left-0 md:top-1/2 md:h-px md:w-auto" />
         <div aria-hidden data-rail className="absolute inset-y-0 left-[0.45rem] w-px bg-brand md:inset-x-0 md:inset-y-auto md:left-0 md:top-1/2 md:h-px md:w-auto" />
         {HOURS.map((h) => (
@@ -72,7 +74,7 @@ export function Evening() {
           {EVENING.map(([time, what], i) => (
             <li
               key={time}
-              style={{ "--at": `${eveningPosition(time) * 100}%` } as React.CSSProperties}
+              style={{ "--at": `${eveningPosition(time) * 100}%`, "--shift": `${shifts[i]}rem` } as React.CSSProperties}
               className={cn(
                 "absolute left-0 top-(--at) -translate-y-1/2 md:top-1/2 md:left-(--at) md:-translate-x-1/2",
                 i === 0 && "md:translate-x-0",
@@ -82,7 +84,7 @@ export function Evening() {
               <span aria-hidden data-dot className="absolute left-0 top-1/2 size-[0.9rem] -translate-y-1/2 rounded-full border-2 border-brand bg-background md:left-1/2 md:-translate-x-1/2" />
               <span
                 className={cn(
-                  "ml-7 block whitespace-nowrap text-sm leading-5 md:absolute md:ml-0 md:w-40 md:whitespace-normal md:text-center",
+                  "ml-7 block whitespace-nowrap max-md:relative max-md:top-(--shift) text-sm leading-5 md:absolute md:ml-0 md:w-40 md:whitespace-normal md:text-center",
                   i % 2 ? "md:top-5" : "md:bottom-5",
                   i === 0 && "md:left-0 md:text-left",
                   i === EVENING.length - 1 && "md:right-0 md:text-right",

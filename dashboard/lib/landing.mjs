@@ -163,6 +163,15 @@ export const EVENING = [
   ["20:40", "The call is read, its tone scored"],
   ["21:10", "The bell tells you"],
 ];
+/** How far (same unit) each label must move down so neighbours sit at least `gap` apart; 0 where there is room. */
+export function labelShifts(positions, gap) {
+  let prev = -Infinity;
+  return positions.map((at) => {
+    const placed = Math.max(at, prev + gap);
+    prev = placed;
+    return placed - at;
+  });
+}
 /** The axis the evening is drawn on, in minutes after midnight. */
 export const EVENING_AXIS = { from: 15 * 60 + 30, to: 22 * 60 };
 /** Where a "HH:MM" time falls along the axis, as 0..1, to scale. */

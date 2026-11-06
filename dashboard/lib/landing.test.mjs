@@ -44,3 +44,21 @@ test("the evening is drawn to scale and no sampled row sits in a downtrend", asy
   assert.ok(EVENING.every(([t], i, a) => !i || eveningPosition(t) > eveningPosition(a[i - 1][0])));
   for (const market of Object.keys(SAMPLE_MARKETS)) assert.ok(SAMPLE_MARKETS[market].rows.every((r) => r.stage <= 2));
 });
+
+test("phone labels keep a minimum gap, and the page's factor weights equal the screener's defaults", async () => {
+  const { labelShifts, eveningPosition, EVENING, FACTORS } = await import("./landing.mjs");
+  const at = EVENING.map(([t]) => eveningPosition(t) * 30);
+  const shifts = labelShifts(at, 1.75);
+  const placed = at.map((v, i) => v + shifts[i]);
+  assert.ok(placed.every((v, i) => !i || v - placed[i - 1] >= 1.75 - 1e-9));
+  assert.equal(shifts[0], 0);
+  const { readFileSync } = await import("node:fs");
+  const runtime = new URL("../../screener/runtime.py", import.meta.url);
+  let source;
+  try { source = readFileSync(runtime, "utf8"); } catch { return; } // the dashboard checked out alone
+  for (const f of FACTORS) {
+    const m = source.match(new RegExp(`FACTOR_WEIGHT_${f.key.toUpperCase()} = _env_float\\("FACTOR_WEIGHT_${f.key.toUpperCase()}", ([0-9.]+)\\)`));
+    assert.ok(m, `${f.key} weight not found in runtime.py`);
+    assert.equal(Math.round(Number(m[1]) * 100), f.weight);
+  }
+});

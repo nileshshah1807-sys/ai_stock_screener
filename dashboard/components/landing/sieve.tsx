@@ -36,13 +36,13 @@ export function Sieve() {
       if (passes) tl.to(dot, { attr: { cx: d.x, cy: d.y, r: 5 }, duration: 1 }, 3);
       tl.fromTo(dot, { opacity: 1 }, { opacity: d.fate === 3 ? 1 : 0.35, duration: 0.3 }, Math.max(d.fate, 0) + 0.8);
     });
-    el.querySelectorAll("[data-gate]").forEach((gate, g) => tl.from(gate, { opacity: 0.25, duration: 0.5 }, g));
+    el.querySelectorAll("[data-gate]").forEach((gate, g) => tl.from(gate.querySelector("line"), { opacity: 0.2, duration: 0.5 }, g));
     return tl;
   });
 
   return (
     <figure ref={root} className="mx-auto w-full max-w-3xl">
-      <svg viewBox={`0 ${TOP} ${WIDTH} ${HEIGHT}`} role="img" aria-labelledby="sieve-caption" className="h-auto w-full">
+      <svg viewBox={`0 ${TOP} ${WIDTH} ${HEIGHT}`} aria-hidden className="h-auto w-full">
         {SIEVE_GATES.map(([name], g) => (
           <g key={name} data-gate>
             <line x1="0" x2={WIDTH} y1={GATE_YS[g]} y2={GATE_YS[g]} className="stroke-foreground" strokeWidth="1" strokeDasharray="2 5" />
@@ -53,7 +53,7 @@ export function Sieve() {
           <circle key={d.id} data-dot cx={d.x} cy={d.y} r={d.fate === 3 ? 5 : 3.2} className="fill-foreground" opacity={d.fate === 3 ? 1 : 0.35} />
         ))}
       </svg>
-      <figcaption id="sieve-caption" className="mt-2 text-xs text-muted-foreground">
+      <figcaption className="mt-2 text-xs text-muted-foreground">
         <ol className="flex flex-wrap gap-x-5 gap-y-1">
           {SIEVE_GATES.map(([name, question], g) => (
             <li key={name} title={question}><span className="font-medium text-foreground">{g + 1}. {name}</span><span className="sr-only"> {question}</span></li>

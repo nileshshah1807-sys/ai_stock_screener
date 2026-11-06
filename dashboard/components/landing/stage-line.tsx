@@ -44,7 +44,7 @@ export function StageLine() {
   return (
     <figure ref={root}>
       <div className="relative h-64 md:h-[26rem]">
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-labelledby="stage-caption" className="absolute inset-0 size-full">
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden className="absolute inset-0 size-full">
           <defs>
             <clipPath id="stage-reveal">
               <rect data-reveal x="0" y="0" width={W} height={H} />
@@ -80,7 +80,7 @@ export function StageLine() {
         <li>150-day: dashes</li>
         <li>200-day: dots</li>
       </ul>
-      <figcaption id="stage-caption" className="mt-2 text-xs text-muted-foreground">
+      <figcaption className="mt-2 text-xs text-muted-foreground">
         An invented price with its 50, 150 and 200-day averages, passing through four stages: basing, advancing, topping, declining.
       </figcaption>
     </figure>
