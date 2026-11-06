@@ -53,7 +53,6 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
   const root = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
   const table = useRef<HTMLTableElement>(null);
-  const blobs = useRef<HTMLDivElement>(null);
   const selected = Math.max(0, panels.findIndex((p) => p.plan.id === selectedId));
 
   useEffect(() => {
@@ -61,12 +60,6 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
       const mm = gsap.matchMedia();
 
       mm.add(MOTION_OK, () => {
-        // Depth: the two glows drift at different rates behind the content.
-        const [a, b] = Array.from(blobs.current?.children ?? []);
-        const scroll = { trigger: document.documentElement, start: 0, end: "max" as const, scrub: 0.6 };
-        if (a) gsap.to(a, { yPercent: -35, ease: "none", scrollTrigger: scroll });
-        if (b) gsap.to(b, { yPercent: 28, ease: "none", scrollTrigger: scroll });
-
         // Arrival: the toggle and card rise in; the comparison waits to be scrolled to.
         gsap.from(root.current?.querySelectorAll("[data-arrive]") ?? [], {
           opacity: 0,
@@ -105,8 +98,6 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
           const y = (event.clientY - r.top) / r.height;
           ry((x - 0.5) * 6);
           rx((0.5 - y) * 6);
-          el.style.setProperty("--mx", `${x * 100}%`);
-          el.style.setProperty("--my", `${y * 100}%`);
         };
         const leave = () => {
           rx(0);
@@ -125,12 +116,12 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
   }, []);
 
   return (
-    <div ref={root}>
+    <div ref={root} className="[--brand-soft:color-mix(in_oklab,var(--rating-strong-buy)_12%,var(--card))] [--brand:var(--rating-strong-buy)]">
       {/* The backdrop is decoration: it carries no content and is out of the reading order. */}
-      <div ref={blobs} aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute -top-40 -left-32 size-[34rem] rounded-full opacity-[0.16] [background:radial-gradient(closest-side,var(--brand),transparent)]" />
-        <div className="absolute top-[45%] -right-40 size-[30rem] rounded-full opacity-[0.1] [background:radial-gradient(closest-side,var(--brand),transparent)]" />
-      </div>
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-10 [background-image:linear-gradient(to_bottom,transparent_calc(100%_-_1px),var(--border)_0)] [background-size:100%_2.5rem] [mask-image:linear-gradient(to_bottom,#000_40%,transparent)]"
+      />
 
       {panels.length > 1 ? (
         <div data-arrive>
@@ -143,15 +134,10 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
           ref={card}
           className={cn(
             "panel group/card relative overflow-hidden p-6 [transform-style:preserve-3d] sm:p-8",
-            // The recommended plan glows; any other stays a plain panel.
-            panels[selected]?.badge === "value" && "border-brand/40 shadow-[0_18px_60px_-24px_var(--brand)]",
+            // The recommended plan takes the accent on its edge; any other stays a plain panel.
+            panels[selected]?.badge === "value" && "border-brand/50",
           )}
         >
-          {/* A sheen that follows the pointer; hidden until a mouse is over the card. */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover/card:opacity-100 [background:radial-gradient(22rem_circle_at_var(--mx,50%)_var(--my,0%),color-mix(in_oklab,var(--brand)_10%,transparent),transparent_60%)]"
-          />
           <div className="relative grid">
             {panels.map((panel, index) => (
               <Panel key={panel.plan.id} panel={panel} active={index === selected} other={panels.length > 1 ? panels[index === 0 ? 1 : 0] : undefined} />
