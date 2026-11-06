@@ -2,19 +2,18 @@
  * The facts the Terms, Privacy and Disclaimer pages state about who runs the
  * service, in one place so the three pages cannot disagree.
  *
- * shortcut: the bracketed values are placeholders. Fill them in, and have a
- * lawyer read the three pages, before the service takes money or is opened
- * beyond invited users.
+ * There is no registered office, so no address is stated: contact is by email.
+ * Have a lawyer read the three pages before the service takes money or is
+ * opened beyond invited users.
  */
 export const LEGAL = {
   service: "Cupel",
   operator: "Chirayu Shah",
   operatorForm: "an individual operating the service in India",
-  address: "[Registered address]",
-  contactEmail: "[contact email]",
+  contactEmail: "support@cupel.in",
   grievanceOfficer: "Chirayu Shah",
-  grievanceEmail: "[grievance email]",
-  jurisdiction: "[City], India",
+  grievanceEmail: "support@cupel.in",
+  jurisdiction: "Bengaluru, India",
   effective: "4 November 2026",
 } as const;
 
