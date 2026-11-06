@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut, Shapes } from "lucide-react";
+import { ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut, Shapes, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { FreshnessBanner } from "@/components/freshness-banner";
 import { TrialBannerFor } from "@/components/trial-banner";
 import { HealthLink } from "@/components/health-link";
@@ -238,6 +238,11 @@ export function AppShell({
               <HealthLink href={marketPath(market.slug, "/health")} />
               <ThemeToggle />
             </span>
+            {viewer.role === "admin" ? (
+              <Link href="/admin" aria-label="Admin: users" title="Admin: users" className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "hidden text-muted-foreground hover:text-foreground sm:inline-flex")}>
+                <Users className="size-4" aria-hidden />
+              </Link>
+            ) : null}
             <SignOut viewer={viewer} />
             <Avatar viewer={viewer} />
           </div>
