@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { Info, Loader2, MailCheck, TriangleAlert } from "lucide-react";
 
@@ -137,6 +138,11 @@ export function LoginForm({ notice, trial = false }: { notice: string | null; tr
           trial ? "Start free trial" : "Email me a code"
         )}
       </Button>
+      <p className="text-center text-xs text-muted-foreground">
+        By continuing you agree to the{" "}
+        <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">Terms</Link> and{" "}
+        <Link href="/privacy" className="underline underline-offset-2 hover:text-foreground">Privacy policy</Link>.
+      </p>
     </form>
   );
 }

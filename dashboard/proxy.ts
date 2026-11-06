@@ -117,6 +117,9 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth") ||
     pathname === "/pricing" ||
+    // Crawlers fetch these without signing in.
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
     // The landing page; /screener is the app's entry and stays behind sign-in.
     pathname === "/" ||
     // Razorpay's server calls this, not a browser; the route verifies the
