@@ -214,12 +214,20 @@ more people.
 6-digit code from it; the email's button opens `/auth/callback?token_hash=...`,
 which lands on a Continue page and spends the token only when pressed (mail
 scanners open links, and the code and link share one token). Supabase sends the
-email, so this cannot be deployed from the repo: `emails/magic-link.html` is the
-source of record. Before deploying a build that has the code step:
+email, so this cannot be deployed from the repo: `emails/magic-link.html` and
+`emails/confirm-signup.html` are the source of record. Before deploying a build
+that has the code step:
 
-1. Authentication, Email Templates, Magic Link: paste the whole file, subject
-   `Sign in to Cupel`. It prints `{{ .Token }}` and links to
+1. Authentication, Email Templates, Magic Link: paste the whole of
+   `emails/magic-link.html`, subject `Sign in to Cupel`. It prints
+   `{{ .Token }}` and links to
    `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=email`.
+   Then Confirm signup: paste `emails/confirm-signup.html`, subject
+   `Your Cupel code`. Supabase sends this one instead of Magic Link to an
+   address it has not seen, so a new person gets the same code and Continue
+   link and is signed in by it. Left as Supabase's default, it is a bare
+   confirmation link that lands on the home page signed out, and the person
+   has to ask for a second code.
 2. Authentication, Sign In / Providers, Email: set "Email OTP Expiration" to
    `900` (15 minutes; the page and email say so) and keep "Email OTP Length" at 6.
 3. Site URL (URL Configuration) must be the deployed origin; the template also
@@ -323,7 +331,8 @@ that row.
 - **Sign-up.** The email-code form creates an account for an unknown address
   (`shouldCreateUser: true`); `/login?trial=1` frames it as "Start your 7-day
   free trial". In Supabase, the **Confirm signup** email template must carry the
-  `{{ .Token }}` code like the magic-link one does (`emails/magic-link.html`).
+  `{{ .Token }}` code like the magic-link one does: paste
+  `emails/confirm-signup.html` (see Setup, Auth).
 - **Access** is read from the token's `plan` and `access_until` claims
   (`lib/billing.mjs`, `lib/auth.ts`). A token with no `plan` claim predates
   plans and is judged by `dashboard_allowlist`, as before. A signed-in person
