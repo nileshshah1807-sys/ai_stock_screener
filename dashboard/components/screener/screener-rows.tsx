@@ -107,7 +107,8 @@ function ScoreMeter({
   score: number | null;
   rating: string | null | undefined;
 }) {
-  if (score === null || score === undefined) return null;
+  // No rating (a viewer without access) means no band to colour by: no track.
+  if (score === null || score === undefined || !rating?.trim()) return null;
   const pct = Math.max(0, Math.min(100, score));
   const token = ratingToken(rating);
   return (
