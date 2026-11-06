@@ -126,5 +126,5 @@ test("delete: checks the address, refuses self and admins, cancels a live subscr
 test("log entry names who, what, target and when; unknown actions throw", () => {
   const entry = logEntry({ id: "1", email: "a@x.com" }, "delete", { id: "9", email: "z@x.com" }, { cancelled: "sub_1" }, NOW);
   assert.deepEqual(entry, { admin_id: "1", admin_email: "a@x.com", action: "delete", target_id: "9", target_email: "z@x.com", detail: { cancelled: "sub_1" }, created_at: at(0) });
-  assert.throws(() => logEntry({ id: "1", email: "a" }, "ban", {}));
+  assert.throws(() => logEntry({ id: "1", email: "a" }, "Bad Action!", {}));
 });
