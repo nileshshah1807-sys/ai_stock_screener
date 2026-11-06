@@ -7,8 +7,9 @@ import { SIEVE_GATES, sieveDots } from "@/lib/landing.mjs";
 
 const GATE_YS = [118, 170, 222];
 const WIDTH = 480;
-const HEIGHT = 300;
-const DOTS = sieveDots({ width: WIDTH, gateYs: GATE_YS });
+const TOP = 56;
+const HEIGHT = 244;
+const DOTS = sieveDots({ width: WIDTH, gateYs: GATE_YS, top: 66 });
 
 /**
  * The hero's picture: every stock is a dot, and the three gates let a few
@@ -42,18 +43,18 @@ export function Sieve() {
 
   return (
     <figure ref={root} className="mx-auto w-full max-w-3xl">
-      <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-labelledby="sieve-caption" className="h-auto w-full">
+      <svg viewBox={`0 ${TOP} ${WIDTH} ${HEIGHT}`} role="img" aria-labelledby="sieve-caption" className="h-auto w-full">
         {SIEVE_GATES.map(([name], g) => (
           <g key={name} data-gate>
             <line x1="0" x2={WIDTH} y1={GATE_YS[g]} y2={GATE_YS[g]} className="stroke-foreground" strokeWidth="1" strokeDasharray="2 5" />
-            <text x="2" y={GATE_YS[g] + 14} className="fill-muted-foreground text-[11px] font-medium">{name}</text>
+            <text x="2" y={GATE_YS[g] + 14} className="fill-muted-foreground text-[13px] font-medium">{name}</text>
           </g>
         ))}
         {DOTS.map((d) => (
           <circle key={d.id} data-dot cx={d.x} cy={d.y} r={d.fate === 3 ? 5 : 3.2} className={d.fate === 3 ? "fill-brand" : "fill-foreground"} opacity={d.fate === 3 ? 1 : 0.35} />
         ))}
         {DOTS.filter((d) => d.rank).map((d) => (
-          <text key={d.id} data-rank x={d.x} y={d.y + 18} textAnchor="middle" className="fill-muted-foreground text-[10px] tabular-nums">{d.rank}</text>
+          <text key={d.id} data-rank x={d.x} y={d.y + 18} textAnchor="middle" className="fill-muted-foreground text-[12px] tabular-nums">{d.rank}</text>
         ))}
       </svg>
       <figcaption id="sieve-caption" className="mt-2 text-xs text-muted-foreground">

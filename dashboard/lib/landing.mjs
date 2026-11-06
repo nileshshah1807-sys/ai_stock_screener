@@ -103,7 +103,7 @@ export function sieveDots({ count = 84, survivors = 9, width = 480, top = 14, ga
   const gap = (width - 120) / (survivors - 1);
   return fates.map((fate, i) => {
     const startX = 24 + rand() * (width - 48);
-    const startY = top + rand() * 50;
+    const startY = top + rand() * 36;
     if (fate === gates) {
       const n = rank++;
       return { id: i, fate, startX, startY, x: 60 + n * gap, y: rowY, rank: n + 1 };

@@ -4,6 +4,7 @@ import { useRef } from "react";
 
 import { useScene } from "@/components/landing/use-scene";
 import { EVENING, TONE } from "@/lib/landing.mjs";
+import { cn } from "@/lib/utils";
 
 const span = TONE.max - TONE.min;
 const pct = (v: number) => `${((v - TONE.min) / span) * 100}%`;
@@ -35,7 +36,7 @@ export function Evening() {
         <ol className="relative grid gap-5 md:grid-cols-5 md:gap-3">
           {EVENING.map(([time, what]) => (
             <li key={time} data-step className="flex gap-3 md:block">
-              <span aria-hidden className="mt-1 size-[0.9rem] shrink-0 rounded-full border-2 border-brand bg-background md:mt-0" />
+              <span aria-hidden className="mt-1 inline-block size-[0.9rem] shrink-0 rounded-full border-2 border-brand bg-background md:mt-0 md:block" />
               <span className="md:mt-3 md:block">
                 <time className="block text-sm font-semibold tabular-nums">{time}</time>
                 <span className="block text-sm text-muted-foreground">{what}</span>
@@ -50,12 +51,12 @@ export function Evening() {
         <div className="relative mt-6 h-8" aria-hidden>
           <div className="flex h-full overflow-hidden rounded-md border">
             {edges.slice(0, -1).map((from, i) => (
-              <div key={from} style={{ width: `${((edges[i + 1] - from) / span) * 100}%` }} className={i % 2 ? "bg-(--control)" : "bg-card"} />
+              <div key={from} style={{ width: `${((edges[i + 1] - from) / span) * 100}%` }} className={cn(i % 2 ? "bg-(--control)" : "bg-card", i > 0 && "border-l")} />
             ))}
           </div>
           <span style={{ left: pct(TONE.median) }} className="absolute -top-5 -translate-x-1/2 whitespace-nowrap text-[10px] text-muted-foreground">median call</span>
           <span style={{ left: pct(TONE.median) }} className="absolute inset-y-0 w-px bg-foreground/60" />
-          <span style={{ left: pct(TONE.sample) }} className="absolute -bottom-1 size-3 -translate-x-1/2 translate-y-full rotate-45 rounded-[1px] bg-foreground" />
+          <span style={{ left: pct(TONE.sample) }} className="absolute top-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[1px] bg-foreground ring-2 ring-background" />
         </div>
         <p className="mt-5 text-xs text-muted-foreground">
           {TONE.first} below {TONE.cuts[0][0]} · {TONE.cuts.map(([cut, name]) => `${name} from ${cut}`).join(" · ")}. The diamond is an invented call, read as Optimistic; the line is the median call, {TONE.median}.

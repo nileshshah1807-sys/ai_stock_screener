@@ -15,7 +15,7 @@ export function Pipeline() {
         <li key={name} className="panel p-4">
           <Icon className="size-5 text-brand" aria-hidden />
           <h3 className="mt-3 text-lead font-semibold">{name}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{lines.join(" ")}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{lines.map((line) => <span key={line} className="block">{line}</span>)}</p>
         </li>,
         i < NODES.length - 1 ? (
           <li key={`${name}-arrow`} aria-hidden className="flex justify-center self-center text-muted-foreground max-md:rotate-90">

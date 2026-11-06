@@ -98,7 +98,7 @@ export default async function LandingPage() {
               <Link href="/screener" className={cn(buttonVariants(), "h-9")}>Open the app</Link>
             ) : (
               <>
-                <Link href="/login" className={cn(buttonVariants({ variant: "ghost" }), "h-9")}>Sign in</Link>
+                <Link href="/login" className={cn(buttonVariants({ variant: "ghost" }), "hidden h-9 sm:inline-flex")}>Sign in</Link>
                 <Link href="/login?trial=1" className={cn(buttonVariants(), "h-9")}>
                   <span className="sm:hidden">Try free</span>
                   <span className="hidden sm:inline">Start {trialName(trialDays)}</span>
@@ -111,7 +111,7 @@ export default async function LandingPage() {
 
       <main id="main" className="flex-1">
         <LandingMarket>
-          <section className="landing-ledger border-b">
+          <section className="border-b">
             <div className={cn(section, "py-12 sm:py-16")}>
               <div className="max-w-3xl motion-safe:animate-rise">
                 <h1 className="text-[clamp(2.25rem,5.4vw,4rem)] font-semibold leading-[1.04] tracking-[-0.035em] text-balance">

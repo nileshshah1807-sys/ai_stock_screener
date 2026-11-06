@@ -934,25 +934,6 @@ details[data-closing] > summary svg {
   }
 }
 
-/* Landing page: a ruled-ledger backdrop for the hero, and the breadth line
-   drawing itself on once. Both are plain CSS; reduced motion shows the line
-   fully drawn. */
-.landing-ledger {
-  position: relative;
-  isolation: isolate;
-}
-/* The rules sit behind the content and fade out; masking the section itself
-   would fade the headline and the grid with them. */
-.landing-ledger::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image: linear-gradient(to bottom, transparent calc(100% - 1px), var(--border) 0);
-  background-size: 100% 2.5rem;
-  mask-image: linear-gradient(to bottom, #000 40%, transparent);
-}
-
 .landing-progress {
   position: fixed;
   inset: 0 0 auto 0;
