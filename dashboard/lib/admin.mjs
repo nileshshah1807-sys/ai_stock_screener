@@ -24,6 +24,9 @@ export function isEmail(value) {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
 
+/** An address as an ilike pattern that matches only itself: `_` and `%` are wildcards in LIKE, `\\` escapes them. */
+export const exactLike = (email) => cleanEmail(email).replace(/[\\%_]/g, "\\$&");
+
 export const cleanEmail = (value) => String(value ?? "").trim().toLowerCase();
 
 /** A whole number of days, 1..MAX_TRIAL_DAYS, or null. */

@@ -90,6 +90,10 @@ export default function PrivacyPage() {
         erase it within 30 days, except what the law requires us to keep, such as payment
         records. Technical logs are kept for a limited time by our providers.
       </p>
+      <p>
+        When an administrator changes or deletes an account, we log the action with that
+        account&apos;s email address. The log is kept after the account is deleted.
+      </p>
 
       <h2>5. Your rights</h2>
       <p>You may ask us to:</p>

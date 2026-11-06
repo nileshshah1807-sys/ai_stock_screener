@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  buildRow, canAdminister, complimentaryPlan, deletePlan, filterRows, isEmail, logEntry, nextCharge, parseDays,
+  buildRow, canAdminister, exactLike, complimentaryPlan, deletePlan, filterRows, isEmail, logEntry, nextCharge, parseDays,
   planClaim, razorpayUrl, trialPlan, undoDenialPlan,
 } from "./admin.mjs";
 
@@ -127,4 +127,11 @@ test("log entry names who, what, target and when; unknown actions throw", () => 
   const entry = logEntry({ id: "1", email: "a@x.com" }, "delete", { id: "9", email: "z@x.com" }, { cancelled: "sub_1" }, NOW);
   assert.deepEqual(entry, { admin_id: "1", admin_email: "a@x.com", action: "delete", target_id: "9", target_email: "z@x.com", detail: { cancelled: "sub_1" }, created_at: at(0) });
   assert.throws(() => logEntry({ id: "1", email: "a" }, "Bad Action!", {}));
+});
+
+test("an address matches only itself in an ilike: _ % and \\ are escaped", () => {
+  assert.equal(exactLike("A_b@x.com"), "a\\_b@x.com");
+  assert.equal(exactLike("a%b@x.com"), "a\\%b@x.com");
+  assert.equal(exactLike("a\\b@x.com"), "a\\\\b@x.com");
+  assert.equal(exactLike(" plain@x.com "), "plain@x.com");
 });

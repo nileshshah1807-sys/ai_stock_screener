@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getViewer, type Viewer } from "@/lib/auth";
-import { buildRow, canAdminister, logEntry } from "@/lib/admin.mjs";
+import { buildRow, canAdminister, exactLike, logEntry } from "@/lib/admin.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export type AdminRow = ReturnType<typeof buildRow>;
@@ -16,7 +16,10 @@ export async function adminContext(): Promise<{ viewer: Viewer; db: NonNullable<
   const viewer = await getViewer();
   if (!canAdminister(viewer)) return null;
   const db = createAdminClient();
-  return db && viewer ? { viewer, db } : null;
+  if (!db || !viewer) return null;
+  // The token's admin claim lives up to an hour after an admin is removed in SQL; the allowlist does not.
+  const { data } = await db.from("dashboard_allowlist").select("role").ilike("email", exactLike(viewer.email)).eq("role", "admin").limit(1);
+  return data?.length ? { viewer, db } : null;
 }
 
 type Db = NonNullable<ReturnType<typeof createAdminClient>>;

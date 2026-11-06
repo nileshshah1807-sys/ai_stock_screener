@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { adminContext, cancelRazorpay, logAdminAction } from "@/lib/admin";
 import {
-  cleanEmail, complimentaryPlan, deletePlan, isEmail, namePlan, parseDays, trialPlan, undoDenialPlan,
+  cleanEmail, complimentaryPlan, exactLike, deletePlan, isEmail, namePlan, parseDays, trialPlan, undoDenialPlan,
 } from "@/lib/admin.mjs";
 
 export type AdminState = { status: "idle" | "done" | "error"; message?: string };
@@ -22,7 +22,7 @@ async function targetOf({ db }: Ctx, formData: FormData): Promise<Target | null>
   const { data } = await db.auth.admin.getUserById(id);
   if (!data.user?.email) return null;
   const email = cleanEmail(data.user.email);
-  const { data: member } = await db.from("dashboard_allowlist").select("role").ilike("email", email).maybeSingle();
+  const { data: member } = await db.from("dashboard_allowlist").select("role").ilike("email", exactLike(email)).maybeSingle();
   return { id: data.user.id, email, role: member?.role ?? null };
 }
 
@@ -70,7 +70,7 @@ export async function setComplimentary(_prev: AdminState, formData: FormData): P
   // Never writes a role: a new row is a viewer, and a delete is limited to viewer rows.
   const { error } = plan.op === "insert"
     ? await ctx.db.from("dashboard_allowlist").insert({ email: target.email, role: "viewer" })
-    : await ctx.db.from("dashboard_allowlist").delete().ilike("email", target.email).eq("role", "viewer");
+    : await ctx.db.from("dashboard_allowlist").delete().ilike("email", exactLike(target.email)).eq("role", "viewer");
   if (error) return fail("Access was not changed.");
   return done(`${grant ? "Complimentary access given" : "Complimentary access removed"}.${await record(ctx, grant ? "comp_grant" : "comp_remove", target)}`);
 }
@@ -125,7 +125,7 @@ export async function deleteUser(_prev: AdminState, formData: FormData): Promise
     return fail(`${plan.cancelFirst ? `Subscription ${plan.cancelFirst} was cancelled, but the` : "The"} user was not deleted.${note}`);
   }
   // A leftover complimentary row would give a person who signs up again with this address access.
-  await ctx.db.from("dashboard_allowlist").delete().ilike("email", target.email).eq("role", "viewer");
+  await ctx.db.from("dashboard_allowlist").delete().ilike("email", exactLike(target.email)).eq("role", "viewer");
   const note = await record(ctx, "delete", target, { cancelled: plan.cancelFirst, deleted: true });
   return done(`${target.email} deleted.${plan.cancelFirst ? ` Razorpay subscription ${plan.cancelFirst} was cancelled first.` : ""}${note}`);
 }
