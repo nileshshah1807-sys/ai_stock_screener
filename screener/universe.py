@@ -40,7 +40,7 @@ _TIMEOUT_SECONDS = 15
 # Overridable so a fork can point the contact at its own repository.
 _WIKI_USER_AGENT = os.getenv(
     "WIKIPEDIA_USER_AGENT",
-    "sievr-screener/1.0 (daily equity research screener; +https://github.com/)",
+    "cupel-screener/1.0 (daily equity research screener; +https://github.com/)",
 )
 
 NSE_EQUITY_L_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"

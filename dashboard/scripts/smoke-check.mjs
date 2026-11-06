@@ -25,7 +25,7 @@ import { launchChrome } from "./cdp.mjs";
 const EMAIL = process.env.CREED_DASHBOARD_EMAIL ?? "creed.audit@example.com";
 const args = process.argv.slice(2);
 const JSON_PATH = args.find((a) => a.startsWith("--json="))?.slice(7) ?? "smoke-summary.json";
-const BASE = (args.find((a) => !a.startsWith("--")) ?? process.env.DASHBOARD_URL ?? "https://sievr.in").replace(/\/$/, "");
+const BASE = (args.find((a) => !a.startsWith("--")) ?? process.env.DASHBOARD_URL ?? "https://cupel.in").replace(/\/$/, "");
 const { NEXT_PUBLIC_SUPABASE_URL: URL_, NEXT_PUBLIC_SUPABASE_ANON_KEY: ANON, CREED_DASHBOARD_PASSWORD: PASSWORD } = process.env;
 
 if (!URL_ || !ANON || !PASSWORD) {

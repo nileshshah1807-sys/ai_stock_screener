@@ -15,7 +15,7 @@ import type { BellState } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 
 /** Fired by the notifications page, which marks the feed seen on arrival. */
-export const NOTIFICATIONS_SEEN_EVENT = "winnow:notifications-seen";
+export const NOTIFICATIONS_SEEN_EVENT = "cupel:notifications-seen";
 
 /**
  * The bell among the header's account controls.

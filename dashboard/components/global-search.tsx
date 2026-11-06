@@ -21,7 +21,7 @@ import { StockPicker, useStockPickerShortcut } from "@/components/screener/stock
  * open; the indices come in the same cached request as the stocks.
  */
 
-const OPEN_EVENT = "winnow:open-search";
+const OPEN_EVENT = "cupel:open-search";
 
 /** Open the header's search, from any trigger on the page. */
 export function openSearch() {

@@ -7,7 +7,7 @@
  * beyond invited users.
  */
 export const LEGAL = {
-  service: "Sievr",
+  service: "Cupel",
   operator: "Chirayu Shah",
   operatorForm: "an individual operating the service in India",
   address: "[Registered address]",

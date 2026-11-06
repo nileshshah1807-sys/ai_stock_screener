@@ -14,7 +14,7 @@ import { getSession } from "@/lib/auth";
 import { LEGAL, LEGAL_PAGES } from "@/lib/legal";
 import { cn } from "@/lib/utils";
 
-const TITLE = "Sievr: daily screener for NSE and US stocks";
+const TITLE = "Cupel: daily screener for NSE and US stocks";
 const DESCRIPTION =
   "Screen NSE and US stocks, read quarterly results as companies file them, and follow what management said on earnings calls. Data for research and education, not investment advice.";
 
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   title: { absolute: TITLE },
   description: DESCRIPTION,
   robots: { index: true, follow: true },
-  openGraph: { title: TITLE, description: DESCRIPTION, siteName: "Sievr", type: "website" },
+  openGraph: { title: TITLE, description: DESCRIPTION, siteName: "Cupel", type: "website" },
 };
 
 const NAV = [
@@ -50,7 +50,7 @@ const STEPS = [
 ];
 
 const FAQ = [
-  ["Is this investment advice?", "No. Sievr shows data and measurements for research and education. It does not tell you what to buy or sell, and nothing on it is a recommendation. Read the Disclaimer for the details."],
+  ["Is this investment advice?", "No. Cupel shows data and measurements for research and education. It does not tell you what to buy or sell, and nothing on it is a recommendation. Read the Disclaimer for the details."],
   ["Which markets are covered?", "India (NSE, plus companies listed on BSE alone) and the US, under one subscription."],
   ["Where does the data come from?", "Quarterly results and shareholding from the exchange's filings, US statements from SEC EDGAR, prices from Yahoo Finance. Live prices refresh about every five minutes in market hours and are indicative; the daily measurements update after the close."],
   ["How does the free trial work?", "Sign in with your email and get 7 days of full access. Subscribe from the pricing page when you want to carry on."],
@@ -91,7 +91,7 @@ export default async function LandingPage() {
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
               <BrandMark className="size-4" />
             </span>
-            <span className="text-lead font-semibold tracking-[-0.011em]">Sievr</span>
+            <span className="text-lead font-semibold tracking-[-0.011em]">Cupel</span>
           </Link>
           <nav aria-label="Sections" className="ml-4 hidden items-center gap-1 md:flex">
             {NAV.map((item) => (
@@ -223,7 +223,7 @@ export default async function LandingPage() {
             <h2 data-reveal className={h2}>Built by one person, for people who read filings</h2>
             <div>
               <p className="max-w-[56ch] text-sm leading-relaxed text-muted-foreground">
-              Sievr is made and run by {LEGAL.operator}, {LEGAL.operatorForm}. It started as a personal screener for reading results and calls faster, and it stays small on purpose: a few pages, each doing one job well. Mistakes in the data are fixed when reported.
+              Cupel is made and run by {LEGAL.operator}, {LEGAL.operatorForm}. It started as a personal screener for reading results and calls faster, and it stays small on purpose: a few pages, each doing one job well. Mistakes in the data are fixed when reported.
               </p>
               <a href={X_URL} target="_blank" rel="me noopener" aria-label={X_LABEL} className="mt-4 flex w-fit items-center gap-2 rounded-md text-sm font-medium text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <XIcon /> @ChirayuShah2103 on X

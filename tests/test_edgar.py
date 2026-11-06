@@ -411,7 +411,7 @@ class ClientTests(unittest.TestCase):
         self.session = FakeSession({edgar.TICKERS_URL: FakeResponse(body=TICKERS), **responses})
         self.sleeps = []
         return edgar.EdgarClient(
-            "Winnow test@example.com", session=self.session,
+            "Cupel test@example.com", session=self.session,
             sleep=self.sleeps.append, clock=lambda: 0.0, **kwargs
         )
 
@@ -424,7 +424,7 @@ class ClientTests(unittest.TestCase):
         self.assertIsNotNone(client.annual_frames("AAPL", today=TODAY))
         self.assertEqual(self.session.urls, [edgar.TICKERS_URL, AAPL_URL])
         for headers in self.session.headers_seen:
-            self.assertEqual(headers["User-Agent"], "Winnow test@example.com")
+            self.assertEqual(headers["User-Agent"], "Cupel test@example.com")
 
     def test_share_class_tickers_are_matched_across_spellings(self):
         client = self.client({})
@@ -498,7 +498,7 @@ class CollectorSourceTests(unittest.TestCase):
             STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN = 400
             STATEMENT_REQUESTS_PER_MINUTE = 10_000
             STATEMENT_SOURCE = "edgar"
-            SEC_USER_AGENT = "Winnow test@example.com"
+            SEC_USER_AGENT = "Cupel test@example.com"
 
         self.config = Config
 

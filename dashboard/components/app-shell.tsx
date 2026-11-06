@@ -91,7 +91,7 @@ function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
       </span>
       <span className="flex min-w-0 items-baseline gap-2">
         <span className="truncate text-[0.9375rem] font-semibold tracking-[-0.02em]">
-          Sievr
+          Cupel
         </span>
         {/*
           pr-px, and it is not a fudge. This line sizes its box to its text,
