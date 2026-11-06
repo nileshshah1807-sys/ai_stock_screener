@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type gsapType from "gsap";
 import type { Flip as FlipPlugin } from "gsap/Flip";
 
-import { SAMPLE_MARKETS, sampleRows } from "@/lib/landing.mjs";
+import { useLandingMarket } from "@/components/landing/landing-market";
+import { SAMPLE_MARKETS, STAGE_WORD, sampleRows } from "@/lib/landing.mjs";
 import { cn } from "@/lib/utils";
 
 // gsap and Flip load after first paint (see the effect in HeroGrid); until then a change simply happens.
@@ -44,7 +45,7 @@ const chip =
  * caption says so; nothing here is a quote. No rating column is drawn.
  */
 export function HeroGrid() {
-  const [market, setMarket] = useState<MarketKey>("ind");
+  const { market, setMarket } = useLandingMarket();
   const [stage2, setStage2] = useState(false);
   const [sort, setSort] = useState<Sort>(null);
   const sample = SAMPLE_MARKETS[market];
@@ -112,7 +113,7 @@ export function HeroGrid() {
           onClick={() => change("flip", () => setStage2((v) => !v))}
           className={cn(chip, stage2 ? "border-brand bg-brand-soft text-brand" : "border-border text-muted-foreground hover:text-foreground")}
         >
-          Stage 2 only
+          Advancing only
         </button>
         <span className="ml-auto text-xs text-muted-foreground tabular-nums" aria-live="polite">
           {rows.length} of {sample.rows.length} shown
@@ -157,7 +158,7 @@ export function HeroGrid() {
                 <td className="hidden px-3 py-2.5 text-right sm:table-cell">{row.pe === null ? "—" : row.pe.toFixed(1)}</td>
                 <td className="px-3 py-2.5 text-right">
                   <span className={cn("rounded px-1.5 py-0.5 text-xs font-medium", row.stage === 2 ? "bg-brand-soft text-brand" : "bg-(--control) text-muted-foreground")}>
-                    {row.stage}
+                    {STAGE_WORD[row.stage as 1 | 2 | 3 | 4]}
                   </span>
                 </td>
               </tr>

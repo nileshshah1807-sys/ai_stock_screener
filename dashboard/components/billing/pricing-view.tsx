@@ -44,7 +44,7 @@ export function planPanels(plans: Plan[], { email, kind, subscription, trialDays
       isCurrent: plan.id === current,
       badge: planSaving ? "value" : null,
       note: plan.offer
-        ? `${plan.offer.name}: first ${period} only, with UPI Autopay. ${plan.offer.ends_at ? `Until ${formatDate(plan.offer.ends_at)} or while places last. ` : ""}Then ${priceLabel(plan.amount_paise)} per ${period}.`
+        ? `${plan.offer.name}: first ${period} only, with UPI Autopay. ${plan.offer.ends_at ? `Until ${formatDate(plan.offer.ends_at)}. ` : ""}Then ${priceLabel(plan.amount_paise)} per ${period}.`
         : null,
       facts: [
         { label: "Billed", value: plan.period === "yearly" ? "Once a year" : "Every month" },
