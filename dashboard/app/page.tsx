@@ -124,7 +124,7 @@ export default async function LandingPage() {
                 NSE and US stocks, screened daily.
               </h1>
               <p className="mt-5 max-w-[46ch] text-lead text-muted-foreground sm:text-base">
-                A curated shortlist from the whole market, ranked daily on management guidance, value, momentum and risk, so there is far less to search and filter. Read results the evening companies file them. India and the US, one subscription.
+                A curated shortlist from the whole market, ranked daily on quality, growth, value, momentum, risk and management guidance, so there is far less to search and filter. Read results the evening companies file them. India and the US, one subscription.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link href={session ? "/screener" : "/login?trial=1"} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
