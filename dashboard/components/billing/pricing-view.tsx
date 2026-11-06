@@ -16,23 +16,15 @@ const LAPSED_HEADLINE = {
   past_due: ["Your last payment did not go through", "Open your profile to see where your plan stands."],
 } as const;
 
-/** The pricing page's content, from data its caller has already read. */
-export function PricingView({
-  plans,
-  email,
-  kind,
-  subscription,
-}: {
-  plans: Plan[] | null;
-  email: string | null;
-  kind: string | undefined;
-  subscription: Subscription | null;
-}) {
-  const lapsed = kind === "lapsed";
-  const [headline, lead] = lapsed
-    ? LAPSED_HEADLINE[lapseReason(subscription?.status)]
-    : ["Pricing", "One subscription covers both markets. Every plan includes everything below."];
+type Who = { email: string | null; kind: string | undefined; subscription: Subscription | null };
 
+/**
+ * The plan panels as words and buttons, for whoever is looking: the /pricing page
+ * and the landing's pricing section build theirs here, so the two cannot differ.
+ * Signed out (email null) the action is "Start your 7-day free trial".
+ */
+export function planPanels(plans: Plan[], { email, kind, subscription }: Who) {
+  const lapsed = kind === "lapsed";
   const permanent = kind === "admin" || kind === "allowlist";
   const current = currentPlanId(subscription);
   // Someone with time left on a trial sets the plan up now and is first charged
@@ -44,7 +36,7 @@ export function PricingView({
     plans?.find((plan) => plan.period === "monthly"),
   );
 
-  const panels: PlanPanel[] = (plans ?? []).map((plan) => {
+  const panels: PlanPanel[] = plans.map((plan) => {
     const period = PERIOD_LABEL[plan.period] ?? plan.period;
     const planSaving = plan.period === "yearly" ? saving : null;
     return {
@@ -64,6 +56,26 @@ export function PricingView({
   });
   // Opens on the plan someone holds, else the one that is better value, else the first.
   const initialId = current && panels.some((p) => p.plan.id === current) ? current : (panels.find((p) => p.badge === "value") ?? panels[0])?.plan.id;
+  return { panels, initialId, trialEnds, permanent };
+}
+
+/** The pricing page's content, from data its caller has already read. */
+export function PricingView({
+  plans,
+  email,
+  kind,
+  subscription,
+}: {
+  plans: Plan[] | null;
+  email: string | null;
+  kind: string | undefined;
+  subscription: Subscription | null;
+}) {
+  const lapsed = kind === "lapsed";
+  const [headline, lead] = lapsed
+    ? LAPSED_HEADLINE[lapseReason(subscription?.status)]
+    : ["Pricing", "One subscription covers both markets. Every plan includes everything below."];
+  const { panels, initialId, trialEnds, permanent } = planPanels(plans ?? [], { email, kind, subscription });
 
   return (
     <>

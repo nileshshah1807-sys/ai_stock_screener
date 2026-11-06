@@ -48,7 +48,18 @@ const periodName = (plan: Plan) => (plan.period === "yearly" ? "Yearly" : plan.p
  * cell, so the card is as tall as its tallest plan and a toggle never moves
  * what is below it.
  */
-export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[]; initialId: string; note?: React.ReactNode }) {
+export function PricingPlans({
+  panels,
+  initialId,
+  note,
+  embedded = false,
+}: {
+  panels: PlanPanel[];
+  initialId: string;
+  note?: React.ReactNode;
+  /** Inside another page (the landing's pricing section): the arrival waits to be scrolled to, and the page-wide ruled backdrop is left out. */
+  embedded?: boolean;
+}) {
   const [selectedId, setSelectedId] = useState(initialId);
   const root = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
@@ -69,6 +80,7 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
           ease: "expo.out",
           stagger: 0.09,
           clearProps: "transform,opacity",
+          scrollTrigger: embedded ? { trigger: root.current, start: "top 85%", once: true } : undefined,
         });
         const rows = table.current?.querySelectorAll("tbody tr");
         if (rows?.length) {
@@ -114,6 +126,7 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
       });
     }, root);
     return () => ctx.revert();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `embedded` is fixed per page; the effect runs once
   }, []);
 
   return (
@@ -121,6 +134,7 @@ export function PricingPlans({ panels, initialId, note }: { panels: PlanPanel[];
       {/* The backdrop is decoration: it carries no content and is out of the reading order. */}
       <div
         aria-hidden
+        hidden={embedded}
         className="pointer-events-none fixed inset-0 -z-10 [background-image:linear-gradient(to_bottom,transparent_calc(100%_-_1px),var(--border)_0)] [background-size:100%_2.5rem] [mask-image:linear-gradient(to_bottom,#000_40%,transparent)]"
       />
 

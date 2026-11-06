@@ -1,13 +1,14 @@
 import { notFound } from "next/navigation";
 
 import { AccountView } from "@/components/billing/account-view";
-import { PricingView } from "@/components/billing/pricing-view";
+import { PricingPlans } from "@/components/billing/pricing-plans";
+import { PricingView, planPanels } from "@/components/billing/pricing-view";
 import type { Plan, Subscription } from "@/lib/plans";
 
 /**
  * Development only: the pricing and account pages in each state, from made-up
  * rows, so every state can be looked at without a database or a payment.
- * /billing-preview?view=pricing|account&state=signedout|trial|setup|lapsed|active|past_due|cancelled
+ * /billing-preview?view=pricing|account|landing&state=signedout|trial|setup|lapsed|active|past_due|cancelled
  * The plans below are placeholders for the picture, not prices; &offer=closed hides the early-bird price.
  */
 const PLAN: Plan = {
@@ -42,6 +43,22 @@ export default async function BillingPreview({
   const state = SUBSCRIPTIONS[String(params.state)] ?? SUBSCRIPTIONS.trial;
   const email = params.state === "signedout" ? null : "reader@example.com";
   const plan = state.row?.plan_id ? PLAN : null;
+
+  if (params.view === "landing") {
+    // The landing's pricing section as LandingPricing builds it, on its own section background.
+    const { panels, initialId } = planPanels([params.offer === "closed" ? { ...PLAN, offer: null } : PLAN, MONTHLY], { email: null, kind: undefined, subscription: null });
+    return (
+      <section className="-mx-4 border-y bg-card">
+        <div className="mx-auto max-w-5xl px-4 py-14">
+          <h2 className="text-title font-semibold">One subscription, both markets</h2>
+          <p className="mt-3 text-sm text-muted-foreground">Start with 7 days free. The plans below are read live from our billing records.</p>
+          <div className="mt-10">
+            <PricingPlans panels={panels} initialId={initialId} embedded />
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return params.view === "account" ? (
     <AccountView email={email ?? "reader@example.com"} kind={state.kind || "trial"} subscription={state.row} plan={plan} plans={[PLAN, MONTHLY]} welcome={params.welcome === "1"} />
