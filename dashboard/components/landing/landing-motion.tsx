@@ -35,6 +35,9 @@ export function LandingMotion() {
         const mm = gsap.matchMedia();
         mm.add("(prefers-reduced-motion: no-preference)", () => {
           const enter = { start: "top 94%", once: true } as const;
+          // Already on screen at load: leave it be. Hiding it to reveal it a
+          // beat later is a flicker, not a reveal.
+          const below = (el: Element) => el.getBoundingClientRect().top > window.innerHeight * 0.94;
 
           gsap.utils.toArray<HTMLElement>("[data-parallax]").forEach((el) => {
             const speed = Number(el.dataset.parallax) || 0.15;
@@ -49,11 +52,11 @@ export function LandingMotion() {
             );
           });
 
-          gsap.utils.toArray<HTMLElement>("[data-reveal]").forEach((el) => {
+          gsap.utils.toArray<HTMLElement>("[data-reveal]").filter(below).forEach((el) => {
             gsap.from(el, { opacity: 0, y: 28, duration: 0.8, ease: "expo.out", clearProps: "transform,opacity", scrollTrigger: { trigger: el, ...enter } });
           });
 
-          gsap.utils.toArray<HTMLElement>("[data-stagger]").forEach((el) => {
+          gsap.utils.toArray<HTMLElement>("[data-stagger]").filter(below).forEach((el) => {
             const kids = Array.from(el.children);
             gsap.from(kids, {
               opacity: 0,
@@ -66,7 +69,7 @@ export function LandingMotion() {
             });
           });
 
-          gsap.utils.toArray<HTMLElement>("[data-bar]").forEach((el) => {
+          gsap.utils.toArray<HTMLElement>("[data-bar]").filter(below).forEach((el) => {
             gsap.from(el, { scaleX: 0, transformOrigin: "left center", duration: 1, ease: "expo.out", delay: 0.15, scrollTrigger: { trigger: el, ...enter } });
           });
 

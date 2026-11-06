@@ -1,13 +1,14 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
-import gsap from "gsap";
-import { Flip } from "gsap/Flip";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type gsapType from "gsap";
+import type { Flip as FlipPlugin } from "gsap/Flip";
 
 import { SAMPLE_MARKETS, sampleRows } from "@/lib/landing.mjs";
 import { cn } from "@/lib/utils";
 
-gsap.registerPlugin(Flip);
+// gsap and Flip load after first paint (see the effect in HeroGrid); until then a change simply happens.
+type Motion = { gsap: typeof gsapType; Flip: typeof FlipPlugin };
 
 type MarketKey = keyof typeof SAMPLE_MARKETS;
 type Row = { symbol: string; name: string; price: number; day: number; cap: number; pe: number | null; stage: number };
@@ -51,12 +52,24 @@ export function HeroGrid() {
   const body = useRef<HTMLTableSectionElement>(null);
   // What the next layout effect should play: rows sliding to their new places
   // (sort, filter) or arriving fresh (market switch).
-  const pending = useRef<{ kind: "flip"; state: Flip.FlipState } | { kind: "arrive" } | null>(null);
+  const motion = useRef<Motion | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.all([import("gsap"), import("gsap/Flip")]).then(([g, f]) => {
+      if (!live) return;
+      g.default.registerPlugin(f.Flip);
+      motion.current = { gsap: g.default, Flip: f.Flip };
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const pending = useRef<{ kind: "flip"; state: ReturnType<typeof FlipPlugin.getState> } | { kind: "arrive" } | null>(null);
 
   const change = (kind: "flip" | "arrive", update: () => void) => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!reduced && body.current) {
-      pending.current = kind === "flip" ? { kind, state: Flip.getState(body.current.querySelectorAll("tr")) } : { kind };
+    if (!reduced && body.current && motion.current) {
+      pending.current = kind === "flip" ? { kind, state: motion.current.Flip.getState(body.current.querySelectorAll("tr")) } : { kind };
     }
     update();
   };
@@ -64,7 +77,8 @@ export function HeroGrid() {
   useLayoutEffect(() => {
     const todo = pending.current;
     pending.current = null;
-    if (!todo || !body.current) return;
+    if (!todo || !body.current || !motion.current) return;
+    const { gsap, Flip } = motion.current;
     const trs = body.current.querySelectorAll("tr");
     if (todo.kind === "flip") Flip.from(todo.state, { targets: trs, duration: 0.55, ease: "expo.out", onEnter: (els) => gsap.from(els, { opacity: 0, y: 10, duration: 0.4, ease: "expo.out" }) });
     else gsap.from(trs, { opacity: 0, y: 12, duration: 0.5, ease: "expo.out", stagger: 0.05, clearProps: "transform,opacity" });
