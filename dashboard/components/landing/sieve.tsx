@@ -51,7 +51,7 @@ export function Sieve() {
           </g>
         ))}
         {DOTS.map((d) => (
-          <circle key={d.id} data-dot cx={d.x} cy={d.y} r={d.fate === 3 ? 5 : 3.2} className={d.fate === 3 ? "fill-brand" : "fill-foreground"} opacity={d.fate === 3 ? 1 : 0.35} />
+          <circle key={d.id} data-dot cx={d.x} cy={d.y} r={d.fate === 3 ? 5 : 3.2} className="fill-foreground" opacity={d.fate === 3 ? 1 : 0.35} />
         ))}
         {DOTS.filter((d) => d.rank).map((d) => (
           <text key={d.id} data-rank x={d.x} y={d.y + 18} textAnchor="middle" className="fill-muted-foreground text-[12px] tabular-nums">{d.rank}</text>
@@ -62,7 +62,7 @@ export function Sieve() {
           {SIEVE_GATES.map(([name, question], g) => (
             <li key={name}><span className="font-medium text-foreground">{g + 1}. {name}</span> {question}</li>
           ))}
-          <li><span className="font-medium text-foreground">Then ranked.</span> Each dot is a stock; an illustration, not data.</li>
+          <li><span className="font-medium text-foreground">Then ranked.</span> Each dot is a stock; an illustration, not data. A solid dot only means it passed the filters.</li>
         </ol>
       </figcaption>
     </figure>
