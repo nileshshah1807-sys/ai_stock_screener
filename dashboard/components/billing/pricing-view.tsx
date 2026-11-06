@@ -4,7 +4,7 @@ import { CheckoutButton } from "@/components/billing/checkout-button";
 import { PricingPlans, type PlanPanel } from "@/components/billing/pricing-plans";
 import { Reveal } from "@/components/motion";
 import { buttonVariants } from "@/components/ui/button";
-import { PERIOD_LABEL, TRIAL_UNAVAILABLE, currentPlanId, lapseReason, perMonthLabel, planTitle, priceLabel, savingPercent } from "@/lib/billing.mjs";
+import { DEFAULT_TRIAL_DAYS, PERIOD_LABEL, TRIAL_UNAVAILABLE, trialName, currentPlanId, lapseReason, perMonthLabel, planTitle, priceLabel, savingPercent } from "@/lib/billing.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
 import type { Plan, Subscription } from "@/lib/plans";
@@ -17,14 +17,14 @@ const LAPSED_HEADLINE = {
   past_due: ["Your last payment did not go through", "Open your profile to see where your plan stands."],
 } as const;
 
-type Who = { email: string | null; kind: string | undefined; subscription: Subscription | null };
+type Who = { email: string | null; kind: string | undefined; subscription: Subscription | null; trialDays?: number };
 
 /**
  * The plan panels as words and buttons, for whoever is looking: the /pricing page
  * and the landing's pricing section build theirs here, so the two cannot differ.
- * Signed out (email null) the action is "Start your 7-day free trial".
+ * Signed out (email null) the action is "Start your N-day free trial" (N is the configured trial length).
  */
-export function planPanels(plans: Plan[], { email, kind, subscription }: Who) {
+export function planPanels(plans: Plan[], { email, kind, subscription, trialDays = DEFAULT_TRIAL_DAYS }: Who) {
   const lapsed = kind === "lapsed";
   const permanent = kind === "admin" || kind === "allowlist";
   const current = currentPlanId(subscription);
@@ -51,7 +51,7 @@ export function planPanels(plans: Plan[], { email, kind, subscription }: Who) {
         { label: "Works out to", value: `${perMonthLabel(plan)} a month` },
         { label: "Compared with monthly", value: planSaving ? `${planSaving}% less` : plan.period === "monthly" ? "Month to month" : "-" },
       ],
-      action: permanent ? null : <PlanAction plan={plan} email={email} subscription={subscription} current={current} />,
+      action: permanent ? null : <PlanAction plan={plan} email={email} subscription={subscription} current={current} trialDays={trialDays} />,
     };
   });
   // Opens on the plan someone holds, else the one that is better value, else the first.
@@ -65,17 +65,19 @@ export function PricingView({
   email,
   kind,
   subscription,
+  trialDays,
 }: {
   plans: Plan[] | null;
   email: string | null;
   kind: string | undefined;
   subscription: Subscription | null;
+  trialDays?: number;
 }) {
   const lapsed = kind === "lapsed";
   const [headline, lead] = lapsed
     ? LAPSED_HEADLINE[lapseReason(subscription?.status, subscription?.trial_denied_at)]
     : ["Pricing", "One subscription covers both markets. Every plan includes everything below."];
-  const { panels, initialId, endsTrial, permanent } = planPanels(plans ?? [], { email, kind, subscription });
+  const { panels, initialId, endsTrial, permanent } = planPanels(plans ?? [], { email, kind, subscription, trialDays });
 
   return (
     <>
@@ -119,17 +121,19 @@ function PlanAction({
   email,
   subscription,
   current,
+  trialDays,
 }: {
   plan: Plan;
   email: string | null;
   subscription: Subscription | null;
   current: string | null;
+  trialDays: number;
 }) {
   const full = "h-10 w-full";
   if (!email) {
     return (
       <Link href="/login?trial=1" className={cn(buttonVariants(), full)}>
-        Start your 7-day free trial
+        Start your {trialName(trialDays)}
       </Link>
     );
   }

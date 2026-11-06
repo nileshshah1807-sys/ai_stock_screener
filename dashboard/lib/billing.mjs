@@ -240,9 +240,10 @@ export function trialStartLine(subscription, plan) {
  * the row says which (offer_applied null: not recorded, so no amount).
  */
 export function firstChargePaise(subscription, plan) {
-  if (plan.period !== "yearly") return plan.amount_paise;
+  const price = subscription.plan_amount_paise ?? plan.amount_paise;
+  if (plan.period !== "yearly") return price;
   if (subscription.offer_applied === true) return plan.offer_amount_paise ?? null;
-  return subscription.offer_applied === false ? plan.amount_paise : null;
+  return subscription.offer_applied === false ? price : null;
 }
 
 // --- The pricing and account pages' wording ---
@@ -271,7 +272,7 @@ export function planSummary({ kind, subscription, plan }, fmtDate, fmtMoney = pr
   const lapsed = kind === "lapsed";
   switch (subscription?.status) {
     case "active": {
-      const paise = plan?.amount_paise;
+      const paise = subscription.plan_amount_paise ?? plan?.amount_paise;
       const date = subscription.current_period_end;
       return {
         title,
@@ -306,4 +307,18 @@ export function planSummary({ kind, subscription, plan }, fmtDate, fmtMoney = pr
       if (subscription?.trial_denied_at) return { title: "No plan", status: "No free trial", detail: TRIAL_UNAVAILABLE, nextCharge: null };
       return { title: "No plan", status: lapsed ? "Free trial ended" : "No plan", detail: lapsed ? "Subscribe to get access back." : "Pick a plan to get started.", nextCharge: null };
   }
+}
+
+// --- The trial's length, in words (the length itself is app_settings.trial_days) ---
+
+export const DEFAULT_TRIAL_DAYS = 7;
+
+/** "7-day free trial" / "1-day free trial". */
+export function trialName(days) {
+  return `${days}-day free trial`;
+}
+
+/** "7 days" / "1 day". */
+export function daysPhrase(days) {
+  return `${days} ${days === 1 ? "day" : "days"}`;
 }

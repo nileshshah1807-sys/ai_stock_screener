@@ -20,6 +20,8 @@ export type Subscription = {
   offer_applied?: boolean | null;
   /** Set when the trial guard refused this account a free trial. */
   trial_denied_at?: string | null;
+  /** The plan price this subscriber took at checkout; null on rows from before it was recorded. */
+  plan_amount_paise?: number | null;
 };
 
 /**
@@ -61,7 +63,7 @@ export async function getSubscription(userId: string): Promise<Subscription | nu
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("subscriptions")
-    .select("plan_id, status, trial_ends_at, current_period_end, offer_applied, trial_denied_at")
+    .select("plan_id, status, trial_ends_at, current_period_end, offer_applied, trial_denied_at, plan_amount_paise")
     .eq("user_id", userId)
     .maybeSingle();
   if (error) {

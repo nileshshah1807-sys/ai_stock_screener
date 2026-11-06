@@ -103,6 +103,7 @@ export async function POST(request: NextRequest) {
     .update({
       razorpay_subscription_id: created.id,
       offer_applied: Boolean(body.offer_id),
+      plan_amount_paise: plan.amount_paise, // what they took: a later price change never rewrites it
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", userId)
