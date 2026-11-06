@@ -37,9 +37,9 @@ export const metadata: Metadata = {
 };
 
 const COVERAGE = [
-  ["Quarterly results", "From the exchange filing", "From the company's statements"],
-  ["Earnings calls", "Read the evening they are held", "Not covered"],
-  ["Management guidance", "Read and tracked", "Not covered"],
+  ["Quarterly results", "From the exchange filing", "From financial statements"],
+  ["Earnings calls", "Usually read the evening they are held", "Not covered"],
+  ["Management guidance", "Read from the call", "Not covered"],
   ["Shareholding and deals", "Exchange filings", "Not covered"],
 ] as const;
 
