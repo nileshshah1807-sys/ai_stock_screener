@@ -174,7 +174,7 @@ function TrialCard({ days, run }: { days: number; run: Actions }) {
           <Input id="trial-days" inputMode="numeric" value={value} onChange={(e) => { setValue(e.target.value); act.clear(); }} className="max-w-24" />
           <Button type="submit" variant="outline" disabled={!check.ok || act.pending}>Save</Button>
         </div>
-        {!check.ok ? <p className="text-sm text-muted-foreground">{check.error}</p> : <p className="text-xs text-muted-foreground">Applies to new accounts only; trials already running keep their end date. The public pages say 7 days: update them if you change this.</p>}
+        {!check.ok ? <p className="text-sm text-muted-foreground">{check.error}</p> : <p className="text-xs text-muted-foreground">Applies to new accounts only; trials already running keep their end date. The public pages read this value.</p>}
         <Message result={act.result} />
       </form>
     </section>

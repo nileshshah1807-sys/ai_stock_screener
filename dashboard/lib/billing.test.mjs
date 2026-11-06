@@ -23,6 +23,8 @@ import {
   viewerFromClaims,
   trialStartLine,
   firstChargePaise,
+  trialName,
+  daysPhrase,
 } from "./billing.mjs";
 import { verifySignature } from "./webhook-signature.mjs";
 
@@ -258,4 +260,11 @@ test("a price change never rewrites what an existing subscriber pays", () => {
   assert.equal(planSummary({ kind: "paid", subscription: sub, plan }, (d) => d).nextCharge.paise, 99900);
   assert.equal(planSummary({ kind: "paid", subscription: { ...sub, plan_amount_paise: null }, plan }, (d) => d).nextCharge.paise, 119900, "unrecorded: the plan's price");
   assert.equal(firstChargePaise({ plan_amount_paise: 99900, offer_applied: false }, plan), 99900);
+});
+
+test("the trial's length in words", () => {
+  assert.equal(trialName(7), "7-day free trial");
+  assert.equal(trialName(14), "14-day free trial");
+  assert.equal(daysPhrase(1), "1 day");
+  assert.equal(daysPhrase(10), "10 days");
 });

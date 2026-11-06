@@ -19,20 +19,33 @@ revoke all on app_settings from anon, authenticated;
 insert into app_settings (key, value) values ('trial_days', '7'::jsonb)
 on conflict (key) do nothing;
 
+-- The length of a new sign-up's trial, in days: the one reader of the setting.
+-- The trigger uses it, and so do the public pages that print it (they call it
+-- as anon, so it is security definer and returns the number only).
+create or replace function trial_days()
+returns integer
+language sql
+stable
+security definer
+set search_path = public
+as $$
+    select least(greatest(coalesce(
+        (select case when jsonb_typeof(value) = 'number' then (value #>> '{}')::numeric::integer end
+           from app_settings where key = 'trial_days'),
+        7), 1), 60);  -- a bad value never blocks a sign-up
+$$;
+revoke all on function trial_days() from public;
+grant execute on function trial_days() to anon, authenticated, service_role;
+
 create or replace function billing_start_trial()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-    days integer;
 begin
-    select case when jsonb_typeof(value) = 'number' then (value #>> '{}')::numeric::integer end
-      into days from public.app_settings where key = 'trial_days';
-    days := least(greatest(coalesce(days, 7), 1), 60);  -- a bad value never blocks a sign-up
     insert into public.subscriptions (user_id, status, trial_ends_at)
-    values (new.id, 'trialing', now() + make_interval(days => days))
+    values (new.id, 'trialing', now() + make_interval(days => public.trial_days()))
     on conflict (user_id) do nothing;
     return new;
 end;

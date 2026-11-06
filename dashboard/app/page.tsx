@@ -12,6 +12,8 @@ import { ProductTour } from "@/components/landing/product-tour";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { buttonVariants } from "@/components/ui/button";
 import { getSession } from "@/lib/auth";
+import { daysPhrase, trialName } from "@/lib/billing.mjs";
+import { getTrialDays } from "@/lib/trial-days";
 import { LEGAL, LEGAL_PAGES } from "@/lib/legal";
 import { cn } from "@/lib/utils";
 
@@ -50,11 +52,11 @@ const STEPS = [
   ["You read and filter", "Screen, open a stock, read the results and the call, and keep a watchlist. A bell tells you when a company you follow reports."],
 ];
 
-const FAQ = [
+const faq = (trialDays: number) => [
   ["Is this investment advice?", "No. Cupel shows data and measurements for research and education. It does not tell you what to buy or sell, and nothing on it is a recommendation. Read the Disclaimer for the details."],
   ["Which markets are covered?", "India (NSE, plus companies listed on BSE alone) and the US, under one subscription."],
   ["Where does the data come from?", "Quarterly results and shareholding from the exchange's filings, US statements from SEC EDGAR, prices from Yahoo Finance. Live prices refresh about every five minutes in market hours and are indicative; the daily measurements update after the close."],
-  ["How does the free trial work?", "Sign in with your email and get 7 days of full access. Subscribing during the trial ends it and starts your plan at once, with the first payment that day, and it is refunded in full within 7 days of a payment."],
+  ["How does the free trial work?", `Sign in with your email and get ${daysPhrase(trialDays)} of full access. Subscribing during the trial ends it and starts your plan at once, with the first payment that day, and it is refunded in full within 7 days of a payment.`],
   ["How do I pay, and can I cancel?", "Payments go through Razorpay by UPI or card, and the early-bird price uses UPI Autopay. Cancel any time from your account. A payment is refunded in full within 7 days; see the Refund policy."],
 ];
 
@@ -74,7 +76,7 @@ const section = "mx-auto w-full max-w-6xl px-4 sm:px-6";
 const h2 = "text-title max-w-[22ch] text-balance";
 
 export default async function LandingPage() {
-  const session = await getSession();
+  const [session, trialDays] = await Promise.all([getSession(), getTrialDays()]);
   const contact = LEGAL.contactEmail.startsWith("[") ? null : LEGAL.contactEmail;
 
   return (
@@ -106,7 +108,7 @@ export default async function LandingPage() {
             ) : (
               <>
                 <Link href="/login" className={cn(buttonVariants({ variant: "ghost" }), "h-9")}>Sign in</Link>
-                <Link href="/login?trial=1" className={cn(buttonVariants(), "hidden h-9 sm:inline-flex")}>Start 7-day free trial</Link>
+                <Link href="/login?trial=1" className={cn(buttonVariants(), "hidden h-9 sm:inline-flex")}>Start {trialName(trialDays)}</Link>
               </>
             )}
           </div>
@@ -128,7 +130,7 @@ export default async function LandingPage() {
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link href={session ? "/screener" : "/login?trial=1"} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
-                  {session ? "Open the app" : "Start 7-day free trial"}
+                  {session ? "Open the app" : `Start ${trialName(trialDays)}`}
                 </Link>
                 {session ? null : (
                   <Link href="/login" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>Sign in</Link>
@@ -199,7 +201,7 @@ export default async function LandingPage() {
         <section id="pricing" className="scroll-mt-16 border-y bg-card">
           <div className={cn(section, "py-14 sm:py-20")}>
             <h2 data-reveal className={h2}>One subscription, both markets</h2>
-            <p className="mt-3 text-sm text-muted-foreground">Start with 7 days free. The plans below are read live from our billing records.</p>
+            <p className="mt-3 text-sm text-muted-foreground">Start with {daysPhrase(trialDays)} free. The plans below are read live from our billing records.</p>
             <div className="mt-10">
               <Suspense fallback={<div className="panel h-72 motion-safe:animate-pulse" aria-hidden />}>
                 <LandingPricing />
@@ -211,7 +213,7 @@ export default async function LandingPage() {
         <section id="faq" className={cn(section, "scroll-mt-16 py-14 sm:py-20")}>
           <h2 data-reveal className={h2}>Questions</h2>
           <div data-stagger className="mt-8 max-w-3xl divide-y border-y">
-            {FAQ.map(([q, a]) => (
+            {faq(trialDays).map(([q, a]) => (
               <details key={q} className="group py-4">
                 <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-4 rounded text-lead font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
                   {q}
@@ -242,7 +244,7 @@ export default async function LandingPage() {
             <h2 data-reveal className={h2}>Try it on this week&apos;s results</h2>
             <div className="flex flex-wrap gap-3">
               <Link href={session ? "/screener" : "/login?trial=1"} className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>
-                {session ? "Open the app" : "Start 7-day free trial"}
+                {session ? "Open the app" : `Start ${trialName(trialDays)}`}
               </Link>
               {session ? null : <Link href="/login" className="inline-flex h-11 items-center rounded-md px-4 text-sm font-medium underline underline-offset-4 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Sign in</Link>}
             </div>

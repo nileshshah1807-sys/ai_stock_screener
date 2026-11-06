@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { trialName } from "@/lib/billing.mjs";
 import { LEGAL } from "@/lib/legal";
+import { getTrialDays } from "@/lib/trial-days";
 
 export const metadata: Metadata = { title: "Refunds & cancellation" };
 
-export default function RefundsPage() {
+export default async function RefundsPage() {
+  const trialDays = await getTrialDays();
   return (
     <>
       <h1>Refunds &amp; cancellation</h1>
@@ -13,7 +16,7 @@ export default function RefundsPage() {
 
       <h2>1. The free trial</h2>
       <p>
-        A new account starts with a 7-day free trial of full access. No card is needed to start it,
+        A new account starts with a {trialName(trialDays)} of full access. No card is needed to start it,
         and nothing is charged during it. If you subscribe during the trial, the trial ends and
         your plan starts at once: the first payment is taken that day.
       </p>

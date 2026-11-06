@@ -308,3 +308,17 @@ export function planSummary({ kind, subscription, plan }, fmtDate, fmtMoney = pr
       return { title: "No plan", status: lapsed ? "Free trial ended" : "No plan", detail: lapsed ? "Subscribe to get access back." : "Pick a plan to get started.", nextCharge: null };
   }
 }
+
+// --- The trial's length, in words (the length itself is app_settings.trial_days) ---
+
+export const DEFAULT_TRIAL_DAYS = 7;
+
+/** "7-day free trial" / "1-day free trial". */
+export function trialName(days) {
+  return `${days}-day free trial`;
+}
+
+/** "7 days" / "1 day". */
+export function daysPhrase(days) {
+  return `${days} ${days === 1 ? "day" : "days"}`;
+}

@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { trialName } from "@/lib/billing.mjs";
+import { getTrialDays } from "@/lib/trial-days";
 import Link from "next/link";
 
 import { BrandMark } from "@/components/brand-mark";
@@ -16,6 +18,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   // ?trial=1 is the sign-up path: the same code form, framed as the start of a
   // free trial. A new address gets an account; a known one just signs in.
   const trial = params.trial === "1";
+  const trialDays = await getTrialDays();
 
   // Each case names what actually happened. "Expired or already used" is by far
   // the most common, and it is worth saying that a link can be spent before it
@@ -49,7 +52,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         </div>
 
         <div className="panel animate-rise p-6 sm:p-8">
-          <h1 className="text-heading font-semibold">{trial ? "Start your 7-day free trial" : "Sign in"}</h1>
+          <h1 className="text-heading font-semibold">{trial ? `Start your ${trialName(trialDays)}` : "Sign in"}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {trial
               ? "Full access to both markets, no card needed. Enter your email and we\u2019ll send you a 6-digit code."
@@ -64,7 +67,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         <p className="mt-6 text-center text-xs leading-relaxed text-muted-foreground">
           {trial ? "Already have an account? " : "New here? "}
           <Link href={trial ? "/login" : "/login?trial=1"} className="underline underline-offset-2 hover:text-foreground">
-            {trial ? "Sign in" : "Start your 7-day free trial"}
+            {trial ? "Sign in" : `Start your ${trialName(trialDays)}`}
           </Link>
           <br />
           Data for research and education, not investment advice.
