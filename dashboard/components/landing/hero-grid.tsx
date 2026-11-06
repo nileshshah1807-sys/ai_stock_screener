@@ -1,12 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type gsapType from "gsap";
+import type { Flip as FlipPlugin } from "gsap/Flip";
 
 import { SAMPLE_MARKETS, sampleRows } from "@/lib/landing.mjs";
 import { cn } from "@/lib/utils";
 
+// gsap and Flip load after first paint (see the effect in HeroGrid); until then a change simply happens.
+type Motion = { gsap: typeof gsapType; Flip: typeof FlipPlugin };
+
 type MarketKey = keyof typeof SAMPLE_MARKETS;
 type Row = { symbol: string; name: string; price: number; day: number; cap: number; pe: number | null; stage: number };
+
+type SortKey = "price" | "day" | "cap" | "pe" | "stage";
+type Sort = { key: SortKey; dir: "desc" | "asc" } | null;
+const COLUMNS: { key: SortKey; label: string; hide?: boolean }[] = [
+  { key: "price", label: "Price" },
+  { key: "day", label: "1D" },
+  { key: "cap", label: "Mkt cap", hide: true },
+  { key: "pe", label: "P/E", hide: true },
+  { key: "stage", label: "Stage" },
+];
+
+/** Descending, then ascending, then the sample's own order; a missing P/E sorts last either way. */
+function sorted(rows: Row[], sort: Sort) {
+  if (!sort) return rows;
+  const sign = sort.dir === "desc" ? -1 : 1;
+  return [...rows].sort((a, b) => {
+    const x = a[sort.key];
+    const y = b[sort.key];
+    if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1;
+    return (x - y) * sign;
+  });
+}
 
 const chip =
   "inline-flex h-8 items-center rounded-md border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -19,8 +46,46 @@ const chip =
 export function HeroGrid() {
   const [market, setMarket] = useState<MarketKey>("ind");
   const [stage2, setStage2] = useState(false);
+  const [sort, setSort] = useState<Sort>(null);
   const sample = SAMPLE_MARKETS[market];
-  const rows = sampleRows(market, stage2);
+  const rows = sorted(sampleRows(market, stage2), sort);
+  const body = useRef<HTMLTableSectionElement>(null);
+  // What the next layout effect should play: rows sliding to their new places
+  // (sort, filter) or arriving fresh (market switch).
+  const motion = useRef<Motion | null>(null);
+  useEffect(() => {
+    let live = true;
+    Promise.all([import("gsap"), import("gsap/Flip")]).then(([g, f]) => {
+      if (!live) return;
+      g.default.registerPlugin(f.Flip);
+      motion.current = { gsap: g.default, Flip: f.Flip };
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const pending = useRef<{ kind: "flip"; state: ReturnType<typeof FlipPlugin.getState> } | { kind: "arrive" } | null>(null);
+
+  const change = (kind: "flip" | "arrive", update: () => void) => {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!reduced && body.current && motion.current) {
+      pending.current = kind === "flip" ? { kind, state: motion.current.Flip.getState(body.current.querySelectorAll("tr")) } : { kind };
+    }
+    update();
+  };
+
+  useLayoutEffect(() => {
+    const todo = pending.current;
+    pending.current = null;
+    if (!todo || !body.current || !motion.current) return;
+    const { gsap, Flip } = motion.current;
+    const trs = body.current.querySelectorAll("tr");
+    if (todo.kind === "flip") Flip.from(todo.state, { targets: trs, duration: 0.55, ease: "expo.out", onEnter: (els) => gsap.from(els, { opacity: 0, y: 10, duration: 0.4, ease: "expo.out" }) });
+    else gsap.from(trs, { opacity: 0, y: 12, duration: 0.5, ease: "expo.out", stagger: 0.05, clearProps: "transform,opacity" });
+  }, [market, stage2, sort]);
+
+  const cycle = (key: SortKey) =>
+    change("flip", () => setSort((cur) => (cur?.key !== key ? { key, dir: "desc" } : cur.dir === "desc" ? { key, dir: "asc" } : null)));
 
   return (
     <figure className="panel overflow-hidden">
@@ -31,7 +96,7 @@ export function HeroGrid() {
               key={key}
               type="button"
               aria-pressed={market === key}
-              onClick={() => setMarket(key)}
+              onClick={() => market !== key && change("arrive", () => setMarket(key))}
               className={cn(
                 "h-8 rounded px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 market === key ? "bg-(--lens) text-foreground shadow-(--lens-shadow)" : "text-muted-foreground hover:text-foreground",
@@ -44,7 +109,7 @@ export function HeroGrid() {
         <button
           type="button"
           aria-pressed={stage2}
-          onClick={() => setStage2((v) => !v)}
+          onClick={() => change("flip", () => setStage2((v) => !v))}
           className={cn(chip, stage2 ? "border-brand bg-brand-soft text-brand" : "border-border text-muted-foreground hover:text-foreground")}
         >
           Stage 2 only
@@ -59,20 +124,26 @@ export function HeroGrid() {
           <thead>
             <tr className="border-b text-left text-xs text-muted-foreground">
               <th scope="col" className="px-3 py-2 font-medium">Stock</th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">Price</th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">1D</th>
-              <th scope="col" className="hidden px-3 py-2 text-right font-medium sm:table-cell">Mkt cap</th>
-              <th scope="col" className="hidden px-3 py-2 text-right font-medium sm:table-cell">P/E</th>
-              <th scope="col" className="px-3 py-2 text-right font-medium">Stage</th>
+              {COLUMNS.map((col) => {
+                const active = sort?.key === col.key;
+                return (
+                  <th key={col.key} scope="col" aria-sort={active ? (sort.dir === "desc" ? "descending" : "ascending") : undefined} className={cn("px-1 py-1 text-right font-medium", col.hide && "hidden sm:table-cell")}>
+                    <button
+                      type="button"
+                      onClick={() => cycle(col.key)}
+                      className={cn("inline-flex h-8 items-center gap-1 rounded px-2 transition-colors hover:bg-(--control) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring", active && "text-foreground")}
+                    >
+                      {col.label}
+                      <span aria-hidden className={cn("text-[10px] leading-none transition-opacity", active ? "text-brand opacity-100" : "opacity-0")}>{sort?.dir === "asc" ? "▲" : "▼"}</span>
+                    </button>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
-          <tbody className="tabular-nums">
-            {rows.map((row: Row, i: number) => (
-              <tr
-                key={`${market}-${row.symbol}`}
-                className="border-b last:border-0 motion-safe:animate-rise hover:bg-(--control)"
-                style={{ animationDelay: `${i * 50}ms` }}
-              >
+          <tbody ref={body} className="tabular-nums">
+            {rows.map((row: Row) => (
+              <tr key={`${market}-${row.symbol}`} className="border-b bg-card transition-colors last:border-0 hover:bg-(--control)">
                 <td className="px-3 py-2.5">
                   <span className="font-semibold">{row.symbol}</span>
                   <span className="block max-w-[9rem] truncate text-xs text-muted-foreground">{row.name}</span>
