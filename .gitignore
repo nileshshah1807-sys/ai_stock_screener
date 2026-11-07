@@ -37,3 +37,4 @@ dashboard/.vercel
 
 # One-off local sign-in link (contains a single-use auth token)
 SIGN-IN-LINK.html
+.next/
