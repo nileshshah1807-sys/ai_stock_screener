@@ -61,13 +61,13 @@ export function subscriptionChange(event, eventId) {
 /**
  * THE rule for a stored subscription id Razorpay does not know (an id from the
  * other mode, e.g. test mode before go-live, or one that was removed): a 404, or
- * a 400 whose description says the id does not exist. Not "stale" for any other
+ * a 400 BAD_REQUEST_ERROR whose description says the id is invalid or could not be found (what Razorpay answers, seen 7 Nov 2026). Not "stale" for any other
  * 400 (a bad request is a bad request). Every route that looks up a stored id
  * asks this and never shows the user a dead end.
  */
 export function isUnknownSubscription(status, json) {
   if (status === 404) return true;
-  return status === 400 && /does not exist|not found|invalid id/i.test(String(json?.error?.description ?? ""));
+  return status === 400 && json?.error?.code === "BAD_REQUEST_ERROR" && /invalid or could not be found|does not exist/i.test(String(json.error.description ?? ""));
 }
 
 /**

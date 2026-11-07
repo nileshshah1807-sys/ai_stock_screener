@@ -319,11 +319,15 @@ test("a stored subscription id Razorpay has never heard of (404) does not block 
 
 test("the unknown-subscription rule: 404, or a 400 that says the id does not exist, and nothing else", () => {
   assert.equal(isUnknownSubscription(404, null), true);
-  assert.equal(isUnknownSubscription(400, { error: { description: "The id provided does not exist" } }), true);
-  assert.equal(isUnknownSubscription(400, { error: { description: "The amount must be at least 100" } }), false);
+  const real = { error: { code: "BAD_REQUEST_ERROR", description: "The ID provided is invalid or could not be found." } }; // Razorpay's actual reply
+  assert.equal(isUnknownSubscription(400, real), true);
+  assert.equal(isUnknownSubscription(400, { error: { code: "BAD_REQUEST_ERROR", description: "The id provided does not exist" } }), true);
+  assert.equal(isUnknownSubscription(400, { error: { code: "SERVER_ERROR", description: real.error.description } }), false);
+  assert.equal(isUnknownSubscription(400, { error: { description: real.error.description } }), false); // no code
+  assert.equal(isUnknownSubscription(400, { error: { code: "BAD_REQUEST_ERROR", description: "The amount must be at least 100" } }), false);
   assert.equal(isUnknownSubscription(400, null), false);
   assert.equal(isUnknownSubscription(401, { error: { description: "does not exist" } }), false);
   assert.equal(isUnknownSubscription(500, null), false);
-  assert.deepEqual(lookupResult(false, 400, { error: { description: "The id provided does not exist" } }), { stale: true });
-  assert.deepEqual(lookupResult(false, 400, { error: { description: "Bad request" } }), { error: true });
+  assert.deepEqual(lookupResult(false, 400, real), { stale: true });
+  assert.deepEqual(lookupResult(false, 400, { error: { code: "BAD_REQUEST_ERROR", description: "Bad request" } }), { error: true });
 });
