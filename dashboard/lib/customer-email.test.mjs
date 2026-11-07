@@ -52,8 +52,10 @@ test("Resend gets the sender, recipient and an idempotency key; a refusal throws
 
 test("the four emails say what they should and stay plain", () => {
   assert.match(compose("paid", { period: "yearly" }).text, /yearly plan/);
-  assert.match(compose("cancelled", { endsAt: "2026-12-31T18:29:59Z" }).text, /until 31 December 2026/);
-  assert.match(compose("cancelled", {}).text, /access ends now/);
+  const before = Date.parse("2026-11-07T00:00:00Z");
+  assert.match(compose("cancelled", { endsAt: "2026-12-31T18:29:59Z" }, before).text, /until 31 December 2026/);
+  assert.match(compose("cancelled", { endsAt: "2026-11-01T00:00:00Z" }, before).text, /access has ended/, "a date already past is not promised");
+  assert.match(compose("cancelled", {}, before).text, /access has ended/);
   const trial = compose("trial_ending", { endsAt: "2026-11-09T10:00:00Z" });
   assert.match(trial.text, /9 November 2026/);
   assert.match(trial.text, /https:\/\/cupel\.in\/account/);

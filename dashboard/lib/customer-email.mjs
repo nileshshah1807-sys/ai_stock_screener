@@ -18,7 +18,7 @@ const SIGN_OFF = "\n\nThe Cupel team\nReply to this email if you need help.";
  * The subject and body of one email. `d` carries what the kind needs:
  * paid {period}, cancelled {endsAt}, trial_ending {endsAt}, refund {amountPaise}.
  */
-export function compose(kind, d = {}) {
+export function compose(kind, d = {}, now = Date.now()) {
   switch (kind) {
     case "paid":
       return {
@@ -28,7 +28,7 @@ export function compose(kind, d = {}) {
     case "cancelled":
       return {
         subject: "Your Cupel plan is cancelled",
-        text: `Your Cupel plan is cancelled and will not renew. ${d.endsAt ? `You keep your access until ${day(d.endsAt)}.` : "Your access ends now."}\n\nChanged your mind? You can subscribe again at ${SITE}/pricing${SIGN_OFF}`,
+        text: `Your Cupel plan is cancelled and will not renew. ${d.endsAt && Date.parse(d.endsAt) > now ? `You keep your access until ${day(d.endsAt)}.` : "Your access has ended."}\n\nChanged your mind? You can subscribe again at ${SITE}/pricing${SIGN_OFF}`,
       };
     case "trial_ending":
       return {
