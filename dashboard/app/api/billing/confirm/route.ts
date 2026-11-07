@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { notifyStatusChange } from "@/lib/customer-email-server";
 import { confirmPayment } from "@/lib/billing-confirm.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
       eventId: string;
       eventAt: string | null;
     }) => {
-      const { error } = await admin.rpc("billing_apply_event", {
+      const { data: applied, error } = await admin.rpc("billing_apply_event", {
         p_razorpay_subscription_id: change.razorpaySubscriptionId,
         p_user_id: change.userId,
         p_plan_id: change.planId,
@@ -58,6 +59,8 @@ export async function POST(request: NextRequest) {
         p_event_id: change.eventId,
         p_event_at: change.eventAt,
       });
+      // Only a write that changed the row: confirm may have lost to a newer event.
+      if (!error && applied === true) await notifyStatusChange(admin, change.razorpaySubscriptionId, change.status);
       return !error;
     },
   });

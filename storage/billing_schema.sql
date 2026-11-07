@@ -362,3 +362,21 @@ on conflict (id) do nothing;
 insert into plans (id, name, amount_paise, period)
 values ('pro-monthly', 'Cupel', 12900, 'monthly')
 on conflict (id) do nothing;
+
+-- ---------------------------------------------------------------------
+-- customer_emails: one row per email Cupel has sent a customer (dashboard/lib/
+-- customer-email-server.ts). The insert is the claim: the webhook, /confirm and
+-- /cancel can race for one event and only the one whose insert lands sends.
+-- kind: paid | cancelled | trial_ending | refund. event_key: the Razorpay
+-- subscription id (paid, cancelled), the trial's end time (trial_ending), or the
+-- refund's own id. Service role only; viewers can read nothing.
+-- ---------------------------------------------------------------------
+create table if not exists customer_emails (
+    user_id uuid not null references auth.users (id) on delete cascade,
+    kind text not null check (kind in ('paid', 'cancelled', 'trial_ending', 'refund')),
+    event_key text not null,
+    sent_at timestamptz not null default now(),
+    primary key (user_id, kind, event_key)
+);
+alter table customer_emails enable row level security;
+revoke all on customer_emails from anon, authenticated;

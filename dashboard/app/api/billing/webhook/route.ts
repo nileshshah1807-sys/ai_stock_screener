@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { subscriptionChange } from "@/lib/billing.mjs";
+import { notifyStatusChange } from "@/lib/customer-email-server";
 import { verifySignature } from "@/lib/webhook-signature.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -50,5 +51,7 @@ export async function POST(request: NextRequest) {
   if (!applied && change.userId && change.status === "active") {
     console.warn("billing webhook: active event matched no row", change.razorpaySubscriptionId, change.userId);
   }
+  // The write is done; the email must never fail it. At most once per subscription and kind.
+  if (applied) await notifyStatusChange(admin, change.razorpaySubscriptionId, change.status);
   return NextResponse.json({ ok: true });
 }
