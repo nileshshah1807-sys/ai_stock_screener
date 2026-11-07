@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   razorpayMode,
+  planLink,
   razorpayPlanBody,
   revenueByPlan,
   rupeesToPaise,
@@ -127,4 +128,11 @@ test("the mode comes from the key id's prefix", () => {
   assert.equal(razorpayMode("rzp_live_abc"), "live");
   assert.equal(razorpayMode("rzp_test_abc"), "test");
   assert.equal(razorpayMode(undefined), "unknown");
+});
+
+test("a linked plan is found, missing or unchecked by Razorpay's answer", () => {
+  assert.deepEqual(planLink(200, { id: "plan_x", item: { name: "Cupel yearly" } }), { state: "linked", name: "Cupel yearly" });
+  assert.deepEqual(planLink(404, { error: {} }), { state: "missing", name: null });
+  assert.deepEqual(planLink(401, null), { state: "unchecked", name: null });
+  assert.deepEqual(planLink(0, null), { state: "unchecked", name: null });
 });

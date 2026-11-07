@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { validatePriceChange, validateTrialDays } from "@/lib/admin-plans.mjs";
 import { priceLabel } from "@/lib/billing.mjs";
-import type { AdminPlan, PlansAdminData, Result } from "@/lib/admin-plans-server";
+import type { AdminPlan, PlanLink, PlansAdminData, Result } from "@/lib/admin-plans-server";
 
 /** Admin-only plan and price management. Every control calls a server action that re-checks the admin. */
 export function PlansAdmin({ data, actions }: { data: PlansAdminData; actions?: Partial<Actions> }) {
@@ -24,10 +24,10 @@ export function PlansAdmin({ data, actions }: { data: PlansAdminData; actions?: 
         </p>
       </div>
       <p className="text-sm" role="status">
-        Razorpay account these keys belong to: <strong>{data.mode === "live" ? "LIVE" : data.mode === "test" ? "TEST" : "unknown"}</strong>. Plan ids made under the other account will not work at checkout: use Re-create in Razorpay on each plan.
+        Razorpay account these keys belong to: <strong>{modeLabel(data.mode)}</strong>. Each plan below says whether its Razorpay plan exists in this account. If one says it is not found, open Advanced on that plan.
       </p>
       {data.plans.map((plan) => (
-        <PlanCard key={plan.id} plan={plan} stats={data.revenue.find((r) => r.planId === plan.id)} run={run} />
+        <PlanCard key={plan.id} plan={plan} mode={data.mode} link={data.links[plan.id]} stats={data.revenue.find((r) => r.planId === plan.id)} run={run} />
       ))}
       <TrialCard days={data.trialDays} run={run} />
     </div>
@@ -59,12 +59,28 @@ function Message({ result }: { result: Result | null }) {
   );
 }
 
+const modeLabel = (mode: PlansAdminData["mode"]) => (mode === "live" ? "LIVE" : mode === "test" ? "TEST" : "unknown");
+
+function linkText(link: PlanLink | undefined, mode: PlansAdminData["mode"]) {
+  if (link?.state === "linked") return `Found in your ${modeLabel(mode)} Razorpay account`;
+  if (link?.state === "missing") return `Not found in your ${modeLabel(mode)} Razorpay account: it was made under the other keys`;
+  return "Could not check with Razorpay just now";
+}
+
+function offerStatus(plan: AdminPlan) {
+  if (!plan.razorpay_offer_id) return "No offer";
+  const ends = plan.offer_ends_at ? new Date(plan.offer_ends_at) : null;
+  if (ends && ends.getTime() <= Date.now()) return `Ended ${ends.toISOString().slice(0, 10)}`;
+  return `${plan.offer_name ?? "Offer"}: ${priceLabel(plan.offer_amount_paise ?? 0)}${ends ? `, until ${ends.toISOString().slice(0, 10)}` : ""}`;
+}
+
 const dateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
 
-function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers: number; monthlyPaise: number }; run: Actions }) {
+function PlanCard({ plan, mode, link, stats, run }: { plan: AdminPlan; mode: PlansAdminData["mode"]; link?: PlanLink; stats?: { subscribers: number; monthlyPaise: number }; run: Actions }) {
   const price = useAction();
   const relink = useAction();
   const [confirmRelink, setConfirmRelink] = useState(false);
+  const [another, setAnother] = useState(false);
   const offer = useAction();
   const open = useAction();
   const [rupees, setRupees] = useState("");
@@ -90,10 +106,20 @@ function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers
 
       <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
         <div><dt className="text-muted-foreground">Price</dt><dd className="tabular-nums">{priceLabel(plan.amount_paise)} / {plan.period === "yearly" ? "year" : "month"}</dd></div>
+        <div><dt className="text-muted-foreground">Razorpay account</dt><dd>{modeLabel(mode)}</dd></div>
+        <div><dt className="text-muted-foreground">Early-bird offer</dt><dd>{offerStatus(plan)}</dd></div>
+        <div className="col-span-2 sm:col-span-3">
+          <dt className="text-muted-foreground">Razorpay plan</dt>
+          <dd>
+            <span className="break-all">{plan.razorpay_plan_id ?? "not set"}</span>
+            {link?.name ? <span> · named &ldquo;{link.name}&rdquo; in Razorpay</span> : null}
+            <span className={link?.state === "missing" ? "block text-destructive" : "block text-muted-foreground"}>{linkText(link, mode)}</span>
+          </dd>
+        </div>
         <div><dt className="text-muted-foreground">Active subscribers</dt><dd className="tabular-nums">{stats?.subscribers ?? 0}</dd></div>
         <div><dt className="text-muted-foreground">Monthly revenue (estimate)</dt><dd className="tabular-nums">{priceLabel(stats?.monthlyPaise ?? 0)}</dd></div>
       </dl>
-      <p className="text-xs text-muted-foreground">Razorpay plan {plan.razorpay_plan_id ?? "not set"}. Revenue is an estimate: active subscribers at the price each took, a yearly price as a twelfth a month; an early-bird subscriber counts at the offer price.</p>
+      <p className="text-xs text-muted-foreground">Revenue is an estimate: active subscribers at the price each took, a yearly price as a twelfth a month; an early-bird subscriber counts at the offer price.</p>
 
       <form
         className="space-y-3"
@@ -121,29 +147,18 @@ function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers
         <Message result={price.result} />
       </form>
 
-      <div className="space-y-2 border-t pt-4">
-        {confirmRelink ? (
-          <div className="rounded-md border p-3 text-sm space-y-2" role="alertdialog" aria-label="Confirm re-create in Razorpay">
-            <p className="text-muted-foreground">Creates a new Razorpay plan at {priceLabel(plan.amount_paise)} under the account these keys belong to, points this plan at it, and clears the early-bird offer. Existing subscribers are not changed.</p>
-            <div className="flex gap-2">
-              <Button type="button" disabled={relink.pending} onClick={() => relink.go(async () => { const r = await run.relink(plan.id); if (r.ok) setConfirmRelink(false); return r; })}>{relink.pending ? "Re-creating…" : "Confirm re-create"}</Button>
-              <Button type="button" variant="ghost" onClick={() => setConfirmRelink(false)}>Cancel</Button>
-            </div>
-          </div>
-        ) : (
-          <Button type="button" variant="outline" onClick={() => { setConfirmRelink(true); relink.clear(); }}>Re-create in Razorpay</Button>
-        )}
-        <Message result={relink.result} />
-      </div>
-
       <form
         className="space-y-3 border-t pt-4"
         onSubmit={(e) => { e.preventDefault(); offer.go(() => run.offer(plan.id, o)); }}
       >
         <h3 className="text-sm font-semibold">Early-bird offer</h3>
-        <p className="text-xs text-muted-foreground">Make the offer in the Razorpay dashboard and paste its id. The offer price here must equal the offer&rsquo;s amount in Razorpay: this page cannot check it, and Razorpay charges its own. Leave every field empty to turn the offer off.</p>
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+          <li>In the Razorpay dashboard, go to Offers and create the offer on plan <strong className="break-all text-foreground">{plan.razorpay_plan_id ?? "(set the plan first)"}</strong>. Razorpay takes the price off; this page only records it.</li>
+          <li>Paste the offer&rsquo;s id, its price and its end date below. The price must match the offer in Razorpay: this page cannot check it.</li>
+        </ol>
+        <p className="text-xs text-muted-foreground">Name is the label customers see on Cupel, for example &ldquo;Early-bird&rdquo;. To turn the offer off, empty every field and save.</p>
         <div className="grid gap-3 sm:grid-cols-2">
-          <Field id={`on-${plan.id}`} label="Name" value={o.name} onChange={(v) => setO({ ...o, name: v })} />
+          <Field id={`on-${plan.id}`} label="Name (shown to customers)" value={o.name} onChange={(v) => setO({ ...o, name: v })} />
           <Field id={`or-${plan.id}`} label="Offer price (₹)" value={o.rupees} onChange={(v) => setO({ ...o, rupees: v })} inputMode="decimal" />
           <Field id={`oi-${plan.id}`} label="Razorpay offer id" value={o.offerId} onChange={(v) => setO({ ...o, offerId: v })} />
           <Field id={`oe-${plan.id}`} label="Ends on" type="date" value={o.endsAt} onChange={(v) => setO({ ...o, endsAt: v })} />
@@ -169,6 +184,31 @@ function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers
         )}
         <Message result={open.result} />
       </div>
+
+      <details className="border-t pt-4 text-sm">
+        <summary className="cursor-pointer font-semibold">Advanced</summary>
+        <div className="mt-3 space-y-3">
+          <p className="text-muted-foreground">Only use this after switching the Razorpay keys between test and live: it makes a new Razorpay plan in the current account and points this plan at it. The early-bird offer is cleared. Existing subscribers are not changed.</p>
+          {link?.state === "linked" ? (
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={another} onChange={(e) => { setAnother(e.target.checked); setConfirmRelink(false); }} />
+              This plan already exists in the {modeLabel(mode)} account. Create another anyway
+            </label>
+          ) : null}
+          {confirmRelink ? (
+            <div className="space-y-2 rounded-md border p-3" role="alertdialog" aria-label="Confirm re-create in Razorpay">
+              <p className="text-muted-foreground">Creates a new Razorpay plan at {priceLabel(plan.amount_paise)} in the {modeLabel(mode)} account and switches this plan to it.</p>
+              <div className="flex gap-2">
+                <Button type="button" disabled={relink.pending} onClick={() => relink.go(async () => { const r = await run.relink(plan.id); if (r.ok) { setConfirmRelink(false); setAnother(false); } return r; })}>{relink.pending ? "Re-creating…" : "Confirm re-create"}</Button>
+                <Button type="button" variant="ghost" onClick={() => setConfirmRelink(false)}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <Button type="button" variant="outline" disabled={link?.state === "linked" && !another} onClick={() => { setConfirmRelink(true); relink.clear(); }}>Re-create in Razorpay</Button>
+          )}
+          <Message result={relink.result} />
+        </div>
+      </details>
     </section>
   );
 }

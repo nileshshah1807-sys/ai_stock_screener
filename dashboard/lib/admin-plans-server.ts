@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  planLink,
   razorpayMode,
   razorpayPlanBody,
   revenueByPlan,
@@ -33,7 +34,10 @@ export type PlansAdminData = {
   revenue: { planId: string; subscribers: number; monthlyPaise: number }[];
   trialDays: number;
   mode: "live" | "test" | "unknown";
+  /** Per plan id: what Razorpay says about the linked plan under the current keys. */
+  links: Record<string, PlanLink>;
 };
+export type PlanLink = { state: "linked" | "missing" | "unchecked"; name: string | null };
 export type Result = { ok: true; message: string } | { ok: false; error: string };
 
 const fail = (error: string): Result => ({ ok: false, error });
@@ -61,7 +65,15 @@ export async function loadPlansAdmin(): Promise<PlansAdminData | null> {
   if (plans.error || subs.error) return null;
   const rows = (plans.data ?? []) as AdminPlan[];
   const days = Number(setting.data?.value);
-  return { plans: rows, revenue: revenueByPlan(rows, subs.data ?? []), trialDays: Number.isInteger(days) ? days : 7, mode: razorpayMode(process.env.RAZORPAY_KEY_ID) };
+  const checked = await Promise.all(rows.map(async (p) => [p.id, await lookupPlan(c.auth, p.razorpay_plan_id)] as const));
+  return { plans: rows, revenue: revenueByPlan(rows, subs.data ?? []), trialDays: Number.isInteger(days) ? days : 7, mode: razorpayMode(process.env.RAZORPAY_KEY_ID), links: Object.fromEntries(checked) };
+}
+
+/** Asks Razorpay for the linked plan: found = it exists under these keys, and the name is the one its dashboard shows. */
+async function lookupPlan(auth: string | null, id: string | null): Promise<PlanLink> {
+  if (!id || !auth) return { state: "unchecked", name: null };
+  const response = await fetch(`${RAZORPAY}/plans/${encodeURIComponent(id)}`, { headers: { Authorization: auth }, cache: "no-store", signal: AbortSignal.timeout(5000) }).catch(() => null);
+  return planLink(response?.status ?? 0, await response?.json().catch(() => null));
 }
 
 export async function changePrice(planId: string, rupees: string): Promise<Result> {
