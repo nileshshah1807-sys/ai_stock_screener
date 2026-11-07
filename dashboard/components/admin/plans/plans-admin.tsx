@@ -126,7 +126,7 @@ function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers
           <div className="rounded-md border p-3 text-sm space-y-2" role="alertdialog" aria-label="Confirm re-create in Razorpay">
             <p className="text-muted-foreground">Creates a new Razorpay plan at {priceLabel(plan.amount_paise)} under the account these keys belong to, points this plan at it, and clears the early-bird offer. Existing subscribers are not changed.</p>
             <div className="flex gap-2">
-              <Button type="button" disabled={relink.pending} onClick={() => relink.go(() => run.relink(plan.id))}>{relink.pending ? "Re-creating…" : "Confirm re-create"}</Button>
+              <Button type="button" disabled={relink.pending} onClick={() => relink.go(async () => { const r = await run.relink(plan.id); if (r.ok) setConfirmRelink(false); return r; })}>{relink.pending ? "Re-creating…" : "Confirm re-create"}</Button>
               <Button type="button" variant="ghost" onClick={() => setConfirmRelink(false)}>Cancel</Button>
             </div>
           </div>
