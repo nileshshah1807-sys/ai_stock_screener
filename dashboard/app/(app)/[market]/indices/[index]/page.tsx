@@ -52,7 +52,8 @@ export async function generateMetadata({ params }: PageProps<"/[market]/indices/
 export default async function IndexPage({ params, searchParams }: PageProps<"/[market]/indices/[index]">) {
   const { market: slug, index: indexSlug } = await params;
   const market = marketFromSlug(slug)!;
-  const directory = await getIndexDirectory(market.code);
+  // The run does not depend on the directory, so the two reads go together.
+  const [directory, run] = await Promise.all([getIndexDirectory(market.code), getLatestRun(market.code)]);
   const info = directory.find((entry) => entry.slug === indexSlug);
   if (!info) notFound();
 
@@ -60,8 +61,7 @@ export default async function IndexPage({ params, searchParams }: PageProps<"/[m
   const filters = parseFilters(query);
   const urlParams = toSearchParams(query);
 
-  const [run, members, chart] = await Promise.all([
-    getLatestRun(market.code),
+  const [members, chart] = await Promise.all([
     info.members !== null ? getIndexMembers(market.code, info.name) : Promise.resolve([]),
     info.chart ? getIndexChart(market.code, info.name) : Promise.resolve(null),
   ]);

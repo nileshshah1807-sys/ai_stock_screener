@@ -1442,9 +1442,22 @@ export async function getMarketBreadth(
  * `index_members` is read whole (~1,300 short rows across NSE's indices) and
  * counted here, since PostgREST's aggregates are off; it is paged because the
  * API caps a read at 1,000 rows. Cached per request, so the index page and
- * the search route each pay for it once.
+ * the search route each pay for it once, and remembered for two minutes per
+ * server instance: it is the same for every viewer and changes once a day.
  */
 export const getIndexDirectory = cache(async (market: MarketCode): Promise<IndexInfo[]> => {
+  const remembered = directoryMemo.get(market);
+  if (remembered && Date.now() - remembered.at < DIRECTORY_MEMO_MS) return remembered.directory;
+  const { directory, complete } = await readIndexDirectory(market);
+  // A read that errored (even one page of it) is partial; remembering it would hide indices for the whole window.
+  if (complete && directory.length) directoryMemo.set(market, { at: Date.now(), directory });
+  return directory;
+});
+
+const DIRECTORY_MEMO_MS = 120_000;
+const directoryMemo = new Map<MarketCode, { at: number; directory: IndexInfo[] }>();
+
+async function readIndexDirectory(market: MarketCode): Promise<{ directory: IndexInfo[]; complete: boolean }> {
   const supabase = await createClient();
   const page = (from: number) =>
     supabase
@@ -1464,6 +1477,7 @@ export const getIndexDirectory = cache(async (market: MarketCode): Promise<Index
       .eq("scope", "index")
       .order("position"),
   ]);
+  let complete = !first.error && !charts.error;
   if (first.error) console.error("getIndexDirectory members failed", first.error.message);
   if (charts.error) console.error("getIndexDirectory charts failed", charts.error.message);
 
@@ -1477,7 +1491,10 @@ export const getIndexDirectory = cache(async (market: MarketCode): Promise<Index
         .map(page),
     );
     for (const result of rest) {
-      if (result.error) console.error("getIndexDirectory members failed", result.error.message);
+      if (result.error) {
+        complete = false;
+        console.error("getIndexDirectory members failed", result.error.message);
+      }
       rows.push(...((result.data as MemberRow[] | null) ?? []));
     }
   }
@@ -1498,13 +1515,14 @@ export const getIndexDirectory = cache(async (market: MarketCode): Promise<Index
   for (const row of (charts.data as { name: string }[] | null) ?? []) {
     if (!listed.has(row.name)) ordered.push({ name: row.name, members: null });
   }
-  return ordered.map(({ name, members }) => ({
+  const directory = ordered.map(({ name, members }) => ({
     slug: indexSlug(name),
     name,
     members,
     chart: charted.has(name),
   }));
-});
+  return { directory, complete };
+}
 
 /** One index's constituents as the provider lists them. */
 export async function getIndexMembers(

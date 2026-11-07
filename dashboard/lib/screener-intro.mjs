@@ -9,7 +9,7 @@ const MARKETS = {
 
 /**
  * One or two plain sentences at the top of the screener: what the list is, how
- * it is ranked (heaviest first) and when it updates. Says nothing about
+ * it is ranked and when it updates. Says nothing about
  * ratings: non-admins do not see them.
  */
 export function screenerIntro(marketCode) {
