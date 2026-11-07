@@ -1,6 +1,7 @@
 import "server-only";
 
 import { pickPayment, refundAndEnd } from "@/lib/admin-refund.mjs";
+import { claimCancelledEmail, sendRefundEmail } from "@/lib/customer-email-server";
 import type { adminContext } from "@/lib/admin";
 
 type Ctx = NonNullable<Awaited<ReturnType<typeof adminContext>>>;
@@ -50,8 +51,10 @@ export function runRefund(ctx: Ctx, userId: string, subscriptionId: string, paym
       payment: () => refundCandidate(subscriptionId),
       refund: async (id: string, paise: number) => {
         const r = await call(`/payments/${encodeURIComponent(id)}/refund`, { method: "POST", body: JSON.stringify({ amount: paise, speed: "normal", notes: { reason: "admin refund and end access" } }) });
-        return { ok: r.ok, error: r.json?.error?.description as string | undefined };
+        return { ok: r.ok, id: r.json?.id as string | undefined, error: r.json?.error?.description as string | undefined };
       },
+      holdCancelMail: () => claimCancelledEmail(ctx.db, userId, subscriptionId),
+      notifyRefund: async (refundId: string, paise: number) => void (await sendRefundEmail(ctx.db, userId, refundId, paise)),
       cancel: async () => {
         const state = await call(`/subscriptions/${encodeURIComponent(subscriptionId)}`);
         if (state.ok && state.json?.status === "cancelled") return "already" as const;

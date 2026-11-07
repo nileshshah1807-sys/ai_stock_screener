@@ -9,7 +9,9 @@ function harness({ payments = [pay()], refundOk = true, cancel = "cancelled", en
   const calls = [];
   const deps = {
     payment: async () => pickPayment(payments),
-    refund: async (id, paise) => { calls.push(["refund", id, paise]); return refundOk ? { ok: true } : { ok: false, error: "nope" }; },
+    refund: async (id, paise) => { calls.push(["refund", id, paise]); return refundOk ? { ok: true, id: "rfnd_1" } : { ok: false, error: "nope" }; },
+    holdCancelMail: async () => { calls.push(["hold"]); },
+    notifyRefund: async (id, paise) => { calls.push(["mail", id, paise]); },
     cancel: async () => { calls.push(["cancel"]); return cancel; },
     endAccess: async () => { calls.push(["end"]); return end; },
   };
@@ -28,7 +30,7 @@ test("refund, then cancel, then end access, in that order", async () => {
   const { deps, calls } = harness();
   const r = await refundAndEnd(deps, "pay_1");
   assert.equal(r.ok, true);
-  assert.deepEqual(calls, [["refund", "pay_1", 49900], ["cancel"], ["end"]]);
+  assert.deepEqual(calls, [["refund", "pay_1", 49900], ["hold"], ["cancel"], ["end"], ["mail", "rfnd_1", 49900]]);
 });
 
 test("a refused refund changes nothing else", async () => {
@@ -50,14 +52,14 @@ test("a second click does not refund twice but still finishes the job", async ()
   const { deps, calls } = harness({ payments: [pay({ status: "refunded", amount_refunded: 49900 })], cancel: "already" });
   const r = await refundAndEnd(deps, "pay_1");
   assert.equal(r.ok, true);
-  assert.deepEqual(calls, [["cancel"], ["end"]]);
+  assert.deepEqual(calls, [["hold"], ["cancel"], ["end"]]);
 });
 
 test("a failed cancel still ends access and says exactly what happened", async () => {
   const { deps, calls } = harness({ cancel: "failed" });
   const r = await refundAndEnd(deps, "pay_1");
   assert.equal(r.ok, false);
-  assert.deepEqual(calls.map((c) => c[0]), ["refund", "cancel", "end"]);
+  assert.deepEqual(calls.map((c) => c[0]), ["refund", "hold", "cancel", "end", "mail"]);
   assert.match(r.done.join(), /refunded pay_1/);
   assert.match(r.done.join(), /ended access/);
   assert.match(r.problems[0], /could NOT be cancelled/);
