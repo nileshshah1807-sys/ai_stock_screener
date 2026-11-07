@@ -67,7 +67,7 @@ export async function loadPlansAdmin(): Promise<PlansAdminData | null> {
 export async function changePrice(planId: string, rupees: string): Promise<Result> {
   const c = await context();
   if (!c) return NOT_ADMIN;
-  const { ctx, db, auth } = c;
+  const { db, auth } = c;
   if (!auth) return fail("Razorpay is not configured on this server.");
   const { data: plan } = await db.from("plans").select("*").eq("id", planId).maybeSingle();
   if (!plan) return fail("No such plan.");
