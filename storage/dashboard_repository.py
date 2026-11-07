@@ -1027,6 +1027,27 @@ class DashboardRepository:
             written += len(inserted or [])
         return written
 
+    # -- live calls (workers/live_calls.py) ------------------------------------
+
+    def upsert_live_call(self, row: dict[str, Any]) -> None:
+        self._request(
+            "POST",
+            "live_calls?on_conflict=call_id",
+            json=self._stamped([row]),
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            retries=2,
+        )
+
+    def append_live_lines(self, rows: list[dict[str, Any]]) -> None:
+        """Idempotent on (call_id, seq): a re-sent chunk replaces itself."""
+        self._request(
+            "POST",
+            "live_call_lines?on_conflict=call_id,seq",
+            json=rows,
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+            retries=2,
+        )
+
     # -- upcoming events -------------------------------------------------------
 
     def upcoming_events(self) -> dict[str, dict[str, Any]]:
