@@ -25,6 +25,7 @@ import {
   firstChargePaise,
   trialName,
   daysPhrase,
+  startSubscription,
 } from "./billing.mjs";
 import { verifySignature } from "./webhook-signature.mjs";
 
@@ -267,4 +268,33 @@ test("the trial's length in words", () => {
   assert.equal(trialName(14), "14-day free trial");
   assert.equal(daysPhrase(1), "1 day");
   assert.equal(daysPhrase(10), "10 days");
+});
+
+describe("startSubscription", () => {
+  const plan = { id: "yearly", razorpay_plan_id: "plan_1", period: "yearly" };
+  const args = { plan, userId: "u1", offerId: "offer_bad" };
+  const run = async (replies) => {
+    const sent = [];
+    const post = async (body) => (sent.push(body), replies.shift());
+    return { ...(await startSubscription(post, args)), sent };
+  };
+
+  test("a 400 naming the offer retries once without it", async () => {
+    const reject = { ok: false, status: 400, json: { error: { description: "The offer id is invalid" } } };
+    const r = await run([reject, { ok: true, status: 200, json: { id: "sub_1" } }]);
+    assert.equal(r.sent.length, 2);
+    assert.equal(r.sent[0].offer_id, "offer_bad");
+    assert.equal("offer_id" in r.sent[1], false);
+    assert.equal(r.offered, false);
+    assert.equal(r.rejection, "The offer id is invalid");
+    assert.equal(r.response.json.id, "sub_1");
+  });
+
+  test("any other failure is not retried", async () => {
+    const other = { ok: false, status: 400, json: { error: { description: "The plan id is invalid" } } };
+    const r = await run([other]);
+    assert.equal(r.sent.length, 1);
+    assert.equal(r.rejection, null);
+    assert.equal(r.response.ok, false);
+  });
 });
