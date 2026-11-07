@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   if (!row || row.razorpay_subscription_id !== subscriptionId) return fail("not_your_subscription", 403);
 
+  const before = Math.floor(Date.now() / 1000); // taken before the fetch, so a later cancel is never older than this
   const found = await fetch(`https://api.razorpay.com/v1/subscriptions/${subscriptionId}`, {
     headers: { Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}` },
   }).catch(() => null);
@@ -52,7 +53,8 @@ export async function POST(request: NextRequest) {
     {
       event: `subscription.${entity.status}`,
       payload: { subscription: { entity } },
-      created_at: Math.floor(Date.now() / 1000),
+      // Razorpay's own clock, not ours: any later real event then wins in billing_apply_event.
+      created_at: Number.isFinite(entity.current_start) ? entity.current_start : before,
     },
     `confirm:${paymentId}`,
   );

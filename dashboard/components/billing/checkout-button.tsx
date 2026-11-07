@@ -116,6 +116,7 @@ export function CheckoutButton({
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(proof),
+      signal: AbortSignal.timeout(15_000),
     }).catch(() => null);
     const deadline = Date.now() + POLL_FOR_MS;
     while (Date.now() < deadline) {
