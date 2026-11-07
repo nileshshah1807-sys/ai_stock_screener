@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 import { ExternalLink, Loader2, Search, UserPlus } from "lucide-react";
 
 import {
-  changeTrial, deleteUser, inviteUser, renameUser, setComplimentary, undoTrialDenial, type AdminState,
+  changeTrial, deleteUser, inviteUser, previewRefund, refundAndEndAccess, renameUser, setComplimentary, undoTrialDenial,
+  type AdminState, type RefundPreview,
 } from "@/app/admin/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,8 +63,19 @@ function Manage({ row, adminId, razorpayKeyId, trialDays }: { row: AdminRow; adm
   const [undo, undoAction, undoPending] = useActionState(undoTrialDenial, IDLE);
   const [rename, renameAction, renamePending] = useActionState(renameUser, IDLE);
   const [del, deleteAction, deletePending] = useActionState(deleteUser, IDLE);
+  const [refund, refundAction, refundPending] = useActionState(refundAndEndAccess, IDLE);
   const dialog = useRef<HTMLDialogElement>(null);
+  const refundDialog = useRef<HTMLDialogElement>(null);
   const [typed, setTyped] = useState("");
+  const [typedRefund, setTypedRefund] = useState("");
+  const [preview, setPreview] = useState<RefundPreview | null>(null);
+  const [loading, startLoading] = useTransition();
+  const openRefund = () => {
+    setPreview(null);
+    setTypedRefund("");
+    refundDialog.current?.showModal();
+    startLoading(async () => setPreview(await previewRefund(row.id)));
+  };
   const link = razorpayUrl(row.razorpay_subscription_id);
   const isAdminRow = row.role === "admin";
   const denied = row.guard?.result === "denied";
@@ -139,6 +151,37 @@ function Manage({ row, adminId, razorpayKeyId, trialDays }: { row: AdminRow; adm
           <span className="text-muted-foreground">{row.id === adminId ? "This is you." : "Admins are removed in SQL."}</span>
         ) : (
           <>
+            {row.razorpay_subscription_id ? (
+              <>
+                <Button type="button" size="sm" variant="destructive" onClick={openRefund}>Refund &amp; end access</Button>
+                <dialog ref={refundDialog} aria-labelledby={`refund-${row.id}`} className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-lg border bg-card p-5 text-foreground shadow-lg backdrop:bg-black/40">
+                  <form action={refundAction} className="space-y-3">
+                    <input type="hidden" name="id" value={row.id} />
+                    <input type="hidden" name="payment" value={preview?.ok ? preview.paymentId : ""} />
+                    <h3 id={`refund-${row.id}`} className="text-base font-semibold">Refund {row.email} and end access?</h3>
+                    {loading || !preview ? (
+                      <p className="text-muted-foreground">Reading the latest payment from Razorpay…</p>
+                    ) : preview.ok ? (
+                      <p>
+                        Refunds payment <span className="font-mono">{preview.paymentId}</span> of{" "}
+                        <strong>{preview.currency} {(preview.paise / 100).toFixed(2)}</strong> taken {formatDate(preview.at)}
+                        {preview.refundablePaise === 0 ? " (already refunded: only the cancel and the access end are repeated)" : preview.refundablePaise < preview.paise ? ` (${(preview.refundablePaise / 100).toFixed(2)} still refundable)` : ""}.
+                        Then cancels the subscription at once and ends access now. Real money if the keys are live.
+                      </p>
+                    ) : (
+                      <p role="alert" className="text-destructive">{preview.message}</p>
+                    )}
+                    <label htmlFor={`refund-confirm-${row.id}`} className="block">Type the address to confirm</label>
+                    <Input id={`refund-confirm-${row.id}`} name="confirm" value={typedRefund} onChange={(event) => setTypedRefund(event.target.value)} autoComplete="off" placeholder={row.email} className="h-9" />
+                    <Result state={refund} />
+                    <div className="flex justify-end gap-2">
+                      <Button type="button" size="sm" variant="outline" onClick={() => refundDialog.current?.close()}>Close</Button>
+                      <Submit pending={refundPending} disabled={!preview?.ok || typedRefund.trim().toLowerCase() !== row.email || refund.status === "done"} variant="destructive">Refund &amp; end access</Submit>
+                    </div>
+                  </form>
+                </dialog>
+              </>
+            ) : null}
             <Button type="button" size="sm" variant="destructive" onClick={() => dialog.current?.showModal()}>Delete user</Button>
             <dialog ref={dialog} aria-labelledby={`del-${row.id}`} className="m-auto w-[min(26rem,calc(100vw-2rem))] rounded-lg border bg-card p-5 text-foreground shadow-lg backdrop:bg-black/40">
               <form action={deleteAction} className="space-y-3">
