@@ -38,6 +38,7 @@ from .price_basis import (
 from .price_probe import probe_expected_session
 from .quarterly_results import VENDOR_QUARTER_COLUMN, vendor_quarter_end
 from .session_bars import SessionBarSource, patch_expected_session_bar
+from .sme_bars import SmeBarHistory
 from .stage import stage_features
 from .valuation_basis import price_ratios
 
@@ -258,11 +259,13 @@ class StockDataCollector:
         completion_cutoff=None,
         market_timezone=None,
         session_bar_loader=None,
+        sme_bar_history=None,
         action_loader=None,
     ):
         self.config = config
         # Injected in tests so the fallback never reaches the exchange.
         self._session_bar_loader = session_bar_loader
+        self._sme_bar_history = sme_bar_history
         self._action_loader = action_loader
         self.market_profile = active_profile(config)
         self.sme_symbols = frozenset()
@@ -436,6 +439,21 @@ class StockDataCollector:
             expected_session,
             self.config.OUTPUT_DIR / "session_bar_cache",
             loader=self._session_bar_loader,
+        )
+
+    def _sme_bar_source(self, expected_session):
+        """SME bars from the exchange for names Yahoo lacks, or ``None`` when off."""
+        if self._sme_bar_history is not None:
+            return self._sme_bar_history
+        if not (self.sme_symbols and _setting_enabled(
+            getattr(self.config, "SME_BHAVCOPY_PRICES_ENABLED", False)
+        )):
+            return None
+        return SmeBarHistory(
+            self.config.OUTPUT_DIR / "sme_bars.csv.gz",
+            expected_session,
+            self.market_timezone,
+            market_holidays=self.market_holidays,
         )
 
     def _price_basis_rules(self, as_of):
@@ -628,6 +646,8 @@ class StockDataCollector:
             )
         session_bars = self._session_bar_source(expected_price_session)
         session_bar_patched = []
+        sme_bars = self._sme_bar_source(expected_price_session)
+        sme_bar_priced = []
         action_ledger, max_open_gap = self._price_basis_rules(analysis_as_of.date())
         basis_restated = []
         bad_prints = []
@@ -651,16 +671,24 @@ class StockDataCollector:
                 for symbol in batch:
                     clean_sym = bare_symbol(symbol, profile)
                     try:
-                        if isinstance(data.columns, pd.MultiIndex):
-                            if symbol not in data.columns.get_level_values(0):
-                                failed.append(clean_sym)
-                                continue
+                        if not isinstance(data.columns, pd.MultiIndex):
+                            price_data = data
+                        elif symbol in data.columns.get_level_values(0):
                             price_data = data[symbol]
                         else:
-                            price_data = data
+                            price_data = None
                         if price_data is None or price_data.empty:
-                            failed.append(clean_sym)
-                            continue
+                            # Yahoo has nothing: an SME name may have the
+                            # exchange's own bars. Never used where Yahoo serves.
+                            price_data = (
+                                sme_bars.bars(clean_sym)
+                                if sme_bars is not None and clean_sym in self.sme_symbols
+                                else None
+                            )
+                            if price_data is None:
+                                failed.append(clean_sym)
+                                continue
+                            sme_bar_priced.append(clean_sym)
                         if session_bars is not None:
                             price_data, bar_patched = patch_expected_session_bar(
                                 price_data,
@@ -963,6 +991,9 @@ class StockDataCollector:
         # Recorded for the run manifest: which symbols' latest bar is the
         # exchange's rather than the vendor's.
         session_bar_patched = sorted(set(session_bar_patched) & fresh_symbols)
+        self.collection_diagnostics["technical_sme_bhavcopy_priced_symbols"] = sorted(
+            set(sme_bar_priced) & fresh_symbols
+        )
         self.collection_diagnostics["technical_session_bar_patched_symbols"] = (
             session_bar_patched
         )
