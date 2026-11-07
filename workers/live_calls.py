@@ -27,6 +27,7 @@ from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any
 
+from screener.numeric import round_half_up
 from transcripts.recordings import SAMPLE_RATE, ffmpeg_executable
 from transcripts.speech import DEFAULT_MODEL
 
@@ -110,7 +111,7 @@ def listen(
             rows = []
             for offset, text in transcribe(samples):
                 seq += 1
-                rows.append({"call_id": call, "seq": seq, "start_seconds": round(start + offset, 2), "text": text})
+                rows.append({"call_id": call, "seq": seq, "start_seconds": round_half_up(start + offset, 2), "text": text})
             if rows:
                 repo.append_live_lines(rows)
                 logger.info("%s: %s lines to %.0fs", call, len(rows), start)
