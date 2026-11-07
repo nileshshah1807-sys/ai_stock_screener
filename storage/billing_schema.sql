@@ -332,6 +332,7 @@ begin
     update subscriptions set
         status = 'cancelled',
         current_period_end = now(),
+        trial_ends_at = null, -- a new checkout must not bring back trial days
         refunded_subscription_id = p_razorpay_subscription_id,
         updated_at = now()
     where user_id = p_user_id and razorpay_subscription_id = p_razorpay_subscription_id;
