@@ -126,8 +126,8 @@ const TOTAL_COUNT = { monthly: 120, yearly: 10 };
  * The body for Razorpay's create-subscription call. No start_at: buying ends
  * the trial, so the first charge is made now, in or out of the trial.
  */
-export function newSubscriptionBody({ plan, userId, offerId }) {
-  /** @type {{plan_id: string, total_count: number, customer_notify: number, notes: {user_id: string, plan_id: string}, offer_id?: string}} */
+export function newSubscriptionBody({ plan, userId, offerId, customerId }) {
+  /** @type {{plan_id: string, total_count: number, customer_notify: number, notes: {user_id: string, plan_id: string}, offer_id?: string, customer_id?: string}} */
   const body = {
     plan_id: plan.razorpay_plan_id,
     total_count: TOTAL_COUNT[plan.period],
@@ -135,7 +135,22 @@ export function newSubscriptionBody({ plan, userId, offerId }) {
     notes: { user_id: userId, plan_id: plan.id },
   };
   if (offerId) body.offer_id = offerId;
+  if (customerId) body.customer_id = customerId; // names the buyer on every invoice
   return body;
+}
+
+/** Razorpay's customer name limit. */
+const NAME_MAX = 50;
+
+/** The name the buyer is known by at Razorpay: their display name, else their email. */
+export function buyerName(fullName, email) {
+  const name = typeof fullName === "string" ? fullName.trim() : "";
+  return (name || String(email ?? "")).slice(0, NAME_MAX);
+}
+
+/** POST /v1/customers: fail_existing 0 returns the customer already holding this email instead of failing. */
+export function customerBody({ name, email }) {
+  return { name, email, fail_existing: 0 };
 }
 
 /** Razorpay refused the create because of the offer: a 400 whose description names it. */
@@ -150,12 +165,12 @@ export function isOfferRejection(status, failure) {
  * failure is returned as it came.
  * @returns {Promise<{response: {ok: boolean, status: number, json: any}, offered: boolean, rejection: string | null}>}
  */
-export async function startSubscription(post, { plan, userId, offerId }) {
-  const first = await post(newSubscriptionBody({ plan, userId, offerId }));
+export async function startSubscription(post, { plan, userId, offerId, customerId }) {
+  const first = await post(newSubscriptionBody({ plan, userId, offerId, customerId }));
   if (!offerId || first.ok || !isOfferRejection(first.status, first.json)) {
     return { response: first, offered: Boolean(offerId), rejection: null };
   }
-  const retry = await post(newSubscriptionBody({ plan, userId, offerId: null }));
+  const retry = await post(newSubscriptionBody({ plan, userId, offerId: null, customerId }));
   return { response: retry, offered: false, rejection: String(first.json.error.description) };
 }
 

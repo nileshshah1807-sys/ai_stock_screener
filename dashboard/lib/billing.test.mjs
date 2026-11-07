@@ -21,6 +21,8 @@ import {
   checkoutAction,
   isUnknownSubscription,
   lookupResult,
+  buyerName,
+  customerBody,
   newSubscriptionBody,
   subscriptionChange,
   viewerFromClaims,
@@ -346,4 +348,31 @@ describe("autopay wording", () => {
     const s = planSummary({ kind: "paid", subscription: { status: "active", plan_id: "m", current_period_end: "2026-12-07T00:00:00Z" }, plan }, (d) => `on ${d.slice(0, 10)}`, priceLabel);
     assert.equal(s.detail, "Autopay is on: renews on on 2026-12-07 for ₹129. Cancel anytime, access stays until then.");
   });
+});
+
+test("the subscription names the buyer when there is a Razorpay customer, and works without", () => {
+  const plan = { id: "pro", razorpay_plan_id: "plan_X", period: "yearly" };
+  assert.equal(newSubscriptionBody({ plan, userId: "u1", customerId: "cust_1" }).customer_id, "cust_1");
+  assert.equal("customer_id" in newSubscriptionBody({ plan, userId: "u1" }), false);
+  assert.equal("customer_id" in newSubscriptionBody({ plan, userId: "u1", customerId: undefined }), false);
+});
+
+test("the customer is the display name, else the email, and an existing customer is reused", () => {
+  assert.equal(buyerName("  Asha Rao ", "a@b.co"), "Asha Rao");
+  assert.equal(buyerName("", "a@b.co"), "a@b.co");
+  assert.equal(buyerName(undefined, "a@b.co"), "a@b.co");
+  assert.equal(buyerName("x".repeat(80), "a@b.co").length, 50);
+  assert.deepEqual(customerBody({ name: "Asha", email: "a@b.co" }), { name: "Asha", email: "a@b.co", fail_existing: 0 });
+});
+
+test("the customer id survives the offer-rejection retry", async () => {
+  const sent = [];
+  const post = async (body) => {
+    sent.push(body);
+    return sent.length === 1 ? { ok: false, status: 400, json: { error: { description: "The offer is not applicable" } } } : { ok: true, status: 200, json: { id: "sub_1" } };
+  };
+  await startSubscription(post, { plan: { id: "pro", razorpay_plan_id: "plan_X", period: "yearly" }, userId: "u1", offerId: "offer_X", customerId: "cust_1" });
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent.map((b) => b.customer_id), ["cust_1", "cust_1"]);
+  assert.equal("offer_id" in sent[1], false);
 });
