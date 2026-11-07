@@ -26,28 +26,28 @@ function content(kind, d, now) {
       return {
         subject: "Thank you for subscribing to Cupel",
         heading: "Thank you for subscribing",
-        paragraphs: [`Thank you for subscribing to Cupel${d.period ? ` (${d.period} plan)` : ""}. Your payment went through and your access is on.`, "Manage your plan any time:"],
+        paragraphs: [`Thank you for subscribing to Cupel${d.period ? ` (${d.period} plan)` : ""}. Your payment went through and your access is on.`, "Manage your plan any time"],
         button: { label: "Manage plan", href: `${SITE}/account` },
       };
     case "cancelled":
       return {
         subject: "Your Cupel plan is cancelled",
         heading: "Your plan is cancelled",
-        paragraphs: [`Your Cupel plan is cancelled and will not renew. ${d.endsAt && Date.parse(d.endsAt) > now ? `You keep your access until ${day(d.endsAt)}.` : "Your access has ended."}`, "Changed your mind? You can subscribe again at:"],
+        paragraphs: [`Your Cupel plan is cancelled and will not renew. ${d.endsAt && Date.parse(d.endsAt) > now ? `You keep your access until ${day(d.endsAt)}.` : "Your access has ended."}`, "Changed your mind? You can subscribe again any time"],
         button: { label: "Subscribe again", href: `${SITE}/pricing` },
       };
     case "trial_ending":
       return {
         subject: "Your Cupel free trial ends soon",
         heading: "Your free trial ends soon",
-        paragraphs: [`Your free trial ends on ${day(d.endsAt)}. To keep your access, pick a plan before then. Subscribing charges you at once and ends the trial.`, "Pick a plan:"],
+        paragraphs: [`Your free trial ends on ${day(d.endsAt)}. To keep your access, pick a plan before then. Subscribing charges you at once and ends the trial.`, "Pick a plan to keep your access"],
         button: { label: "Pick a plan", href: `${SITE}/account` },
       };
     case "refund":
       return {
         subject: "Your Cupel refund has been processed",
         heading: "Your refund is processed",
-        paragraphs: [`We have refunded ${d.amountPaise ? priceLabel(d.amountPaise) : "your payment"} for Cupel, and your access has ended. How long it takes to show in your account depends on your bank.`, "Our refund policy:"],
+        paragraphs: [`We have refunded ${d.amountPaise ? priceLabel(d.amountPaise) : "your payment"} for Cupel, and your access has ended. How long it takes to show in your account depends on your bank.`, "You can read our refund policy any time"],
         button: { label: "Refund policy", href: `${SITE}/refunds` },
       };
     default:
@@ -73,7 +73,7 @@ function html({ subject, heading, paragraphs, button }) {
 <tr><td style="background:${C.card};border:1px solid ${C.border};border-radius:12px;padding:28px;">
 <h1 style="margin:0 0 16px 0;font-size:22px;line-height:28px;font-weight:600;color:${C.text};">${esc(heading)}</h1>
 <p style="margin:0 0 16px 0;font-size:16px;line-height:24px;color:${C.text};">${esc(paragraphs[0])}</p>
-<p style="margin:0 0 20px 0;font-size:16px;line-height:24px;color:${C.muted};">${esc(paragraphs[1])}</p>
+<p style="margin:0 0 20px 0;font-size:16px;line-height:24px;color:${C.muted};">${esc(paragraphs[1])}.</p>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${C.primary};border-radius:8px;"><a href="${esc(button.href)}" style="display:inline-block;padding:12px 22px;font-size:16px;font-weight:600;color:${C.onPrimary};text-decoration:none;">${esc(button.label)}</a></td></tr></table>
 </td></tr>
 <tr><td style="padding:16px 4px 0 4px;font-size:13px;line-height:20px;color:${C.muted};">The Cupel team &middot; Reply to this email or write to <a href="mailto:team@cupel.in" style="color:${C.muted};text-decoration:underline;">team@cupel.in</a><br>${link(`${SITE}/terms`, "Terms")} &middot; ${link(`${SITE}/privacy`, "Privacy")} &middot; ${link(`${SITE}/refunds`, "Refunds")}</td></tr>
@@ -83,7 +83,7 @@ function html({ subject, heading, paragraphs, button }) {
 /** The subject, plain text and HTML of one email (see content). */
 export function compose(kind, d = {}, now = Date.now()) {
   const c = content(kind, d, now);
-  return { subject: c.subject, text: `${c.paragraphs[0]}\n\n${c.paragraphs[1]} ${c.button.href}\n\n${SIGN_OFF}`, html: html(c) };
+  return { subject: c.subject, text: `${c.paragraphs[0]}\n\n${c.paragraphs[1]}: ${c.button.href}\n\n${SIGN_OFF}`, html: html(c) };
 }
 
 /** One message through Resend's HTTP API. Throws unless Resend accepts it. */

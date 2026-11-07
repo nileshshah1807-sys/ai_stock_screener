@@ -81,6 +81,8 @@ test("every email has an HTML part with the same facts, links and one button", (
     assert.ok(html.includes(facts[2]) && html.includes('alt="Cupel"') && html.includes("max-width:560px"), kind);
     for (const page of ["/terms", "/privacy", "/refunds"]) assert.ok(html.includes(`https://cupel.in${page}`), `${kind} footer ${page}`);
     assert.equal(html.match(/display:inline-block/g).length, 1, "one button");
+    assert.doesNotMatch(html, /:<\/p>/, "no dangling colon above the button");
+    assert.match(text, /: https:\/\/cupel\.in\//, "the plain text keeps its URL line");
     assert.doesNotMatch(html, /<script|<link|@import|<img[^>]*(1|0)px/i, "no scripts, external fonts or pixels");
   }
 });
