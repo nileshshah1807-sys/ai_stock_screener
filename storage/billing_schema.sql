@@ -84,6 +84,10 @@ alter table subscriptions add column if not exists delete_requested_at timestamp
 -- Whether the early-bird offer was applied to the subscription started at checkout
 -- (null until one is started): the first charge is the offer or the plan price.
 alter table subscriptions add column if not exists offer_applied boolean;
+-- The Razorpay subscription an admin refunded and ended (billing_refund_end_access).
+-- Access is refused while it is still the row's subscription, whatever a later
+-- webhook says; a new checkout stores a new subscription id and so lifts it.
+alter table subscriptions add column if not exists refunded_subscription_id text;
 
 alter table subscriptions enable row level security;
 
@@ -164,6 +168,11 @@ begin
                 when 'expired' then null
                 else greatest(sub.current_period_end, sub.trial_ends_at)
             end;
+            -- refunded and ended by an admin: no access, whatever the period end says
+            if sub.refunded_subscription_id is not null
+               and sub.refunded_subscription_id is not distinct from sub.razorpay_subscription_id then
+                until_at := null;
+            end if;
             if until_at is not null and until_at > now() then
                 plan_claim := case sub.status when 'trialing' then 'trial' else coalesce(sub.plan_id, 'none') end;
             else
@@ -300,6 +309,39 @@ end;
 $$;
 revoke all on function billing_apply_event(text, uuid, text, text, timestamptz, text, timestamptz) from public, anon, authenticated;
 grant execute on function billing_apply_event(text, uuid, text, text, timestamptz, text, timestamptz) to service_role;
+
+-- ---------------------------------------------------------------------
+-- Refund & end access (admin). Called after the refund and the cancel went
+-- through at Razorpay. Ends access now and marks the subscription refunded, so
+-- the cancelled / charged webhooks that follow cannot restore the period end
+-- (the token hook refuses a refunded subscription). Only the row that still
+-- holds that subscription changes; repeating it is harmless. Returns whether it did.
+-- ---------------------------------------------------------------------
+create or replace function billing_refund_end_access(p_user_id uuid, p_razorpay_subscription_id text)
+returns boolean
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+    changed integer;
+begin
+    if coalesce(p_razorpay_subscription_id, '') = '' then
+        return false;
+    end if;
+    update subscriptions set
+        status = 'cancelled',
+        current_period_end = now(),
+        trial_ends_at = null, -- a new checkout must not bring back trial days
+        refunded_subscription_id = p_razorpay_subscription_id,
+        updated_at = now()
+    where user_id = p_user_id and razorpay_subscription_id = p_razorpay_subscription_id;
+    get diagnostics changed = row_count;
+    return changed > 0;
+end;
+$$;
+revoke all on function billing_refund_end_access(uuid, text) from public, anon, authenticated;
+grant execute on function billing_refund_end_access(uuid, text) to service_role;
 
 -- ---------------------------------------------------------------------
 -- The launch plans, as data (human decision 5 Nov 2026), both markets, same

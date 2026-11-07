@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 
 import { getTrialDays } from "@/lib/trial-days";
 import { adminContext, cancelRazorpay, logAdminAction } from "@/lib/admin";
+import { refundGuard } from "@/lib/admin-refund.mjs";
+import { refundCandidate, runRefund } from "@/lib/admin-refund-server";
 import {
   cleanEmail, complimentaryPlan, exactLike, deletePlan, isEmail, namePlan, parseDays, trialPlan, undoDenialPlan,
 } from "@/lib/admin.mjs";
@@ -130,4 +132,50 @@ export async function deleteUser(_prev: AdminState, formData: FormData): Promise
   await ctx.db.from("dashboard_allowlist").delete().ilike("email", exactLike(target.email)).eq("role", "viewer");
   const note = await record(ctx, "delete", target, { cancelled: plan.cancelFirst, deleted: true });
   return done(`${target.email} deleted.${plan.cancelFirst ? ` Razorpay subscription ${plan.cancelFirst} was cancelled first.` : ""}${note}`);
+}
+
+export type RefundPreview =
+  | { ok: true; paymentId: string; paise: number; refundablePaise: number; currency: string; at: string }
+  | { ok: false; message: string };
+
+/** What a refund would hit, shown in the confirm step. Reads only; changes nothing. */
+export async function previewRefund(id: string): Promise<RefundPreview> {
+  const ctx = await adminContext();
+  if (!ctx) return { ok: false, message: NOT_ADMIN.message ?? "" };
+  const fd = new FormData();
+  fd.set("id", id);
+  const target = await targetOf(ctx, fd);
+  const { data: sub, error } = target
+    ? await ctx.db.from("subscriptions").select("razorpay_subscription_id, refunded_subscription_id").eq("user_id", target.id).maybeSingle()
+    : { data: null, error: null };
+  if (error) return { ok: false, message: "Apply storage/billing_schema.sql first: the refund needs its new column and function." };
+  const guard = refundGuard({ actorId: ctx.viewer.id, target, sub });
+  if (!guard.ok) return { ok: false, message: guard.message ?? "Not allowed." };
+  const payment = await refundCandidate(guard.subscriptionId as string);
+  if (!payment) return { ok: false, message: "No captured payment found (or Razorpay could not be read)." };
+  return { ok: true, paymentId: payment.id, paise: payment.paise, refundablePaise: payment.refundablePaise, currency: payment.currency, at: new Date(payment.at * 1000).toISOString() };
+}
+
+/** Refund the confirmed payment, cancel the subscription, end access, log. Order and failure rules: lib/admin-refund.mjs. */
+export async function refundAndEndAccess(_prev: AdminState, formData: FormData): Promise<AdminState> {
+  const ctx = await adminContext();
+  if (!ctx) return NOT_ADMIN;
+  const target = await targetOf(ctx, formData);
+  const { data: sub, error } = target
+    ? await ctx.db.from("subscriptions").select("razorpay_subscription_id, refunded_subscription_id").eq("user_id", target.id).maybeSingle()
+    : { data: null, error: null };
+  if (error) return fail("Apply storage/billing_schema.sql first: the refund needs its new column and function. Nothing was changed.");
+  const guard = refundGuard({ actorId: ctx.viewer.id, target, sub });
+  if (!guard.ok || !target) return fail(guard.ok ? "User not found." : (guard.message ?? "Not allowed."));
+  if (cleanEmail(String(formData.get("confirm") ?? "")) !== target.email) return fail("The address typed does not match.");
+
+  const paymentId = String(formData.get("payment") ?? "");
+  const result = await runRefund(ctx, target.id, guard.subscriptionId as string, paymentId);
+  const note = await record(ctx, "refund_end_access", target, {
+    subscription: guard.subscriptionId, payment: result.payment?.id ?? null, paise: result.payment?.refundablePaise ?? null,
+    ok: result.ok, done: result.done, problems: result.problems,
+  });
+  const said = [...result.done, ...result.problems].join("; ");
+  if (!result.ok) return fail(`${result.done.length ? "Partly done: " : ""}${said}.${note}`);
+  return done(`Done: ${said}.${note}`);
 }
