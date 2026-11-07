@@ -23,6 +23,7 @@ import {
   lookupResult,
   buyerName,
   customerNeedsName,
+  chargeLacksPaidCount,
   lateCharge,
   undoLateCharge,
   customerBody,
@@ -401,6 +402,15 @@ describe("a charge after cancellation", () => {
     const noCount = charged();
     delete noCount.payload.subscription.entity.paid_count;
     assert.equal(lateCharge(noCount, old, 0).act, false);
+  });
+
+  test("a charge on a cancelled row with no numeric paid_count is flagged for the warning", () => {
+    const noCount = charged();
+    delete noCount.payload.subscription.entity.paid_count;
+    assert.equal(chargeLacksPaidCount(noCount, cancelled(at(1))), true);
+    assert.equal(chargeLacksPaidCount(charged({}, "2"), cancelled(at(1))), true) // a string is not a count;
+    assert.equal(chargeLacksPaidCount(charged(), cancelled(at(1))), false);
+    assert.equal(chargeLacksPaidCount(noCount, { status: "active" }), false);
   });
 
   test("anything else is left alone", () => {

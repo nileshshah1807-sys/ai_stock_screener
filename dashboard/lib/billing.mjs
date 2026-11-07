@@ -422,6 +422,11 @@ export function lateCharge(event, row, nowMs) {
   return { act: true, subscriptionId, paymentId: payment.id, paise: Number.isFinite(payment.amount) ? payment.amount : null };
 }
 
+/** A charge on a cancelled row that carries no numeric paid_count: lateCharge cannot act on it, so the webhook logs it. */
+export function chargeLacksPaidCount(event, row) {
+  return event?.event === "subscription.charged" && row?.status === "cancelled" && !Number.isFinite(event?.payload?.subscription?.entity?.paid_count);
+}
+
 /**
  * Undo a late charge: stop the subscription for good, then refund the payment in full.
  * deps: cancel() -> boolean, refund(paymentId) -> boolean, alert(detail) -> void.
