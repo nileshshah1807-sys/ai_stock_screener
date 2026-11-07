@@ -300,10 +300,13 @@ export function firstChargePaise(subscription, plan) {
 /**
  * The pricing card's autopay sentence, from the plan's own period and regular
  * price (the early-bird applies to the first period only; renewals are at this price).
+ * `plan.offer` is set only while the offer is open.
  */
 export function autopayLine(plan) {
   const period = PERIOD_LABEL[plan?.period] ?? "period";
-  return `Renews every ${period} by autopay (UPI AutoPay, card or eMandate) at ${priceLabel(plan?.amount_paise ?? 0)} until you cancel. Cancel anytime in your account.`;
+  // While the early-bird is open checkout offers UPI alone (checkoutRestriction), so only UPI is promised.
+  const method = plan?.offer ? "UPI AutoPay" : "autopay (UPI AutoPay, card or eMandate)";
+  return `Renews every ${period} by ${method} at ${priceLabel(plan?.amount_paise ?? 0)} until you cancel. Cancel anytime in your account.`;
 }
 
 /** Both launch plans share one name, so the page names a plan by its period. */

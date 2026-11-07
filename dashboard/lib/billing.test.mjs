@@ -337,6 +337,8 @@ describe("autopay wording", () => {
   test("the pricing card's line takes its period and price from the plan", () => {
     assert.match(autopayLine({ period: "monthly", amount_paise: 12900 }), /^Renews every month by autopay .* at ₹129 until you cancel\. Cancel anytime in your account\.$/);
     assert.match(autopayLine({ period: "yearly", amount_paise: 99900 }), /every year .* at ₹999 /);
+    // An open early-bird is UPI only at checkout, so no other method is promised.
+    assert.equal(autopayLine({ period: "yearly", amount_paise: 99900, offer: { amount_paise: 69900 } }), "Renews every year by UPI AutoPay at ₹999 until you cancel. Cancel anytime in your account.");
   });
 
   test("an active plan says autopay is on, the date and amount, and that access stays", () => {
