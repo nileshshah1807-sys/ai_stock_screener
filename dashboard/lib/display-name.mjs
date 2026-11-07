@@ -29,3 +29,16 @@ export function initialsOf(name, email) {
   const parts = String(email ?? "").split("@")[0].split(/[^a-zA-Z0-9]+/).filter(Boolean);
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : (parts[0] ?? "?").slice(0, 2)).toUpperCase();
 }
+
+export const INVOICE_NAME_MIN = 2;
+
+/**
+ * The invoice name asked before checkout: the same cleaning as the profile name,
+ * and at least INVOICE_NAME_MIN characters. Returns the problem as a sentence, or null when fine.
+ */
+export function invoiceNameProblem(raw) {
+  const cleaned = cleanDisplayName(raw);
+  if (!cleaned.ok) return cleaned.message;
+  if ((cleaned.name ?? "").length < INVOICE_NAME_MIN) return `Enter your name, at least ${INVOICE_NAME_MIN} characters.`;
+  return null;
+}
