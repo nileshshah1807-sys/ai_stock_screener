@@ -34,13 +34,25 @@ export async function GET(request: NextRequest) {
     .gt("trial_ends_at", new Date(now).toISOString())
     .lte("trial_ends_at", new Date(now + 2 * DAY).toISOString())
     .order("trial_ends_at")
-    .limit(100) // each send is recorded before it goes: a run killed part-way must be short. The rest are still in the window tomorrow.;
+    .limit(500);
   if (error) return NextResponse.json({ error: "read_failed" }, { status: 500 });
 
+  // Skip who was already emailed, so a long window never crowds out the new ones; and members (admins, the allowlist), who are not on a trial to end.
+  const ids = (data ?? []).map((r) => r.user_id);
+  const [done, members] = await Promise.all([
+    admin.from("customer_emails").select("user_id").eq("kind", "trial_ending").in("user_id", ids),
+    admin.from("dashboard_allowlist").select("email"),
+  ]);
+  if (done.error || members.error) return NextResponse.json({ error: "read_failed" }, { status: 500 });
+  const emailed = new Set((done.data ?? []).map((r) => r.user_id));
+  const memberEmails = new Set((members.data ?? []).map((r) => String(r.email).toLowerCase()));
+  // Each send is recorded before it goes: a run killed part-way must be short. The rest are still in the window tomorrow.
+  const todo = (data ?? []).filter((r) => !emailed.has(r.user_id)).slice(0, 100);
+
   const sent: Record<string, number> = {};
-  for (const row of data ?? []) {
-    const result = await notifyTrialEnding(admin, row.user_id, row.trial_ends_at);
+  for (const row of todo) {
+    const result = await notifyTrialEnding(admin, row.user_id, row.trial_ends_at, memberEmails);
     sent[result] = (sent[result] ?? 0) + 1;
   }
-  return NextResponse.json({ considered: data?.length ?? 0, ...sent });
+  return NextResponse.json({ considered: todo.length, ...sent });
 }

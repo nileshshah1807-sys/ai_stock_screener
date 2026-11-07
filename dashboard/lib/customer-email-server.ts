@@ -71,8 +71,10 @@ export async function notifyCancelled(admin: SupabaseClient, userId: string) {
   }
 }
 
-/** The daily job: a trial that ends within two days gets one email (the key is its end time). */
-export async function notifyTrialEnding(admin: SupabaseClient, userId: string, trialEndsAt: string) {
+/** The daily job: a trial that ends within two days gets one email (the key is its end time). `members`: lowercase emails of admins and the allowlist, who get none. */
+export async function notifyTrialEnding(admin: SupabaseClient, userId: string, trialEndsAt: string, members: Set<string>) {
+  const { data: user } = await admin.auth.admin.getUserById(userId).catch(() => ({ data: null }));
+  if (members.has(String(user?.user?.email ?? "").toLowerCase())) return "skipped" as const;
   return deliver(admin, userId, "trial_ending", trialEndsAt, { endsAt: trialEndsAt }).catch(() => "failed" as const);
 }
 
