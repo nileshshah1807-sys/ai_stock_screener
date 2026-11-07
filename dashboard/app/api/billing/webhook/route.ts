@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { lateCharge, subscriptionChange, undoLateCharge } from "@/lib/billing.mjs";
+import { chargeLacksPaidCount, lateCharge, subscriptionChange, undoLateCharge } from "@/lib/billing.mjs";
 import { notifyStatusChange } from "@/lib/customer-email-server";
 import { alertLateCharge, cancelNow, refundPayment } from "@/lib/late-charge-server";
 import { verifySignature } from "@/lib/webhook-signature.mjs";
@@ -39,6 +39,8 @@ export async function POST(request: NextRequest) {
     const { data: row } = typeof id === "string"
       ? await admin.from("subscriptions").select("user_id, status, current_period_end").eq("razorpay_subscription_id", id).maybeSingle()
       : { data: null };
+    // Without paid_count the safety net cannot tell a renewal from a first payment: say so rather than stay silent.
+    if (chargeLacksPaidCount(event, row)) console.warn(`billing webhook: charge on cancelled subscription ${id} has no numeric paid_count; late-charge check skipped`);
     const late = lateCharge(event, row, Date.now());
     if (late.act) {
       const done = await undoLateCharge({ cancel: cancelNow, refund: refundPayment, alert: (detail: Record<string, unknown>) => alertLateCharge(admin, row?.user_id ?? null, detail) }, late);
