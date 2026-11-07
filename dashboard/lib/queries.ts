@@ -1166,6 +1166,10 @@ function ratingRank(rating: string | null): number | null {
   return value === undefined ? null : value;
 }
 
+/** What the Movers page and getMovers read; the view's sector and score-delta columns are not used. */
+const MOVER_COLUMNS =
+  "observed_on, symbol, company, investment_rank, prev_investment_rank, rank_change, rating, prev_rating, rating_changed, decision_score, prev_observed_on, is_new_entrant";
+
 /**
  * Day-over-day movement, bucketed for display.
  *
@@ -1181,7 +1185,7 @@ export async function getMovers(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_movers")
-    .select("*")
+    .select(MOVER_COLUMNS)
     .eq("market", market)
     .eq("observed_on", runDate);
 
