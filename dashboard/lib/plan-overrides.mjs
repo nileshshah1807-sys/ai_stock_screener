@@ -43,3 +43,16 @@ export function plansReadOnlyReason(env = process.env) {
     ? null
     : "Plans are read-only outside production: this deploy shares the live database, and a change here would overwrite the live Razorpay plan ids. Change plans on cupel.in.";
 }
+
+/**
+ * Outside production, checkout runs on test keys against the live database, so a
+ * real customer who clicked Subscribe there would get a test subscription id
+ * written to their row. Only the emails in PREVIEW_CHECKOUT_EMAILS (comma
+ * separated, any case) may start one; with the list unset nobody can.
+ * Returns why checkout is refused, or null.
+ */
+export function previewCheckoutBlock(email, env = process.env) {
+  if (isProduction(env)) return null;
+  const allowed = String(env.PREVIEW_CHECKOUT_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+  return allowed.includes(String(email ?? "").trim().toLowerCase()) ? null : "preview_checkout_not_allowed";
+}

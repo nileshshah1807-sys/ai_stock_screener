@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { checkoutAction, lookupResult, startSubscription } from "@/lib/billing.mjs";
-import { withTestIds } from "@/lib/plan-overrides.mjs";
+import { previewCheckoutBlock, withTestIds } from "@/lib/plan-overrides.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -28,6 +28,9 @@ export async function POST(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const userId = typeof data?.claims?.sub === "string" ? data.claims.sub : "";
   if (!userId) return fail("unauthenticated", 401);
+  // Outside production only listed test accounts may check out: this deploy shares the live database.
+  const blocked = previewCheckoutBlock(data?.claims?.email);
+  if (blocked) return fail(blocked, 403);
 
   const wanted = await request.json().then((b) => (typeof b?.plan_id === "string" ? b.plan_id : null)).catch(() => null);
 
