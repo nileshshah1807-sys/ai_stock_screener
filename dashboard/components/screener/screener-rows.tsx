@@ -98,7 +98,7 @@ function ChangeCell({
  * information the number does not already carry, so it is decoration in the
  * strict sense, but it is decoration that makes the column scannable.
  *
- * Coloured by rating band so it agrees with the badge two columns to its left.
+ * Coloured by rating band so it agrees with the rating badge.
  */
 function ScoreMeter({
   score,

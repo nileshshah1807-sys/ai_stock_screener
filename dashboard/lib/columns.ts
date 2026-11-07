@@ -126,6 +126,62 @@ export const COLUMNS: readonly ColumnSpec[] = [
     required: true,
   },
   {
+    id: "price",
+    label: "Price",
+    sort: "current_price",
+    numeric: true,
+    cellClassName: "tabular text-right font-mono text-xs",
+    title:
+      "During the session, the latest trade (refreshed every five minutes); otherwise the last close. Sorting uses the last close.",
+    fields: ["current_price"],
+  },
+  {
+    id: "marketCap",
+    label: "Mkt cap",
+    sort: "market_cap",
+    numeric: true,
+    cellClassName: "tabular text-right font-mono text-xs",
+    fields: ["market_cap"],
+  },
+  {
+    // Between Price and 1M, so the return columns read shortest-to-longest
+    // horizon left to right.
+    id: "change1d",
+    label: "1D",
+    sort: "pct_change_1d",
+    numeric: true,
+    cellClassName: "text-right font-mono text-xs",
+    title:
+      "During the session, today's move so far (refreshed every five minutes); otherwise the last completed session's move, on the same adjusted close every technical feature uses. Sorting uses the completed session. Display evidence: no score, gate or rank reads it.",
+    fields: ["pct_change_1d"],
+  },
+  {
+    id: "change1m",
+    label: "1M",
+    sort: "pct_change_1m",
+    numeric: true,
+    cellClassName: "text-right font-mono text-xs",
+    fields: ["pct_change_1m"],
+  },
+  {
+    id: "pe",
+    label: "PE",
+    sort: "pe_ratio",
+    numeric: true,
+    cellClassName: "tabular text-right font-mono text-xs",
+    fields: ["pe_ratio"],
+  },
+  {
+    id: "liq",
+    label: "Liq",
+    title: "Execution overlay. Never changes the score or rating.",
+    fields: [
+      "liquidity_grade",
+      "portfolio_actionable",
+      "median_turnover_20d_inr",
+    ],
+  },
+  {
     id: "quality",
     label: "Qual",
     sort: "quality_percentile",
@@ -268,62 +324,6 @@ export const COLUMNS: readonly ColumnSpec[] = [
       "final_score",
       "evidence_score",
       "decision_score",
-    ],
-  },
-  {
-    id: "price",
-    label: "Price",
-    sort: "current_price",
-    numeric: true,
-    cellClassName: "tabular text-right font-mono text-xs",
-    title:
-      "During the session, the latest trade (refreshed every five minutes); otherwise the last close. Sorting uses the last close.",
-    fields: ["current_price"],
-  },
-  {
-    // Between Price and 1M, so the return columns read shortest-to-longest
-    // horizon left to right.
-    id: "change1d",
-    label: "1D",
-    sort: "pct_change_1d",
-    numeric: true,
-    cellClassName: "text-right font-mono text-xs",
-    title:
-      "During the session, today's move so far (refreshed every five minutes); otherwise the last completed session's move, on the same adjusted close every technical feature uses. Sorting uses the completed session. Display evidence: no score, gate or rank reads it.",
-    fields: ["pct_change_1d"],
-  },
-  {
-    id: "change1m",
-    label: "1M",
-    sort: "pct_change_1m",
-    numeric: true,
-    cellClassName: "text-right font-mono text-xs",
-    fields: ["pct_change_1m"],
-  },
-  {
-    id: "marketCap",
-    label: "Mkt cap",
-    sort: "market_cap",
-    numeric: true,
-    cellClassName: "tabular text-right font-mono text-xs",
-    fields: ["market_cap"],
-  },
-  {
-    id: "pe",
-    label: "PE",
-    sort: "pe_ratio",
-    numeric: true,
-    cellClassName: "tabular text-right font-mono text-xs",
-    fields: ["pe_ratio"],
-  },
-  {
-    id: "liq",
-    label: "Liq",
-    title: "Execution overlay. Never changes the score or rating.",
-    fields: [
-      "liquidity_grade",
-      "portfolio_actionable",
-      "median_turnover_20d_inr",
     ],
   },
 ];

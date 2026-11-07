@@ -6,6 +6,7 @@ import { SavedViews } from "@/components/screener/saved-views";
 import { StockSearch } from "@/components/screener/stock-search";
 import { ViewOptions } from "@/components/screener/view-options";
 import { investmentRankExplanation } from "@/lib/model-display.mjs";
+import { screenerIntro } from "@/lib/screener-intro.mjs";
 
 import { isAdmin } from "@/lib/auth";
 import { marketFromSlug } from "@/lib/markets";
@@ -67,6 +68,8 @@ export default async function ScreenerLayout({
     <div data-screener className="space-y-4 px-4 py-5 sm:px-6">
       {/* The run's rating mix: admin-only, like the ratings (lib/ratings.mjs). */}
       {(await isAdmin()) ? <SummaryTiles run={run} market={market} bseOnly={bseOnly} /> : null}
+
+      <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{screenerIntro(market.code)}</p>
 
       {/*
         One chrome block at gap-2, not three siblings at the page's gap-4.
