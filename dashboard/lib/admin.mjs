@@ -168,11 +168,6 @@ export function namePlan(raw) {
 }
 
 /**
- * Deleting: the typed address must match, an admin or yourself cannot be deleted
- * here, and a live Razorpay subscription is cancelled first (at once: there is
- * no one left to serve the rest of the period).
- */
-/**
  * Whether Razorpay's answer to a cancel lets the delete go on. An unknown id counts as
  * "nothing to cancel" only in production: elsewhere (Preview, test keys on the shared
  * live database) the same answer is given for a real customer's LIVE subscription,
@@ -183,6 +178,11 @@ export function cancelSettled(ok, status, json, env = process.env) {
   return env.VERCEL_ENV === "production" && isUnknownSubscription(status, json);
 }
 
+/**
+ * Deleting: the typed address must match, an admin or yourself cannot be deleted
+ * here, and a live Razorpay subscription is cancelled first (at once: there is
+ * no one left to serve the rest of the period).
+ */
 export function deletePlan({ actorId, target, sub, typedEmail }) {
   if (!target) return { ok: false, message: "User not found." };
   if (target.id === actorId) return { ok: false, message: "You cannot delete yourself." };

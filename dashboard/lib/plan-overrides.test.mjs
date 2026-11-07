@@ -48,3 +48,14 @@ test("every admin plan write checks the read-only guard first", async () => {
     assert.ok(body.indexOf("readOnly()") < body.indexOf(".update(") || !body.includes(".update("), name);
   }
 });
+
+test("outside production only listed emails may start a checkout; production is unaffected", async () => {
+  const { previewCheckoutBlock } = await import("./plan-overrides.mjs");
+  const env = { VERCEL_ENV: "preview", PREVIEW_CHECKOUT_EMAILS: " Test@Example.com ,b@x.co" };
+  assert.equal(previewCheckoutBlock("test@example.com", env), null);
+  assert.equal(previewCheckoutBlock("real@customer.in", env), "preview_checkout_not_allowed");
+  assert.equal(previewCheckoutBlock(undefined, env), "preview_checkout_not_allowed");
+  assert.equal(previewCheckoutBlock("test@example.com", { VERCEL_ENV: "preview" }), "preview_checkout_not_allowed"); // list unset: nobody
+  assert.equal(previewCheckoutBlock("real@customer.in", { VERCEL_ENV: "production" }), null);
+  assert.equal(previewCheckoutBlock("real@customer.in", { VERCEL_ENV: "production", PREVIEW_CHECKOUT_EMAILS: "" }), null);
+});
