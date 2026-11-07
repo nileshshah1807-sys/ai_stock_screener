@@ -167,6 +167,9 @@ class Config:
     # unless a workflow opts in, so an unset environment behaves exactly as
     # before and no test reaches the exchange.
     PRICE_BAR_FALLBACK_ENABLED = _env_bool("PRICE_BAR_FALLBACK_ENABLED", False)
+    # Price an NSE SME name Yahoo has no history for from the exchange's daily
+    # files (see screener/sme_bars.py). Off unless a workflow opts in.
+    SME_BHAVCOPY_PRICES_ENABLED = _env_bool("SME_BHAVCOPY_PRICES_ENABLED", False)
     # Restate vendor history across changes in the price basis the vendor
     # missed, where the market profile says how to recognise one (see
     # screener/price_basis.py). Off unless a workflow opts in, for the same

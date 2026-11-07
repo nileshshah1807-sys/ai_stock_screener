@@ -143,10 +143,21 @@ the scheduled workflows set the same flag.
   `nse_with_bse_only`. `Is_SME` is a display flag, never read by scoring. An SME
   is admitted to the frame only once it has a statement record
   (`FinancialStatementCollector._record_coverage`), so the 0.95 statement-coverage
-  guard is unchanged. Yahoo prices about half the NSE SME list (7 Nov 2026
+  guard is unchanged; so admission can change day to day and shift every rank
+  slightly. If `Is_SME` is ever added to `SNAPSHOT_COLUMNS`, re-apply
+  `rating_access_schema.sql` so the `*_visible` views carry it. Yahoo prices about half the NSE SME list (7 Nov 2026
   sample); the rest drop at the no-price filter. The bhavcopy bar fallback keeps
   its EQ/BE series. SME filings are not read into `quarterly_filings`: a
   half-year filing would be stored as a quarter by parser v4.
+- **An NSE SME name Yahoo has no history for is priced from the bhavcopy.**
+  With `SME_BHAVCOPY_PRICES_ENABLED` (NSE workflow) `screener/sme_bars.py` keeps
+  the SM/ST/SZ rows of every daily file for ~2 years in `reports_advanced/sme_bars.csv.gz`
+  (workflow cache `stock-screener-sme-bars-v1`), fetching only the sessions it lacks:
+  a cold start is ~500 files (~6.5 min, 2.4 MB), then one a run. It is asked only
+  for an SME symbol Yahoo returned nothing for; a session the name did not trade
+  is carried forward with zero volume, as Yahoo does. Bars are unadjusted and go
+  through the same price-basis restatement as Yahoo's. See
+  `technical_sme_bhavcopy_priced_symbols`. Charts (price-series) still need Yahoo.
 - **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
   `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
   `screener/session_bars.py` fill a symbol's missing expected-session bar from
