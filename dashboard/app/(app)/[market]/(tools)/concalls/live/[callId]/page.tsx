@@ -43,7 +43,7 @@ export default async function LiveCallPage({ params }: PageProps<"/[market]/conc
         </p>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Transcribed automatically as the call is spoken, so expect errors. The filed transcript is the record.
+        Unverified automatic transcript, made as the call is spoken. It may contain errors and is not a record of what was said; the company\u2019s filed transcript is.
       </p>
       <LiveTranscript
         callId={call.call_id}

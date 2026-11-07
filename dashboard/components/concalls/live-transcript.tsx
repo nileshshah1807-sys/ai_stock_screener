@@ -16,9 +16,8 @@ const nearEnd = () => window.innerHeight + window.scrollY >= document.body.scrol
 /**
  * A call's lines as they arrive: newest at the bottom, announced politely to a
  * screen reader. Polls `live_call_feed` by cursor (the last seq held) every
- * few seconds, not while the tab is hidden, and stops once the call has ended.
- * Each poll also asks for line 1, which carries the call's state even when
- * nothing new was said; the merge keeps a line once. A sample call (tables not
+ * few seconds, not while the tab is hidden, with `live_call_state` beside it,
+ * and stops once the call has ended. A sample call (tables not
  * applied) is generated here instead.
  */
 export function LiveTranscript({
@@ -49,16 +48,21 @@ export function LiveTranscript({
       const elapsed = (Date.now() - Date.parse(startedAt ?? new Date().toISOString())) / 1000;
       incoming = sampleLines(elapsed, cursor.current);
     } else {
-      const { data, error } = await createClient()
-        .from("live_call_feed")
-        .select("seq, start_seconds, text, state")
-        .eq("call_id", callId)
-        .or(`seq.gt.${cursor.current},seq.eq.1,seq.is.null`)
-        .order("seq", { ascending: true });
-      if (error) return setFailed(true);
+      const supabase = createClient();
+      // State is its own read: a poll past the cursor returns no row once the call has said its last line.
+      const [lineRead, stateRead] = await Promise.all([
+        supabase
+          .from("live_call_feed")
+          .select("seq, start_seconds, text")
+          .eq("call_id", callId)
+          .gt("seq", cursor.current)
+          .order("seq", { ascending: true }),
+        supabase.from("live_call_state").select("state").eq("call_id", callId).maybeSingle(),
+      ]);
+      if (lineRead.error || stateRead.error) return setFailed(true);
       setFailed(false);
-      incoming = (data ?? []).map((row) => ({ ...row, start_seconds: Number(row.start_seconds) }));
-      next = data?.[0]?.state ?? state;
+      incoming = (lineRead.data ?? []).map((row) => ({ ...row, start_seconds: Number(row.start_seconds) }));
+      next = stateRead.data?.state ?? state;
     }
     const fresh = incoming.filter((line) => line.seq != null && line.seq > cursor.current);
     setState(next);

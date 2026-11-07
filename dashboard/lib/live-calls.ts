@@ -5,8 +5,9 @@ import { createClient } from "@/lib/supabase/server";
 import { sampleLines } from "@/lib/live-calls.mjs";
 
 /**
- * Reads for the Live now tab and the live call page: `live_call_feed`, the
- * view over `live_calls` and `live_call_lines` (storage/live_calls_schema.sql),
+ * Reads for the Live now tab and the live call page: `live_call_state` (a
+ * call and its state) and `live_call_feed` (its lines), views over `live_calls` and
+ * `live_call_lines` (storage/live_calls_schema.sql),
  * read as the signed-in viewer. While the view does not exist (a preview
  * without the schema) a sample call stands in, flagged `sample`, so the page
  * can be seen working. Nothing here is scored.
@@ -42,13 +43,11 @@ function sampleCall(market: MarketCode): LiveCall {
 /** Calls being listened to now, with `sample` true when they are the stand-in. */
 export async function getLiveCalls(market: MarketCode): Promise<{ calls: LiveCall[]; sample: boolean }> {
   const supabase = await createClient();
-  // One row per call: its first line, or its only row when it has none yet.
   const { data, error } = await supabase
-    .from("live_call_feed")
+    .from("live_call_state")
     .select("call_id, symbol, state, started_at, ended_at")
     .eq("market", market)
     .eq("state", "live")
-    .or("seq.is.null,seq.eq.1")
     .order("started_at", { ascending: false });
   if (error) {
     if (!MISSING_TABLE.has(error.code)) console.error("getLiveCalls failed", error.message);
@@ -63,13 +62,21 @@ export async function getLiveCall(
   callId: string,
 ): Promise<{ call: LiveCall; lines: LiveLine[]; sample: boolean } | null> {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("live_call_feed")
-    .select("call_id, symbol, state, started_at, ended_at, seq, start_seconds, text")
-    .eq("market", market)
-    .eq("call_id", callId)
-    .order("seq", { ascending: true })
-    .range(0, READ_WINDOW - 1);
+  const [state, feed] = await Promise.all([
+    supabase
+      .from("live_call_state")
+      .select("call_id, symbol, state, started_at, ended_at")
+      .eq("market", market)
+      .eq("call_id", callId)
+      .maybeSingle(),
+    supabase
+      .from("live_call_feed")
+      .select("seq, start_seconds, text")
+      .eq("call_id", callId)
+      .order("seq", { ascending: true })
+      .range(0, READ_WINDOW - 1),
+  ]);
+  const error = state.error ?? feed.error;
   if (error) {
     if (!MISSING_TABLE.has(error.code)) {
       console.error("getLiveCall failed", error.message);
@@ -79,12 +86,11 @@ export async function getLiveCall(
     if (call.call_id !== callId) return null;
     return { call, lines: sampleLines(SAMPLE_HEAD_START), sample: true };
   }
-  if (!data.length) return null;
-  const { call_id, symbol, state, started_at, ended_at } = data[0];
-  const lines = data.filter((row) => row.seq !== null).map(({ seq, start_seconds, text }) => ({
+  if (!state.data) return null;
+  const lines = (feed.data ?? []).map(({ seq, start_seconds, text }) => ({
     seq: seq as number,
     start_seconds: Number(start_seconds),
     text: text as string,
   }));
-  return { call: { call_id, symbol, state, started_at, ended_at } as LiveCall, lines, sample: false };
+  return { call: state.data as LiveCall, lines, sample: false };
 }
