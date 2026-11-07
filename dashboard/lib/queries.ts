@@ -1448,16 +1448,16 @@ export async function getMarketBreadth(
 export const getIndexDirectory = cache(async (market: MarketCode): Promise<IndexInfo[]> => {
   const remembered = directoryMemo.get(market);
   if (remembered && Date.now() - remembered.at < DIRECTORY_MEMO_MS) return remembered.directory;
-  const directory = await readIndexDirectory(market);
-  // A failed read comes back empty; remembering it would hide the indices for the whole window.
-  if (directory.length) directoryMemo.set(market, { at: Date.now(), directory });
+  const { directory, complete } = await readIndexDirectory(market);
+  // A read that errored (even one page of it) is partial; remembering it would hide indices for the whole window.
+  if (complete && directory.length) directoryMemo.set(market, { at: Date.now(), directory });
   return directory;
 });
 
 const DIRECTORY_MEMO_MS = 120_000;
 const directoryMemo = new Map<MarketCode, { at: number; directory: IndexInfo[] }>();
 
-async function readIndexDirectory(market: MarketCode): Promise<IndexInfo[]> {
+async function readIndexDirectory(market: MarketCode): Promise<{ directory: IndexInfo[]; complete: boolean }> {
   const supabase = await createClient();
   const page = (from: number) =>
     supabase
@@ -1477,6 +1477,7 @@ async function readIndexDirectory(market: MarketCode): Promise<IndexInfo[]> {
       .eq("scope", "index")
       .order("position"),
   ]);
+  let complete = !first.error && !charts.error;
   if (first.error) console.error("getIndexDirectory members failed", first.error.message);
   if (charts.error) console.error("getIndexDirectory charts failed", charts.error.message);
 
@@ -1490,7 +1491,10 @@ async function readIndexDirectory(market: MarketCode): Promise<IndexInfo[]> {
         .map(page),
     );
     for (const result of rest) {
-      if (result.error) console.error("getIndexDirectory members failed", result.error.message);
+      if (result.error) {
+        complete = false;
+        console.error("getIndexDirectory members failed", result.error.message);
+      }
       rows.push(...((result.data as MemberRow[] | null) ?? []));
     }
   }
@@ -1511,12 +1515,13 @@ async function readIndexDirectory(market: MarketCode): Promise<IndexInfo[]> {
   for (const row of (charts.data as { name: string }[] | null) ?? []) {
     if (!listed.has(row.name)) ordered.push({ name: row.name, members: null });
   }
-  return ordered.map(({ name, members }) => ({
+  const directory = ordered.map(({ name, members }) => ({
     slug: indexSlug(name),
     name,
     members,
     chart: charted.has(name),
   }));
+  return { directory, complete };
 }
 
 /** One index's constituents as the provider lists them. */
