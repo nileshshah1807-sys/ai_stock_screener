@@ -21,7 +21,7 @@ type RazorpayOptions = {
   prefill: { email: string };
   method?: Record<string, boolean>;
   config?: unknown;
-  handler: () => void;
+  handler: (response: { razorpay_payment_id?: string; razorpay_subscription_id?: string; razorpay_signature?: string }) => void;
   modal: { ondismiss: () => void };
 };
 declare global {
@@ -82,8 +82,9 @@ type Phase = "idle" | "starting" | "paying" | "confirming" | "slow";
 /**
  * Opens Razorpay Checkout for the plan.
  *
- * The checkout's own success callback is not proof of payment: the webhook
- * writes the subscription, so the button waits for that row to read as set up,
+ * The checkout's own success callback is not proof of payment: the browser sends
+ * its signed result to /api/billing/confirm, which verifies it and writes the
+ * subscription (the webhook is the fallback), so the button waits for that row to read as set up,
  * then refreshes the session so the token's plan claim catches up, and only
  * then moves on. If the row has not changed after 90 seconds it says so and
  * leaves the person to come back; their payment is not lost.
@@ -107,8 +108,15 @@ export function CheckoutButton({
   const [offerGone, setOfferGone] = useState(false);
   const locked = useInFlight();
 
-  async function waitForSubscription() {
+  async function waitForSubscription(proof: object) {
     const supabase = createClient();
+    // Ask the server to verify the payment and write the subscription now; the
+    // webhook stays the fallback if this fails or Razorpay is not yet settled.
+    await fetch("/api/billing/confirm", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(proof),
+    }).catch(() => null);
     const deadline = Date.now() + POLL_FOR_MS;
     while (Date.now() < deadline) {
       const { data } = await supabase.from("subscriptions").select("status, plan_id").maybeSingle();
@@ -172,9 +180,9 @@ export function CheckoutButton({
         description: body.plan.name,
         prefill: { email },
         ...checkoutRestriction(body.offer_applied),
-        handler: () => {
+        handler: (proof) => {
           setPhase("confirming");
-          void waitForSubscription();
+          void waitForSubscription(proof);
         },
         modal: {
           ondismiss: () => {

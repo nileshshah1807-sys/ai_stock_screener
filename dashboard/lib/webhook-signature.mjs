@@ -14,3 +14,13 @@ export function verifySignature(rawBody, signature, secret) {
   const wanted = Buffer.from(expected, "utf8");
   return given.length === wanted.length && timingSafeEqual(given, wanted);
 }
+
+/**
+ * Razorpay Checkout's success signature for a subscription: hex HMAC-SHA256 of
+ * `razorpay_payment_id|razorpay_subscription_id`, keyed by the API key secret
+ * (not the webhook secret).
+ */
+export function verifyPaymentSignature(paymentId, subscriptionId, signature, keySecret) {
+  if (!paymentId || !subscriptionId) return false;
+  return verifySignature(`${paymentId}|${subscriptionId}`, signature, keySecret);
+}
