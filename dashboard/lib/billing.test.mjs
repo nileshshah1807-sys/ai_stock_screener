@@ -25,6 +25,7 @@ import {
   firstChargePaise,
   trialName,
   daysPhrase,
+  ownPricePaise,
   startSubscription,
 } from "./billing.mjs";
 import { verifySignature } from "./webhook-signature.mjs";
@@ -297,4 +298,11 @@ describe("startSubscription", () => {
     assert.equal(r.rejection, null);
     assert.equal(r.response.ok, false);
   });
+});
+
+test("the account header price is the subscriber's own, not today's", () => {
+  const plan = { amount_paise: 13900 };
+  assert.equal(ownPricePaise({ plan_amount_paise: 12900 }, plan), 12900, "price raised after they subscribed");
+  assert.equal(ownPricePaise({ plan_amount_paise: null }, plan), 13900, "unrecorded: the plan's price");
+  assert.equal(ownPricePaise(null, plan), 13900);
 });

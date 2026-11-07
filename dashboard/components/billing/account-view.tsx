@@ -4,7 +4,7 @@ import { AccountActions } from "@/components/billing/account-actions";
 import { AccountMotion } from "@/components/billing/account-motion";
 import { ProfileForm } from "@/components/billing/profile-form";
 import { buttonVariants } from "@/components/ui/button";
-import { PERIOD_LABEL, currentPlanId, isSetUp, planSummary, planTitle, priceLabel } from "@/lib/billing.mjs";
+import { PERIOD_LABEL, currentPlanId, isSetUp, ownPricePaise, planSummary, planTitle, priceLabel } from "@/lib/billing.mjs";
 import { initialsOf, shownName } from "@/lib/display-name.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
@@ -45,7 +45,7 @@ export function AccountView({
   const showSubscribe = !setUp && !permanent && subscription?.status !== "past_due";
   const current = currentPlanId(subscription);
   const other = current ? (plans?.find((candidate) => candidate.id !== current) ?? null) : null;
-  const price = plan ? `${priceLabel(plan.amount_paise)} per ${PERIOD_LABEL[plan.period] ?? plan.period}` : null;
+  const price = plan ? `${priceLabel(ownPricePaise(subscription, plan))} per ${PERIOD_LABEL[plan.period] ?? plan.period}` : null;
 
   return (
     <AccountMotion>
