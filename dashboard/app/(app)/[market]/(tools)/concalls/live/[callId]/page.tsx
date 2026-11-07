@@ -45,7 +45,7 @@ export default async function LiveCallPage({ params }: PageProps<"/[market]/conc
         startedAt={call.started_at}
         initialLines={lines}
         initialState={call.state}
-        identity={<StockIdentity symbol={call.symbol} logoDomain={logo} size="md" className="min-w-0 flex-1" />}
+        identity={<StockIdentity symbol={call.symbol} logoDomain={logo} link={!sample} size="md" className="min-w-0 flex-1" />}
       />
     </div>
   );

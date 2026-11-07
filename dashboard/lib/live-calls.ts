@@ -31,12 +31,12 @@ const SAMPLE_HEAD_START = 60;
 /** The sample is for previews; a production deploy without the tables shows no live calls, never invented ones. */
 const SAMPLE_ALLOWED = process.env.VERCEL_ENV !== "production";
 
-/** The sample call: TCS, started a minute ago, so a few lines are already there. */
+/** The sample call: a made-up company, started a minute ago, so a few lines are already there. */
 function sampleCall(market: MarketCode): LiveCall {
   const now = Date.now();
   return {
-    call_id: `${market}:TCS:${new Date(now).toISOString().slice(0, 10)}`,
-    symbol: "TCS",
+    call_id: `${market}:SAMPLECO:${new Date(now).toISOString().slice(0, 10)}`,
+    symbol: "SAMPLECO",
     state: "live",
     started_at: new Date(now - SAMPLE_HEAD_START * 1000).toISOString(),
     ended_at: null,
