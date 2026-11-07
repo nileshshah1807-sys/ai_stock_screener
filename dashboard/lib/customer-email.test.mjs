@@ -43,10 +43,10 @@ test("a database error while claiming is a failure, not a crash", async () => {
 test("Resend gets the sender, recipient and an idempotency key; a refusal throws", async () => {
   let call;
   const ok = async (url, init) => ((call = { url, init }), { ok: true });
-  await resendSend(ok, "re_key", { to: "a@b.c", subject: "S", text: "T" }, "u/paid/sub_1");
+  await resendSend(ok, "re_key", { to: "a@b.c", subject: "S", text: "T", html: "<p>T</p>" }, "u/paid/sub_1");
   assert.equal(call.url, "https://api.resend.com/emails");
   assert.equal(call.init.headers["Idempotency-Key"], "u/paid/sub_1");
-  assert.deepEqual(JSON.parse(call.init.body), { from: "Cupel <team@cupel.in>", to: ["a@b.c"], subject: "S", text: "T" });
+  assert.deepEqual(JSON.parse(call.init.body), { from: "Cupel <team@cupel.in>", to: ["a@b.c"], subject: "S", text: "T", html: "<p>T</p>" });
   await assert.rejects(resendSend(async () => ({ ok: false, status: 422 }), "k", { to: "a@b.c", subject: "S", text: "T" }, "i"), /422/);
 });
 
@@ -62,4 +62,29 @@ test("the four emails say what they should and stay plain", () => {
   assert.match(compose("refund", { amountPaise: 99900 }).text, /₹999/);
   for (const kind of ["paid", "cancelled", "trial_ending", "refund"]) assert.doesNotMatch(compose(kind, { endsAt: "2026-12-31T00:00:00Z" }).text, /\b(buy|sell|rating)\b/i);
   assert.throws(() => compose("nope"));
+});
+
+test("every email has an HTML part with the same facts, links and one button", () => {
+  const now = Date.parse("2026-11-07T00:00:00Z");
+  const cases = {
+    paid: [{ period: "yearly" }, ["yearly plan", "https://cupel.in/account", "Manage plan"]],
+    cancelled: [{ endsAt: "2026-12-31T18:29:59Z" }, ["31 December 2026", "https://cupel.in/pricing", "Subscribe again"]],
+    trial_ending: [{ endsAt: "2026-11-09T10:00:00Z" }, ["9 November 2026", "https://cupel.in/account", "Pick a plan"]],
+    refund: [{ amountPaise: 99900 }, ["₹999", "https://cupel.in/refunds", "Refund policy"]],
+  };
+  for (const [kind, [d, facts]] of Object.entries(cases)) {
+    const { text, html } = compose(kind, d, now);
+    for (const f of facts.filter((f) => f.startsWith("http") || /\d/.test(f))) {
+      assert.ok(text.includes(f), `${kind} text has ${f}`);
+      assert.ok(html.includes(f), `${kind} html has ${f}`);
+    }
+    assert.ok(html.includes(facts[2]) && html.includes('alt="Cupel"') && html.includes("max-width:560px"), kind);
+    for (const page of ["/terms", "/privacy", "/refunds"]) assert.ok(html.includes(`https://cupel.in${page}`), `${kind} footer ${page}`);
+    assert.equal(html.match(/display:inline-block/g).length, 1, "one button");
+    assert.doesNotMatch(html, /<script|<link|@import|<img[^>]*(1|0)px/i, "no scripts, external fonts or pixels");
+  }
+});
+
+test("HTML escapes what it is given", () => {
+  assert.doesNotMatch(compose("paid", { period: "<b>x</b>" }).html, /<b>x/);
 });
