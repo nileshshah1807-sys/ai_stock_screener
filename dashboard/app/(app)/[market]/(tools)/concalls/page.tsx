@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 
+import { LiveNowPanel, UpcomingPanel } from "@/components/concalls/concall-panels";
 import { ConcallRow } from "@/components/concalls/concall-row";
+import { ConcallTabs, type ConcallView } from "@/components/concalls/concall-tabs";
 import { PageTitle } from "@/components/page-title";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { LiveSearch } from "@/components/filters/live-search";
@@ -10,6 +12,7 @@ import { UpcomingButton, UpcomingProvider } from "@/components/upcoming/upcoming
 import { NextConcallTile } from "@/components/upcoming/upcoming-tiles";
 import { getConcalls } from "@/lib/concalls";
 import { STANCE_FILTERS, groupByCallDate, searchTerm } from "@/lib/concalls.mjs";
+import { getLiveCalls } from "@/lib/live-calls";
 import { loadFeedFilters } from "@/lib/feed-filters";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
@@ -58,6 +61,9 @@ export default async function ConcallsPage({
     );
   }
 
+  const view: ConcallView = query.view === "live" || query.view === "upcoming" ? query.view : "latest";
+  if (view !== "latest") return <ConcallViewPage view={view} market={market} />;
+
   const feed = await loadFeedFilters(market.code, query, { defaultScope: "all", facets: FACETS });
   const search = searchTerm(query.q);
   const filtered = Boolean(search) || !feed.isDefault;
@@ -82,6 +88,7 @@ export default async function ConcallsPage({
   const groups = groupByCallDate(calls);
 
   const base = marketPath(market.slug, "/concalls");
+  const { calls: liveCalls } = await getLiveCalls(market.code);
 
   const page = (
     <div className="space-y-4 px-4 py-5 sm:px-6">
@@ -109,6 +116,8 @@ export default async function ConcallsPage({
         />
         {upcoming ? <UpcomingButton /> : null}
       </div>
+
+      <ConcallTabs base={base} active="latest" liveCount={liveCalls.length} />
 
       {next ? (
         <div className="flex flex-wrap gap-3">
@@ -182,5 +191,39 @@ export default async function ConcallsPage({
     </UpcomingProvider>
   ) : (
     page
+  );
+}
+
+/**
+ * The Live now and Upcoming views: no feed filters, since neither lists a
+ * call's reading. Live now is a short list of calls on air; Upcoming is the
+ * next days' notices from `upcoming_events`.
+ */
+async function ConcallViewPage({
+  view,
+  market,
+}: {
+  view: Exclude<ConcallView, "latest">;
+  market: NonNullable<ReturnType<typeof marketFromSlug>>;
+}) {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const [{ calls, sample }, upcoming, facts] = await Promise.all([
+    getLiveCalls(market.code),
+    getUpcoming(market.code, "call", today),
+    getCompanyFacts(market.code),
+  ]);
+  const base = marketPath(market.slug, "/concalls");
+  const next = upcoming ? upcomingSummary(upcoming, today).next : null;
+  const logos = new Map((facts ?? []).map((fact) => [fact.symbol, fact.logo_domain]));
+  return (
+    <div className="space-y-4 px-4 py-5 sm:px-6">
+      <PageTitle title="Concalls" />
+      <ConcallTabs base={base} active={view} liveCount={calls.length} />
+      {view === "live" ? (
+        <LiveNowPanel calls={calls} sample={sample} next={next} today={today} base={base} logos={logos} />
+      ) : (
+        <UpcomingPanel events={upcoming} today={today} />
+      )}
+    </div>
   );
 }
