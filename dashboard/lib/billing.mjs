@@ -59,13 +59,25 @@ export function subscriptionChange(event, eventId) {
 }
 
 /**
- * The stored subscription as Razorpay answered the lookup. A 404 means Razorpay
- * has never heard of that id (e.g. one left from test mode before go-live): treat
- * it as no subscription so checkout can start a new one. Any other failure stays an error.
+ * THE rule for a stored subscription id Razorpay does not know (an id from the
+ * other mode, e.g. test mode before go-live, or one that was removed): a 404, or
+ * a 400 whose description says the id does not exist. Not "stale" for any other
+ * 400 (a bad request is a bad request). Every route that looks up a stored id
+ * asks this and never shows the user a dead end.
+ */
+export function isUnknownSubscription(status, json) {
+  if (status === 404) return true;
+  return status === 400 && /does not exist|not found|invalid id/i.test(String(json?.error?.description ?? ""));
+}
+
+/**
+ * The stored subscription as Razorpay answered the lookup. An unknown id
+ * (isUnknownSubscription) means no subscription, so checkout can start a new
+ * one. Any other failure stays an error.
  * @returns {{error: true} | {stale: true} | {existing: object}}
  */
 export function lookupResult(ok, status, json) {
-  if (status === 404) return { stale: true };
+  if (isUnknownSubscription(status, json)) return { stale: true };
   return ok && json?.status ? { existing: json } : { error: true };
 }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isUnknownSubscription } from "@/lib/billing.mjs";
 import { notifyCancelled } from "@/lib/customer-email-server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -42,6 +43,10 @@ export async function POST() {
     },
     body: JSON.stringify({ cancel_at_cycle_end: atCycleEnd ? 1 : 0 }),
   }).catch(() => null);
+  if (response && !response.ok && isUnknownSubscription(response.status, await response.json().catch(() => null))) {
+    console.warn(`cancel: Razorpay does not know ${sub.razorpay_subscription_id}; nothing to cancel.`);
+    return fail("unknown_subscription", 404); // nothing at Razorpay to act on; the row is left for support
+  }
   if (!response?.ok) return fail("razorpay_error", 502);
 
   // The webhook confirms it; the page should not wait for that.

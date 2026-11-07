@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     }).catch(() => null);
     const looked = lookupResult(Boolean(found?.ok), found?.status ?? 0, await found?.json().catch(() => null));
     if ("error" in looked) return fail("razorpay_error", 502);
-    if ("stale" in looked) console.warn(`create-subscription: Razorpay does not know ${sub.razorpay_subscription_id} (404); starting a new subscription for the user.`);
+    if ("stale" in looked) console.warn(`create-subscription: Razorpay does not know ${sub.razorpay_subscription_id} (unknown); starting a new subscription for the user.`);
     else existing = looked.existing;
   }
   const action = checkoutAction(sub, existing, plan.razorpay_plan_id);
