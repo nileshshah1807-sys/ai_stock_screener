@@ -265,6 +265,7 @@ class StockDataCollector:
         self._session_bar_loader = session_bar_loader
         self._action_loader = action_loader
         self.market_profile = active_profile(config)
+        self.sme_symbols = frozenset()
         self.collection_diagnostics = {
             "schema_version": 1,
             "market": self.market_profile.code,
@@ -475,6 +476,7 @@ class StockDataCollector:
                 self._now_market().to_pydatetime().isoformat(timespec="seconds")
             )
 
+        self.sme_symbols = frozenset(result.sme_symbols)
         all_symbols = set(result.symbols)
         all_symbols.update(profile.safety_net_symbols)
         filtered = {

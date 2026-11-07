@@ -332,6 +332,7 @@ def run_daily_analysis():
     # fundamental miss is evidence of zero coverage, not permission to delete
     # the symbol before ranking; the policy will cap it below BUY.
     merged_df = merge_research_universe(tech_df, fund_df)
+    merged_df["Is_SME"] = merged_df["Symbol"].isin(collector.sme_symbols)
     missing_fundamentals = int((~merged_df["Fundamental_Record_Available"]).sum())
     if missing_fundamentals:
         logger.warning(

@@ -44,6 +44,7 @@ _WIKI_USER_AGENT = os.getenv(
 )
 
 NSE_EQUITY_L_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+NSE_SME_URL = "https://nsearchives.nseindia.com/emerge/corporates/content/SME_EQUITY_L.csv"
 BSE_BHAVCOPY_URL = (
     "https://www.bseindia.com/download/BhavCopy/Equity/"
     "BhavCopy_BSE_CM_0_0_0_{day:%Y%m%d}_F_0000.CSV"
@@ -54,8 +55,10 @@ BSE_BHAVCOPY_URL = (
 _BSE_SESSIONS = 5
 _BSE_LOOKBACK_DAYS = 14
 # BSE's groups for mainboard equity. SME (M, MT), debt (F, G), ETFs (E) and
-# trusts (IF) are left out, as EQUITY_L leaves out their NSE counterparts.
+# trusts (IF) are left out, as EQUITY_L leaves out their NSE counterparts;
+# ``nse_with_sme`` adds the SME groups back.
 _BSE_MAINBOARD_GROUPS = frozenset({"A", "B", "T", "X", "XT", "Z"})
+_BSE_SME_GROUPS = frozenset({"M", "MT"})
 
 # Wikipedia's constituent tables are the only free, keyless, complete source for
 # the S&P 400 and 600. The MediaWiki API is used rather than the rendered page
@@ -96,6 +99,8 @@ class UniverseResult:
     source_sha256: str | None = None
     source_symbol_count: int = 0
     notes: tuple[str, ...] = field(default_factory=tuple)
+    # Symbols that are SME listings, for display; empty for every other source.
+    sme_symbols: tuple[str, ...] = ()
 
 
 def _get(
@@ -193,32 +198,54 @@ def _recent_bse_bhavcopies(today=None):
     return pd.concat(frames, ignore_index=True) if frames else None
 
 
-def nse_with_bse_only(config=None) -> UniverseResult:
-    """NSE's list plus every mainboard equity listed on BSE alone.
+def _nse_sme():
+    """NSE Emerge's SME list as a frame, or None when the fetch fails."""
+    try:
+        resp = _get(NSE_SME_URL)
+        resp.raise_for_status()
+        frame = pd.read_csv(io.StringIO(resp.text))
+    except Exception as exc:
+        logger.error("NSE SME list fetch failed (%s)", exc)
+        return None
+    frame.columns = [str(column).strip() for column in frame.columns]
+    return frame
 
-    A company on both exchanges is screened once, as NSE's (matched by ISIN).
-    The rest carry their Yahoo ticker, ``SYMBOL.BO``, as their symbol, which no
-    NSE symbol can equal, so the read-model key stays one company per row.
-    """
+
+def _nse_with_bse(groups, sme=None) -> UniverseResult:
+    """NSE's list (plus ``sme`` when given) plus every BSE equity in ``groups`` listed on BSE alone."""
     nse, result = _nse_master()
     if nse is None:
         return result
+    symbols_nse = list(result.symbols)
+    sme_symbols = []
+    isins = set(nse["ISIN NUMBER"].dropna().str.strip())
+    notes = [f"nse:{len(result.symbols)}"]
+    if sme is not None:
+        sme_symbols = sme["SYMBOL"].dropna().str.strip().tolist()
+        symbols_nse += sme_symbols
+        isins |= set(sme["ISIN_NUMBER"].dropna().str.strip())
+        notes.append(f"nse_sme:{len(sme_symbols)}")
+    result = replace(result, symbols=tuple(dict.fromkeys(symbols_nse)), sme_symbols=tuple(sme_symbols))
     bse = _recent_bse_bhavcopies()
     if bse is None:
         logger.error("No BSE bhavcopy in the last %d days; NSE symbols only", _BSE_LOOKBACK_DAYS)
-        return replace(result, status="ok:partial", notes=("bse:unavailable",))
+        return replace(result, status="ok:partial", notes=(*notes, "bse:unavailable"))
 
-    nse_isins = set(nse["ISIN NUMBER"].dropna().str.strip())
     bse_only = bse[
         bse["FinInstrmTp"].eq("STK")
-        & bse["SctySrs"].isin(_BSE_MAINBOARD_GROUPS)
+        & bse["SctySrs"].isin(groups)
         # A company's ISIN; group B also holds fund units (INF...).
         & bse["ISIN"].str.startswith("INE", na=False)
-        & ~bse["ISIN"].isin(nse_isins)
+        & ~bse["ISIN"].isin(isins)
     ]
     added = sorted({f"{symbol.strip().upper()}{BSE_SUFFIX}" for symbol in bse_only["TckrSymb"].dropna()})
     symbols = tuple(dict.fromkeys((*result.symbols, *added)))
     logger.info("NSE + BSE-only universe: %d symbols (%d BSE-only)", len(symbols), len(added))
+    if sme is not None:
+        added_sme = sorted(
+            {f"{x.strip().upper()}{BSE_SUFFIX}" for x in bse_only.loc[bse_only["SctySrs"].isin(_BSE_SME_GROUPS), "TckrSymb"].dropna()}
+        )
+        result = replace(result, sme_symbols=(*result.sme_symbols, *added_sme))
     return replace(
         result,
         symbols=symbols,
@@ -226,8 +253,32 @@ def nse_with_bse_only(config=None) -> UniverseResult:
         # manifest records the derived list (as for the US sources).
         source_sha256=_digest_symbols(symbols),
         source_symbol_count=len(symbols),
-        notes=(f"nse:{len(result.symbols)}", f"bse_only:{len(added)}"),
+        notes=(*notes, f"bse_only:{len(added)}"),
     )
+
+
+def nse_with_bse_only(config=None) -> UniverseResult:
+    """NSE's list plus every mainboard equity listed on BSE alone.
+
+    A company on both exchanges is screened once, as NSE's (matched by ISIN).
+    The rest carry their Yahoo ticker, ``SYMBOL.BO``, as their symbol, which no
+    NSE symbol can equal, so the read-model key stays one company per row.
+    """
+    return _nse_with_bse(_BSE_MAINBOARD_GROUPS)
+
+
+def nse_with_sme(config=None) -> UniverseResult:
+    """``nse_with_bse_only`` plus NSE Emerge's SME list and BSE's SME groups (M, MT).
+
+    NSE SME names keep their bare symbol (Yahoo serves them as ``SYMBOL.NS``);
+    BSE SME names not on NSE are ``SYMBOL.BO``. If the SME list cannot be
+    fetched the run degrades to ``nse_with_bse_only`` rather than failing.
+    """
+    sme = _nse_sme()
+    if sme is None:
+        result = _nse_with_bse(_BSE_MAINBOARD_GROUPS)
+        return replace(result, status="ok:partial", notes=(*result.notes, "sme:unavailable"))
+    return _nse_with_bse(_BSE_MAINBOARD_GROUPS | _BSE_SME_GROUPS, sme)
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +446,7 @@ def all_listed(config=None) -> UniverseResult:
 SOURCES = {
     "nse_equity_l": nse_equity_l,
     "nse_with_bse_only": nse_with_bse_only,
+    "nse_with_sme": nse_with_sme,
     "sp500": sp500,
     "sp1500": sp1500,
     "all_listed": all_listed,
@@ -406,6 +458,7 @@ SOURCES = {
 SOURCE_URLS = {
     "nse_equity_l": NSE_EQUITY_L_URL,
     "nse_with_bse_only": NSE_EQUITY_L_URL,
+    "nse_with_sme": NSE_EQUITY_L_URL,
     "sp500": _WIKI_API,
     "sp1500": _WIKI_API,
     "all_listed": _NASDAQ_LISTED_URL,

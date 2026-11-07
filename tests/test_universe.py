@@ -133,6 +133,46 @@ class BseOnlyUniverseTests(unittest.TestCase):
         self.assertEqual(result.symbols, ("RELIANCE", "TCS"))
         self.assertEqual(result.status, "ok:partial")
 
+
+SME_CSV = (
+    "SYMBOL,NAME_OF_COMPANY,SERIES,DATE_OF_LISTING,PAID_UP_VALUE,ISIN_NUMBER,FACE_VALUE,\n"
+    "NSESME,Nse Sme Ltd,SM,01-Jan-25,10,INE0NSE01019,10,\n"
+    "BOTHSME,Both Sme Ltd,ST,01-Jan-25,10,INE0SME01010,10,\n"  # also BSE group M
+)
+
+
+class SmeUniverseTests(unittest.TestCase):
+    def _fetch(self, sme_response):
+        import io
+
+        import pandas as pd
+
+        def fake_get(url, *args, **kwargs):
+            return sme_response if url == universe.NSE_SME_URL else _response(NSE_CSV_WITH_ISIN)
+
+        with mock.patch.object(universe, "_get", side_effect=fake_get), \
+                mock.patch.object(universe, "_recent_bse_bhavcopies", return_value=pd.read_csv(io.StringIO(BSE_BHAVCOPY))):
+            return universe.nse_with_sme()
+
+    def test_adds_nse_sme_and_bse_only_sme_once_each(self):
+        result = self._fetch(_response(SME_CSV))
+        # BOTHSME's ISIN is the BSE M row, so it stays NSE's and gets no .BO twin.
+        self.assertEqual(
+            result.symbols, ("RELIANCE", "TCS", "NSESME", "BOTHSME", "TANFACIND.BO")
+        )
+        self.assertEqual(result.notes, ("nse:2", "nse_sme:2", "bse_only:1"))
+
+    def test_bse_sme_group_is_added_only_when_not_on_nse(self):
+        csv = SME_CSV.replace("INE0SME01010", "INE0OTHER010")
+        result = self._fetch(_response(csv))
+        self.assertIn("YASHHV.BO", result.symbols)
+
+    def test_failed_sme_fetch_degrades_to_the_mainboard_universe(self):
+        result = self._fetch(_response("", status=503))
+        self.assertEqual(result.symbols, ("RELIANCE", "TCS", "TANFACIND.BO"))
+        self.assertEqual(result.status, "ok:partial")
+        self.assertIn("sme:unavailable", result.notes)
+
     def test_bhavcopies_skip_weekends_and_non_files_and_stop_at_five(self):
         from datetime import date
 
@@ -313,6 +353,10 @@ class SourceResolutionTests(unittest.TestCase):
         profile = resolve("NSE")
         config = SimpleNamespace(NSE_UNIVERSE_SOURCE="nse_with_bse_only")
         self.assertEqual(universe.resolve_source(profile, config), "nse_with_bse_only")
+
+    def test_sme_source_is_selectable(self):
+        config = SimpleNamespace(NSE_UNIVERSE_SOURCE="nse_with_sme")
+        self.assertEqual(universe.resolve_source(resolve("NSE"), config), "nse_with_sme")
 
     def test_the_override_does_not_leak_into_other_markets(self):
         """US_UNIVERSE_SOURCE must never redirect the NSE universe."""

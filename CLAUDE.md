@@ -136,6 +136,17 @@ the scheduled workflows set the same flag.
   In every market, a session a name did not trade is still a session: Yahoo
   carries the close forward with zero volume and the collector keeps that bar;
   only a name with no volume anywhere in the window is dropped.
+- **SME companies are in the NSE run (`NSE_UNIVERSE_SOURCE=nse_with_sme`), on
+  one combined ranking with the mainboard.** NSE Emerge's list
+  (`SME_EQUITY_L.csv`, bare symbol, Yahoo `SYMBOL.NS`) and BSE groups M/MT not on
+  NSE (`SYMBOL.BO`) join the universe; an unset value still means
+  `nse_with_bse_only`. `Is_SME` is a display flag, never read by scoring. An SME
+  is admitted to the frame only once it has a statement record
+  (`FinancialStatementCollector._record_coverage`), so the 0.95 statement-coverage
+  guard is unchanged. Yahoo prices about half the NSE SME list (7 Nov 2026
+  sample); the rest drop at the no-price filter. The bhavcopy bar fallback keeps
+  its EQ/BE series. SME filings are not read into `quarterly_filings`: a
+  half-year filing would be stored as a quarter by parser v4.
 - **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
   `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
   `screener/session_bars.py` fill a symbol's missing expected-session bar from
