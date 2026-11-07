@@ -1,8 +1,7 @@
 import "server-only";
 
 import { getViewer, type Viewer } from "@/lib/auth";
-import { isUnknownSubscription } from "@/lib/billing.mjs";
-import { buildRow, canAdminister, exactLike, logEntry } from "@/lib/admin.mjs";
+import { buildRow, cancelSettled, canAdminister, exactLike, logEntry } from "@/lib/admin.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export type AdminRow = ReturnType<typeof buildRow>;
@@ -62,8 +61,8 @@ export async function cancelRazorpay(subscriptionId: string): Promise<boolean> {
     headers: { "Content-Type": "application/json", Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}` },
     body: JSON.stringify({ cancel_at_cycle_end: 0 }),
   }).catch(() => null);
-  if (response && !response.ok && isUnknownSubscription(response.status, await response.json().catch(() => null))) return true; // Razorpay never had it: nothing to cancel
-  return Boolean(response?.ok);
+  if (!response) return false;
+  return cancelSettled(response.ok, response.status, response.ok ? null : await response.json().catch(() => null));
 }
 
 /**

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  buildRow, canAdminister, exactLike, complimentaryPlan, deletePlan, filterRows, isEmail, logEntry, nextCharge, parseDays,
+  buildRow, cancelSettled, canAdminister, exactLike, complimentaryPlan, deletePlan, filterRows, isEmail, logEntry, nextCharge, parseDays,
   planClaim, razorpayLinkLabel, razorpayUrl, trialPlan, undoDenialPlan,
 } from "./admin.mjs";
 
@@ -136,4 +136,14 @@ test("an address matches only itself in an ilike: _ % and \\ are escaped", () =>
   assert.equal(exactLike("a%b@x.com"), "a\\%b@x.com");
   assert.equal(exactLike("a\\b@x.com"), "a\\\\b@x.com");
   assert.equal(exactLike(" plain@x.com "), "plain@x.com");
+});
+
+test("an unknown subscription lets a delete go on only in production", () => {
+  const unknown = { error: { code: "BAD_REQUEST_ERROR", description: "The ID provided is invalid or could not be found." } };
+  assert.equal(cancelSettled(true, 200, null, { VERCEL_ENV: "preview" }), true);
+  assert.equal(cancelSettled(false, 400, unknown, { VERCEL_ENV: "production" }), true);
+  // Preview has test keys on the live database: the same answer is given for a real customer's live subscription.
+  assert.equal(cancelSettled(false, 400, unknown, { VERCEL_ENV: "preview" }), false);
+  assert.equal(cancelSettled(false, 404, null, {}), false);
+  assert.equal(cancelSettled(false, 500, null, { VERCEL_ENV: "production" }), false);
 });
