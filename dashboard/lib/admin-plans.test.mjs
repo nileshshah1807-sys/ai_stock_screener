@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  razorpayMode,
   razorpayPlanBody,
   revenueByPlan,
   rupeesToPaise,
+  swapPlan,
   validateOffer,
   validatePriceChange,
   validateTrialDays,
@@ -80,4 +82,49 @@ test("revenue: active only, a twelfth a month for yearly, the price the subscrib
   const [y, m] = revenueByPlan(plans, subs);
   assert.deepEqual([y.subscribers, y.monthlyPaise], [2, Math.round((69900 + 79900) / 12)]);
   assert.deepEqual([m.subscribers, m.monthlyPaise], [1, 12900]);
+});
+
+// A minimal stand-in for supabase-js's update().eq().is().select() chain over one row.
+function fakeDb(row) {
+  return {
+    from: () => ({
+      update(fields) {
+        const filters = [];
+        const q = {
+          eq: (c, v) => (filters.push([c, v]), q),
+          is: (c, v) => (filters.push([c, v]), q),
+          select: async () => {
+            if (!filters.every(([c, v]) => (row[c] ?? null) === v)) return { data: [], error: null };
+            Object.assign(row, fields);
+            return { data: [{ id: row.id }], error: null };
+          },
+        };
+        return q;
+      },
+    }),
+  };
+}
+
+test("the plan swap is compare-and-set on the old Razorpay plan id: a second click saves nothing", async () => {
+  const row = { id: "pro", razorpay_plan_id: "plan_test", razorpay_offer_id: "offer_x", offer_name: "Early bird" };
+  const guard = { column: "razorpay_plan_id", value: "plan_test" };
+  assert.equal((await swapPlan(fakeDb(row), "pro", guard, { razorpay_plan_id: "plan_live1" })).result, "saved");
+  assert.equal(row.razorpay_plan_id, "plan_live1");
+  assert.equal(row.razorpay_offer_id, null);
+  assert.equal(row.offer_name, null);
+  assert.equal((await swapPlan(fakeDb(row), "pro", guard, { razorpay_plan_id: "plan_live2" })).result, "stale");
+  assert.equal(row.razorpay_plan_id, "plan_live1");
+});
+
+test("a plan with no Razorpay id yet is guarded on null", async () => {
+  const row = { id: "pro", razorpay_plan_id: null };
+  const guard = { column: "razorpay_plan_id", value: null };
+  assert.equal((await swapPlan(fakeDb(row), "pro", guard, { razorpay_plan_id: "plan_a" })).result, "saved");
+  assert.equal((await swapPlan(fakeDb(row), "pro", guard, { razorpay_plan_id: "plan_b" })).result, "stale");
+});
+
+test("the mode comes from the key id's prefix", () => {
+  assert.equal(razorpayMode("rzp_live_abc"), "live");
+  assert.equal(razorpayMode("rzp_test_abc"), "test");
+  assert.equal(razorpayMode(undefined), "unknown");
 });

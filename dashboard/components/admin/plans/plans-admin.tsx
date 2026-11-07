@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 
-import { changePriceAction, saveOfferAction, setPlanOpenAction, setTrialDaysAction } from "@/app/admin/plans/actions";
+import { changePriceAction, relinkPlanAction, saveOfferAction, setPlanOpenAction, setTrialDaysAction } from "@/app/admin/plans/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,6 +23,9 @@ export function PlansAdmin({ data, actions }: { data: PlansAdminData; actions?: 
           Prices, the early-bird offer, and which plans are on sale. Razorpay plans cannot be edited, so a price change makes a new one; people who already subscribed keep theirs. Refunds are made in Razorpay.
         </p>
       </div>
+      <p className="text-sm" role="status">
+        Razorpay account these keys belong to: <strong>{data.mode === "live" ? "LIVE" : data.mode === "test" ? "TEST" : "unknown"}</strong>. Plan ids made under the other account will not work at checkout: use Re-create in Razorpay on each plan.
+      </p>
       {data.plans.map((plan) => (
         <PlanCard key={plan.id} plan={plan} stats={data.revenue.find((r) => r.planId === plan.id)} run={run} />
       ))}
@@ -33,11 +36,12 @@ export function PlansAdmin({ data, actions }: { data: PlansAdminData; actions?: 
 
 type Actions = {
   price: (id: string, rupees: string) => Promise<Result>;
+  relink: (id: string) => Promise<Result>;
   offer: (id: string, input: { name: string; rupees: string; offerId: string; endsAt: string; limit: string }) => Promise<Result>;
   open: (id: string, open: boolean) => Promise<Result>;
   trial: (days: string) => Promise<Result>;
 };
-const REAL: Actions = { price: changePriceAction, offer: saveOfferAction, open: setPlanOpenAction, trial: setTrialDaysAction };
+const REAL: Actions = { price: changePriceAction, relink: relinkPlanAction, offer: saveOfferAction, open: setPlanOpenAction, trial: setTrialDaysAction };
 
 function useAction() {
   const [pending, start] = useTransition();
@@ -59,6 +63,8 @@ const dateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
 
 function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers: number; monthlyPaise: number }; run: Actions }) {
   const price = useAction();
+  const relink = useAction();
+  const [confirmRelink, setConfirmRelink] = useState(false);
   const offer = useAction();
   const open = useAction();
   const [rupees, setRupees] = useState("");
@@ -114,6 +120,21 @@ function PlanCard({ plan, stats, run }: { plan: AdminPlan; stats?: { subscribers
         ) : null}
         <Message result={price.result} />
       </form>
+
+      <div className="space-y-2 border-t pt-4">
+        {confirmRelink ? (
+          <div className="rounded-md border p-3 text-sm space-y-2" role="alertdialog" aria-label="Confirm re-create in Razorpay">
+            <p className="text-muted-foreground">Creates a new Razorpay plan at {priceLabel(plan.amount_paise)} under the account these keys belong to, points this plan at it, and clears the early-bird offer. Existing subscribers are not changed.</p>
+            <div className="flex gap-2">
+              <Button type="button" disabled={relink.pending} onClick={() => relink.go(() => run.relink(plan.id))}>{relink.pending ? "Re-creating…" : "Confirm re-create"}</Button>
+              <Button type="button" variant="ghost" onClick={() => setConfirmRelink(false)}>Cancel</Button>
+            </div>
+          </div>
+        ) : (
+          <Button type="button" variant="outline" onClick={() => { setConfirmRelink(true); relink.clear(); }}>Re-create in Razorpay</Button>
+        )}
+        <Message result={relink.result} />
+      </div>
 
       <form
         className="space-y-3 border-t pt-4"
