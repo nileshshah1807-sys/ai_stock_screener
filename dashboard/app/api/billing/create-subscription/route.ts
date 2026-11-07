@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { checkoutAction, startSubscription } from "@/lib/billing.mjs";
+import { checkoutAction, lookupResult, startSubscription } from "@/lib/billing.mjs";
 import { withTestIds } from "@/lib/plan-overrides.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -59,9 +59,10 @@ export async function POST(request: NextRequest) {
     const found = await fetch(`${RAZORPAY_SUBSCRIPTIONS}/${sub.razorpay_subscription_id}`, {
       headers: { Authorization: auth },
     }).catch(() => null);
-    if (!found?.ok) return fail("razorpay_error", 502);
-    existing = await found.json().catch(() => null);
-    if (!existing?.status) return fail("razorpay_error", 502);
+    const looked = lookupResult(Boolean(found?.ok), found?.status ?? 0, await found?.json().catch(() => null));
+    if ("error" in looked) return fail("razorpay_error", 502);
+    if ("stale" in looked) console.warn(`create-subscription: Razorpay does not know ${sub.razorpay_subscription_id} (404); starting a new subscription for the user.`);
+    else existing = looked.existing;
   }
   const action = checkoutAction(sub, existing, plan.razorpay_plan_id);
   if (action === "refuse") return fail("already_subscribed", 409);

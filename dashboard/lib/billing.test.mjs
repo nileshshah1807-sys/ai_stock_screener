@@ -18,6 +18,7 @@ import {
   savingPercent,
   hasAccess,
   checkoutAction,
+  lookupResult,
   newSubscriptionBody,
   subscriptionChange,
   viewerFromClaims,
@@ -305,4 +306,12 @@ test("the account header price is the subscriber's own, not today's", () => {
   assert.equal(ownPricePaise({ plan_amount_paise: 12900 }, plan), 12900, "price raised after they subscribed");
   assert.equal(ownPricePaise({ plan_amount_paise: null }, plan), 13900, "unrecorded: the plan's price");
   assert.equal(ownPricePaise(null, plan), 13900);
+});
+
+test("a stored subscription id Razorpay has never heard of (404) does not block checkout", () => {
+  assert.deepEqual(lookupResult(false, 404, { error: {} }), { stale: true });
+  assert.deepEqual(lookupResult(true, 200, { id: "sub_1", status: "created" }), { existing: { id: "sub_1", status: "created" } });
+  for (const [ok, status, json] of [[false, 500, null], [false, 401, {}], [false, 0, null], [true, 200, {}], [true, 200, null]]) {
+    assert.deepEqual(lookupResult(ok, status, json), { error: true });
+  }
 });

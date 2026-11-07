@@ -59,6 +59,17 @@ export function subscriptionChange(event, eventId) {
 }
 
 /**
+ * The stored subscription as Razorpay answered the lookup. A 404 means Razorpay
+ * has never heard of that id (e.g. one left from test mode before go-live): treat
+ * it as no subscription so checkout can start a new one. Any other failure stays an error.
+ * @returns {{error: true} | {stale: true} | {existing: object}}
+ */
+export function lookupResult(ok, status, json) {
+  if (status === 404) return { stale: true };
+  return ok && json?.status ? { existing: json } : { error: true };
+}
+
+/**
  * What checkout does for a user, given their subscriptions row and, when the row
  * holds a Razorpay subscription, that subscription as Razorpay reports it.
  * Two authorised subscriptions would both charge, so: refuse when one is set up
