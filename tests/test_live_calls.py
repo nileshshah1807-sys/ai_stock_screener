@@ -15,6 +15,9 @@ class FakeRepo:
     def upsert_live_call(self, row):
         self.calls.append(row)
 
+    def clear_live_lines(self, call):
+        self.lines.clear()
+
     def append_live_lines(self, rows):
         self.lines.extend(rows)
 

@@ -105,6 +105,7 @@ def listen(
     repo.upsert_live_call(
         {"call_id": call, "symbol": symbol.upper(), "state": "live", "started_at": now().isoformat(), "source_url": source}
     )
+    repo.clear_live_lines(call)
     seq = 0
     try:
         for start, samples in chunks:
@@ -126,6 +127,9 @@ class PrintRepo:
 
     def upsert_live_call(self, row: dict[str, Any]) -> None:
         print("call", {k: v for k, v in row.items() if k != "source_url"})
+
+    def clear_live_lines(self, call: str) -> None:
+        pass
 
     def append_live_lines(self, rows: list[dict[str, Any]]) -> None:
         for row in rows:

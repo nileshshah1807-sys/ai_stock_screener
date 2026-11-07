@@ -3,10 +3,11 @@
 -- =====================================================================
 --
 -- workers/live_calls.py listens to a call's audio, transcribes it in short
--- chunks and appends one row per passage to live_call_lines. The dashboard
--- polls live_call_feed with a cursor while a call's tab is open:
+-- chunks and appends one row per passage to live_call_lines. While a call's
+-- tab is open the dashboard polls two views:
 --
---   select * from live_call_feed where call_id = :id and seq > :cursor order by seq
+--   select * from live_call_feed  where call_id = :id and seq > :cursor order by seq
+--   select * from live_call_state where call_id = :id      -- live -> ended, even with no new lines
 --
 -- It holds the text of a call in progress only. The filed transcript, or the
 -- recording the evening workflow transcribes, remains the record the screener
@@ -62,15 +63,33 @@ revoke all on live_calls, live_call_lines from anon;
 revoke all on live_calls from authenticated;
 grant select on live_call_lines to authenticated;
 
--- What the page reads: a call's lines with its state, without the source.
--- The view runs as its owner so it can read live_calls; it applies the access
--- rule itself.
-create or replace view live_call_feed as
-select c.call_id, c.market, c.symbol, c.state, c.started_at, c.ended_at,
-       l.seq, l.start_seconds, l.text, l.created_at
-from live_calls c
-left join live_call_lines l using (call_id)
+-- What the page reads. Both views run as their owner (deliberately not
+-- security_invoker, unlike quarterly_result_feed) so they can read live_calls,
+-- which is closed to `authenticated` because it holds source_url. Each applies
+-- the access rule itself; dashboard_has_access() reads the caller's JWT.
+create or replace view live_call_state as
+select call_id, market, symbol, state, started_at, ended_at, updated_at
+from live_calls
 where (select dashboard_has_access());
 
-revoke all on live_call_feed from anon;
-grant select on live_call_feed to authenticated;
+create or replace view live_call_feed as
+select c.call_id, c.market, c.symbol, c.state, l.seq, l.start_seconds, l.text, l.created_at
+from live_call_lines l
+join live_calls c using (call_id)
+where (select dashboard_has_access());
+
+revoke all on live_call_state, live_call_feed from anon;
+grant select on live_call_state, live_call_feed to authenticated;
+
+create or replace function set_live_calls_updated_at()
+returns trigger language plpgsql as $$
+begin
+    new.updated_at = now();
+    return new;
+end;
+$$;
+
+drop trigger if exists live_calls_updated_at on live_calls;
+create trigger live_calls_updated_at
+before update on live_calls
+for each row execute function set_live_calls_updated_at();

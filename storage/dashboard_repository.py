@@ -1038,6 +1038,10 @@ class DashboardRepository:
             retries=2,
         )
 
+    def clear_live_lines(self, call_id: str) -> None:
+        """A rerun of the same call starts from line 1; drop what an earlier run left."""
+        self._request("DELETE", f"live_call_lines?call_id=eq.{call_id}", headers={"Prefer": "return=minimal"})
+
     def append_live_lines(self, rows: list[dict[str, Any]]) -> None:
         """Idempotent on (call_id, seq): a re-sent chunk replaces itself."""
         self._request(
