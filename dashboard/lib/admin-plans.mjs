@@ -103,3 +103,28 @@ export function revenueByPlan(plans, subs) {
     return { planId: plan.id, subscribers: mine.length, monthlyPaise: Math.round(paise) };
   });
 }
+
+/** Which Razorpay account a key id belongs to; never the key itself. */
+export function razorpayMode(keyId) {
+  const id = String(keyId ?? "");
+  if (id.startsWith("rzp_live_")) return "live";
+  if (id.startsWith("rzp_test_")) return "test";
+  return "unknown";
+}
+
+/**
+ * Swaps a plan row onto a freshly created Razorpay plan, clearing the offer
+ * (it belonged to the old plan). Compare-and-set: the row changes only while
+ * `guard.column` still equals `guard.value` (null matches a null), so a double
+ * click or a second admin saves once. Returns "saved" | "stale" | "error".
+ */
+export async function swapPlan(db, planId, guard, fields) {
+  let query = db.from("plans").update({
+    ...fields,
+    offer_name: null, offer_amount_paise: null, offer_ends_at: null, offer_limit: null, razorpay_offer_id: null,
+  }).eq("id", planId);
+  query = guard.value === null ? query.is(guard.column, null) : query.eq(guard.column, guard.value);
+  const { data, error } = await query.select("id");
+  if (error) return { result: "error", message: error.message };
+  return { result: data?.length ? "saved" : "stale" };
+}

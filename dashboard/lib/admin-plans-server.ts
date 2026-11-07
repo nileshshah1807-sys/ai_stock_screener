@@ -1,8 +1,10 @@
 import "server-only";
 
 import {
+  razorpayMode,
   razorpayPlanBody,
   revenueByPlan,
+  swapPlan,
   validateOffer,
   validatePriceChange,
   validateTrialDays,
@@ -30,6 +32,7 @@ export type PlansAdminData = {
   plans: AdminPlan[];
   revenue: { planId: string; subscribers: number; monthlyPaise: number }[];
   trialDays: number;
+  mode: "live" | "test" | "unknown";
 };
 export type Result = { ok: true; message: string } | { ok: false; error: string };
 
@@ -58,55 +61,78 @@ export async function loadPlansAdmin(): Promise<PlansAdminData | null> {
   if (plans.error || subs.error) return null;
   const rows = (plans.data ?? []) as AdminPlan[];
   const days = Number(setting.data?.value);
-  return { plans: rows, revenue: revenueByPlan(rows, subs.data ?? []), trialDays: Number.isInteger(days) ? days : 7 };
+  return { plans: rows, revenue: revenueByPlan(rows, subs.data ?? []), trialDays: Number.isInteger(days) ? days : 7, mode: razorpayMode(process.env.RAZORPAY_KEY_ID) };
 }
 
 export async function changePrice(planId: string, rupees: string): Promise<Result> {
   const c = await context();
   if (!c) return NOT_ADMIN;
-  const { ctx, db, auth } = c;
+  const { db, auth } = c;
   if (!auth) return fail("Razorpay is not configured on this server.");
   const { data: plan } = await db.from("plans").select("*").eq("id", planId).maybeSingle();
   if (!plan) return fail("No such plan.");
   const check = validatePriceChange(plan, rupees);
   if (!check.ok) return fail(check.error);
 
-  // Razorpay plans cannot be edited: make a new one. Subscribers keep theirs.
+  const swapped = await recreateAtRazorpay(c, plan, check.newPaise, { column: "amount_paise", value: check.oldPaise }, "plan_price_failed", "plan_price_change", { old_paise: check.oldPaise, new_paise: check.newPaise });
+  if (!swapped.ok) return swapped;
+  return { ok: true, message: "Price changed. New sign-ups pay it; existing subscribers keep their price. The early-bird offer was cleared: add it again for the new plan." + swapped.note };
+}
+
+/**
+ * Re-creates the plan at its current price under whichever Razorpay account the
+ * server's keys belong to, e.g. after switching test keys for live ones. The row
+ * is guarded by its old razorpay_plan_id, so a double click saves once.
+ */
+export async function relinkPlan(planId: string): Promise<Result> {
+  const c = await context();
+  if (!c) return NOT_ADMIN;
+  if (!c.auth) return fail("Razorpay is not configured on this server.");
+  const { data: plan } = await c.db.from("plans").select("*").eq("id", planId).maybeSingle();
+  if (!plan) return fail("No such plan.");
+  const swapped = await recreateAtRazorpay(c, plan, plan.amount_paise, { column: "razorpay_plan_id", value: plan.razorpay_plan_id ?? null }, "plan_relink_failed", "plan_relinked", { paise: plan.amount_paise });
+  if (!swapped.ok) return swapped;
+  return { ok: true, message: `Plan re-created in Razorpay (${razorpayMode(process.env.RAZORPAY_KEY_ID)} account) at the same price. The early-bird offer was cleared: add it again from that account.` + swapped.note };
+}
+
+/**
+ * Razorpay plans cannot be edited: make a new one and point the row at it
+ * (shared by a price change and a relink). The offer was attached to the old
+ * plan and ends with it. Compare-and-set via swapPlan.
+ */
+async function recreateAtRazorpay(
+  c: NonNullable<Awaited<ReturnType<typeof context>>>,
+  plan: AdminPlan,
+  newPaise: number,
+  guard: { column: string; value: string | number | null },
+  failedAction: string,
+  doneAction: string,
+  detail: Record<string, unknown>,
+): Promise<{ ok: true; note: string } | { ok: false; error: string }> {
+  const { ctx, db, auth } = c;
   const response = await fetch(`${RAZORPAY}/plans`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: auth },
-    body: JSON.stringify(razorpayPlanBody(plan, check.newPaise)),
+    headers: { "Content-Type": "application/json", Authorization: auth as string },
+    body: JSON.stringify(razorpayPlanBody(plan, newPaise)),
   }).catch(() => null);
   const created = response?.ok ? await response.json().catch(() => null) : null;
-  if (!created?.id) return fail("Razorpay did not create the plan. Nothing changed.");
+  if (!created?.id) return fail("Razorpay did not create the plan. Nothing changed.") as { ok: false; error: string };
 
-  // The offer was priced against the old plan and attached to it: it ends with it.
-  // Compare-and-set on the old price: a double click or a second admin cannot overwrite a change made meanwhile.
-  const { data: changed, error } = await db
-    .from("plans")
-    .update({
-      amount_paise: check.newPaise,
-      razorpay_plan_id: created.id,
-      offer_name: null, offer_amount_paise: null, offer_ends_at: null, offer_limit: null, razorpay_offer_id: null,
-    })
-    .eq("id", planId)
-    .eq("amount_paise", check.oldPaise)
-    .select("id");
-  if (!error && !changed?.length) {
-    const note = await logAdminAction(ctx, "plan_price_failed", {}, { plan: planId, reason: "price changed meanwhile", unused_razorpay_plan_id: created.id, new_paise: check.newPaise });
-    return fail(`The price changed meanwhile, so nothing was saved. Reload the page. An unused Razorpay plan ${created.id} was created; ignore it.${note}`);
+  const swapped = await swapPlan(db, plan.id, guard, { amount_paise: newPaise, razorpay_plan_id: created.id });
+  if (swapped.result === "stale") {
+    const note = await logAdminAction(ctx, failedAction, {}, { plan: plan.id, reason: "changed meanwhile", unused_razorpay_plan_id: created.id, ...detail });
+    return { ok: false, error: `The plan changed meanwhile, so nothing was saved. Reload the page. An unused Razorpay plan ${created.id} was created; ignore it.${note}` };
   }
-  if (error) {
-    await logAdminAction(ctx, "plan_price_failed", {}, { plan: planId, new_razorpay_plan_id: created.id, new_paise: check.newPaise, error: error.message });
-    return fail(`The Razorpay plan ${created.id} was created but our row did not update. Nothing is on sale at the new price; tell the developer.`);
+  if (swapped.result === "error") {
+    await logAdminAction(ctx, failedAction, {}, { plan: plan.id, new_razorpay_plan_id: created.id, error: swapped.message, ...detail });
+    return { ok: false, error: `The Razorpay plan ${created.id} was created but our row did not update. Nothing is on sale at the new plan; tell the developer.` };
   }
-  const note = await logAdminAction(ctx, "plan_price_change", {}, {
-    plan: planId,
-    old_paise: check.oldPaise, new_paise: check.newPaise,
+  const note = await logAdminAction(ctx, doneAction, {}, {
+    plan: plan.id, ...detail,
     old_razorpay_plan_id: plan.razorpay_plan_id, new_razorpay_plan_id: created.id,
     cleared_offer: plan.razorpay_offer_id,
   });
-  return { ok: true, message: "Price changed. New sign-ups pay it; existing subscribers keep their price. The early-bird offer was cleared: add it again for the new plan." + note };
+  return { ok: true, note };
 }
 
 export type OfferInput = { name: string; rupees: string; offerId: string; endsAt: string; limit: string };
