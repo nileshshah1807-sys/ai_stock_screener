@@ -16,6 +16,7 @@ import {
   normalizeLiveMarket,
   type LiveMarket,
 } from "@/lib/live-market";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { indexSlug } from "@/lib/indices.mjs";
 import { BSE_SUFFIX } from "@/lib/listing.mjs";
@@ -697,6 +698,10 @@ export async function getStock(
 ): Promise<SnapshotRowWithPayload | null> {
   const supabase = await createClient();
   const code = symbol.toUpperCase();
+  // The payload holds the ratings, so the bucket's policy keeps `snapshot-payload/`
+  // from viewers (storage/market_data_storage.sql); the server reads it as the
+  // service role and only returns it once the viewer's own row query has passed.
+  const payloadReader = createAdminClient() ?? supabase;
   const [{ data, error }, stored] = await Promise.all([
     supabase
       .from("screener_snapshot_visible")
@@ -705,7 +710,7 @@ export async function getStock(
       .eq("run_date", runDate)
       .eq("symbol", code)
       .maybeSingle(),
-    readMarketObject<Record<string, unknown>>(supabase, snapshotPayloadPath(market, runDate, code)),
+    readMarketObject<Record<string, unknown>>(payloadReader, snapshotPayloadPath(market, runDate, code)),
   ]);
 
   if (error) {
