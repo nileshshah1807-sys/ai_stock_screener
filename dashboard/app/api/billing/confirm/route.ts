@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { notifyStatusChange } from "@/lib/customer-email-server";
 import { confirmPayment } from "@/lib/billing-confirm.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest) {
         p_event_id: change.eventId,
         p_event_at: change.eventAt,
       });
+      if (!error) await notifyStatusChange(admin, change.razorpaySubscriptionId, change.status);
       return !error;
     },
   });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { notifyCancelled } from "@/lib/customer-email-server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -48,5 +49,6 @@ export async function POST() {
     .from("subscriptions")
     .update({ status: "cancelled", updated_at: new Date().toISOString() })
     .eq("user_id", userId);
+  await notifyCancelled(admin, userId);
   return NextResponse.json({ status: "cancelled", current_period_end: sub.current_period_end });
 }
