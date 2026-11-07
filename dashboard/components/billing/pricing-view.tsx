@@ -17,14 +17,14 @@ const LAPSED_HEADLINE = {
   past_due: ["Your last payment did not go through", "Open your profile to see where your plan stands."],
 } as const;
 
-type Who = { email: string | null; kind: string | undefined; subscription: Subscription | null; trialDays?: number };
+type Who = { email: string | null; name?: string | null; kind: string | undefined; subscription: Subscription | null; trialDays?: number };
 
 /**
  * The plan panels as words and buttons, for whoever is looking: the /pricing page
  * and the landing's pricing section build theirs here, so the two cannot differ.
  * Signed out (email null) the action is "Start your N-day free trial" (N is the configured trial length).
  */
-export function planPanels(plans: Plan[], { email, kind, subscription, trialDays = DEFAULT_TRIAL_DAYS }: Who) {
+export function planPanels(plans: Plan[], { email, name = null, kind, subscription, trialDays = DEFAULT_TRIAL_DAYS }: Who) {
   const lapsed = kind === "lapsed";
   const permanent = kind === "admin" || kind === "allowlist";
   const current = currentPlanId(subscription);
@@ -52,7 +52,7 @@ export function planPanels(plans: Plan[], { email, kind, subscription, trialDays
         { label: "Works out to", value: `${perMonthLabel(plan)} a month` },
         { label: "Compared with monthly", value: planSaving ? `${planSaving}% less` : plan.period === "monthly" ? "Month to month" : "-" },
       ],
-      action: permanent ? null : <PlanAction plan={plan} email={email} subscription={subscription} current={current} trialDays={trialDays} />,
+      action: permanent ? null : <PlanAction plan={plan} email={email} name={name} subscription={subscription} current={current} trialDays={trialDays} />,
     };
   });
   // Opens on the plan someone holds, else the one that is better value, else the first.
@@ -64,12 +64,14 @@ export function planPanels(plans: Plan[], { email, kind, subscription, trialDays
 export function PricingView({
   plans,
   email,
+  name = null,
   kind,
   subscription,
   trialDays,
 }: {
   plans: Plan[] | null;
   email: string | null;
+  name?: string | null;
   kind: string | undefined;
   subscription: Subscription | null;
   trialDays?: number;
@@ -78,7 +80,7 @@ export function PricingView({
   const [headline, lead] = lapsed
     ? LAPSED_HEADLINE[lapseReason(subscription?.status, subscription?.trial_denied_at)]
     : ["Pricing", "One subscription covers both markets. Every plan includes everything below."];
-  const { panels, initialId, endsTrial, permanent } = planPanels(plans ?? [], { email, kind, subscription, trialDays });
+  const { panels, initialId, endsTrial, permanent } = planPanels(plans ?? [], { email, name, kind, subscription, trialDays });
 
   return (
     <>
@@ -120,12 +122,14 @@ export function PricingView({
 function PlanAction({
   plan,
   email,
+  name,
   subscription,
   current,
   trialDays,
 }: {
   plan: Plan;
   email: string | null;
+  name: string | null;
   subscription: Subscription | null;
   current: string | null;
   trialDays: number;
@@ -157,5 +161,5 @@ function PlanAction({
       </Link>
     );
   }
-  return <CheckoutButton planId={plan.id} email={email} brand={LEGAL.service} label="Subscribe" fullWidth />;
+  return <CheckoutButton planId={plan.id} email={email} savedName={name} brand={LEGAL.service} label="Subscribe" fullWidth />;
 }

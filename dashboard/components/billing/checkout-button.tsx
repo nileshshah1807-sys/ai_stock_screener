@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useSyncExternalStore } from "react";
+import { useId, useState, useSyncExternalStore } from "react";
 import { Loader2, TriangleAlert } from "lucide-react";
 
+import { saveDisplayName } from "@/app/(billing)/account/actions";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { checkoutRestriction, isSetUp } from "@/lib/billing.mjs";
+import { invoiceNameProblem } from "@/lib/display-name.mjs";
 import { createClient } from "@/lib/supabase/client";
 
 const CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
@@ -93,12 +96,15 @@ type Phase = "idle" | "starting" | "paying" | "confirming" | "slow";
 export function CheckoutButton({
   planId,
   email,
+  savedName = null,
   brand,
   label,
   fullWidth = false,
 }: {
   planId: string;
   email: string;
+  /** The profile name, if any. Without a valid one the buyer is asked for it: every invoice names them. */
+  savedName?: string | null;
   brand: string;
   label: string;
   fullWidth?: boolean;
@@ -108,6 +114,11 @@ export function CheckoutButton({
   const [error, setError] = useState<{ text: string; link?: boolean } | null>(null);
   const [offerGone, setOfferGone] = useState(false);
   const locked = useInFlight();
+  const nameId = useId();
+  const needsName = invoiceNameProblem(savedName) !== null;
+  const [name, setName] = useState(savedName ?? "");
+  const [touched, setTouched] = useState(false);
+  const nameProblem = needsName ? invoiceNameProblem(name) : null;
 
   async function waitForSubscription(proof: object) {
     const supabase = createClient();
@@ -147,6 +158,19 @@ export function CheckoutButton({
     setError(null);
     setPhase("starting");
     try {
+      if (needsName) {
+        // Saved to the profile like the account page does, then the token is refreshed so create-subscription reads it.
+        const form = new FormData();
+        form.set("name", name);
+        const saved = await saveDisplayName({ status: "idle" }, form);
+        if (saved.status === "error") {
+          setError({ text: saved.message ?? "Your name did not save. Try again." });
+          setPhase("idle");
+          setInFlight(false);
+          return;
+        }
+        await createClient().auth.refreshSession();
+      }
       const [response, loaded] = await Promise.all([
         fetch("/api/billing/create-subscription", {
           method: "POST",
@@ -210,7 +234,28 @@ export function CheckoutButton({
   const working = phase === "starting" || phase === "confirming";
   return (
     <div className="space-y-3">
-      <Button type="button" className={fullWidth ? "h-10 w-full" : "h-10 w-full sm:w-auto sm:min-w-44"} disabled={locked} onClick={start}>
+      {needsName ? (
+        <div className="space-y-1.5">
+          <label htmlFor={nameId} className="block text-sm text-muted-foreground">
+            Name for your invoice
+          </label>
+          <Input
+            id={nameId}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => setTouched(true)}
+            autoComplete="name"
+            required
+            aria-invalid={(touched && nameProblem !== null) || undefined}
+            aria-describedby={`${nameId}-problem`}
+            className="h-10"
+          />
+          <p id={`${nameId}-problem`} role={touched && nameProblem ? "alert" : undefined} className="text-xs text-destructive">
+            {touched && nameProblem ? nameProblem : null}
+          </p>
+        </div>
+      ) : null}
+      <Button type="button" className={fullWidth ? "h-10 w-full" : "h-10 w-full sm:w-auto sm:min-w-44"} disabled={locked || nameProblem !== null} onClick={start}>
         {working ? (
           <>
             <Loader2 className="size-4 animate-spin" aria-hidden />
