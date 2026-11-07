@@ -38,7 +38,7 @@ export function refundGuard({ actorId, target, sub }) {
 }
 
 /**
- * deps: payment() -> pickPayment result; refund(id, paise) -> {ok, error?};
+ * deps: payment() -> pickPayment result; refund(id, paise) -> {ok, id?, error?}; holdCancelMail(); notifyRefund(paymentId, paise);
  * cancel() -> "cancelled" | "already" | "failed"; endAccess() -> boolean.
  * Returns {ok, done: string[], problems: string[], payment}. ok means all four
  * outcomes hold (refund, cancel, access ended); done lists what changed.
@@ -62,6 +62,8 @@ export async function refundAndEnd(deps, expectedPaymentId) {
     done.push(`${payment.id} was already refunded (no second refund)`);
   }
 
+  // The refund email says access ended: claim the generic "cancelled" mail first so the webhook does not also send it.
+  await deps.holdCancelMail();
   const cancelled = await deps.cancel();
   if (cancelled === "cancelled") done.push("cancelled the Razorpay subscription");
   else if (cancelled === "already") done.push("the Razorpay subscription was already cancelled");
@@ -70,5 +72,8 @@ export async function refundAndEnd(deps, expectedPaymentId) {
   if (await deps.endAccess()) done.push("ended access");
   else problems.push("access was NOT ended in Cupel: apply storage/billing_schema.sql if it is not applied, then run this again (the refund is not repeated)");
 
+  // The email says access has ended, so only a fully done job sends it; a re-run after a partial failure sends it.
+  // Keyed by the payment: one refund email per payment, however many clicks.
+  if (problems.length === 0) await deps.notifyRefund(payment.id, payment.paise);
   return { ok: problems.length === 0, done, problems, payment };
 }
