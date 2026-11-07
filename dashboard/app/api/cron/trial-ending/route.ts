@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
     .is("plan_id", null)
     .gt("trial_ends_at", new Date(now).toISOString())
     .lte("trial_ends_at", new Date(now + 2 * DAY).toISOString())
+    .order("trial_ends_at")
     .limit(100) // each send is recorded before it goes: a run killed part-way must be short. The rest are still in the window tomorrow.;
   if (error) return NextResponse.json({ error: "read_failed" }, { status: 500 });
 
