@@ -24,6 +24,13 @@ drop policy if exists market_data_read on storage.objects;
 create policy market_data_read
     on storage.objects for select
     to authenticated
-    using (bucket_id = 'market-data' and public.dashboard_has_access());
+    using (
+        bucket_id = 'market-data'
+        and public.dashboard_has_access()
+        -- A snapshot payload carries every rating field, which only an admin may
+        -- see. The dashboard reads it server-side as the service role and
+        -- redacts it; a viewer's own token must not be able to fetch it.
+        and (name not like 'snapshot-payload/%' or public.dashboard_is_admin())
+    );
 
 -- The old tables were copied here once and dropped (confirmed 17 Oct 2026).
