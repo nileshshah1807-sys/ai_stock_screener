@@ -9,7 +9,7 @@
 // RS_Rating is relative strength, not a buy/sell call. The database applies the
 // same rule (is_rating_field in storage/rating_access_schema.sql); the test
 // fails if the two drift.
-export const RATING_KEY = /rating|(^|_)buy(_|$)|(^|_)capped|cap_reason|(^|_)(hold|reduce|sell)_count$/;
+export const RATING_KEY = /rating|(^|_)buy(_|$)|(^|_)capped|cap_reason|(^|_)(hold|reduce|sell)_count$|gate_warning|(^|_)gate_failures$/;
 export const NOT_A_RATING = /^rs_rating/;
 
 /** Snapshot column, run column or payload key that carries a rating or its gates. */

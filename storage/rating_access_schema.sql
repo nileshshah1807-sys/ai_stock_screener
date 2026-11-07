@@ -44,7 +44,7 @@ returns boolean
 language sql
 immutable
 as $$
-    select lower(p_key) ~ 'rating|(^|_)buy(_|$)|(^|_)capped|cap_reason|(^|_)(hold|reduce|sell)_count$'
+    select lower(p_key) ~ 'rating|(^|_)buy(_|$)|(^|_)capped|cap_reason|(^|_)(hold|reduce|sell)_count$|gate_warning|(^|_)gate_failures$'
        and lower(p_key) !~ '^rs_rating'
 $$;
 

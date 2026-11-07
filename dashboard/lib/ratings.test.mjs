@@ -39,6 +39,9 @@ test("rating columns, gates and counts are rating fields", () => {
     "Buy_Gate_Reason",
     "Strong_Buy_Score_Margin",
     "Transcript_Strong_Buy_Capped",
+    // Free text that spells the rating out ("would cap this at HOLD", "STRONG BUY floor").
+    "Gate_Warning",
+    "Gate_Failures",
   ]) {
     assert.ok(isRatingField(key), key);
   }
