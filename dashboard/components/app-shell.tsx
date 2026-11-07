@@ -109,21 +109,20 @@ function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
 }
 
 /**
- * The account's initials in a small circle. Not a control -- it is labelled
- * and titled with the address so the identity is available to a screen reader
- * and on hover, but sign-out is the button beside it rather than a menu hidden
- * behind this.
+ * The account's initials in a small circle, the link to /account (profile,
+ * plan, cancel, delete request). Labelled and titled with the address so the
+ * identity is available to a screen reader and on hover.
  *
- * Hidden below `sm`, where the bar is short of room: this is the one item of
- * the cluster that does nothing when pressed, and sign-out already names the
- * account in its label, so it is the one that gives way.
+ * Shown at every width: on a phone it is the only way to /account, and takes
+ * the place of the sign-out button, which gives way below `sm` because
+ * /account has its own Sign out.
  */
 function Avatar({ viewer }: { viewer: Viewer }) {
   const initials = viewer.email.slice(0, 2).toUpperCase();
   return (
     <Link
       href="/account"
-      className="ml-1 hidden size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[0.625rem] font-semibold tracking-[0.02em] text-muted-foreground ring-1 ring-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex"
+      className="flex size-9 shrink-0 items-center justify-center rounded-full sm:ml-1 sm:size-7 bg-muted text-[0.625rem] font-semibold tracking-[0.02em] text-muted-foreground ring-1 ring-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       title={`${viewer.email} \u2013 account`}
       aria-label={`Account for ${viewer.email}`}
     >
@@ -134,7 +133,7 @@ function Avatar({ viewer }: { viewer: Viewer }) {
 
 function SignOut({ viewer }: { viewer: Viewer }) {
   return (
-    <form action={signOut}>
+    <form action={signOut} className="hidden sm:block">
       <Button
         type="submit"
         variant="ghost"
