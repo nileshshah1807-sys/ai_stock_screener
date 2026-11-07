@@ -80,3 +80,11 @@ test("who may be refunded", () => {
   assert.equal(refundGuard({ actorId: "u1", target, sub: { razorpay_subscription_id: null } }).ok, false);
   assert.equal(refundGuard({ actorId: "u1", target: null, sub }).ok, false);
 });
+
+test("the SQL that ends access also clears the trial end and the hook refuses a refunded subscription", async () => {
+  const { readFileSync } = await import("node:fs");
+  const sql = readFileSync(new URL("../../storage/billing_schema.sql", import.meta.url), "utf8");
+  const fn = sql.slice(sql.indexOf("function billing_refund_end_access"));
+  assert.match(fn.slice(0, fn.indexOf("$$;", 100)), /trial_ends_at = null/);
+  assert.match(sql, /refunded_subscription_id is not distinct from sub\.razorpay_subscription_id/);
+});
