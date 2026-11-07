@@ -398,3 +398,44 @@ export function trialName(days) {
 export function daysPhrase(days) {
   return `${days} ${days === 1 ? "day" : "days"}`;
 }
+
+/**
+ * A charge that arrives for a subscription we hold as cancelled, after the period
+ * paid for has ended: the customer left, so it must be undone, not applied.
+ * (A cycle-end cancel that Razorpay did not honour looks exactly like this.)
+ * Pure: `row` is our subscriptions row for the event's subscription, `nowMs` the clock.
+ * @returns {{act: true, subscriptionId: string, paymentId: string, paise: number|null} | {act: false}}
+ */
+export function lateCharge(event, row, nowMs) {
+  if (event?.event !== "subscription.charged" || row?.status !== "cancelled") return { act: false };
+  const subscriptionId = event?.payload?.subscription?.entity?.id;
+  const payment = event?.payload?.payment?.entity;
+  if (typeof subscriptionId !== "string" || typeof payment?.id !== "string") return { act: false };
+  // Only a renewal: a returning customer's FIRST payment on a new subscription (paid_count 1) lands on the old cancelled row
+  // until activation is applied. A missing paid_count is not proof of a renewal either.
+  const paidCount = event.payload.subscription.entity.paid_count;
+  if (!Number.isFinite(paidCount) || paidCount < 2) return { act: false };
+  const chargedMs = Number.isFinite(payment.created_at) ? payment.created_at * 1000 : Number.isFinite(event.created_at) ? event.created_at * 1000 : nowMs;
+  const paidUntil = row.current_period_end ? Date.parse(row.current_period_end) : NaN;
+  // Inside the paid period it is not late (and cannot be a new charge); with no end recorded, a cancelled row has no paid time.
+  if (Number.isFinite(paidUntil) && chargedMs < paidUntil) return { act: false };
+  return { act: true, subscriptionId, paymentId: payment.id, paise: Number.isFinite(payment.amount) ? payment.amount : null };
+}
+
+/**
+ * Undo a late charge: stop the subscription for good, then refund the payment in full.
+ * deps: cancel() -> boolean, refund(paymentId) -> boolean, alert(detail) -> void.
+ * Cancel comes first so no further charge follows the refund. Always alerts; nothing throws.
+ */
+export async function undoLateCharge(deps, decision) {
+  const cancelled = await deps.cancel(decision.subscriptionId).catch(() => false);
+  const refunded = await deps.refund(decision.paymentId).catch(() => false);
+  await deps.alert({ ...decision, cancelled, refunded });
+  return { cancelled, refunded };
+}
+
+/** A reused Razorpay customer with no name gets the one we now have; never overwrites a name, never sets the email as a name. */
+export function customerNeedsName(customer, name, email) {
+  const has = typeof customer?.name === "string" && customer.name.trim() !== "";
+  return !has && typeof name === "string" && name.trim() !== "" && name !== email;
+}
