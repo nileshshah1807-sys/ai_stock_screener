@@ -347,7 +347,7 @@ the scheduled workflows set the same flag.
   `dashboard_has_access()` and `getViewer()` read those claims; a token without
   `plan` falls back to `dashboard_allowlist` until it refreshes. The Razorpay
   webhook (`dashboard/app/api/billing/webhook`) is the only writer of paid status
-  (service role, that route and `create-subscription` only); ratings stay
+  (service role: that route, `create-subscription`, and `billing/confirm`, which applies the same event through `billing_apply_event` only after the checkout signature verifies and Razorpay's own subscription state is read, so a payer has access in seconds); ratings stay
   admin-only whatever the plan. Applied by hand.
 - **Live prices are display-only, every five minutes during the session.**
   `workers/live_quotes.py` (the Live quotes workflow, dispatch-only:
