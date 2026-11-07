@@ -256,12 +256,17 @@ export function trialStartLine(subscription, plan) {
   return paise == null ? `${plan.name} starts ${day}` : `${plan.name} starts ${day}, first charge ${priceLabel(paise)}`;
 }
 
+/** What this subscriber pays: the price recorded when they took the plan, else the plan's current price. */
+export function ownPricePaise(subscription, plan) {
+  return subscription?.plan_amount_paise ?? plan?.amount_paise ?? null;
+}
+
 /**
  * The first charge. A yearly plan may have been taken at its introductory price;
  * the row says which (offer_applied null: not recorded, so no amount).
  */
 export function firstChargePaise(subscription, plan) {
-  const price = subscription.plan_amount_paise ?? plan.amount_paise;
+  const price = ownPricePaise(subscription, plan);
   if (plan.period !== "yearly") return price;
   if (subscription.offer_applied === true) return plan.offer_amount_paise ?? null;
   return subscription.offer_applied === false ? price : null;
@@ -293,7 +298,7 @@ export function planSummary({ kind, subscription, plan }, fmtDate, fmtMoney = pr
   const lapsed = kind === "lapsed";
   switch (subscription?.status) {
     case "active": {
-      const paise = subscription.plan_amount_paise ?? plan?.amount_paise;
+      const paise = ownPricePaise(subscription, plan);
       const date = subscription.current_period_end;
       return {
         title,
@@ -307,7 +312,7 @@ export function planSummary({ kind, subscription, plan }, fmtDate, fmtMoney = pr
       if (!subscription.plan_id) {
         return lapsed
           ? { title: "No plan", status: "Free trial ended", detail: "Subscribe to get access back.", nextCharge: null }
-          : { title: "Free trial", status: "Free trial", detail: `Your trial ends on ${fmtDate(date)}. Pick a plan before then to keep access. Nothing is charged until it ends.`, nextCharge: null };
+          : { title: "Free trial", status: "Free trial", detail: `Your trial ends on ${fmtDate(date)}. Pick a plan before then to keep access. Subscribing charges you at once and ends the trial.`, nextCharge: null };
       }
       const line = plan ? trialStartLine(subscription, plan) : null;
       const paise = plan ? firstChargePaise(subscription, plan) : null;
