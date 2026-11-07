@@ -1,7 +1,6 @@
 import "server-only";
 
 import {
-  offerLookupVerdict,
   razorpayPlanBody,
   revenueByPlan,
   validateOffer,
@@ -115,20 +114,11 @@ export type OfferInput = { name: string; rupees: string; offerId: string; endsAt
 export async function saveOffer(planId: string, input: OfferInput): Promise<Result> {
   const c = await context();
   if (!c) return NOT_ADMIN;
-  const { ctx, db, auth } = c;
+  const { ctx, db } = c;
   const { data: plan } = await db.from("plans").select("*").eq("id", planId).maybeSingle();
   if (!plan) return fail("No such plan.");
   const check = validateOffer(plan, input);
   if (!check.ok) return fail(check.error);
-
-  let verified: boolean | null = null;
-  if (check.offer.razorpay_offer_id) {
-    if (!auth) return fail("Billing is not configured on this server.");
-    const found = await fetch(`${RAZORPAY}/offers/${check.offer.razorpay_offer_id}`, { headers: { Authorization: auth } }).catch(() => null);
-    const verdict = offerLookupVerdict(found?.status ?? 0);
-    if (!verdict.ok) return fail(verdict.error);
-    verified = verdict.verified;
-  }
   const { error } = await db.from("plans").update(check.offer).eq("id", planId);
   if (error) return fail("Could not save the offer.");
   const note = await logAdminAction(ctx, check.offer.razorpay_offer_id ? "plan_offer_set" : "plan_offer_cleared", {}, {
@@ -136,7 +126,7 @@ export async function saveOffer(planId: string, input: OfferInput): Promise<Resu
     before: { name: plan.offer_name, paise: plan.offer_amount_paise, ends_at: plan.offer_ends_at, limit: plan.offer_limit, id: plan.razorpay_offer_id },
     after: check.offer,
   });
-  return { ok: true, message: check.offer.razorpay_offer_id ? (verified ? "Offer saved." : "Offer saved. Razorpay could not confirm the id; check it in the dashboard.") + note : "Offer removed." + note };
+  return { ok: true, message: check.offer.razorpay_offer_id ? "Offer saved. It is not checked at Razorpay (there is no lookup): make sure the id is right and its amount matches the price you typed." + note : "Offer removed." + note };
 }
 
 export async function setPlanOpen(planId: string, open: boolean): Promise<Result> {

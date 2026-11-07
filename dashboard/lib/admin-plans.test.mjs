@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  offerLookupVerdict,
   razorpayPlanBody,
   revenueByPlan,
   rupeesToPaise,
@@ -56,12 +55,6 @@ test("offer: needs a name, a lower price, a well-formed id, a future end", () =>
   assert.equal(validateOffer(yearly, { ...ok, endsAt: "nope" }, NOW).ok, false);
   assert.equal(validateOffer(yearly, { ...ok, limit: "0" }, NOW).ok, false);
   assert.equal(validateOffer(yearly, { ...ok, endsAt: "", limit: "" }, NOW).offer.offer_ends_at, null, "open-ended is allowed");
-});
-
-test("offer lookup: only a 404 rejects", () => {
-  assert.deepEqual(offerLookupVerdict(200), { ok: true, verified: true });
-  assert.equal(offerLookupVerdict(404).ok, false);
-  assert.deepEqual(offerLookupVerdict(500), { ok: true, verified: false });
 });
 
 test("trial days: whole number, 1 to 60", () => {
