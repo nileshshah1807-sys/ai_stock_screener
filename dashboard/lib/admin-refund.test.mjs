@@ -30,7 +30,7 @@ test("refund, then cancel, then end access, in that order", async () => {
   const { deps, calls } = harness();
   const r = await refundAndEnd(deps, "pay_1");
   assert.equal(r.ok, true);
-  assert.deepEqual(calls, [["refund", "pay_1", 49900], ["hold"], ["cancel"], ["end"], ["mail", "rfnd_1", 49900]]);
+  assert.deepEqual(calls, [["refund", "pay_1", 49900], ["hold"], ["cancel"], ["end"], ["mail", "pay_1", 49900]]);
 });
 
 test("a refused refund changes nothing else", async () => {
@@ -52,14 +52,23 @@ test("a second click does not refund twice but still finishes the job", async ()
   const { deps, calls } = harness({ payments: [pay({ status: "refunded", amount_refunded: 49900 })], cancel: "already" });
   const r = await refundAndEnd(deps, "pay_1");
   assert.equal(r.ok, true);
-  assert.deepEqual(calls, [["hold"], ["cancel"], ["end"]]);
+  assert.deepEqual(calls, [["hold"], ["cancel"], ["end"], ["mail", "pay_1", 49900]]);
+});
+
+test("the refund email waits for a fully done job, and a re-run sends it", async () => {
+  const bad = harness({ cancel: "failed" });
+  await refundAndEnd(bad.deps, "pay_1");
+  assert.equal(bad.calls.some((c) => c[0] === "mail"), false);
+  const rerun = harness({ payments: [pay({ status: "refunded", amount_refunded: 49900 })] });
+  await refundAndEnd(rerun.deps, "pay_1");
+  assert.deepEqual(rerun.calls.at(-1), ["mail", "pay_1", 49900]);
 });
 
 test("a failed cancel still ends access and says exactly what happened", async () => {
   const { deps, calls } = harness({ cancel: "failed" });
   const r = await refundAndEnd(deps, "pay_1");
   assert.equal(r.ok, false);
-  assert.deepEqual(calls.map((c) => c[0]), ["refund", "hold", "cancel", "end", "mail"]);
+  assert.deepEqual(calls.map((c) => c[0]), ["refund", "hold", "cancel", "end"]);
   assert.match(r.done.join(), /refunded pay_1/);
   assert.match(r.done.join(), /ended access/);
   assert.match(r.problems[0], /could NOT be cancelled/);

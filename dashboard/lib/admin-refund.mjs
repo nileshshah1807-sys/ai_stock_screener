@@ -38,7 +38,7 @@ export function refundGuard({ actorId, target, sub }) {
 }
 
 /**
- * deps: payment() -> pickPayment result; refund(id, paise) -> {ok, id?, error?}; holdCancelMail(); notifyRefund(refundId, paise);
+ * deps: payment() -> pickPayment result; refund(id, paise) -> {ok, id?, error?}; holdCancelMail(); notifyRefund(paymentId, paise);
  * cancel() -> "cancelled" | "already" | "failed"; endAccess() -> boolean.
  * Returns {ok, done: string[], problems: string[], payment}. ok means all four
  * outcomes hold (refund, cancel, access ended); done lists what changed.
@@ -52,14 +52,12 @@ export async function refundAndEnd(deps, expectedPaymentId) {
 
   const done = [];
   const problems = [];
-  let refundId = null;
   if (payment.refundablePaise > 0) {
     const refund = await deps.refund(payment.id, payment.refundablePaise);
     if (!refund.ok) {
       return { ok: false, done, problems: [`Razorpay refused the refund${refund.error ? ` (${refund.error})` : ""}. Nothing was changed.`], payment };
     }
     done.push(`refunded ${payment.id}`);
-    refundId = refund.id ?? payment.id;
   } else {
     done.push(`${payment.id} was already refunded (no second refund)`);
   }
@@ -74,7 +72,8 @@ export async function refundAndEnd(deps, expectedPaymentId) {
   if (await deps.endAccess()) done.push("ended access");
   else problems.push("access was NOT ended in Cupel: apply storage/billing_schema.sql if it is not applied, then run this again (the refund is not repeated)");
 
-  // Only a refund made now is announced; a repeat click (already refunded) sends nothing.
-  if (refundId) await deps.notifyRefund(refundId, payment.refundablePaise);
+  // The email says access has ended, so only a fully done job sends it; a re-run after a partial failure sends it.
+  // Keyed by the payment: one refund email per payment, however many clicks.
+  if (problems.length === 0) await deps.notifyRefund(payment.id, payment.paise);
   return { ok: problems.length === 0, done, problems, payment };
 }

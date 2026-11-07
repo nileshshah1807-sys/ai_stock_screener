@@ -54,7 +54,7 @@ export function runRefund(ctx: Ctx, userId: string, subscriptionId: string, paym
         return { ok: r.ok, id: r.json?.id as string | undefined, error: r.json?.error?.description as string | undefined };
       },
       holdCancelMail: () => claimCancelledEmail(ctx.db, userId, subscriptionId),
-      notifyRefund: async (refundId: string, paise: number) => void (await sendRefundEmail(ctx.db, userId, refundId, paise)),
+      notifyRefund: async (key: string, paise: number) => void (await sendRefundEmail(ctx.db, userId, key, paise)),
       cancel: async () => {
         const state = await call(`/subscriptions/${encodeURIComponent(subscriptionId)}`);
         if (state.ok && state.json?.status === "cancelled") return "already" as const;

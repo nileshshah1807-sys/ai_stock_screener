@@ -90,7 +90,8 @@ export async function sendRefundEmail(admin: SupabaseClient, userId: string, ref
 /** Marks the "cancelled" email for this subscription as sent, without sending it: an admin refund sends its own email, and the webhook's cancelled event must not add "subscribe again". Never throws. */
 export async function claimCancelledEmail(admin: SupabaseClient, userId: string, razorpaySubscriptionId: string) {
   try {
-    await admin.from("customer_emails").upsert({ user_id: userId, kind: "cancelled", event_key: razorpaySubscriptionId }, { onConflict: "user_id,kind,event_key", ignoreDuplicates: true });
+    const { error } = await admin.from("customer_emails").upsert({ user_id: userId, kind: "cancelled", event_key: razorpaySubscriptionId }, { onConflict: "user_id,kind,event_key", ignoreDuplicates: true });
+    if (error) console.warn("cancelled email not held", error);
   } catch (error) {
     console.warn("cancelled email not held", error);
   }
