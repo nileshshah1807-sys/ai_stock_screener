@@ -149,7 +149,7 @@ from (
         case when (select dashboard_is_admin()) then t.rating end as rating,
         case when (select dashboard_is_admin()) then p.rating end as prev_rating,
         t.decision_score,
-        p.decision_score as prev_decision_score,
+        p.decision_score::numeric as prev_decision_score, -- the old view's type, which a replace must keep
         p.observed_on as prev_observed_on
     from screener_history t
     left join lateral (
