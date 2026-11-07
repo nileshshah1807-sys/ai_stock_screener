@@ -142,3 +142,33 @@ jobs:
 
       - name: Test
         run: npm test
+
+  # The billing SQL files, applied in order on a real Postgres with stub Supabase
+  # roles, then billing_schema.sql again, then the dashboard's own reads as a
+  # signed-in user. Catches a re-apply that drops another file's column grants.
+  billing-schema:
+    name: Billing schema (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: postgres
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Apply the schema twice and read as a user
+        run: tools/check_billing_schema.sh
