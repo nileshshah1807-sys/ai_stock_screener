@@ -1173,6 +1173,10 @@ function ratingRank(rating: string | null): number | null {
  * than the previous calendar day, so a Monday is compared with Friday instead
  * of reporting the whole universe as new after every weekend.
  */
+/** What the Movers page and getMovers read; the view's sector and score-delta columns are not used. */
+const MOVER_COLUMNS =
+  "observed_on, symbol, company, investment_rank, prev_investment_rank, rank_change, rating, prev_rating, rating_changed, decision_score, prev_observed_on, is_new_entrant";
+
 export async function getMovers(
   market: MarketCode,
   runDate: string,
@@ -1181,7 +1185,7 @@ export async function getMovers(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("screener_movers")
-    .select("*")
+    .select(MOVER_COLUMNS)
     .eq("market", market)
     .eq("observed_on", runDate);
 

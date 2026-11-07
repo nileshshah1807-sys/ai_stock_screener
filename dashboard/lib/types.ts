@@ -316,7 +316,6 @@ export type MoverRow = {
   observed_on: string;
   symbol: string;
   company: string | null;
-  sector: string | null;
   investment_rank: number | null;
   prev_investment_rank: number | null;
   rank_change: number | null;
@@ -324,8 +323,6 @@ export type MoverRow = {
   prev_rating: string | null;
   rating_changed: boolean | null;
   decision_score: number | null;
-  prev_decision_score: number | null;
-  score_change: number | null;
   prev_observed_on: string | null;
   is_new_entrant: boolean | null;
 };
