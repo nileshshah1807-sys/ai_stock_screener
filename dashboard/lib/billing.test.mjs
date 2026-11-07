@@ -22,6 +22,9 @@ import {
   isUnknownSubscription,
   lookupResult,
   buyerName,
+  customerNeedsName,
+  lateCharge,
+  undoLateCharge,
   customerBody,
   newSubscriptionBody,
   subscriptionChange,
@@ -375,4 +378,47 @@ test("the customer id survives the offer-rejection retry", async () => {
   assert.equal(sent.length, 2);
   assert.deepEqual(sent.map((b) => b.customer_id), ["cust_1", "cust_1"]);
   assert.equal("offer_id" in sent[1], false);
+});
+
+describe("a charge after cancellation", () => {
+  const charged = (over = {}) => ({
+    event: "subscription.charged", created_at: 1_800_000_000,
+    payload: { subscription: { entity: { id: "sub_1" } }, payment: { entity: { id: "pay_1", amount: 12900, created_at: 1_800_000_000, ...over } } },
+  });
+  const cancelled = (end) => ({ status: "cancelled", current_period_end: end });
+  const at = (s) => new Date(s * 1000).toISOString();
+
+  test("a charge at or after the end of the paid period on a cancelled row is undone", () => {
+    assert.deepEqual(lateCharge(charged(), cancelled(at(1_800_000_000)), 0), { act: true, subscriptionId: "sub_1", paymentId: "pay_1", paise: 12900 });
+    assert.equal(lateCharge(charged(), cancelled(at(1_700_000_000)), 0).act, true);
+    assert.equal(lateCharge(charged(), { status: "cancelled", current_period_end: null }, 0).act, true);
+  });
+
+  test("anything else is left alone", () => {
+    assert.equal(lateCharge(charged(), cancelled(at(1_900_000_000)), 0).act, false); // charged inside the paid period
+    assert.equal(lateCharge(charged(), { status: "active", current_period_end: at(1_700_000_000) }, 0).act, false);
+    assert.equal(lateCharge(charged(), null, 0).act, false);
+    assert.equal(lateCharge({ ...charged(), event: "subscription.cancelled" }, cancelled(at(1)), 0).act, false);
+    assert.equal(lateCharge({ event: "subscription.charged", payload: { subscription: { entity: { id: "sub_1" } } } }, cancelled(at(1)), 0).act, false); // no payment
+  });
+
+  test("undo cancels first, then refunds, and always alerts, even when a step fails", async () => {
+    const calls = [];
+    const decision = { act: true, subscriptionId: "sub_1", paymentId: "pay_1", paise: 12900 };
+    const ok = await undoLateCharge({ cancel: async (id) => (calls.push(["cancel", id]), true), refund: async (id) => (calls.push(["refund", id]), true), alert: async (d) => calls.push(["alert", d.cancelled, d.refunded]) }, decision);
+    assert.deepEqual(calls, [["cancel", "sub_1"], ["refund", "pay_1"], ["alert", true, true]]);
+    assert.deepEqual(ok, { cancelled: true, refunded: true });
+    calls.length = 0;
+    const bad = await undoLateCharge({ cancel: async () => { throw new Error("x"); }, refund: async () => false, alert: async (d) => calls.push(["alert", d.cancelled, d.refunded]) }, decision);
+    assert.deepEqual(bad, { cancelled: false, refunded: false });
+    assert.deepEqual(calls, [["alert", false, false]]);
+  });
+});
+
+test("a reused customer without a name gets ours; one with a name is never overwritten", () => {
+  assert.equal(customerNeedsName({ id: "c", name: null }, "Asha", "a@b.co"), true);
+  assert.equal(customerNeedsName({ id: "c", name: "  " }, "Asha", "a@b.co"), true);
+  assert.equal(customerNeedsName({ id: "c", name: "Old" }, "Asha", "a@b.co"), false);
+  assert.equal(customerNeedsName({ id: "c", name: null }, "a@b.co", "a@b.co"), false); // only an email: nothing worth setting
+  assert.equal(customerNeedsName({ id: "c", name: null }, "", "a@b.co"), false);
 });

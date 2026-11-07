@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { subscriptionChange } from "@/lib/billing.mjs";
+import { lateCharge, subscriptionChange, undoLateCharge } from "@/lib/billing.mjs";
 import { notifyStatusChange } from "@/lib/customer-email-server";
+import { alertLateCharge, cancelNow, refundPayment } from "@/lib/late-charge-server";
 import { verifySignature } from "@/lib/webhook-signature.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -30,6 +31,20 @@ export async function POST(request: NextRequest) {
     event = JSON.parse(raw);
   } catch {
     return NextResponse.json({ error: "bad_body" }, { status: 400 });
+  }
+  // A charge for a subscription we hold as cancelled, after its paid period: undo it (cancel, refund, alert)
+  // and do NOT apply it, which would give the person access back.
+  if (event?.event === "subscription.charged") {
+    const id = event?.payload?.subscription?.entity?.id;
+    const { data: row } = typeof id === "string"
+      ? await admin.from("subscriptions").select("user_id, status, current_period_end").eq("razorpay_subscription_id", id).maybeSingle()
+      : { data: null };
+    const late = lateCharge(event, row, Date.now());
+    if (late.act) {
+      const done = await undoLateCharge({ cancel: cancelNow, refund: refundPayment, alert: (detail: Record<string, unknown>) => alertLateCharge(admin, row?.user_id ?? null, detail) }, late);
+      // A failed refund is retried by Razorpay's redelivery; the cancel and the alert are repeatable.
+      return NextResponse.json(done.refunded ? { ok: true, undone: true } : { error: "refund_failed" }, { status: done.refunded ? 200 : 500 });
+    }
   }
   const change = subscriptionChange(event, request.headers.get("x-razorpay-event-id"));
   if (!change) return NextResponse.json({ ok: true, ignored: true });

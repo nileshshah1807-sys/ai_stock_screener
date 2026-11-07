@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { buyerName, checkoutAction, customerBody, lookupResult, startSubscription } from "@/lib/billing.mjs";
+import { buyerName, checkoutAction, customerBody, customerNeedsName, lookupResult, startSubscription } from "@/lib/billing.mjs";
 import { previewCheckoutBlock, withTestIds } from "@/lib/plan-overrides.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -100,7 +100,18 @@ export async function POST(request: NextRequest) {
       signal: AbortSignal.timeout(5000), // it sits in the buyer's wait and may fail anyway
     }).catch(() => null);
     const customer = made?.ok ? await made.json().catch(() => null) : null;
-    if (typeof customer?.id === "string") customerId = customer.id;
+    if (typeof customer?.id === "string") {
+      customerId = customer.id;
+      // A reused customer (fail_existing 0) may have been made without a name: fill it in, never overwrite one.
+      if (customerNeedsName(customer, name, email)) {
+        await fetch(`https://api.razorpay.com/v1/customers/${customer.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: auth },
+          body: JSON.stringify({ name }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => null);
+      }
+    }
     else console.warn(`create-subscription: Razorpay customer not created (status ${made?.status ?? "none"}); subscribing without one.`);
   }
 
