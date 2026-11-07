@@ -31,12 +31,6 @@ export default async function LiveCallPage({ params }: PageProps<"/[market]/conc
       >
         <ArrowLeft className="size-3.5" aria-hidden /> Live now
       </Link>
-      <div className="flex items-center gap-3">
-        <StockIdentity symbol={call.symbol} logoDomain={logo} size="md" className="min-w-0 flex-1" />
-        <span className="text-xs font-medium text-muted-foreground">
-          {call.state === "live" ? "On air" : call.state === "ended" ? "Ended" : "Not started"}
-        </span>
-      </div>
       {sample ? (
         <p className="text-xs text-muted-foreground">
           Sample call: the live-call tables are not applied to this preview, so these lines are made up.
@@ -51,6 +45,7 @@ export default async function LiveCallPage({ params }: PageProps<"/[market]/conc
         startedAt={call.started_at}
         initialLines={lines}
         initialState={call.state}
+        identity={<StockIdentity symbol={call.symbol} logoDomain={logo} size="md" className="min-w-0 flex-1" />}
       />
     </div>
   );

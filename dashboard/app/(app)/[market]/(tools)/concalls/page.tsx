@@ -70,7 +70,7 @@ export default async function ConcallsPage({
 
   // The exchange files by India's calendar.
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
-  const [calls, facts, upcoming, lists] = await Promise.all([
+  const [calls, facts, upcoming, lists, live] = await Promise.all([
     getConcalls(market.code, {
       symbols: feed.symbols,
       search,
@@ -81,6 +81,7 @@ export default async function ConcallsPage({
     getCompanyFacts(market.code),
     getUpcoming(market.code, "call", today),
     getWatchlists(market.code),
+    getLiveCalls(market.code),
   ]);
   const next = upcoming ? upcomingSummary(upcoming, today).next : null;
   const watchlists = lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }));
@@ -88,7 +89,6 @@ export default async function ConcallsPage({
   const groups = groupByCallDate(calls);
 
   const base = marketPath(market.slug, "/concalls");
-  const { calls: liveCalls } = await getLiveCalls(market.code);
 
   const page = (
     <div className="space-y-4 px-4 py-5 sm:px-6">
@@ -117,7 +117,7 @@ export default async function ConcallsPage({
         {upcoming ? <UpcomingButton /> : null}
       </div>
 
-      <ConcallTabs base={base} active="latest" liveCount={liveCalls.length} />
+      <ConcallTabs base={base} active="latest" liveCount={live.sample ? 0 : live.calls.length} />
 
       {next ? (
         <div className="flex flex-wrap gap-3">

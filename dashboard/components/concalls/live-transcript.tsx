@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { ArrowDown } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
@@ -26,12 +27,15 @@ export function LiveTranscript({
   startedAt,
   initialLines,
   initialState,
+  identity,
 }: {
   callId: string;
   sample: boolean;
   startedAt: string | null;
   initialLines: LiveLine[];
   initialState: string;
+  /** The company, drawn by the page; the state beside it is this component's. */
+  identity: ReactNode;
 }) {
   const [lines, setLines] = useState(initialLines);
   const [state, setState] = useState(initialState);
@@ -87,11 +91,17 @@ export function LiveTranscript({
 
   return (
     <div>
+      <div className="mb-4 flex items-center gap-3">
+        {identity}
+        <span className="text-xs font-medium text-muted-foreground">
+          {state === "live" ? "On air" : state === "ended" ? "Ended" : "Not started"}
+        </span>
+      </div>
       {lines.length ? (
         <ol aria-live="polite" aria-label="Live transcript" className="panel divide-y">
           {lines.map((line) => (
             <li key={line.seq} className="flex gap-3 px-4 py-2.5 text-sm leading-relaxed">
-              <time className="tabular w-12 shrink-0 pt-px font-mono text-xs text-muted-foreground">
+              <time className="tabular min-w-12 shrink-0 pt-px font-mono text-xs text-muted-foreground">
                 {clock(line.start_seconds)}
               </time>
               <span className="min-w-0 flex-1 break-words">{line.text}</span>
@@ -119,7 +129,7 @@ export function LiveTranscript({
             setUnseen(0);
             end.current?.scrollIntoView({ block: "end" });
           }}
-          className="fixed bottom-5 left-1/2 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border bg-card px-4 py-2 text-xs font-medium shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="fixed bottom-20 left-1/2 sm:bottom-5 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border bg-card px-4 py-2 text-xs font-medium shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ArrowDown className="size-3.5" aria-hidden /> {unseen} new {unseen === 1 ? "line" : "lines"}
         </button>

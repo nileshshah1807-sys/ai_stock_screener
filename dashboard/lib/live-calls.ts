@@ -28,6 +28,9 @@ const MISSING_TABLE = new Set(["PGRST205", "42P01"]);
 const READ_WINDOW = 1000;
 const SAMPLE_HEAD_START = 60;
 
+/** The sample is for previews; a production deploy without the tables shows no live calls, never invented ones. */
+const SAMPLE_ALLOWED = process.env.VERCEL_ENV !== "production";
+
 /** The sample call: TCS, started a minute ago, so a few lines are already there. */
 function sampleCall(market: MarketCode): LiveCall {
   const now = Date.now();
@@ -51,7 +54,9 @@ export async function getLiveCalls(market: MarketCode): Promise<{ calls: LiveCal
     .order("started_at", { ascending: false });
   if (error) {
     if (!MISSING_TABLE.has(error.code)) console.error("getLiveCalls failed", error.message);
-    return MISSING_TABLE.has(error.code) ? { calls: [sampleCall(market)], sample: true } : { calls: [], sample: false };
+    return MISSING_TABLE.has(error.code) && SAMPLE_ALLOWED
+      ? { calls: [sampleCall(market)], sample: true }
+      : { calls: [], sample: false };
   }
   return { calls: data as LiveCall[], sample: false };
 }
@@ -83,7 +88,7 @@ export async function getLiveCall(
       return null;
     }
     const call = sampleCall(market);
-    if (call.call_id !== callId) return null;
+    if (!SAMPLE_ALLOWED || call.call_id !== callId) return null;
     return { call, lines: sampleLines(SAMPLE_HEAD_START), sample: true };
   }
   if (!state.data) return null;
