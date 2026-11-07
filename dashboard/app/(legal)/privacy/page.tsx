@@ -48,8 +48,10 @@ export default function PrivacyPage() {
           your account.
         </li>
         <li>
-          <strong>Payment:</strong> when paid plans are offered, payments are handled by our
-          payment provider. We receive confirmation of the payment, not your card or bank details.
+          <strong>Payment:</strong> payments are handled by Razorpay Software Pvt Ltd, our payment
+          processor. We share your name and email address with Razorpay so it can take payments,
+          send receipts and send the pre-debit notices the law requires for autopay. We receive
+          confirmation of the payment, never your card or bank details.
         </li>
       </ul>
       <p>
@@ -79,7 +81,7 @@ export default function PrivacyPage() {
       <ul>
         <li>Supabase: database, authentication and sign-in emails.</li>
         <li>Vercel: hosting of the website.</li>
-        <li>Our payment provider, once paid plans are offered.</li>
+        <li>Razorpay Software Pvt Ltd: payments, receipts and autopay notices.</li>
       </ul>
       <p>
         They process data only on our instructions. Our database and servers are in Tokyo,
