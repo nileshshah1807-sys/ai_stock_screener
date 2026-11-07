@@ -711,7 +711,17 @@ class FinancialStatementCollector:
 
     @staticmethod
     def _record_coverage(enriched):
-        """Attach and report run-level statement coverage."""
+        """Attach and report run-level statement coverage.
+
+        An SME listing is admitted to the frame only once it has a statement
+        record: a young SME often has none, and counting it would pull the
+        coverage below the production floor for the whole run.
+        """
+        if "Is_SME" in enriched:
+            unadmitted = enriched["Is_SME"].astype(bool) & ~enriched["Statement_Record_Available"]
+            if unadmitted.any():
+                logger.info("SME listings without a statement record, left out: %d", int(unadmitted.sum()))
+                enriched = enriched.loc[~unadmitted].reset_index(drop=True)
         available = int(enriched["Statement_Record_Available"].sum())
         share = available / len(enriched) if len(enriched) else 0.0
         logger.info(
