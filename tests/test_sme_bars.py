@@ -153,3 +153,19 @@ class CarryForwardTests(unittest.TestCase):
         self.assertEqual(gap["Volume"], 0.0)
         self.assertEqual(gap["Close"], bars["Close"].iloc[list(bars.index.date).index(date(2026, 10, 1)) - 1])
         self.assertEqual(bars.index[-1].date(), EXPECTED)
+
+
+class FetchFailureTests(unittest.TestCase):
+    def test_an_unreachable_exchange_stops_after_a_few_tries(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        calls = []
+
+        def down(day):
+            calls.append(day)
+            raise TimeoutError("NSE")
+
+        history = SmeBarHistory(Path(directory.name) / "b.csv.gz", EXPECTED, TZ, fetch_day=down)
+        with self.assertLogs("screener.sme_bars", level="WARNING"):
+            self.assertIsNone(history.bars("SMEONE"))
+        self.assertEqual(len(calls), 10)

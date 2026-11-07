@@ -46,6 +46,7 @@ class SmeBarHistory:
         market_holidays=(),
         history_days=740,
         max_fetch_per_run=600,
+        max_consecutive_misses=10,
         fetch_day=None,
     ):
         self.path = Path(path)
@@ -54,6 +55,7 @@ class SmeBarHistory:
         self.market_holidays = market_holidays
         self.history_days = history_days
         self.max_fetch_per_run = max_fetch_per_run
+        self.max_consecutive_misses = max_consecutive_misses
         self._fetch_day = fetch_day or _fetch_sme_day
         self._by_symbol = None
         self._sessions = []
@@ -82,12 +84,20 @@ class SmeBarHistory:
         have = set(stored["Date"])
         fetched = [stored]
         todo = self._missing_sessions(have)[-self.max_fetch_per_run:]
-        for day in todo:
+        misses = 0
+        for day in reversed(todo):  # newest first: the recent bars matter most
             try:
                 frame = self._fetch_day(day)
             except Exception as exc:  # a holiday the calendar lacks looks the same
                 logger.debug("No SME bhavcopy for %s: %s", day, exc)
+                misses += 1
+                # One or two in a row is a holiday; more is NSE refusing us, and
+                # each try can take the client's full timeout.
+                if misses >= self.max_consecutive_misses:
+                    logger.warning("SME bar history: %d fetches failed in a row; stopping", misses)
+                    break
                 continue
+            misses = 0
             rows = frame.rename(columns={"Trade_Date": "Date"})[list(_COLUMNS)]
             fetched.append(rows)
         history = pd.concat(fetched, ignore_index=True)
