@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useId, useState, useSyncExternalStore } from "react";
+import { useId, useRef, useState, useSyncExternalStore } from "react";
 import { Loader2, TriangleAlert } from "lucide-react";
 
 import { saveDisplayName } from "@/app/(billing)/account/actions";
@@ -118,6 +118,7 @@ export function CheckoutButton({
   const needsName = invoiceNameProblem(savedName) !== null;
   const [name, setName] = useState(savedName ?? "");
   const [touched, setTouched] = useState(false);
+  const nameField = useRef<HTMLInputElement>(null);
   const nameProblem = needsName ? invoiceNameProblem(name) : null;
 
   async function waitForSubscription(proof: object) {
@@ -154,6 +155,12 @@ export function CheckoutButton({
 
   async function start() {
     if (inFlight) return;
+    if (nameProblem) {
+      // No dead button: say what is missing and put the cursor there.
+      setTouched(true);
+      nameField.current?.focus();
+      return;
+    }
     setInFlight(true);
     setError(null);
     setPhase("starting");
@@ -172,7 +179,7 @@ export function CheckoutButton({
         const { error: refreshError } = await createClient().auth.refreshSession();
         if (refreshError) {
           // Without the new token the invoice would carry the email: stop and let them retry.
-          setError({ text: "Your name saved, but we could not refresh your session. Try again." });
+          setError({ text: "Could not save your name. Try again." });
           setPhase("idle");
           setInFlight(false);
           return;
@@ -248,6 +255,7 @@ export function CheckoutButton({
           </label>
           <Input
             id={nameId}
+            ref={nameField}
             value={name}
             onChange={(event) => setName(event.target.value)}
             onBlur={() => setTouched(true)}
@@ -262,7 +270,7 @@ export function CheckoutButton({
           </p>
         </div>
       ) : null}
-      <Button type="button" className={fullWidth ? "h-10 w-full" : "h-10 w-full sm:w-auto sm:min-w-44"} disabled={locked || nameProblem !== null} onClick={start}>
+      <Button type="button" className={fullWidth ? "h-10 w-full" : "h-10 w-full sm:w-auto sm:min-w-44"} disabled={locked} onClick={start}>
         {working ? (
           <>
             <Loader2 className="size-4 animate-spin" aria-hidden />
