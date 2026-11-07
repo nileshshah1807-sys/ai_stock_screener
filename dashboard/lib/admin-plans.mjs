@@ -78,13 +78,6 @@ export function validateOffer(plan, input, now = Date.now()) {
   });
 }
 
-/** What Razorpay's answer to a lookup of an offer id means: only a 404 rejects. */
-export function offerLookupVerdict(status) {
-  if (status === 200) return good({ verified: true });
-  if (status === 404) return bad("Razorpay has no offer with that id.");
-  return good({ verified: false });
-}
-
 /** Trial length for new sign-ups, in whole days. */
 export function validateTrialDays(input) {
   const days = Number(input);
