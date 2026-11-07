@@ -18,7 +18,7 @@ type RazorpayOptions = {
   subscription_id: string;
   name: string;
   description: string;
-  prefill: { email: string };
+  prefill: { email: string; name?: string };
   method?: Record<string, boolean>;
   config?: unknown;
   handler: (response: { razorpay_payment_id?: string; razorpay_subscription_id?: string; razorpay_signature?: string }) => void;
@@ -33,6 +33,7 @@ declare global {
 type Created = {
   subscription_id: string;
   key_id: string;
+  customer_name?: string;
   plan: { id: string; name: string; amount_paise: number; period: string };
   offer_applied?: boolean;
   offer_unavailable?: boolean;
@@ -186,7 +187,7 @@ export function CheckoutButton({
         subscription_id: body.subscription_id,
         name: brand,
         description: body.plan.name,
-        prefill: { email },
+        prefill: { email, name: body.customer_name },
         ...checkoutRestriction(body.offer_applied),
         handler: (proof) => {
           setPhase("confirming");

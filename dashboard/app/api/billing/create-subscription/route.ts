@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { checkoutAction, lookupResult, startSubscription } from "@/lib/billing.mjs";
+import { buyerName, checkoutAction, customerBody, lookupResult, startSubscription } from "@/lib/billing.mjs";
 import { previewCheckoutBlock, withTestIds } from "@/lib/plan-overrides.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
   const blocked = previewCheckoutBlock(data?.claims?.email);
   if (blocked) return fail(blocked, 403);
 
+  const email = typeof data?.claims?.email === "string" ? data.claims.email : "";
+  const name = buyerName(data?.claims?.user_metadata?.full_name, email);
   const wanted = await request.json().then((b) => (typeof b?.plan_id === "string" ? b.plan_id : null)).catch(() => null);
 
   // The user's row (id from the verified token) and the plan with its Razorpay id.
@@ -80,11 +82,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       subscription_id: existing.id,
       key_id: keyId,
+      customer_name: name,
       plan: { id: plan.id, name: plan.name, amount_paise: plan.amount_paise, period: plan.period },
       offer_applied: reused,
       charged_amount_paise: existing.offer_id ? plan.offer_amount_paise : plan.amount_paise,
       trial_ends_at: existing.start_at ? new Date(existing.start_at * 1000).toISOString() : null,
     });
+  }
+
+  // The buyer as a Razorpay customer, so every invoice says who it is issued to. Never blocks the sale.
+  let customerId: string | undefined;
+  if (email) {
+    const made = await fetch("https://api.razorpay.com/v1/customers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: auth },
+      body: JSON.stringify(customerBody({ name, email })),
+    }).catch(() => null);
+    const customer = made?.ok ? await made.json().catch(() => null) : null;
+    if (typeof customer?.id === "string") customerId = customer.id;
+    else console.warn(`create-subscription: Razorpay customer not created (status ${made?.status ?? "none"}); subscribing without one.`);
   }
 
   // The introductory offer, while it is open (the database decides).
@@ -100,7 +116,7 @@ export async function POST(request: NextRequest) {
       }).catch(() => null);
       return { ok: Boolean(res?.ok), status: res?.status ?? 0, json: await res?.json().catch(() => null) };
     },
-    { plan, userId, offerId: offerOpen ? plan.razorpay_offer_id : null },
+    { plan, userId, offerId: offerOpen ? plan.razorpay_offer_id : null, customerId },
   );
   // Where an admin looks: the deployment's logs. admin_actions needs an admin as actor, and this is a buyer's request.
   if (rejection) console.warn(`create-subscription: Razorpay rejected offer ${plan.razorpay_offer_id} on plan ${plan.id}; sold at full price. ${rejection}`);
@@ -125,6 +141,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     subscription_id: created.id,
     key_id: keyId,
+    customer_name: name,
     plan: { id: plan.id, name: plan.name, amount_paise: plan.amount_paise, period: plan.period },
     offer_applied: offered,
     offer_unavailable: Boolean(rejection),
