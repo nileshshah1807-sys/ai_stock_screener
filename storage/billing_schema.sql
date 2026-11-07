@@ -96,8 +96,18 @@ create policy subscriptions_self_read
     on subscriptions for select to authenticated
     using (user_id = (select auth.uid()));
 
+-- Columns other files also add (admin_plans_schema.sql, trial_guard_schema.sql) are
+-- created and granted HERE too: the revoke below drops every column grant, so
+-- re-applying this file alone must give back everything the dashboard reads as the
+-- user (lib/plans.ts getSubscription). dashboard/lib/subscription-grants.test.mjs
+-- fails if a column the dashboard reads or another file grants is missing.
+alter table subscriptions add column if not exists plan_amount_paise integer
+    check (plan_amount_paise >= 0);
+alter table subscriptions add column if not exists trial_denied_at timestamptz;
+
 revoke all on subscriptions from anon, authenticated;
-grant select (user_id, plan_id, status, trial_ends_at, current_period_end, offer_applied, updated_at)
+grant select (user_id, plan_id, status, trial_ends_at, current_period_end, offer_applied, updated_at,
+              plan_amount_paise, trial_denied_at)
     on subscriptions to authenticated;
 
 -- Users that already exist have no trial: a row with status 'expired' gives them
