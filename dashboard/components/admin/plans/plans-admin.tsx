@@ -7,7 +7,7 @@ import { changePriceAction, relinkPlanAction, saveOfferAction, setPlanOpenAction
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { validatePriceChange, validateTrialDays } from "@/lib/admin-plans.mjs";
+import { istDate, validatePriceChange, validateTrialDays } from "@/lib/admin-plans.mjs";
 import { priceLabel } from "@/lib/billing.mjs";
 import type { AdminPlan, PlanLink, PlansAdminData, Result } from "@/lib/admin-plans-server";
 
@@ -71,11 +71,10 @@ function linkText(link: PlanLink | undefined, mode: PlansAdminData["mode"], link
 function offerStatus(plan: AdminPlan) {
   if (!plan.razorpay_offer_id) return "No offer";
   const ends = plan.offer_ends_at ? new Date(plan.offer_ends_at) : null;
-  if (ends && ends.getTime() <= Date.now()) return `Ended ${ends.toISOString().slice(0, 10)}`;
-  return `${plan.offer_name ?? "Offer"}: ${priceLabel(plan.offer_amount_paise ?? 0)}${ends ? `, until ${ends.toISOString().slice(0, 10)}` : ""}`;
+  if (ends && ends.getTime() <= Date.now()) return `Ended ${istDate(plan.offer_ends_at)}`;
+  return `${plan.offer_name ?? "Offer"}: ${priceLabel(plan.offer_amount_paise ?? 0)}${ends ? `, until ${istDate(plan.offer_ends_at)}` : ""}`;
 }
 
-const dateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
 
 function PlanCard({ plan, mode, link, stats, run }: { plan: AdminPlan; mode: PlansAdminData["mode"]; link?: PlanLink; stats?: { subscribers: number; monthlyPaise: number }; run: Actions }) {
   const price = useAction();
@@ -91,7 +90,7 @@ function PlanCard({ plan, mode, link, stats, run }: { plan: AdminPlan; mode: Pla
     name: plan.offer_name ?? "",
     rupees: plan.offer_amount_paise != null ? String(plan.offer_amount_paise / 100) : "",
     offerId: plan.razorpay_offer_id ?? "",
-    endsAt: dateInput(plan.offer_ends_at),
+    endsAt: istDate(plan.offer_ends_at),
     limit: plan.offer_limit != null ? String(plan.offer_limit) : "",
   });
   const check = rupees ? validatePriceChange(plan, rupees) : null;
@@ -162,7 +161,7 @@ function PlanCard({ plan, mode, link, stats, run }: { plan: AdminPlan; mode: Pla
           <Field id={`on-${plan.id}`} label="Name (shown to customers)" value={o.name} onChange={(v) => setO({ ...o, name: v })} />
           <Field id={`or-${plan.id}`} label="Offer price (₹)" value={o.rupees} onChange={(v) => setO({ ...o, rupees: v })} inputMode="decimal" />
           <Field id={`oi-${plan.id}`} label="Razorpay offer id" value={o.offerId} onChange={(v) => setO({ ...o, offerId: v })} />
-          <Field id={`oe-${plan.id}`} label="Ends on" type="date" value={o.endsAt} onChange={(v) => setO({ ...o, endsAt: v })} />
+          <Field id={`oe-${plan.id}`} label="Ends on (end of day, India time)" type="date" value={o.endsAt} onChange={(v) => setO({ ...o, endsAt: v })} />
           <Field id={`ol-${plan.id}`} label="Subscriber limit" value={o.limit} onChange={(v) => setO({ ...o, limit: v })} inputMode="numeric" />
         </div>
         <Button type="submit" variant="outline" disabled={offer.pending}>{offer.pending ? "Saving…" : "Save offer"}</Button>

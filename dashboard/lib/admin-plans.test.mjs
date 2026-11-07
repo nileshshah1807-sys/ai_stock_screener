@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   razorpayMode,
+  istDate,
   planLink,
   razorpayPlanBody,
   revenueByPlan,
@@ -135,4 +136,12 @@ test("a linked plan is found, missing or unchecked by Razorpay's answer", () => 
   assert.deepEqual(planLink(404, { error: {} }), { state: "missing", name: null });
   assert.deepEqual(planLink(401, null), { state: "unchecked", name: null });
   assert.deepEqual(planLink(0, null), { state: "unchecked", name: null });
+});
+
+test("a picked end date is 23:59:59 India time that day, and reads back the same", () => {
+  const saved = validateOffer(yearly, { name: "Early bird", rupees: "699", offerId: "offer_Abcdefgh123456", endsAt: "2026-12-31", limit: "" }, NOW).offer.offer_ends_at;
+  assert.equal(saved, "2026-12-31T18:29:59.000Z");
+  assert.equal(istDate(saved), "2026-12-31");
+  assert.equal(istDate("2026-12-31T00:00:00Z"), "2026-12-31", "a row saved the old way still shows its day");
+  assert.equal(istDate(null), "");
 });

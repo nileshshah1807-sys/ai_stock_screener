@@ -63,7 +63,8 @@ export function validateOffer(plan, input, now = Date.now()) {
   if (!OFFER_ID.test(offerId)) return bad("Paste the offer id from the Razorpay dashboard (offer_ followed by 14 characters).");
   let endsAt = null;
   if (input.endsAt) {
-    const ms = Date.parse(input.endsAt);
+    // A picked date means the end of that day in India, which is when Razorpay's offer expires.
+    const ms = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(input.endsAt) ? `${input.endsAt}T23:59:59+05:30` : input.endsAt);
     if (Number.isNaN(ms)) return bad("The end date is not a date.");
     if (ms <= now) return bad("The end date must be in the future.");
     endsAt = new Date(ms).toISOString();
@@ -138,4 +139,10 @@ export function planLink(status, body) {
   if (status === 200 && body?.id) return { state: /** @type {const} */ ("linked"), name: body.item?.name ?? null };
   if (status === 404) return { state: /** @type {const} */ ("missing"), name: null };
   return { state: /** @type {const} */ ("unchecked"), name: null };
+}
+
+const IST_MS = 5.5 * 3600_000;
+/** The India calendar day (YYYY-MM-DD) of a stored instant: what the admin picked. */
+export function istDate(iso) {
+  return iso ? new Date(Date.parse(iso) + IST_MS).toISOString().slice(0, 10) : "";
 }
