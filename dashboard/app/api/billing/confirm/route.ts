@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { notifyStatusChange } from "@/lib/customer-email-server";
+import { isUnknownSubscription } from "@/lib/billing.mjs";
 import { confirmPayment } from "@/lib/billing-confirm.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -39,7 +40,9 @@ export async function POST(request: NextRequest) {
       const found = await fetch(`https://api.razorpay.com/v1/subscriptions/${id}`, {
         headers: { Authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}` },
       }).catch(() => null);
-      return found?.ok ? await found.json().catch(() => null) : null;
+      const json = await found?.json().catch(() => null);
+      if (found && isUnknownSubscription(found.status, json)) return { stale: true };
+      return found?.ok ? json : null;
     },
     apply: async (change: {
       razorpaySubscriptionId: string;

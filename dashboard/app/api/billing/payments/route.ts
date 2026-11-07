@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isUnknownSubscription } from "@/lib/billing.mjs";
 import { PAYMENT_LIMIT, paymentRows } from "@/lib/payments.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -41,8 +42,11 @@ export async function GET() {
       () => null,
     );
 
-  const list = await get(`/invoices?subscription_id=${encodeURIComponent(subscriptionId)}&count=${PAYMENT_LIMIT}`);
-  if (!Array.isArray(list?.items)) return fail("razorpay_error", 502);
+  const listing = await fetch(`${RAZORPAY}/invoices?subscription_id=${encodeURIComponent(subscriptionId)}&count=${PAYMENT_LIMIT}`, { headers, cache: "no-store" }).catch(() => null);
+  const list = listing ? await listing.json().catch(() => null) : null;
+  // An id Razorpay does not know (another mode, or stale): no payments, not an error.
+  if (listing && !listing.ok && isUnknownSubscription(listing.status, list)) return NextResponse.json({ payments: [] }, { headers: NO_STORE });
+  if (!listing?.ok || !Array.isArray(list?.items)) return fail("razorpay_error", 502);
   const invoices: Invoice[] = list.items.filter((invoice: Invoice) => invoice.subscription_id === subscriptionId);
 
   const ids = [...new Set(invoices.map((invoice) => invoice.payment_id).filter((id): id is string => typeof id === "string"))];

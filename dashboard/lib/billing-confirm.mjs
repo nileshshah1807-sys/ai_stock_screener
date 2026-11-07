@@ -21,6 +21,7 @@ export async function confirmPayment({ userId, proof, keySecret, now, storedSubs
 
   const before = Math.floor(now() / 1000); // taken before the fetch, so a later cancel is never older than this
   const entity = await fetchEntity(subscriptionId);
+  if (entity?.stale) return { status: 200, body: { ok: true, applied: false, stale: true } }; // Razorpay does not know it: nothing to apply
   if (!entity?.id) return { status: 502, body: { error: "razorpay_error" } };
 
   const change = subscriptionChange(

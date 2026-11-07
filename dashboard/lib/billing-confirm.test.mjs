@@ -58,3 +58,16 @@ test("signed out is 401; a not-yet-authorised subscription applies nothing", asy
   const r = await run({ ent: entity({ status: "created" }) });
   assert.deepEqual([r.body.applied, r.calls.applied.length], [false, 0]);
 });
+
+test("confirm: a subscription Razorpay does not know applies nothing and is not an error", async () => {
+  const { confirmPayment } = await import("./billing-confirm.mjs");
+  const { createHmac } = await import("node:crypto");
+  const proof = { razorpay_payment_id: "pay_1", razorpay_subscription_id: "sub_1", razorpay_signature: createHmac("sha256", "k").update("pay_1|sub_1").digest("hex") };
+  let applied = false;
+  const out = await confirmPayment({
+    userId: "u1", proof, keySecret: "k", now: () => 0,
+    storedSubscriptionId: async () => "sub_1", fetchEntity: async () => ({ stale: true }), apply: async () => { applied = true; return true; },
+  });
+  assert.deepEqual(out, { status: 200, body: { ok: true, applied: false, stale: true } });
+  assert.equal(applied, false);
+});

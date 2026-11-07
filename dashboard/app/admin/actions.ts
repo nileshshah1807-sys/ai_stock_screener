@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getTrialDays } from "@/lib/trial-days";
 import { adminContext, cancelRazorpay, logAdminAction } from "@/lib/admin";
 import { refundGuard } from "@/lib/admin-refund.mjs";
-import { refundCandidate, runRefund } from "@/lib/admin-refund-server";
+import { refundCandidate, runRefund, UNKNOWN } from "@/lib/admin-refund-server";
 import {
   cleanEmail, complimentaryPlan, exactLike, deletePlan, isEmail, namePlan, parseDays, trialPlan, undoDenialPlan,
 } from "@/lib/admin.mjs";
@@ -152,6 +152,7 @@ export async function previewRefund(id: string): Promise<RefundPreview> {
   const guard = refundGuard({ actorId: ctx.viewer.id, target, sub });
   if (!guard.ok) return { ok: false, message: guard.message ?? "Not allowed." };
   const payment = await refundCandidate(guard.subscriptionId as string);
+  if (payment === UNKNOWN) return { ok: false, message: "Razorpay does not know this subscription (it is from the other mode, or was removed). There is nothing to refund here." };
   if (!payment) return { ok: false, message: "No captured payment found (or Razorpay could not be read)." };
   return { ok: true, paymentId: payment.id, paise: payment.paise, refundablePaise: payment.refundablePaise, currency: payment.currency, at: new Date(payment.at * 1000).toISOString() };
 }

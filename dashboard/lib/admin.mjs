@@ -3,7 +3,7 @@
  * together, and what each action changes. No I/O, so `node --test` covers it;
  * lib/admin.ts runs the plans it returns with the service role.
  */
-import { DEFAULT_TRIAL_DAYS } from "./billing.mjs";
+import { DEFAULT_TRIAL_DAYS, isUnknownSubscription } from "./billing.mjs";
 import { cleanDisplayName } from "./display-name.mjs";
 
 const DAY_MS = 86_400_000;
@@ -172,6 +172,17 @@ export function namePlan(raw) {
  * here, and a live Razorpay subscription is cancelled first (at once: there is
  * no one left to serve the rest of the period).
  */
+/**
+ * Whether Razorpay's answer to a cancel lets the delete go on. An unknown id counts as
+ * "nothing to cancel" only in production: elsewhere (Preview, test keys on the shared
+ * live database) the same answer is given for a real customer's LIVE subscription,
+ * which would keep charging a person we deleted.
+ */
+export function cancelSettled(ok, status, json, env = process.env) {
+  if (ok) return true;
+  return env.VERCEL_ENV === "production" && isUnknownSubscription(status, json);
+}
+
 export function deletePlan({ actorId, target, sub, typedEmail }) {
   if (!target) return { ok: false, message: "User not found." };
   if (target.id === actorId) return { ok: false, message: "You cannot delete yourself." };
