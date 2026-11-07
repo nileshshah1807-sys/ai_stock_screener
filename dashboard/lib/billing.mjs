@@ -411,6 +411,10 @@ export function lateCharge(event, row, nowMs) {
   const subscriptionId = event?.payload?.subscription?.entity?.id;
   const payment = event?.payload?.payment?.entity;
   if (typeof subscriptionId !== "string" || typeof payment?.id !== "string") return { act: false };
+  // Only a renewal: a returning customer's FIRST payment on a new subscription (paid_count 1) lands on the old cancelled row
+  // until activation is applied. A missing paid_count is not proof of a renewal either.
+  const paidCount = event.payload.subscription.entity.paid_count;
+  if (!Number.isFinite(paidCount) || paidCount < 2) return { act: false };
   const chargedMs = Number.isFinite(payment.created_at) ? payment.created_at * 1000 : Number.isFinite(event.created_at) ? event.created_at * 1000 : nowMs;
   const paidUntil = row.current_period_end ? Date.parse(row.current_period_end) : NaN;
   // Inside the paid period it is not late (and cannot be a new charge); with no end recorded, a cancelled row has no paid time.

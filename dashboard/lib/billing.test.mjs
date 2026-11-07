@@ -381,9 +381,9 @@ test("the customer id survives the offer-rejection retry", async () => {
 });
 
 describe("a charge after cancellation", () => {
-  const charged = (over = {}) => ({
+  const charged = (over = {}, paidCount = 2) => ({
     event: "subscription.charged", created_at: 1_800_000_000,
-    payload: { subscription: { entity: { id: "sub_1" } }, payment: { entity: { id: "pay_1", amount: 12900, created_at: 1_800_000_000, ...over } } },
+    payload: { subscription: { entity: { id: "sub_1", paid_count: paidCount } }, payment: { entity: { id: "pay_1", amount: 12900, created_at: 1_800_000_000, ...over } } },
   });
   const cancelled = (end) => ({ status: "cancelled", current_period_end: end });
   const at = (s) => new Date(s * 1000).toISOString();
@@ -394,12 +394,21 @@ describe("a charge after cancellation", () => {
     assert.equal(lateCharge(charged(), { status: "cancelled", current_period_end: null }, 0).act, true);
   });
 
+  test("a returning customer's first payment is never undone, nor a charge with no paid_count", () => {
+    const old = cancelled(at(1_700_000_000));
+    assert.equal(lateCharge(charged({}, 1), old, 0).act, false);
+    assert.equal(lateCharge(charged({}, 2), old, 0).act, true);
+    const noCount = charged();
+    delete noCount.payload.subscription.entity.paid_count;
+    assert.equal(lateCharge(noCount, old, 0).act, false);
+  });
+
   test("anything else is left alone", () => {
     assert.equal(lateCharge(charged(), cancelled(at(1_900_000_000)), 0).act, false); // charged inside the paid period
     assert.equal(lateCharge(charged(), { status: "active", current_period_end: at(1_700_000_000) }, 0).act, false);
     assert.equal(lateCharge(charged(), null, 0).act, false);
     assert.equal(lateCharge({ ...charged(), event: "subscription.cancelled" }, cancelled(at(1)), 0).act, false);
-    assert.equal(lateCharge({ event: "subscription.charged", payload: { subscription: { entity: { id: "sub_1" } } } }, cancelled(at(1)), 0).act, false); // no payment
+    assert.equal(lateCharge({ event: "subscription.charged", payload: { subscription: { entity: { id: "sub_1", paid_count: 2 } } } }, cancelled(at(1)), 0).act, false); // no payment
   });
 
   test("undo cancels first, then refunds, and always alerts, even when a step fails", async () => {

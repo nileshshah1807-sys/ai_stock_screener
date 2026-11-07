@@ -17,8 +17,15 @@ const post = async (path: string, body: unknown) => {
 
 /** Stop the subscription now (not at cycle end). */
 export const cancelNow = (subscriptionId: string) => post(`/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, { cancel_at_cycle_end: 0 });
-/** Refund the whole payment (no amount = in full). A payment already refunded counts as done by Razorpay's own refusal being retried harmlessly. */
-export const refundPayment = (paymentId: string) => post(`/payments/${encodeURIComponent(paymentId)}/refund`, { speed: "normal", notes: { reason: "charge after cancellation" } });
+/** Refund the whole payment (no amount = in full). A payment already fully refunded (a redelivery after a lost reply) counts as done. */
+export async function refundPayment(paymentId: string) {
+  const authorization = auth();
+  if (!authorization) return false;
+  const read = await fetch(`${RAZORPAY}/payments/${encodeURIComponent(paymentId)}`, { headers: { Authorization: authorization }, signal: AbortSignal.timeout(10000), cache: "no-store" }).catch(() => null);
+  const payment = read?.ok ? await read.json().catch(() => null) : null;
+  if (payment && (payment.status === "refunded" || (Number.isFinite(payment.amount) && payment.amount_refunded >= payment.amount))) return true;
+  return post(`/payments/${encodeURIComponent(paymentId)}/refund`, { speed: "normal", notes: { reason: "charge after cancellation" } });
+}
 
 /** The alert: a warning in the logs and an admin_actions row (system actor) the admin page can show. */
 export async function alertLateCharge(admin: SupabaseClient, userId: string | null, detail: Record<string, unknown>) {
