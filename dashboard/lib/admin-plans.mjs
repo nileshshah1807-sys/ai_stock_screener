@@ -132,12 +132,14 @@ export async function swapPlan(db, planId, guard, fields) {
 
 /**
  * What GET /v1/plans/{id} says about a linked plan: 200 = it exists under the
- * keys in use (name as Razorpay's dashboard shows it), 404 = not in this account
+ * keys in use (name as Razorpay's dashboard shows it), 404 or 400 "does not exist" = not in this account
  * (made under the other key set), anything else = could not tell.
  */
 export function planLink(status, body) {
   if (status === 200 && body?.id) return { state: /** @type {const} */ ("linked"), name: body.item?.name ?? null };
-  if (status === 404) return { state: /** @type {const} */ ("missing"), name: null };
+  // Razorpay answers an unknown id with 404 on some endpoints and 400 "The id provided does not exist" on others.
+  const gone = status === 404 || (status === 400 && /does not exist/i.test(body?.error?.description ?? ""));
+  if (gone) return { state: /** @type {const} */ ("missing"), name: null };
   return { state: /** @type {const} */ ("unchecked"), name: null };
 }
 
