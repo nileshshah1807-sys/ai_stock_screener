@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { checkoutAction, newSubscriptionBody } from "@/lib/billing.mjs";
+import { checkoutAction, startSubscription } from "@/lib/billing.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -86,13 +86,20 @@ export async function POST(request: NextRequest) {
   const { data: offerOpen } = plan.razorpay_offer_id
     ? await admin.rpc("plan_offer_open", { p_plan: plan.id })
     : { data: false };
-  const body = newSubscriptionBody({ plan, userId, offerId: offerOpen ? plan.razorpay_offer_id : null });
-  const response = await fetch(RAZORPAY_SUBSCRIPTIONS, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: auth },
-    body: JSON.stringify(body),
-  }).catch(() => null);
-  const created = response?.ok ? await response.json().catch(() => null) : null;
+  const { response, offered, rejection } = await startSubscription(
+    async (body: unknown) => {
+      const res = await fetch(RAZORPAY_SUBSCRIPTIONS, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: auth },
+        body: JSON.stringify(body),
+      }).catch(() => null);
+      return { ok: Boolean(res?.ok), status: res?.status ?? 0, json: await res?.json().catch(() => null) };
+    },
+    { plan, userId, offerId: offerOpen ? plan.razorpay_offer_id : null },
+  );
+  // Where an admin looks: the deployment's logs. admin_actions needs an admin as actor, and this is a buyer's request.
+  if (rejection) console.warn(`create-subscription: Razorpay rejected offer ${plan.razorpay_offer_id} on plan ${plan.id}; sold at full price. ${rejection}`);
+  const created = response.ok ? response.json : null;
   if (!created?.id) return fail("razorpay_error", 502);
 
   // Remember which Razorpay subscription is this user's. plan_id is set by the
@@ -102,7 +109,7 @@ export async function POST(request: NextRequest) {
     .from("subscriptions")
     .update({
       razorpay_subscription_id: created.id,
-      offer_applied: Boolean(body.offer_id),
+      offer_applied: offered,
       plan_amount_paise: plan.amount_paise, // what they took: a later price change never rewrites it
       updated_at: new Date().toISOString(),
     })
@@ -114,8 +121,9 @@ export async function POST(request: NextRequest) {
     subscription_id: created.id,
     key_id: keyId,
     plan: { id: plan.id, name: plan.name, amount_paise: plan.amount_paise, period: plan.period },
-    offer_applied: Boolean(body.offer_id),
-    charged_amount_paise: body.offer_id ? plan.offer_amount_paise : plan.amount_paise,
+    offer_applied: offered,
+    offer_unavailable: Boolean(rejection),
+    charged_amount_paise: offered ? plan.offer_amount_paise : plan.amount_paise,
     trial_ends_at: null,
   });
 }

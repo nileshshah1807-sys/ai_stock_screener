@@ -115,6 +115,27 @@ export function newSubscriptionBody({ plan, userId, offerId }) {
   return body;
 }
 
+/** Razorpay refused the create because of the offer: a 400 whose description names it. */
+export function isOfferRejection(status, failure) {
+  return status === 400 && /offer/i.test(String(failure?.error?.description ?? ""));
+}
+
+/**
+ * Creates the subscription with the offer; if Razorpay rejects the offer itself
+ * (a mistyped or expired id), once more without it, so a bad offer never blocks
+ * a sale. `post(body)` resolves {ok, status, json} and never throws. Any other
+ * failure is returned as it came.
+ * @returns {Promise<{response: {ok: boolean, status: number, json: any}, offered: boolean, rejection: string | null}>}
+ */
+export async function startSubscription(post, { plan, userId, offerId }) {
+  const first = await post(newSubscriptionBody({ plan, userId, offerId }));
+  if (!offerId || first.ok || !isOfferRejection(first.status, first.json)) {
+    return { response: first, offered: Boolean(offerId), rejection: null };
+  }
+  const retry = await post(newSubscriptionBody({ plan, userId, offerId: null }));
+  return { response: retry, offered: false, rejection: String(first.json.error.description) };
+}
+
 /**
  * The viewer a token's claims describe, or null. Admin keeps the admin role;
  * everyone else (invited, trial, paid) is a viewer.

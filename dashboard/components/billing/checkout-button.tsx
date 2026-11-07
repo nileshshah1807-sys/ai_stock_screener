@@ -35,6 +35,7 @@ type Created = {
   key_id: string;
   plan: { id: string; name: string; amount_paise: number; period: string };
   offer_applied?: boolean;
+  offer_unavailable?: boolean;
 };
 
 const ERRORS: Record<string, string> = {
@@ -103,6 +104,7 @@ export function CheckoutButton({
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<{ text: string; link?: boolean } | null>(null);
+  const [offerGone, setOfferGone] = useState(false);
   const locked = useInFlight();
 
   async function waitForSubscription() {
@@ -161,6 +163,7 @@ export function CheckoutButton({
         setInFlight(false);
         return;
       }
+      setOfferGone(Boolean(body.offer_unavailable));
       setPhase("paying");
       new window.Razorpay({
         key: body.key_id,
@@ -210,6 +213,7 @@ export function CheckoutButton({
             shortly; if you were charged, your plan will appear there.
           </p>
         ) : null}
+        {offerGone ? <p className="text-sm text-muted-foreground">Early-bird offer unavailable, full price applies.</p> : null}
         {error ? (
           <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
             <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
