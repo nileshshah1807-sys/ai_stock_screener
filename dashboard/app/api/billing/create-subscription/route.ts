@@ -97,6 +97,7 @@ export async function POST(request: NextRequest) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: auth },
       body: JSON.stringify(customerBody({ name, email })),
+      signal: AbortSignal.timeout(5000), // it sits in the buyer's wait and may fail anyway
     }).catch(() => null);
     const customer = made?.ok ? await made.json().catch(() => null) : null;
     if (typeof customer?.id === "string") customerId = customer.id;
