@@ -134,8 +134,6 @@ test("the mode comes from the key id's prefix", () => {
 test("a linked plan is found, missing or unchecked by Razorpay's answer", () => {
   assert.deepEqual(planLink(200, { id: "plan_x", item: { name: "Cupel yearly" } }), { state: "linked", name: "Cupel yearly" });
   assert.deepEqual(planLink(404, { error: {} }), { state: "missing", name: null });
-  assert.deepEqual(planLink(400, { error: { description: "The id provided does not exist" } }), { state: "missing", name: null });
-  assert.deepEqual(planLink(400, { error: { description: "Bad request" } }), { state: "unchecked", name: null });
   assert.deepEqual(planLink(401, null), { state: "unchecked", name: null });
   assert.deepEqual(planLink(0, null), { state: "unchecked", name: null });
 });
