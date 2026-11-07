@@ -169,7 +169,14 @@ export function CheckoutButton({
           setInFlight(false);
           return;
         }
-        await createClient().auth.refreshSession();
+        const { error: refreshError } = await createClient().auth.refreshSession();
+        if (refreshError) {
+          // Without the new token the invoice would carry the email: stop and let them retry.
+          setError({ text: "Your name saved, but we could not refresh your session. Try again." });
+          setPhase("idle");
+          setInFlight(false);
+          return;
+        }
       }
       const [response, loaded] = await Promise.all([
         fetch("/api/billing/create-subscription", {
@@ -250,7 +257,7 @@ export function CheckoutButton({
             aria-describedby={`${nameId}-problem`}
             className="h-10"
           />
-          <p id={`${nameId}-problem`} role={touched && nameProblem ? "alert" : undefined} className="text-xs text-destructive">
+          <p id={`${nameId}-problem`} aria-live="polite" className="text-xs text-destructive">
             {touched && nameProblem ? nameProblem : null}
           </p>
         </div>
