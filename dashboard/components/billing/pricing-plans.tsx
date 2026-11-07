@@ -1,28 +1,14 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { Activity, Bell, Check, ChartColumn, ChartPie, Globe, ListOrdered, Mic, RadioTower, SlidersHorizontal, type LucideIcon } from "lucide-react";
 
 import { PERIOD_LABEL, planTitle, priceLabel } from "@/lib/billing.mjs";
 import type { Plan } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
 gsap.registerPlugin(ScrollTrigger);
-
-/** What a subscription covers. No price, rating or return is stated here. */
-const INCLUDED: { icon: LucideIcon; text: string }[] = [
-  { icon: Globe, text: "Indian and US stocks in one plan" },
-  { icon: ListOrdered, text: "An algorithmic, curated daily ranking on management guidance (India), value, quality, growth, momentum and risk; not a buy or sell call" },
-  { icon: SlidersHorizontal, text: "Screener filters and saved views" },
-  { icon: ChartColumn, text: "Quarterly results as they are filed, with analysis" },
-  { icon: Mic, text: "Earnings calls and management's outlook (India)" },
-  { icon: Activity, text: "Market breadth and a page for each index" },
-  { icon: ChartPie, text: "Shareholding and company documents (India)" },
-  { icon: Bell, text: "Watchlists and a bell for new results and calls" },
-  { icon: RadioTower, text: "Live prices through the trading day" },
-];
 
 /** One plan as the server worked it out: every sentence and button is made there, so no date or price is formatted twice. */
 export type PlanPanel = {
@@ -42,7 +28,7 @@ const shownPaise = (plan: Plan) => plan.offer?.amount_paise ?? plan.amount_paise
 const periodName = (plan: Plan) => (plan.period === "yearly" ? "Yearly" : plan.period === "monthly" ? "Monthly" : "Plan");
 
 /**
- * The plans as a toggle and one card, and the feature comparison under it.
+ * The plans as a toggle and one card,.
  *
  * Motion follows components/motion.tsx's rules: content is in the HTML and
  * gsap.from() sets a start state at runtime; reduced motion is a real branch
@@ -66,7 +52,6 @@ export function PricingPlans({
   const [selectedId, setSelectedId] = useState(initialId);
   const root = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
-  const table = useRef<HTMLTableElement>(null);
   const selected = Math.max(0, panels.findIndex((p) => p.plan.id === selectedId));
 
   // Before paint, so the hidden start state of the arrival never shows after hydration.
@@ -75,7 +60,7 @@ export function PricingPlans({
       const mm = gsap.matchMedia();
 
       mm.add(MOTION_OK, () => {
-        // Arrival: the toggle and card rise in; the comparison waits to be scrolled to.
+        // Arrival: the toggle and card rise in.
         gsap.from(root.current?.querySelectorAll("[data-arrive]") ?? [], {
           opacity: 0,
           y: 16,
@@ -85,21 +70,6 @@ export function PricingPlans({
           clearProps: "transform,opacity",
           scrollTrigger: embedded ? { trigger: root.current, start: "top 85%", once: true } : undefined,
         });
-        const rows = table.current?.querySelectorAll("tbody tr");
-        if (rows?.length) {
-          const trigger = { trigger: table.current, start: "top 88%", once: true };
-          gsap.from(rows, { opacity: 0, y: 12, duration: 0.45, ease: "expo.out", stagger: 0.06, clearProps: "transform,opacity", scrollTrigger: trigger });
-          // The marks pop in behind their rows, as if ticked off.
-          gsap.from(table.current?.querySelectorAll("[data-tick]") ?? [], {
-            scale: 0,
-            duration: 0.4,
-            ease: "back.out(2.4)",
-            stagger: 0.035,
-            delay: 0.15,
-            clearProps: "transform",
-            scrollTrigger: trigger,
-          });
-        }
       });
 
       // Tilt follows a mouse, never a finger: a card tipping under a scrolling thumb is noise.
@@ -165,61 +135,6 @@ export function PricingPlans({
       </div>
 
       {note ? <div data-arrive className="mt-3">{note}</div> : null}
-
-      <section aria-labelledby="included-heading" className="mt-10">
-        <h2 id="included-heading" className="text-sm font-semibold">
-          Both plans include
-        </h2>
-        <div className="panel mt-3 overflow-hidden">
-          <table ref={table} className="w-full table-fixed border-collapse text-sm">
-            <thead>
-              <tr className="border-b">
-                <th scope="col" className="sr-only">
-                  Included
-                </th>
-                {panels.map((panel, index) => (
-                  <th key={panel.plan.id} scope="col" className={cn("w-[4.5rem] px-1 py-2 sm:w-32", index === selected && "bg-brand-soft/60")}>
-                    <button
-                      type="button"
-                      aria-pressed={index === selected}
-                      onClick={() => setSelectedId(panel.plan.id)}
-                      className={cn(
-                        "w-full rounded-md px-2 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        index === selected ? "text-brand" : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {periodName(panel.plan)}
-                    </button>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {INCLUDED.map(({ icon: Icon, text }) => (
-                <tr key={text} className="group/row border-b transition-colors last:border-b-0 hover:bg-(--control)/60">
-                  <th scope="row" className="py-3 pr-2 pl-4 text-left font-normal sm:pl-5">
-                    <span className="flex items-start gap-3">
-                      <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-colors duration-200 group-hover/row:text-brand" aria-hidden />
-                      <span>{text}</span>
-                    </span>
-                  </th>
-                  {panels.map((panel, index) => (
-                    <td key={panel.plan.id} className={cn("px-1 text-center align-middle", index === selected && "bg-brand-soft/60")}>
-                      <span
-                        data-tick
-                        className="mx-auto flex size-6 items-center justify-center rounded-full bg-positive/10 text-positive transition-[transform,background-color,color] duration-200 group-hover/row:scale-110 group-hover/row:bg-positive group-hover/row:text-background"
-                      >
-                        <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
-                        <span className="sr-only">Included</span>
-                      </span>
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
     </div>
   );
 }
@@ -298,7 +213,7 @@ function Panel({ panel, active }: { panel: PlanPanel; active: boolean }) {
     >
       <div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <h2 className="text-lead font-semibold">{planTitle(plan)}</h2>
+          <h3 className="text-lead font-semibold">{planTitle(plan)}</h3>
           {isCurrent ? (
             <span className="rounded-md bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground">Current plan</span>
           ) : badge === "value" ? (
@@ -314,7 +229,6 @@ function Panel({ panel, active }: { panel: PlanPanel; active: boolean }) {
 
         {plan.offer && note ? (
           <div className="mt-4 rounded-row bg-brand-soft px-3.5 py-3 text-xs leading-relaxed tabular-nums">
-            <Countdown endsAt={plan.offer.ends_at} />
             <p>{note}</p>
           </div>
         ) : null}
@@ -415,46 +329,5 @@ function StruckPrice({ paise, active }: { paise: number; active: boolean }) {
       {priceLabel(paise)}
       <span ref={line} aria-hidden className="absolute inset-x-0 top-1/2 h-px bg-current" />
     </s>
-  );
-}
-
-/**
- * Time left on the early-bird price, from the offer's end date. It renders
- * nothing on the server (the time there is not the reader's), nothing without
- * a date, and nothing once the date has passed: the sentence beside it still
- * states the date, so the countdown is only ever extra.
- */
-function Countdown({ endsAt }: { endsAt: string | null }) {
-  const end = endsAt ? new Date(endsAt).getTime() : NaN;
-  const [left, setLeft] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (Number.isNaN(end)) return;
-    const tick = () => setLeft(Math.max(0, end - Date.now()));
-    tick();
-    const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [end]);
-
-  if (left === null || left <= 0) return null;
-  const s = Math.floor(left / 1000);
-  const parts = [
-    ["d", Math.floor(s / 86400)],
-    ["h", Math.floor((s % 86400) / 3600)],
-    ["m", Math.floor((s % 3600) / 60)],
-    ["s", s % 60],
-  ] as const;
-  const words = parts.map(([u, v]) => `${v}${u}`).join(" ");
-
-  return (
-    <div role="timer" aria-label={`Offer ends in ${words}`} className="mb-2.5 flex items-center gap-1.5">
-      <span className="mr-1 text-xs font-medium text-brand">Ends in</span>
-      {parts.map(([unit, value]) => (
-        <span key={unit} aria-hidden className="flex min-w-9 items-baseline justify-center gap-0.5 rounded-md bg-card px-1.5 py-1 shadow-sm ring-1 ring-border">
-          <span className="text-sm font-semibold tabular-nums text-foreground">{String(value).padStart(2, "0")}</span>
-          <span className="text-micro text-muted-foreground">{unit}</span>
-        </span>
-      ))}
-    </div>
   );
 }
