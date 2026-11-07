@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { AccountActions } from "@/components/billing/account-actions";
+import { CancelPlan, DeleteAccount } from "@/components/billing/account-actions";
 import { AccountMotion } from "@/components/billing/account-motion";
 import { ProfileForm } from "@/components/billing/profile-form";
 import { buttonVariants } from "@/components/ui/button";
@@ -41,6 +41,7 @@ export function AccountView({
 }) {
   const summary = planSummary({ kind, subscription, plan }, formatDate);
   const setUp = isSetUp(subscription);
+  const canCancel = setUp && subscription?.status !== "cancelled";
   const permanent = kind === "admin" || kind === "allowlist";
   const showSubscribe = !setUp && !permanent && subscription?.status !== "past_due";
   const current = currentPlanId(subscription);
@@ -110,6 +111,12 @@ export function AccountView({
             {kind === "lapsed" || subscription?.status === "cancelled" ? "Subscribe" : "Choose a plan"}
           </Link>
         ) : null}
+
+        {canCancel ? (
+          <div className="mt-5 border-t pt-5">
+            <CancelPlan inTrial={subscription?.status === "trialing"} contactEmail={LEGAL.contactEmail} />
+          </div>
+        ) : null}
       </section>
 
       {!permanent ? (
@@ -128,7 +135,7 @@ export function AccountView({
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             You can move to the {planTitle(other).toLowerCase()} ({priceLabel(other.amount_paise)} per {PERIOD_LABEL[other.period] ?? other.period}). Cancel
-            your current plan below; it stays active until {summary.nextCharge ? formatDate(summary.nextCharge.date) : "the end of the period"}, and nothing
+            your current plan in the card above; it stays active until {summary.nextCharge ? formatDate(summary.nextCharge.date) : "the end of the period"}, and nothing
             more is charged. Then choose the new plan on the pricing page.
           </p>
           <Link href="/pricing" className={cn(buttonVariants({ variant: "outline" }), "mt-3 h-10 w-full sm:w-auto")}>
@@ -137,8 +144,8 @@ export function AccountView({
         </section>
       ) : null}
 
-      <section aria-label="Cancel or delete" data-arrive className="panel mt-4 p-6 sm:p-8">
-        <AccountActions canCancel={setUp && subscription?.status !== "cancelled"} inTrial={subscription?.status === "trialing"} contactEmail={LEGAL.contactEmail} />
+      <section aria-label="Delete account" data-arrive className="panel mt-4 p-6 sm:p-8">
+        <DeleteAccount contactEmail={LEGAL.contactEmail} />
       </section>
 
       <div data-arrive className="mt-6 flex flex-wrap gap-3">
