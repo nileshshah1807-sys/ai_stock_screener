@@ -112,12 +112,19 @@ export function CheckoutButton({
     const supabase = createClient();
     // Ask the server to verify the payment and write the subscription now; the
     // webhook stays the fallback if this fails or Razorpay is not yet settled.
-    await fetch("/api/billing/confirm", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(proof),
-      signal: AbortSignal.timeout(15_000),
-    }).catch(() => null);
+    // AbortController, not AbortSignal.timeout (missing in older Safari/WebViews); nothing here may skip the poll.
+    try {
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), 15_000);
+      await fetch("/api/billing/confirm", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(proof),
+        signal: abort.signal,
+      }).finally(() => clearTimeout(timer));
+    } catch {
+      // the poll and the webhook still grant access
+    }
     const deadline = Date.now() + POLL_FOR_MS;
     while (Date.now() < deadline) {
       const { data } = await supabase.from("subscriptions").select("status, plan_id").maybeSingle();
