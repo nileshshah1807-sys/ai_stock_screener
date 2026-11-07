@@ -67,7 +67,7 @@ test("the four emails say what they should and stay plain", () => {
 test("every email has an HTML part with the same facts, links and one button", () => {
   const now = Date.parse("2026-11-07T00:00:00Z");
   const cases = {
-    paid: [{ period: "yearly" }, ["yearly plan", "https://cupel.in/account", "Manage plan"]],
+    paid: [{ period: "yearly" }, ["yearly plan", "renews by autopay", "cancel anytime in your account", "https://cupel.in/account", "Manage plan"]],
     cancelled: [{ endsAt: "2026-12-31T18:29:59Z" }, ["31 December 2026", "https://cupel.in/pricing", "Subscribe again"]],
     trial_ending: [{ endsAt: "2026-11-09T10:00:00Z" }, ["9 November 2026", "https://cupel.in/account", "Pick a plan"]],
     refund: [{ amountPaise: 99900 }, ["₹999", "https://cupel.in/refunds", "Refund policy"]],
