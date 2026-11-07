@@ -4,9 +4,11 @@ Most NSE earnings calls are dial-in only. A caller who has not pre-registered
 (Chorus Call's DiamondPass) reaches an operator, who asks for a name and
 company and connects them. This worker is that caller, and it says what it is:
 ``identity.wav`` is a short recorded clip ("Chirayu Shah, Cupel"), played once
-the operator is on. If the operator asks anything else, or whether the caller
-is automated, the worker does not answer for itself: a person decides. It does
-not pretend to be a person and it never touches a CAPTCHA.
+the operator is on, and only once. The job never answers a further question.
+If the conference has not started within ``JOIN_DEADLINE_SECONDS`` of the
+recording's start, it hangs up, logs why and leaves the call to the evening
+recording; it does not retry in the same call. It does not pretend to be a
+person and it never touches a CAPTCHA.
 
 Pieces:
 * ``pjsua`` (PJSIP's command-line client) dials ``--uri`` through the SIP
@@ -17,6 +19,9 @@ Pieces:
   transcriber and the ``live_call_lines`` tables are shared with the webcast path.
 
 Open design points:
+* The conference has started when a transcribed passage has a moderator's
+  opening in it (``JOINED``); a crude test, to be replaced by what the first real
+  call sounds like.
 * When to play the clip. ``pjsua --play-file`` starts at once, over the
   conference greeting. Pad the clip with silence as a stopgap; the proper fix
   is PJSUA2 (``AudioMediaPlayer.startTransmit``) triggered when the operator's
@@ -31,6 +36,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import subprocess
 import time
 from collections.abc import Callable, Iterator
@@ -47,6 +53,37 @@ WAV_HEADER_BYTES = 44
 _BYTES_PER_SECOND = SAMPLE_RATE * 2  # 16-bit mono
 #: How long the recording may stay unchanged before the call is taken as over.
 IDLE_SECONDS = 20.0
+#: Hang up if the conference has not started this far into the recording.
+JOIN_DEADLINE_SECONDS = 90.0
+JOINED = re.compile(r"ladies and gentlemen|welcome to|good (?:morning|afternoon|evening)", re.IGNORECASE)
+
+
+class Join:
+    """Has the conference started, and if the job gave up, why."""
+
+    def __init__(self) -> None:
+        self.joined = False
+        self.gave_up: str | None = None
+
+
+def watch_transcribe(transcribe: Callable[[Any], list[tuple[float, str]]], join: Join):
+    def watching(samples: Any) -> list[tuple[float, str]]:
+        passages = transcribe(samples)
+        if any(JOINED.search(text) for _, text in passages):
+            join.joined = True
+        return passages
+
+    return watching
+
+
+def until_joined(chunks: Iterator[tuple[float, Any]], join: Join, deadline: float = JOIN_DEADLINE_SECONDS):
+    """The chunks, ending the call (no retry) if the conference has not started by ``deadline``."""
+    for start, samples in chunks:
+        if not join.joined and start >= deadline:
+            join.gave_up = f"conference audio had not started {deadline:.0f} s into the call"
+            logger.warning("Hanging up: %s; the evening recording will be used", join.gave_up)
+            return
+        yield start, samples
 
 
 def pjsua_command(uri: str, *, identity_clip: Path, record_to: Path) -> list[str]:
@@ -114,14 +151,15 @@ def main(argv: list[str] | None = None) -> int:
         repo = DashboardRepository.from_environment(args.market)
     args.record_to.unlink(missing_ok=True)
     phone = subprocess.Popen(pjsua_command(args.uri, identity_clip=args.identity_clip, record_to=args.record_to))
+    join = Join()
     try:
         listen(
             repo,
             call=call_id(args.market, args.symbol, args.date),
             symbol=args.symbol,
             source="dial-in",  # not a URL: the number is not stored with the call
-            chunks=tail_chunks(args.record_to),
-            transcribe=whisper_transcriber(),
+            chunks=until_joined(tail_chunks(args.record_to), join),
+            transcribe=watch_transcribe(whisper_transcriber(), join),
         )
     finally:
         phone.terminate()
