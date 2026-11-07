@@ -6,48 +6,41 @@ import { Loader2, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
-type Props = {
-  /** Cancelling is offered only while a plan is set up. */
-  canCancel: boolean;
-  /** Still in the free trial: cancelling stops the plan before any charge. */
-  inTrial: boolean;
-  /** Where the person can write if a request fails. */
-  contactEmail: string;
-};
-
 /**
  * Two requests that cannot be undone from this page, each asked for twice: the
  * first press shows what will happen, the second does it. Not a modal -- the
- * explanation sits where the button was.
+ * explanation sits where the button was. Cancelling lives in the "Your plan"
+ * card (CancelPlan); deleting the account has a section of its own.
  */
-export function AccountActions({ canCancel, inTrial, contactEmail }: Props) {
+export function CancelPlan({ inTrial, contactEmail }: { inTrial: boolean; contactEmail: string }) {
   return (
-    <div className="divide-y">
-      {canCancel ? (
-        <Action
-          title="Cancel your plan"
-          explain={
-            inTrial
-              ? "The first charge will not be made. Nothing has been charged, and your trial access runs to its end."
-              : "Your plan stays active until the end of the period you have paid for, then stops. You will not be charged again."
-          }
-          button="Cancel plan"
-          confirm={inTrial ? "Yes, cancel my plan" : "Yes, cancel at the end of the period"}
-          endpoint="/api/billing/cancel"
-          done={inTrial ? "Your plan is cancelled. You will not be charged; your trial access runs to its end." : "Your plan is cancelled and will not renew."}
-          contactEmail={contactEmail}
-        />
-      ) : null}
-      <Action
-        title="Delete your account"
-        explain="This asks us to delete your account and the data tied to it, such as your watchlists. If you have a plan, cancel it first. We will confirm by email."
-        button="Request deletion"
-        confirm="Yes, request deletion"
-        endpoint="/api/account/delete-request"
-        done="Deletion requested. We will email you when it is done."
-        contactEmail={contactEmail}
-      />
-    </div>
+    <Action
+      title="Cancel your plan"
+      explain={
+        inTrial
+          ? "The first charge will not be made. Nothing has been charged, and your trial access runs to its end."
+          : "Your plan stays active until the end of the period you have paid for, then stops. You will not be charged again."
+      }
+      button="Cancel plan"
+      confirm={inTrial ? "Yes, cancel my plan" : "Yes, cancel at the end of the period"}
+      endpoint="/api/billing/cancel"
+      done={inTrial ? "Your plan is cancelled. You will not be charged; your trial access runs to its end." : "Your plan is cancelled and will not renew."}
+      contactEmail={contactEmail}
+    />
+  );
+}
+
+export function DeleteAccount({ contactEmail }: { contactEmail: string }) {
+  return (
+    <Action
+      title="Delete your account"
+      explain="This asks us to delete your account and the data tied to it, such as your watchlists. If you have a plan, cancel it first. We will confirm by email."
+      button="Request deletion"
+      confirm="Yes, request deletion"
+      endpoint="/api/account/delete-request"
+      done="Deletion requested. We will email you when it is done."
+      contactEmail={contactEmail}
+    />
   );
 }
 

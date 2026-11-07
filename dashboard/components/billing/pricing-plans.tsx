@@ -17,6 +17,8 @@ export type PlanPanel = {
   badge: "value" | null;
   /** The early-bird sentence, only while the offer is open. */
   note: string | null;
+  /** How the plan renews and that it can be cancelled (lib/billing.mjs autopayLine). */
+  autopay: string;
   facts: { label: string; value: string }[];
   action: React.ReactNode;
 };
@@ -197,7 +199,7 @@ function PeriodToggle({ panels, selected, onSelect }: { panels: PlanPanel[]; sel
 
 /** One plan's card body. All are mounted; only the active one is seen, read or focusable. */
 function Panel({ panel, active }: { panel: PlanPanel; active: boolean }) {
-  const { plan, isCurrent, badge, note, facts, action } = panel;
+  const { plan, isCurrent, badge, note, autopay, facts, action } = panel;
   const period = PERIOD_LABEL[plan.period] ?? plan.period;
   // A plan with an offer opens on its regular price and falls to the offer price: that is the moment.
   const from = plan.offer ? plan.amount_paise : shownPaise(plan);
@@ -244,6 +246,7 @@ function Panel({ panel, active }: { panel: PlanPanel; active: boolean }) {
           ))}
         </dl>
         <div className="mt-auto pt-6">{action}</div>
+        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{autopay}</p>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { describe, test } from "node:test";
 
 import {
   accessFromClaims,
+  autopayLine,
   daysLeftLabel,
   currentPlanId,
   isSetUp,
@@ -330,4 +331,19 @@ test("the unknown-subscription rule: 404, or a 400 that says the id does not exi
   assert.equal(isUnknownSubscription(500, null), false);
   assert.deepEqual(lookupResult(false, 400, real), { stale: true });
   assert.deepEqual(lookupResult(false, 400, { error: { code: "BAD_REQUEST_ERROR", description: "Bad request" } }), { error: true });
+});
+
+describe("autopay wording", () => {
+  test("the pricing card's line takes its period and price from the plan", () => {
+    assert.match(autopayLine({ period: "monthly", amount_paise: 12900 }), /^Renews every month by autopay .* at ₹129 until you cancel\. Cancel anytime in your account\.$/);
+    assert.match(autopayLine({ period: "yearly", amount_paise: 99900 }), /every year .* at ₹999 /);
+    // An open early-bird is UPI only at checkout, so no other method is promised.
+    assert.equal(autopayLine({ period: "yearly", amount_paise: 99900, offer: { amount_paise: 69900 } }), "Renews every year by UPI AutoPay at ₹999 until you cancel. Cancel anytime in your account.");
+  });
+
+  test("an active plan says autopay is on, the date and amount, and that access stays", () => {
+    const plan = { id: "m", name: "Cupel", period: "monthly", amount_paise: 12900 };
+    const s = planSummary({ kind: "paid", subscription: { status: "active", plan_id: "m", current_period_end: "2026-12-07T00:00:00Z" }, plan }, (d) => `on ${d.slice(0, 10)}`, priceLabel);
+    assert.equal(s.detail, "Autopay is on: renews on on 2026-12-07 for ₹129. Cancel anytime, access stays until then.");
+  });
 });

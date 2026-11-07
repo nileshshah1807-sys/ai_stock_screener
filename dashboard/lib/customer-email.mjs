@@ -26,7 +26,7 @@ function content(kind, d, now) {
       return {
         subject: "Thank you for subscribing to Cupel",
         heading: "Thank you for subscribing",
-        paragraphs: [`Thank you for subscribing to Cupel${d.period ? ` (${d.period} plan)` : ""}. Your payment went through and your access is on.`, "Manage your plan any time"],
+        paragraphs: [`Thank you for subscribing to Cupel${d.period ? ` (${d.period} plan)` : ""}. Your payment went through and your access is on. Your plan renews by autopay until you cancel; you can cancel anytime in your account, and your access stays until the end of the period you have paid for.`, "Manage your plan any time"],
         button: { label: "Manage plan", href: `${SITE}/account` },
       };
     case "cancelled":

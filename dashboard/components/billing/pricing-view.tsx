@@ -4,7 +4,7 @@ import { CheckoutButton } from "@/components/billing/checkout-button";
 import { PricingPlans, type PlanPanel } from "@/components/billing/pricing-plans";
 import { Reveal } from "@/components/motion";
 import { buttonVariants } from "@/components/ui/button";
-import { DEFAULT_TRIAL_DAYS, PERIOD_LABEL, TRIAL_UNAVAILABLE, trialName, currentPlanId, lapseReason, perMonthLabel, planTitle, priceLabel, savingPercent } from "@/lib/billing.mjs";
+import { DEFAULT_TRIAL_DAYS, autopayLine, PERIOD_LABEL, TRIAL_UNAVAILABLE, trialName, currentPlanId, lapseReason, perMonthLabel, planTitle, priceLabel, savingPercent } from "@/lib/billing.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
 import type { Plan, Subscription } from "@/lib/plans";
@@ -46,6 +46,7 @@ export function planPanels(plans: Plan[], { email, kind, subscription, trialDays
       note: plan.offer
         ? `${plan.offer.name}: first ${period} only, with UPI Autopay. ${plan.offer.ends_at ? `Until ${formatDate(plan.offer.ends_at)}. ` : ""}Then ${priceLabel(plan.amount_paise)} per ${period}.`
         : null,
+      autopay: autopayLine(plan),
       facts: [
         { label: "Billed", value: plan.period === "yearly" ? "Once a year" : "Every month" },
         { label: "Works out to", value: `${perMonthLabel(plan)} a month` },

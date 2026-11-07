@@ -297,6 +297,18 @@ export function firstChargePaise(subscription, plan) {
 
 // --- The pricing and account pages' wording ---
 
+/**
+ * The pricing card's autopay sentence, from the plan's own period and regular
+ * price (the early-bird applies to the first period only; renewals are at this price).
+ * `plan.offer` is set only while the offer is open.
+ */
+export function autopayLine(plan) {
+  const period = PERIOD_LABEL[plan?.period] ?? "period";
+  // While the early-bird is open checkout offers UPI alone (checkoutRestriction), so only UPI is promised.
+  const method = plan?.offer ? "UPI AutoPay" : "autopay (UPI AutoPay, card or eMandate)";
+  return `Renews every ${period} by ${method} at ${priceLabel(plan?.amount_paise ?? 0)} until you cancel. Cancel anytime in your account.`;
+}
+
 /** Both launch plans share one name, so the page names a plan by its period. */
 export function planTitle(plan) {
   return plan?.period === "yearly" ? "Yearly plan" : plan?.period === "monthly" ? "Monthly plan" : "Your plan";
@@ -326,7 +338,7 @@ export function planSummary({ kind, subscription, plan }, fmtDate, fmtMoney = pr
       return {
         title,
         status: "Active",
-        detail: `Renews on ${fmtDate(date)}${paise != null ? ` for ${fmtMoney(paise)}` : ""}.`,
+        detail: `Autopay is on: renews on ${fmtDate(date)}${paise != null ? ` for ${fmtMoney(paise)}` : ""}. Cancel anytime, access stays until then.`,
         nextCharge: paise != null ? { date, paise } : null,
       };
     }
