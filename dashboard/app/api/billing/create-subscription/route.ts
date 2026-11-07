@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { checkoutAction, startSubscription } from "@/lib/billing.mjs";
+import { withTestIds } from "@/lib/plan-overrides.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
     .not("razorpay_plan_id", "is", null);
   if (wanted) query = query.eq("id", wanted);
   const { data: plans } = await query.order("created_at").limit(1);
-  const plan = plans?.[0];
+  const plan = plans?.[0] ? withTestIds(plans[0]) : null; // Preview: test-mode ids, see plan-overrides
   if (!plan) return fail("no_active_plan", 404);
 
   const auth = `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`;

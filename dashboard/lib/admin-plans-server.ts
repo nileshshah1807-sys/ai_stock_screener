@@ -11,6 +11,7 @@ import {
   validateTrialDays,
 } from "@/lib/admin-plans.mjs";
 import { adminContext, logAdminAction } from "@/lib/admin";
+import { plansReadOnlyReason, withTestIds } from "@/lib/plan-overrides.mjs";
 
 /** Server-only plan management. Every export re-checks the admin from the token. */
 
@@ -53,6 +54,12 @@ async function context() {
 
 const NOT_ADMIN = fail("Not allowed.");
 
+/** Every write below asks first: only production may change the shared plans and settings. */
+const readOnly = (): Result | null => {
+  const reason = plansReadOnlyReason();
+  return reason ? fail(reason) : null;
+};
+
 export async function loadPlansAdmin(): Promise<PlansAdminData | null> {
   const c = await context();
   if (!c) return null;
@@ -63,7 +70,7 @@ export async function loadPlansAdmin(): Promise<PlansAdminData | null> {
     db.from("app_settings").select("value").eq("key", "trial_days").maybeSingle(),
   ]);
   if (plans.error || subs.error) return null;
-  const rows = (plans.data ?? []) as AdminPlan[];
+  const rows = ((plans.data ?? []) as AdminPlan[]).map((plan) => withTestIds(plan));
   const days = Number(setting.data?.value);
   const checked = await Promise.all(rows.map(async (p) => [p.id, await lookupPlan(c.auth, p.razorpay_plan_id)] as const));
   return { plans: rows, revenue: revenueByPlan(rows, subs.data ?? []), trialDays: Number.isInteger(days) ? days : 7, mode: razorpayMode(process.env.RAZORPAY_KEY_ID), links: Object.fromEntries(checked) };
@@ -79,6 +86,8 @@ async function lookupPlan(auth: string | null, id: string | null): Promise<PlanL
 export async function changePrice(planId: string, rupees: string): Promise<Result> {
   const c = await context();
   if (!c) return NOT_ADMIN;
+  const blocked = readOnly();
+  if (blocked) return blocked;
   const { db, auth } = c;
   if (!auth) return fail("Razorpay is not configured on this server.");
   const { data: plan } = await db.from("plans").select("*").eq("id", planId).maybeSingle();
@@ -99,6 +108,8 @@ export async function changePrice(planId: string, rupees: string): Promise<Resul
 export async function relinkPlan(planId: string): Promise<Result> {
   const c = await context();
   if (!c) return NOT_ADMIN;
+  const blocked = readOnly();
+  if (blocked) return blocked;
   if (!c.auth) return fail("Razorpay is not configured on this server.");
   const { data: plan } = await c.db.from("plans").select("*").eq("id", planId).maybeSingle();
   if (!plan) return fail("No such plan.");
@@ -152,6 +163,8 @@ export type OfferInput = { name: string; rupees: string; offerId: string; endsAt
 export async function saveOffer(planId: string, input: OfferInput): Promise<Result> {
   const c = await context();
   if (!c) return NOT_ADMIN;
+  const blocked = readOnly();
+  if (blocked) return blocked;
   const { ctx, db } = c;
   const { data: plan } = await db.from("plans").select("*").eq("id", planId).maybeSingle();
   if (!plan) return fail("No such plan.");
@@ -170,6 +183,8 @@ export async function saveOffer(planId: string, input: OfferInput): Promise<Resu
 export async function setPlanOpen(planId: string, open: boolean): Promise<Result> {
   const c = await context();
   if (!c) return NOT_ADMIN;
+  const blocked = readOnly();
+  if (blocked) return blocked;
   const { ctx, db } = c;
   const { data, error } = await db.from("plans").update({ active: open }).eq("id", planId).select("id");
   if (error || !data?.length) return fail("Could not update the plan.");
@@ -180,6 +195,8 @@ export async function setPlanOpen(planId: string, open: boolean): Promise<Result
 export async function setTrialDays(input: string): Promise<Result> {
   const c = await context();
   if (!c) return NOT_ADMIN;
+  const blocked = readOnly();
+  if (blocked) return blocked;
   const { ctx, db } = c;
   const check = validateTrialDays(input);
   if (!check.ok) return fail(check.error);
