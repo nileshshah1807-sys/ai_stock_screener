@@ -110,20 +110,15 @@ select rebuild_rating_gated_view('screener_snapshot');
 select rebuild_rating_gated_view('screener_history');
 select rebuild_rating_gated_view('screener_runs');
 
--- Day-over-day movers, now over the gated history: for a viewer the ratings
--- are null, so `rating_changed` is false and no upgrade or downgrade shows.
--- Same columns as storage/multi_market_migration.sql, so it is replaced in place.
-create or replace view screener_movers as
-with ordered as (
-    select
-        h.*,
-        lag(h.investment_rank) over w as prev_investment_rank,
-        lag(h.rating) over w as prev_rating,
-        lag(h.decision_score) over w as prev_decision_score,
-        lag(h.observed_on) over w as prev_observed_on
-    from screener_history_visible h
-    window w as (partition by h.market, h.symbol order by h.observed_on)
-)
+-- Day-over-day movers: each row joined to the same symbol's previous available
+-- observation. Built like the *_visible views (it replaces the earlier lag()
+-- over the whole history, which read every row of screener_history on each
+-- request and grew each day): it runs with its owner's rights, reads the base
+-- table, and so carries the access check and the rating redaction itself. For a
+-- viewer the ratings are null, so `rating_changed` is false and no upgrade or
+-- downgrade shows. Same columns as storage/multi_market_migration.sql, so it is
+-- replaced in place.
+create or replace view screener_movers with (security_barrier = true) as
 select
     market,
     observed_on,
@@ -142,9 +137,33 @@ select
     decision_score - prev_decision_score as score_change,
     prev_observed_on,
     prev_observed_on is null as is_new_entrant
-from ordered;
+from (
+    select
+        t.market,
+        t.observed_on,
+        t.symbol,
+        t.company,
+        t.sector,
+        t.investment_rank,
+        p.investment_rank as prev_investment_rank,
+        case when (select dashboard_is_admin()) then t.rating end as rating,
+        case when (select dashboard_is_admin()) then p.rating end as prev_rating,
+        t.decision_score,
+        p.decision_score::numeric as prev_decision_score, -- the old view's type, which a replace must keep
+        p.observed_on as prev_observed_on
+    from screener_history t
+    left join lateral (
+        select q.observed_on, q.investment_rank, q.rating, q.decision_score
+        from screener_history q
+        where q.market = t.market and q.symbol = t.symbol and q.observed_on < t.observed_on
+        order by q.observed_on desc
+        limit 1
+    ) p on true
+    where (select dashboard_has_access())
+) m;
 
-alter view screener_movers set (security_invoker = true);
+-- It no longer runs as the caller (the base table is closed to them).
+alter view screener_movers reset (security_invoker);
 revoke all on screener_movers from public;
 revoke all on screener_movers from anon;
 grant select on screener_movers to authenticated;
