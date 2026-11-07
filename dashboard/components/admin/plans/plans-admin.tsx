@@ -61,7 +61,8 @@ function Message({ result }: { result: Result | null }) {
 
 const modeLabel = (mode: PlansAdminData["mode"]) => (mode === "live" ? "LIVE" : mode === "test" ? "TEST" : "unknown");
 
-function linkText(link: PlanLink | undefined, mode: PlansAdminData["mode"]) {
+function linkText(link: PlanLink | undefined, mode: PlansAdminData["mode"], linked: boolean) {
+  if (!linked) return "No Razorpay plan is linked yet";
   if (link?.state === "linked") return `Found in your ${modeLabel(mode)} Razorpay account`;
   if (link?.state === "missing") return `Not found in your ${modeLabel(mode)} Razorpay account: it was made under the other keys`;
   return "Could not check with Razorpay just now";
@@ -113,7 +114,7 @@ function PlanCard({ plan, mode, link, stats, run }: { plan: AdminPlan; mode: Pla
           <dd>
             <span className="break-all">{plan.razorpay_plan_id ?? "not set"}</span>
             {link?.name ? <span> · named &ldquo;{link.name}&rdquo; in Razorpay</span> : null}
-            <span className={link?.state === "missing" ? "block text-destructive" : "block text-muted-foreground"}>{linkText(link, mode)}</span>
+            <span className={link?.state === "missing" ? "block text-destructive" : "block text-muted-foreground"}>{linkText(link, mode, !!plan.razorpay_plan_id)}</span>
           </dd>
         </div>
         <div><dt className="text-muted-foreground">Active subscribers</dt><dd className="tabular-nums">{stats?.subscribers ?? 0}</dd></div>
