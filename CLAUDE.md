@@ -143,7 +143,9 @@ the scheduled workflows set the same flag.
   `nse_with_bse_only`. `Is_SME` is a display flag, never read by scoring. An SME
   is admitted to the frame only once it has a statement record
   (`FinancialStatementCollector._record_coverage`), so the 0.95 statement-coverage
-  guard is unchanged. Yahoo prices about half the NSE SME list (7 Nov 2026
+  guard is unchanged; so admission can change day to day and shift every rank
+  slightly. If `Is_SME` is ever added to `SNAPSHOT_COLUMNS`, re-apply
+  `rating_access_schema.sql` so the `*_visible` views carry it. Yahoo prices about half the NSE SME list (7 Nov 2026
   sample); the rest drop at the no-price filter. The bhavcopy bar fallback keeps
   its EQ/BE series. SME filings are not read into `quarterly_filings`: a
   half-year filing would be stored as a quarter by parser v4.

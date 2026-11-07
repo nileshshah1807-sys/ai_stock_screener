@@ -221,6 +221,8 @@ def _nse_with_bse(groups, sme=None) -> UniverseResult:
     isins = set(nse["ISIN NUMBER"].dropna().str.strip())
     notes = [f"nse:{len(result.symbols)}"]
     if sme is not None:
+        # A company that moved to the mainboard can linger in the SME list.
+        sme = sme.loc[~sme["SYMBOL"].str.strip().isin(set(result.symbols))]
         sme_symbols = sme["SYMBOL"].dropna().str.strip().tolist()
         symbols_nse += sme_symbols
         isins |= set(sme["ISIN_NUMBER"].dropna().str.strip())

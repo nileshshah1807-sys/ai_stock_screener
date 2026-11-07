@@ -162,6 +162,12 @@ class SmeUniverseTests(unittest.TestCase):
         )
         self.assertEqual(result.notes, ("nse:2", "nse_sme:2", "bse_only:1"))
 
+    def test_a_name_that_moved_to_the_mainboard_is_not_an_sme(self):
+        csv = SME_CSV + "TCS,Tata,SM,01-Jan-25,10,INE467B01029,10,\n"
+        result = self._fetch(_response(csv))
+        self.assertEqual(result.symbols.count("TCS"), 1)
+        self.assertNotIn("TCS", result.sme_symbols)
+
     def test_bse_sme_group_is_added_only_when_not_on_nse(self):
         csv = SME_CSV.replace("INE0SME01010", "INE0OTHER010")
         result = self._fetch(_response(csv))
