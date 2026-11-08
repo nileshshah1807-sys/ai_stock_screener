@@ -15,7 +15,7 @@ const DOTS = sieveDots({ width: WIDTH, gateYs: GATE_YS, top: 66 });
  * The hero's picture: every stock is a dot, and the three gates let a few
  * through to the ranked row. The markup is the finished picture; scrolling
  * plays it from the top. The dots are an illustration, not data: no dot is a
- * particular stock and none is coloured as good or bad.
+ * particular stock, and all share the landing's one green accent.
  */
 export function Sieve() {
   const root = useRef<HTMLElement>(null);
@@ -50,7 +50,7 @@ export function Sieve() {
           </g>
         ))}
         {DOTS.map((d) => (
-          <circle key={d.id} data-dot cx={d.x} cy={d.y} r={d.fate === 3 ? 5 : 3.2} className="fill-foreground" opacity={d.fate === 3 ? 1 : 0.35} />
+          <circle key={d.id} data-dot cx={d.x} cy={d.y} r={d.fate === 3 ? 5 : 3.2} className="fill-brand" opacity={d.fate === 3 ? 1 : 0.35} />
         ))}
       </svg>
       <figcaption className="mt-2 text-xs text-muted-foreground">
