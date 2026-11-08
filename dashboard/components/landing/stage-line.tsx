@@ -22,8 +22,8 @@ const path = (arr: (number | null)[]) =>
 const LINES = [
   { key: "price", name: "Price", color: "blue", ink: "var(--series-1)", d: path(S.price), dash: undefined, w: 2 },
   { key: "ma50", name: "50-day", color: "amber", ink: "var(--caution)", d: path(S.ma50), dash: undefined, w: 1.4 },
-  { key: "ma150", name: "150-day", color: "violet", ink: "var(--series-3)", d: path(S.ma150), dash: "6 4", w: 1.6 },
-  { key: "ma200", name: "200-day", color: "teal", ink: "var(--series-2)", d: path(S.ma200), dash: "1 5", w: 1.8 },
+  { key: "ma150", name: "150-day", color: "green", ink: "var(--chart-1)", d: path(S.ma150), dash: "6 4", w: 1.6 },
+  { key: "ma200", name: "200-day", color: "grey", ink: "var(--muted-foreground)", d: path(S.ma200), dash: "1 5", w: 2.2 },
 ];
 
 /**
