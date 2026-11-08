@@ -194,3 +194,6 @@ export const TONE = {
   first: "Bearish",
   sample: 66,
 };
+
+/** The word a score reads as: the last cut it reaches, as stance_from_score does. */
+export const toneName = (score) => TONE.cuts.reduce((name, [cut, word]) => (score >= Number(cut) ? String(word) : name), TONE.first);

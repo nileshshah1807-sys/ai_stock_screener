@@ -35,6 +35,8 @@ test("the sieve: gates only lose dots, survivors are ranked 1..n, and the pictur
   assert.equal(s.bands.at(-1).to, 1);
   assert.equal(FACTORS.reduce((t, f) => t + f.weight, 0), 100);
   assert.ok(TONE.cuts.every(([cut], i, a) => !i || cut > a[i - 1][0]) && TONE.median > TONE.cuts[1][0]);
+  const { toneName } = await import("./landing.mjs");
+  assert.deepEqual([toneName(40), toneName(45), toneName(TONE.median), toneName(TONE.sample), toneName(80)], ["Bearish", "Cautious", "Neutral", "Optimistic", "Bullish"]);
 });
 
 test("the evening is drawn to scale and no sampled row sits in a downtrend", async () => {
