@@ -17,17 +17,20 @@ const y = (v: number) => H - PAD - ((v - lo) / (hi - lo)) * (H - PAD * 2 - 22);
 const path = (arr: (number | null)[]) =>
   arr.map((v, i) => (v === null ? "" : `${arr.slice(0, i).some((p) => p !== null) ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`)).join("");
 
+// One colour per series, from the app's chart tokens (both themes define them),
+// with the dash style as a second cue. Colour names the series, not a verdict.
 const LINES = [
-  { key: "ma200", label: "200-day average", d: path(S.ma200), dash: "1 5", w: 1.6 },
-  { key: "ma150", label: "150-day average", d: path(S.ma150), dash: "6 4", w: 1.4 },
-  { key: "ma50", label: "50-day average", d: path(S.ma50), dash: undefined, w: 1.2 },
+  { key: "price", name: "Price", color: "blue", ink: "var(--series-1)", d: path(S.price), dash: undefined, w: 2 },
+  { key: "ma50", name: "50-day", color: "amber", ink: "var(--caution)", d: path(S.ma50), dash: undefined, w: 1.4 },
+  { key: "ma150", name: "150-day", color: "green", ink: "var(--chart-1)", d: path(S.ma150), dash: "6 4", w: 1.6 },
+  { key: "ma200", name: "200-day", color: "grey", ink: "var(--muted-foreground)", d: path(S.ma200), dash: "1 5", w: 2.2 },
 ];
 
 /**
  * A made-up price history with its 50, 150 and 200-day averages, in the four
  * stage bands. One reveal sweeps left to right over the price and its averages
  * together, and each band shades in as the sweep reaches it. Every band has the
- * same weight and the ink is neutral: no stage is drawn as the good one. The
+ * same weight and the bands are neutral: no stage is drawn as the good one. The
  * chart is taller than its width suggests on a phone (the svg stretches; its
  * strokes do not) and the band names are HTML, so they stay readable.
  */
@@ -58,9 +61,8 @@ export function StageLine() {
           ))}
           <g clipPath="url(#stage-reveal)" fill="none">
             {LINES.map((l) => (
-              <path key={l.key} d={l.d} className="stroke-muted-foreground" strokeWidth={l.w} strokeDasharray={l.dash} vectorEffect="non-scaling-stroke" />
+              <path key={l.key} d={l.d} stroke={l.ink} strokeWidth={l.w} strokeDasharray={l.dash} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
             ))}
-            <path d={path(S.price)} className="stroke-foreground" strokeWidth="2" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
           </g>
         </svg>
         {S.bands.map((b) => (
@@ -75,10 +77,15 @@ export function StageLine() {
         ))}
       </div>
       <ul aria-hidden className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
-        <li>Price: solid, dark</li>
-        <li>50-day: thin line</li>
-        <li>150-day: dashes</li>
-        <li>200-day: dots</li>
+        {LINES.map((l) => (
+          <li key={l.key} className="inline-flex items-center gap-2">
+            <svg width="28" height="8" viewBox="0 0 28 8">
+              <line x1="0" x2="28" y1="4" y2="4" stroke={l.ink} strokeWidth={l.w} strokeDasharray={l.dash} />
+            </svg>
+            {l.name}: {l.color}
+            {l.dash ? (l.dash === "1 5" ? ", dots" : ", dashes") : ""}
+          </li>
+        ))}
       </ul>
       <figcaption className="mt-2 text-xs text-muted-foreground">
         An invented price with its 50, 150 and 200-day averages, passing through four stages: basing, advancing, topping, declining.
