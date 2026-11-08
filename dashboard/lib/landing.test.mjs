@@ -35,8 +35,6 @@ test("the sieve: gates only lose dots, survivors are ranked 1..n, and the pictur
   assert.equal(s.bands.at(-1).to, 1);
   assert.equal(FACTORS.reduce((t, f) => t + f.weight, 0), 100);
   assert.ok(TONE.cuts.every(([cut], i, a) => !i || cut > a[i - 1][0]) && TONE.median > TONE.cuts[1][0]);
-  const { toneName } = await import("./landing.mjs");
-  assert.deepEqual([toneName(40), toneName(45), toneName(TONE.median), toneName(TONE.sample), toneName(80)], ["Bearish", "Cautious", "Neutral", "Optimistic", "Bullish"]);
 });
 
 test("the evening is drawn to scale and no sampled row sits in a downtrend", async () => {
@@ -63,4 +61,14 @@ test("phone labels keep a minimum gap, and the page's factor weights equal the s
     assert.ok(m, `${f.key} weight not found in runtime.py`);
     assert.equal(Math.round(Number(m[1]) * 100), f.weight);
   }
+});
+
+test("a tone score reads as the word whose cut it has reached", async () => {
+  const { toneName, TONE } = await import("./landing.mjs");
+  const words = [TONE.first, ...TONE.cuts.map(([, word]) => word)];
+  TONE.cuts.forEach(([cut], i) => {
+    assert.equal(toneName(Number(cut) - 0.1), words[i]);
+    assert.equal(toneName(Number(cut)), words[i + 1]);
+  });
+  assert.deepEqual([toneName(TONE.median), toneName(TONE.sample)], ["Neutral", "Optimistic"]);
 });
