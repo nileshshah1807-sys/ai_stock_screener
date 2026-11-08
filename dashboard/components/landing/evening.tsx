@@ -4,12 +4,14 @@ import { Bell } from "lucide-react";
 import { useRef } from "react";
 
 import { useScene } from "@/components/landing/use-scene";
-import { EVENING, EVENING_AXIS, TONE, eveningPosition, labelShifts } from "@/lib/landing.mjs";
+import { EVENING, EVENING_AXIS, TONE, eveningPosition, labelShifts, toneName } from "@/lib/landing.mjs";
 import { cn } from "@/lib/utils";
 
 const span = TONE.max - TONE.min;
 const pct = (v: number) => `${((v - TONE.min) / span) * 100}%`;
 const edges: number[] = [TONE.min, ...TONE.cuts.map(([cut]) => Number(cut)), TONE.max];
+const callTone = toneName(TONE.sample);
+const medianTone = toneName(TONE.median);
 const HOURS = Array.from({ length: 7 }, (_, i) => 16 + i); // 16:00 .. 22:00
 /** Phone labels keep a minimum gap down the axis; a dot stays at its time, a label may sit a little below it. */
 const PHONE_AXIS_REM = 30;
@@ -106,26 +108,35 @@ export function Evening() {
         <MiniBell />
       </div>
 
-      <div data-tone className="mt-10 md:mt-14">
-        <p className="text-sm font-medium">How management sounded on the call</p>
-        <div className="relative mt-6 h-12" aria-hidden>
-          <div className="flex h-full overflow-hidden rounded-md border">
-            {edges.slice(0, -1).map((from, i) => (
-              <div key={from} style={{ width: `${((edges[i + 1] - from) / span) * 100}%` }} className={cn("flex items-end justify-center whitespace-nowrap pb-1.5 text-xs font-medium text-muted-foreground", i % 2 ? "bg-(--control)" : "bg-card", i > 0 && "border-l")}>
-                {i === 0 ? TONE.first : TONE.cuts[i - 1][1]}
-              </div>
-            ))}
-          </div>
-          <span style={{ left: pct(TONE.median) }} className="absolute -top-5 -translate-x-1/2 whitespace-nowrap text-xs text-muted-foreground">median call</span>
-          <span style={{ left: pct(TONE.median) }} className="absolute top-0 h-6 w-px bg-foreground/60" />
-          <span style={{ left: pct(TONE.sample) }} className="absolute top-3 size-3 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[1px] bg-foreground ring-2 ring-background" />
-        </div>
-        <p className="mt-5 text-xs text-muted-foreground">
-          <span className="sr-only">{TONE.first} below {TONE.cuts[0][0]}; {TONE.cuts.map(([cut, name]) => `${name} from ${cut}`).join("; ")}. </span>
-          Diamond: an invented call, Optimistic. Line: the median call.
+      <div data-tone className="mt-14 md:mt-20">
+        <h3 className="text-base font-semibold">How management sounded on the call</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          This call reads <strong className="font-semibold text-foreground">{callTone}</strong>; the median call reads {medianTone}.
+          <span className="sr-only"> {TONE.first} below {TONE.cuts[0][0]}; {TONE.cuts.map(([cut, name]) => `${name} from ${cut}`).join("; ")}.</span>
         </p>
+        <div className="relative mb-12 mt-14" aria-hidden>
+          <div className="flex h-12 overflow-hidden rounded-md border">
+            {edges.slice(0, -1).map((from, i) => {
+              const name = i === 0 ? TONE.first : TONE.cuts[i - 1][1];
+              const here = name === callTone;
+              return (
+                <div key={from} style={{ width: `${((edges[i + 1] - from) / span) * 100}%` }} className={cn("flex items-center justify-center whitespace-nowrap text-xs font-medium text-muted-foreground", i > 0 && "border-l", here && "bg-brand-soft font-semibold text-foreground shadow-[inset_0_2px_0_var(--brand)]")}>
+                  {name}
+                </div>
+              );
+            })}
+          </div>
+          <span style={{ left: pct(TONE.sample) }} className="absolute bottom-full mb-1 flex -translate-x-1/2 flex-col items-center gap-0.5 whitespace-nowrap text-xs font-semibold text-brand">
+            This call
+            <span className="h-1.5 w-2.5 bg-brand [clip-path:polygon(0_0,100%_0,50%_100%)]" />
+          </span>
+          <span style={{ left: pct(TONE.median) }} className="absolute top-full mt-1 flex -translate-x-1/2 flex-col items-center gap-0.5 whitespace-nowrap text-xs text-muted-foreground">
+            <span className="h-1.5 w-2.5 bg-current [clip-path:polygon(50%_0,0_100%,100%_100%)]" />
+            Median call
+          </span>
+        </div>
       </div>
-      <figcaption className="mt-4 text-xs text-muted-foreground">An example evening, invented company, illustrative times.</figcaption>
+      <figcaption className="mt-2 text-xs text-muted-foreground">An example evening, invented company, illustrative times.</figcaption>
     </figure>
   );
 }

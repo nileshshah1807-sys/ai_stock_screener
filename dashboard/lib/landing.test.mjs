@@ -62,3 +62,13 @@ test("phone labels keep a minimum gap, and the page's factor weights equal the s
     assert.equal(Math.round(Number(m[1]) * 100), f.weight);
   }
 });
+
+test("a tone score reads as the word whose cut it has reached", async () => {
+  const { toneName, TONE } = await import("./landing.mjs");
+  const words = [TONE.first, ...TONE.cuts.map(([, word]) => word)];
+  TONE.cuts.forEach(([cut], i) => {
+    assert.equal(toneName(Number(cut) - 0.1), words[i]);
+    assert.equal(toneName(Number(cut)), words[i + 1]);
+  });
+  assert.deepEqual([toneName(TONE.median), toneName(TONE.sample)], ["Neutral", "Optimistic"]);
+});
