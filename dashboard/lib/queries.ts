@@ -20,7 +20,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { indexSlug } from "@/lib/indices.mjs";
 import { BSE_SUFFIX } from "@/lib/listing.mjs";
-import { localDay, type MarketDay } from "@/lib/market-calendar.mjs";
+import { createDayMemo, localDay, type MarketDay } from "@/lib/market-calendar.mjs";
 import type { MarketCode } from "@/lib/markets";
 import type {
   HistoryRow,
@@ -1598,7 +1598,7 @@ export async function getRatedSymbols(
  */
 const DAY_MEMO_MS = 300_000;
 const TABLE_MISSING = new Set(["PGRST205", "42P01"]);
-const dayMemo = new Map<string, { at: number; row: MarketDay | null }>();
+const dayMemo = createDayMemo(DAY_MEMO_MS);
 
 /**
  * The exchange calendar's row for today on the market's clock, or null: an
@@ -1608,27 +1608,24 @@ const dayMemo = new Map<string, { at: number; row: MarketDay | null }>();
 export const getMarketDay = cache(
   async (market: MarketCode, timeZone: string): Promise<MarketDay | null> => {
     const day = localDay(Date.now(), timeZone);
-    const key = `${market}:${day}`;
-    const remembered = dayMemo.get(key);
-    if (remembered && Date.now() - remembered.at < DAY_MEMO_MS) return remembered.row;
-    const supabase = await createClient();
-    const { data, error } = await supabase
-      .from("market_calendar")
-      .select("day,kind,reason,session_open,session_close")
-      .eq("market", market)
-      .eq("day", day)
-      .maybeSingle();
-    if (error && !TABLE_MISSING.has(error.code)) return null;
-    const row: MarketDay | null = data
-      ? {
-          day: data.day,
-          kind: data.kind,
-          reason: data.reason,
-          sessionOpen: data.session_open,
-          sessionClose: data.session_close,
-        }
-      : null;
-    dayMemo.set(key, { at: Date.now(), row });
-    return row;
+    return dayMemo(`${market}:${day}`, Date.now(), async () => {
+      const supabase = await createClient();
+      const { data, error } = await supabase
+        .from("market_calendar")
+        .select("day,kind,reason,session_open,session_close")
+        .eq("market", market)
+        .eq("day", day)
+        .maybeSingle();
+      const row: MarketDay | null = data
+        ? {
+            day: data.day,
+            kind: data.kind,
+            reason: data.reason,
+            sessionOpen: data.session_open,
+            sessionClose: data.session_close,
+          }
+        : null;
+      return { row, keep: !error || TABLE_MISSING.has(error.code) };
+    });
   },
 );

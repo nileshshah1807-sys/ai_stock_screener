@@ -56,3 +56,23 @@ test("the dismissal is per market and per day", () => {
   assert.notEqual(noticeDismissKey("NSE", "2026-11-10"), noticeDismissKey("US", "2026-11-10"));
   assert.notEqual(noticeDismissKey("NSE", "2026-11-10"), noticeDismissKey("NSE", "2026-11-11"));
 });
+
+test("the day's row is read once per window, 'no row' included, and an error is retried", async () => {
+  const { createDayMemo } = await import("./market-calendar.mjs");
+  const memo = createDayMemo(300_000);
+  let reads = 0;
+  const load = (result) => async () => (reads++, result);
+
+  assert.equal(await memo("NSE:d", 0, load({ row: HOLIDAY, keep: true })), HOLIDAY);
+  assert.equal(await memo("NSE:d", 60_000, load({ row: null, keep: true })), HOLIDAY);
+  assert.equal(reads, 1);
+  // Past the window it is read again; another market or day has its own entry.
+  assert.equal(await memo("NSE:d", 300_000, load({ row: null, keep: true })), null);
+  assert.equal(await memo("NSE:d", 301_000, load({ row: HOLIDAY, keep: true })), null);
+  assert.equal(await memo("US:d", 301_000, load({ row: null, keep: true })), null);
+  assert.equal(reads, 3);
+  // An error is returned but never kept.
+  assert.equal(await memo("NSE:e", 0, load({ row: null, keep: false })), null);
+  assert.equal(await memo("NSE:e", 1, load({ row: HOLIDAY, keep: true })), HOLIDAY);
+  assert.equal(reads, 5);
+});

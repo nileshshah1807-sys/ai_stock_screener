@@ -62,3 +62,27 @@ export function noticeText(day, timezoneLabel) {
 
 /** The storage key that remembers a viewer dismissed this day's notice. */
 export const noticeDismissKey = (market, day) => `cupel:market-day-notice:${market}:${day}`;
+
+/**
+ * A per-instance memo for the day's row. `load` returns `{ row, keep }`: a row
+ * or "no row" is kept for `ttlMs`, an error (`keep: false`) is not, so it is
+ * retried on the next read.
+ *
+ * @param {number} ttlMs
+ */
+export function createDayMemo(ttlMs) {
+  /** @type {Map<string, { at: number, row: MarketDay | null }>} */
+  const kept = new Map();
+  /**
+   * @param {string} key
+   * @param {number} now epoch ms
+   * @param {() => Promise<{ row: MarketDay | null, keep: boolean }>} load
+   */
+  return async (key, now, load) => {
+    const hit = kept.get(key);
+    if (hit && now - hit.at < ttlMs) return hit.row;
+    const { row, keep } = await load();
+    if (keep) kept.set(key, { at: now, row });
+    return row;
+  };
+}
