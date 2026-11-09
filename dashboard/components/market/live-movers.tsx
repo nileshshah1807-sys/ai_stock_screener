@@ -216,7 +216,7 @@ function MoversHeading({ children }: { children?: React.ReactNode }) {
 }
 
 /** "Nifty Smallcap 250" -> "Smallcap 250": the tabs sit under one heading. */
-function shortName(name: string) {
+export function shortName(name: string) {
   const short = name.replace(/^Nifty /, "");
   return /^\d/.test(short) ? name : short;
 }
@@ -226,7 +226,7 @@ function shortName(name: string) {
  * `limit` per column. Raising `limit` asks at once; `limit` in the answer is
  * how many per column the data now holds.
  */
-function useLiveMarket(
+export function useLiveMarket(
   market: Market,
   initial: LiveMarket | null,
   limit: number,

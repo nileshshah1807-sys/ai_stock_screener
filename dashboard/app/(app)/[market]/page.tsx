@@ -3,12 +3,17 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import { HomeCardSkeleton } from "@/components/home/home-card";
+import { BreadthCard } from "@/components/home/breadth-card";
 import { ComingUpCard } from "@/components/home/coming-up-card";
 import { WatchedProvider } from "@/components/home/quick-watch";
 import { DealsCard } from "@/components/home/deals-card";
 import { ResultsInCard } from "@/components/home/results-in-card";
 import { ShareholdingCard } from "@/components/home/shareholding-card";
 import { WatchlistTodayCard } from "@/components/home/watchlist-today-card";
+import { LinedUpCard } from "@/components/home/lined-up-card";
+import { MoversCard } from "@/components/home/movers-card";
+import { PulseCard } from "@/components/home/pulse-card";
+import { ResultsSeasonCard } from "@/components/home/results-season-card";
 import { SinceCard } from "@/components/home/since-card";
 import { StartWatchingCard } from "@/components/home/start-watching-card";
 import { cardsFor, isScreenerQuery, screenerRedirect } from "@/lib/home.mjs";
@@ -44,6 +49,11 @@ export default async function HomePage({
     deals: <DealsCard market={market} />,
     "coming-up": <ComingUpCard market={market} />,
     "watchlist-today": <WatchlistTodayCard market={market} />,
+    pulse: <PulseCard market={market} />,
+    movers: <MoversCard market={market} />,
+    breadth: <BreadthCard market={market} />,
+    "results-season": <ResultsSeasonCard market={market} />,
+    "lined-up": <LinedUpCard market={market} />,
   };
 
   return (
