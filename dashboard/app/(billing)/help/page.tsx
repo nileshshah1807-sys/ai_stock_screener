@@ -56,6 +56,11 @@ export default async function HelpPage() {
             {session ? null : <> Signed-in members can also use a form here.</>}
           </p>
         )}
+        <p className="text-sm text-muted-foreground">
+          Already wrote to us?{" "}
+          <a href={LEGAL.requestsUrl} target="_blank" rel="noopener" className={LINK}>View my requests<span className="sr-only"> (opens in a new tab)</span></a>{" "}
+          to follow your tickets. Every reply also reaches your inbox.
+        </p>
       </section>
     </div>
   );

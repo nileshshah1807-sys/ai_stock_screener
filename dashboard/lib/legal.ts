@@ -16,6 +16,8 @@ export const LEGAL = {
   contactEmail: SUPPORT_EMAIL,
   grievanceOfficer: "Chirayu Shah",
   grievanceEmail: SUPPORT_EMAIL,
+  /** The Jira customer portal page where a customer follows their own tickets. */
+  requestsUrl: "https://cupel-team.atlassian.net/servicedesk/customer/user/requests",
   jurisdiction: "Bengaluru, India",
   effective: "7 November 2026",
 } as const;
