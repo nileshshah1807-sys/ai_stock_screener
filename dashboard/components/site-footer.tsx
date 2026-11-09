@@ -1,5 +1,6 @@
+import { ArrowUpRight } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 
 import { LEGAL, LEGAL_PAGES } from "@/lib/legal";
 import { cn } from "@/lib/utils";
@@ -7,23 +8,26 @@ import { cn } from "@/lib/utils";
 const X_URL = "https://x.com/ChirayuShah2103";
 
 const LINK =
-  "inline-flex items-center gap-1.5 rounded-sm py-1 underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
+  "inline-flex items-center gap-1 rounded-sm py-1.5 underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card";
 
 /** A link that leaves the site: new tab, announced as such. */
 function ExternalLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <a href={href} target="_blank" rel="noopener" className={LINK}>
       {children}
+      <ArrowUpRight aria-hidden className="size-3.5" />
       <span className="sr-only"> (opens in a new tab)</span>
     </a>
   );
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
+/** A column of links. Its title names the list; it is not a heading, so it stays out of the page's outline. */
+function Group({ title, className, children }: { title: string; className?: string; children: ReactNode }) {
+  const id = useId();
   return (
-    <div>
-      <h2 className="text-xs font-semibold uppercase tracking-wide text-foreground">{title}</h2>
-      <ul className="mt-2 grid gap-0.5 text-sm">{children}</ul>
+    <div className={className}>
+      <p id={id} className="text-sm font-medium text-foreground">{title}</p>
+      <ul aria-labelledby={id} className="mt-1.5 grid text-sm">{children}</ul>
     </div>
   );
 }
@@ -42,24 +46,20 @@ export function SiteFooter({ width = "max-w-3xl px-4", children }: { width?: str
             <p className="text-sm font-semibold text-foreground">{LEGAL.service}</p>
             <p className="mt-1 max-w-xs text-sm">Daily equity research for NSE and US stocks.</p>
           </div>
-          <Group title="Product">
-            <li><Link href="/pricing" className={LINK}>Pricing</Link></li>
-            <li>
-              <ExternalLink href={X_URL}>
-                X<span aria-hidden>↗</span>
-              </ExternalLink>
-            </li>
-          </Group>
-          <Group title="Support">
+          <Group title="Support" className="col-start-1 sm:col-start-auto">
             <li><Link href="/help" className={LINK}>Help &amp; Support</Link></li>
             <li>
-              <ExternalLink href={LEGAL.requestsUrl}>
-                View my requests<span aria-hidden>↗</span>
-              </ExternalLink>
+              <ExternalLink href={LEGAL.requestsUrl}>View my requests</ExternalLink>
             </li>
-            <li><a href={`mailto:${LEGAL.contactEmail}`} className={cn(LINK, "break-all")}>{LEGAL.contactEmail}</a></li>
+            <li><a href={`mailto:${LEGAL.contactEmail}`} className={cn(LINK, "[overflow-wrap:anywhere]")}>{LEGAL.contactEmail}</a></li>
           </Group>
-          <Group title="Legal">
+          <Group title="Product" className="col-start-1 sm:col-start-auto">
+            <li><Link href="/pricing" className={LINK}>Pricing</Link></li>
+            <li>
+              <ExternalLink href={X_URL}>X</ExternalLink>
+            </li>
+          </Group>
+          <Group title="Legal" className="col-start-2 row-span-2 row-start-2 sm:col-start-auto sm:row-span-1 sm:row-start-auto">
             {LEGAL_PAGES.map((link) => (
               <li key={link.href}><Link href={link.href} className={LINK}>{link.label}</Link></li>
             ))}
