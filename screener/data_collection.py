@@ -10,7 +10,7 @@ value resolves to what this module used before it was market-aware.
 import logging
 import os
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
@@ -43,6 +43,9 @@ from .stage import stage_features
 from .valuation_basis import price_ratios
 
 logger = logging.getLogger(__name__)
+
+# Yahoo carries a quiet name's close forward, so a last bar older than this was not.
+STALE_BARS_DAYS = 7
 
 
 def _setting_enabled(value):
@@ -377,6 +380,12 @@ class StockDataCollector:
             parsed = parsed.tz_convert(market_timezone)
         return [timestamp.date() if not pd.isna(timestamp) else None for timestamp in parsed]
 
+    def _bars_are_stale(self, price_data, expected_session):
+        """True when the last real bar is older than any gap a carried-forward series leaves."""
+        dates = self._market_bar_dates(price_data.dropna(how="all").index, self.market_timezone)
+        last = max((day for day in dates or () if day is not None), default=None)
+        return last is not None and last < expected_session - timedelta(days=STALE_BARS_DAYS)
+
     def _select_completed_price_bars(self, price_data, analysis_as_of):
         """Select only daily bars complete at ``analysis_as_of``.
 
@@ -678,8 +687,16 @@ class StockDataCollector:
                         else:
                             price_data = None
                         # A ticker Yahoo failed arrives as an all-NaN block, not an empty one.
-                        if price_data is None or price_data.dropna(how="all").empty:
-                            # Yahoo has nothing: an SME name may have the
+                        # Some SME names carry years-old bars (a last trade in 2024): not a price.
+                        if (
+                            price_data is None
+                            or price_data.dropna(how="all").empty
+                            or (
+                                clean_sym in self.sme_symbols
+                                and self._bars_are_stale(price_data, expected_price_session)
+                            )
+                        ):
+                            # Yahoo has nothing current: an SME name may have the
                             # exchange's own bars. Never used where Yahoo serves.
                             price_data = (
                                 sme_bars.bars(clean_sym)
