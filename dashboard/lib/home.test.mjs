@@ -31,13 +31,13 @@ test("an old screener link keeps its filters on the new path", () => {
 });
 
 test("bars share one scale per card and never pass it", async () => {
-  const { barScale, barShare, columnCards, groupByDay } = await import("./home.mjs");
+  const { barScale, barShare, columnCards, groupEventsByDate } = await import("./home.mjs");
   assert.equal(barScale([2, -8, null, 4]), 8);
   assert.equal(barScale([0, 0]), 1);
   assert.equal(barShare(-4, 8), 50);
   assert.equal(barShare(20, 8), 100);
   assert.equal(barShare(null, 8), 0);
   assert.deepEqual(columnCards(["since", "pulse", "coming-up", "deals", "breadth"]), ["since", "deals"]);
-  const days = groupByDay([{ event_date: "2026-11-12", s: 1 }, { event_date: "2026-11-10", s: 2 }, { event_date: "2026-11-12", s: 3 }]);
+  const days = groupEventsByDate([{ event_date: "2026-11-12", s: 1 }, { event_date: "2026-11-10", s: 2 }, { event_date: "2026-11-12", s: 3 }]);
   assert.deepEqual(days.map((d) => [d.date, d.events.length]), [["2026-11-10", 1], ["2026-11-12", 2]]);
 });

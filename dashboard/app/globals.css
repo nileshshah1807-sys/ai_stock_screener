@@ -184,6 +184,7 @@
   --animate-rise: rise var(--duration-slow) var(--ease-entrance) both;
   --animate-fade: fade var(--duration-base) var(--ease-standard) both;
   --animate-grow: grow var(--duration-slow) var(--ease-entrance) both;
+  --animate-arc: arc 700ms var(--ease-entrance) both;
   --animate-draw: draw 700ms var(--ease-entrance) both;
   --animate-sweep: sweep 1.4s ease-in-out infinite;
   /* TICK_FLASH_MS in lib/live-quotes.mjs. */
@@ -213,6 +214,13 @@
 
   /* scaleX from the leading edge: bars and meters grow out of their origin
      rather than stretching from the middle. */
+  /* From the arc's own start, so a gauge fills left to right. */
+  @keyframes arc {
+    from {
+      stroke-dasharray: 0 1;
+    }
+  }
+
   @keyframes draw {
     from {
       stroke-dashoffset: 1;

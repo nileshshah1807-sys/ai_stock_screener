@@ -97,7 +97,7 @@ export function barShare(value, scale) {
  * @param {E[]} events
  * @returns {{ date: string, events: E[] }[]}
  */
-export function groupByDay(events) {
+export function groupEventsByDate(events) {
   const days = new Map();
   for (const event of events) days.set(event.event_date, [...(days.get(event.event_date) ?? []), event]);
   return [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, list]) => ({ date, events: list }));

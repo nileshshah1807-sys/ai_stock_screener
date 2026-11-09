@@ -22,9 +22,8 @@ export function Sparkline({ values, width = 120, height = 36, className }: { val
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      preserveAspectRatio="none"
       aria-hidden
-      className={cn("block h-9 w-full", rising ? "text-positive" : "text-negative", className)}
+      className={cn("block h-auto w-full", rising ? "text-positive" : "text-negative", className)}
     >
       <polygon points={`0,${height} ${shifted} ${width},${height}`} className="fill-current opacity-10" />
       <polyline
@@ -34,7 +33,6 @@ export function Sparkline({ values, width = 120, height = 36, className }: { val
         strokeWidth={1.75}
         strokeLinejoin="round"
         strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
         strokeDasharray={1}
         className="animate-draw stroke-current"
       />

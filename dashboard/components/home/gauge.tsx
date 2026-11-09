@@ -20,7 +20,7 @@ export function Gauge({ percent, className }: { percent: number | null; classNam
           strokeWidth={7}
           strokeLinecap="round"
           // Past half the market is above its average: the arc reads as healthy.
-          className={cn("animate-draw", percent >= 50 ? "stroke-positive" : "stroke-negative")}
+          className={cn("animate-arc", percent >= 50 ? "stroke-positive" : "stroke-negative")}
           strokeDasharray={`${Math.max(0.001, Math.min(1, percent / 100))} 1`}
         />
       )}

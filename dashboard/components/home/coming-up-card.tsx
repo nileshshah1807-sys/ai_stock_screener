@@ -1,6 +1,6 @@
 import { StockIdentity } from "@/components/stock-identity";
 import { addDays, marketToday } from "@/lib/home";
-import { groupByDay } from "@/lib/home.mjs";
+import { groupEventsByDate } from "@/lib/home.mjs";
 import type { Market } from "@/lib/markets";
 import { getWatchedSymbols } from "@/lib/notifications";
 import { getUpcoming, type UpcomingEvent } from "@/lib/upcoming";
@@ -27,7 +27,7 @@ export async function ComingUpCard({ market }: { market: Market }) {
     .sort((a, b) => a.event_date.localeCompare(b.event_date) || a.symbol.localeCompare(b.symbol));
   if (!events.length) return null;
 
-  const days = groupByDay(events);
+  const days = groupEventsByDate(events);
 
   return (
     <section aria-label="Coming up, next 14 days" className="panel animate-rise p-4 sm:p-5">
@@ -44,7 +44,7 @@ export async function ComingUpCard({ market }: { market: Market }) {
           >
             <p className="flex items-baseline gap-2">
               <span className="tabular text-lg font-semibold leading-none">{dayOf(date)}</span>
-              <span className="text-xs text-muted-foreground">{date === today ? "Today" : weekdayOf(date)}</span>
+              <span className="text-xs text-muted-foreground">{date === today ? "Today" : weekdayOf(date, market.locale)}</span>
             </p>
             <ul className="mt-2 space-y-1.5">
               {list.map((event) => (
@@ -64,5 +64,5 @@ export async function ComingUpCard({ market }: { market: Market }) {
 }
 
 const dayOf = (date: string) => new Date(`${date}T00:00:00Z`).getUTCDate();
-const weekdayOf = (date: string) =>
-  new Date(`${date}T00:00:00Z`).toLocaleDateString("en-IN", { weekday: "short", month: "short", timeZone: "UTC" });
+const weekdayOf = (date: string, locale: string) =>
+  new Date(`${date}T00:00:00Z`).toLocaleDateString(locale, { weekday: "short", month: "short", timeZone: "UTC" });

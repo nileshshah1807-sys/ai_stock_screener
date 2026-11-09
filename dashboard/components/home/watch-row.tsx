@@ -2,13 +2,12 @@
 
 import { Change } from "@/components/home/change";
 import { useMarket } from "@/components/market-provider";
+import { Sparkline } from "@/components/home/sparkline";
 import { StockIdentity } from "@/components/stock-identity";
 import { TickFlash } from "@/components/tick-flash";
 import { formatMoney } from "@/lib/format";
-import { liveReturns, trendPoints } from "@/lib/home-watch.mjs";
+import { liveReturns } from "@/lib/home-watch.mjs";
 import { useLiveQuotes } from "@/lib/use-live-quotes";
-
-const [WIDTH, HEIGHT] = [64, 20];
 
 /**
  * One watched stock: live price and 1D from the quote, 1W and 1M from the
@@ -20,20 +19,11 @@ export function WatchRow({ symbol, closes }: { symbol: string; closes: number[] 
   const quote = useLiveQuotes(market.code, [symbol])(symbol);
   const { week, month, trend } = liveReturns(closes, quote?.price ?? 0);
   const last = quote?.price ?? closes.at(-1) ?? null;
-  const rising = trend.length > 1 && trend.at(-1)! >= trend[0];
 
   return (
     <li className="flex items-center gap-3 py-2">
       <StockIdentity symbol={symbol} className="min-w-0 flex-1" />
-      <svg width={WIDTH} height={HEIGHT} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} aria-hidden className="shrink-0">
-        <polyline
-          points={trendPoints(trend, WIDTH, HEIGHT)}
-          fill="none"
-          strokeWidth={1.5}
-          strokeLinejoin="round"
-          className={rising ? "stroke-positive" : "stroke-negative"}
-        />
-      </svg>
+      <Sparkline values={trend} className="h-5 w-16 shrink-0" />
       <span className="tabular w-20 shrink-0 text-right text-sm">
         <TickFlash tick={quote?.tick}>{formatMoney(last, market)}</TickFlash>
       </span>

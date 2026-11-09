@@ -14,7 +14,7 @@ import type { PulseIndex } from "@/lib/home-market";
 import { useLiveQuotes, useNow } from "@/lib/use-live-quotes";
 import { cn } from "@/lib/utils";
 
-function Change({ label, value }: { label: string; value: number | null }) {
+function Delta({ label, value }: { label: string; value: number | null }) {
   return (
     <span className="flex items-baseline gap-1">
       <span className="text-muted-foreground">{label}</span>
@@ -72,8 +72,8 @@ export function PulseTiles({ indices }: { indices: PulseIndex[] }) {
                 </span>
                 <Sparkline values={trend} className="my-1" />
                 <span className="flex justify-between gap-2 text-[11px]">
-                  <Change label="1W" value={pctChange(index.week ?? NaN, level)} />
-                  <Change label="1M" value={pctChange(index.month ?? NaN, level)} />
+                  <Delta label="1W" value={pctChange(index.week ?? NaN, level)} />
+                  <Delta label="1M" value={pctChange(index.month ?? NaN, level)} />
                 </span>
               </Link>
             </li>

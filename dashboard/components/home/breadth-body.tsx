@@ -30,16 +30,17 @@ export function BreadthBody({ now }: { now: BreadthNow }) {
           const count = live?.counts?.[key];
           const percent = total && count !== undefined ? (count / total) * 100 : now[key];
           return (
-            <li
-              key={key}
-              role="img"
-              aria-label={percent === null ? `${label}: not measured` : `${percent.toFixed(0)}% ${label.toLowerCase()}`}
-              className="relative"
-            >
-              <Gauge percent={percent} />
-              <TickFlash tick={live?.ticks[key]} className="tabular absolute inset-x-0 bottom-3 text-center font-mono text-xl font-semibold">
-                {percent === null ? "—" : `${percent.toFixed(0)}%`}
-              </TickFlash>
+            <li key={key}>
+              <div
+                role="img"
+                aria-label={percent === null ? `${label}: not measured` : `${percent.toFixed(0)}% ${label.toLowerCase()}`}
+                className="relative"
+              >
+                <Gauge percent={percent} />
+                <TickFlash tick={live?.ticks[key]} className="tabular absolute inset-x-0 bottom-3 text-center font-mono text-xl font-semibold">
+                  {percent === null ? "—" : `${percent.toFixed(0)}%`}
+                </TickFlash>
+              </div>
               <span className="mt-1 block text-center text-xs text-muted-foreground">{short}</span>
             </li>
           );

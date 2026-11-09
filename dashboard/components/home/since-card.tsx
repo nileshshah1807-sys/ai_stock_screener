@@ -55,6 +55,7 @@ export async function SinceCard({ market }: { market: Market }) {
           return (
             <li key={group.symbol} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-2.5">
               <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", isNew ? "bg-primary" : "bg-transparent")} />
+              {isNew ? <span className="sr-only">New</span> : null}
               <StockIdentity symbol={group.symbol} company={group.company} className="min-w-0 flex-1 basis-40" />
               <span className="flex flex-wrap gap-1.5">
                 {group.events.map((event) => (
