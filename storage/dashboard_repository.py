@@ -884,8 +884,17 @@ class DashboardRepository:
         return self._request(
             "GET",
             "market_calendar",
-            params=self._scoped({"select": "day,kind,reason,session_open,session_close,refreshed_at", "day": f"gte.{since}", "order": "day.asc"}),
+            params=self._scoped({"select": "day,kind,reason,session_open,session_close", "day": f"gte.{since}", "order": "day.asc"}),
         ) or []
+
+    def market_calendar_refreshed_at(self) -> str | None:
+        """When this market's calendar was last rebuilt (any row, past or future), or None."""
+        rows = self._request(
+            "GET",
+            "market_calendar",
+            params=self._scoped({"select": "refreshed_at", "order": "refreshed_at.desc", "limit": "1"}),
+        ) or []
+        return rows[0]["refreshed_at"] if rows else None
 
     def replace_market_calendar(self, rows: list[dict[str, Any]]) -> int:
         """Make this market's future calendar exactly ``rows``: stamped and upserted, then older stamps deleted."""

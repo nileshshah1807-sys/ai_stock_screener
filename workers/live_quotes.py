@@ -113,7 +113,7 @@ def todays_calendar_entry(
     today = now.astimezone(ZoneInfo(profile.timezone)).date()
     try:
         rows = repo.market_calendar(today.isoformat())
-        if members_due(max((row["refreshed_at"] for row in rows), default=None), now):
+        if members_due(repo.market_calendar_refreshed_at(), now):
             payload = fetch_holidays() if profile.code == "NSE" else None
             # A feed that parses to no holiday (an error body, a renamed key) is a failed feed.
             if profile.code != "NSE" or parse_nse_holidays(payload):

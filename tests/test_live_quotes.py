@@ -122,7 +122,8 @@ class CalendarTests(unittest.TestCase):
     def test_a_holiday_is_out_of_session_and_fetches_nothing(self):
         self.assertFalse(in_session(IN_SESSION, NSE, HOLIDAY))
         repo = FakeRepo(snapshot=["AAA"])
-        repo.market_calendar = lambda since: [{**HOLIDAY, "refreshed_at": FETCHED}]
+        repo.market_calendar = lambda since: [HOLIDAY]
+        repo.market_calendar_refreshed_at = lambda: FETCHED
         self.assertEqual(run(repo, NSE, now=IN_SESSION, fetch_quotes=must_not_fetch)["status"], "outside_session")
 
     def test_a_missing_calendar_keeps_the_weekday_rule(self):
@@ -131,6 +132,7 @@ class CalendarTests(unittest.TestCase):
     def test_a_stale_calendar_is_rebuilt_and_a_failed_feed_leaves_it_alone(self):
         repo = FakeRepo(snapshot=["AAA"])
         repo.market_calendar = lambda since: []
+        repo.market_calendar_refreshed_at = lambda: None
         written = []
         repo.replace_market_calendar = written.append
         run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=lambda: None)
@@ -141,6 +143,12 @@ class CalendarTests(unittest.TestCase):
         good = {"CM": [{"tradingDate": "24-Nov-2026", "description": "Guru Nanak"}]}
         run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=lambda: good)
         self.assertEqual([r["day"] for r in written[0]], ["2026-11-08", "2026-11-24"])
+
+    def test_a_fresh_stamp_means_no_fetch_even_with_no_future_rows(self):
+        repo = FakeRepo(snapshot=["AAA"])
+        repo.market_calendar = lambda since: []
+        repo.market_calendar_refreshed_at = lambda: "2026-11-08T08:00:00+00:00"
+        run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=must_not_fetch)
 
     def test_replace_posts_before_it_deletes_and_does_nothing_for_no_rows(self):
         calls = []
