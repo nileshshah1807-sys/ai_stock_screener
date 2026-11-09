@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { Sparkline } from "@/components/home/sparkline";
 import { Gauge } from "@/components/home/gauge";
 import { TickFlash } from "@/components/tick-flash";
 import { useMarket } from "@/components/market-provider";
@@ -46,6 +47,15 @@ export function BreadthBody({ now }: { now: BreadthNow }) {
           );
         })}
       </ul>
+      {now.trend50.length > 1 ? (
+        <div className="mt-auto pt-4">
+          <p className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+            <span>Above 50-day, last month</span>
+            <span className="tabular font-mono">{now.trend50.at(-1)!.toFixed(0)}%</span>
+          </p>
+          <Sparkline values={now.trend50} />
+        </div>
+      ) : null}
       <Link
         href={marketPath(market.slug, "/market")}
         className="mt-4 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

@@ -70,7 +70,10 @@ export function PulseTiles({ indices }: { indices: PulseIndex[] }) {
                 >
                   {formatPercent(day ?? null, 2, true)}
                 </span>
-                <Sparkline values={trend} className="my-1" />
+                <div className="relative my-1">
+                  <Sparkline values={trend} />
+                  <span className="absolute right-0 top-0 text-[10px] text-muted-foreground">1M</span>
+                </div>
                 <span className="flex justify-between gap-2 text-[11px]">
                   <Delta label="1W" value={pctChange(index.week ?? NaN, level)} />
                   <Delta label="1M" value={pctChange(index.month ?? NaN, level)} />

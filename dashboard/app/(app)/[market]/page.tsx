@@ -63,7 +63,7 @@ export default async function HomePage({
 function HomeSkeleton() {
   return (
     <div className="space-y-4 px-4 py-5 sm:px-6">
-      <HomeCardSkeleton rows={3} />
+      <HomeCardSkeleton rows={3} className="min-h-64" />
       <div className="gap-4 lg:columns-2 xl:columns-3">
         {Array.from({ length: 3 }, (_, index) => (
           <div key={index} className="mb-4 break-inside-avoid">
@@ -95,7 +95,7 @@ async function HomeCards({ market }: { market: Market }) {
   };
   const shown = (ids: string[]) =>
     ids.map((id) => (
-      <Suspense key={id} fallback={<HomeCardSkeleton rows={3} />}>
+      <Suspense key={id} fallback={<HomeCardSkeleton rows={3} className={HERO_CARDS.includes(id) ? "min-h-64" : "min-h-40"} />}>
         {byId[id]}
       </Suspense>
     ));
@@ -106,7 +106,7 @@ async function HomeCards({ market }: { market: Market }) {
   return (
     <WatchedProvider symbols={watched}>
       <div className="space-y-4 px-4 py-5 sm:px-6">
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
           {shown(cards.filter((id) => HERO_CARDS.includes(id)))}
         </div>
         {shown(cards.filter((id) => STRIP_CARDS.includes(id)))}

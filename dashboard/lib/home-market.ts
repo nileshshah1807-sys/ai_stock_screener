@@ -151,7 +151,7 @@ async function readMonthlyMovers(market: MarketCode, indices: string[], runDate:
   }
 }
 
-export type SeasonMover = { symbol: string; company: string | null; change: number };
+export type SeasonMover = { symbol: string; company: string | null; change: number; loss: boolean };
 export type ResultsSeason = {
   /** The market day the count is for: today, or the latest day with results. */
   day: string;
@@ -193,7 +193,10 @@ async function readResultsSeason(market: MarketCode, today: string, timeZone: st
   return { day: latest.date, count: latest.entries.length, ...profitMovers(cards, SEASON_LIMIT) };
 }
 
-export type BreadthNow = { session: string; e50: number | null; e200: number | null };
+export type BreadthNow = { session: string; e50: number | null; e200: number | null; trend50: number[] };
+
+/** Sessions of the 50-day share drawn under the gauges. */
+const BREADTH_TREND = 22;
 
 /** The market's share of stocks above their 50- and 200-day averages at the last published close, in percent. */
 export async function getBreadthNow(market: MarketCode): Promise<BreadthNow | null> {
@@ -209,7 +212,10 @@ export async function getBreadthNow(market: MarketCode): Promise<BreadthNow | nu
   const decoded = decodeRow(data);
   if (!decoded) return null;
   const share = (key: string) => metricPoints(decoded, key, `${key}d`, "share").at(-1)?.value ?? null;
-  return { session: decoded.dates.at(-1) as string, e50: share("e50"), e200: share("e200") };
+  const trend50 = metricPoints(decoded, "e50", "e50d", "share")
+    .slice(-BREADTH_TREND)
+    .map((point: { value: number }) => point.value);
+  return { session: decoded.dates.at(-1) as string, e50: share("e50"), e200: share("e200"), trend50 };
 }
 
 export type LinedUp = { count: number; next: { symbol: string; event_date: string }[] };

@@ -21,24 +21,28 @@ export function WatchRow({ symbol, closes }: { symbol: string; closes: number[] 
   const last = quote?.price ?? closes.at(-1) ?? null;
 
   return (
-    <li className="flex items-center gap-3 py-2">
-      <StockIdentity symbol={symbol} className="min-w-0 flex-1" />
-      <Sparkline values={trend} className="h-5 w-16 shrink-0" />
-      <span className="tabular w-20 shrink-0 text-right text-sm">
-        <TickFlash tick={quote?.tick}>{formatMoney(last, market)}</TickFlash>
-      </span>
-      <span className="tabular grid shrink-0 grid-cols-3 gap-2 text-right text-xs">
-        <Cell label="1D" value={quote?.change_pct ?? dayChange(closes)} />
-        <Cell label="1W" value={week} />
-        <Cell label="1M" value={month} />
-      </span>
+    <li className="py-2.5">
+      <div className="flex items-center gap-3">
+        <StockIdentity symbol={symbol} className="min-w-0 flex-1" />
+        <span className="tabular shrink-0 text-right text-sm">
+          <TickFlash tick={quote?.tick}>{formatMoney(last, market)}</TickFlash>
+        </span>
+      </div>
+      <div className="mt-1.5 flex items-center gap-3">
+        <Sparkline values={trend} className="h-6 min-w-12 flex-1" />
+        <span className="tabular grid shrink-0 grid-cols-3 gap-3 text-right text-xs">
+          <Cell label="1D" value={quote?.change_pct ?? dayChange(closes)} />
+          <Cell label="1W" value={week} />
+          <Cell label="1M" value={month} />
+        </span>
+      </div>
     </li>
   );
 }
 
 function Cell({ label, value }: { label: string; value: number | null | undefined }) {
   return (
-    <span className="w-14">
+    <span className="w-12">
       <span className="block text-muted-foreground">{label}</span>
       <Change value={value} unit="%" />
     </span>

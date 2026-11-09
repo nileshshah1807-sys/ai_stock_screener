@@ -42,6 +42,8 @@ export function profitMovers(cards, limit) {
       symbol: card.symbol,
       company: card.company ?? null,
       change: card.bases[0]?.rows.find((row) => row.key === "net_profit")?.yoy,
+      // A rate needs a positive base, so a negative profit here is a company that fell into loss.
+      loss: (card.bases[0]?.rows.find((row) => row.key === "net_profit")?.values?.[0] ?? 0) < 0,
     }))
     .filter((row) => Number.isFinite(row.change));
   const byChange = (a, b) => b.change - a.change;

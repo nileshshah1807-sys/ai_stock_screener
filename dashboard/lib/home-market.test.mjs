@@ -65,3 +65,16 @@ test("a shared read is served from memory inside its window, and a rejected resu
   assert.equal(await memo("e", load(4), (value) => value !== null, 1), 4);
   assert.equal(reads, 4);
 });
+
+test("a profit that fell into loss is flagged, not given a rate to print", () => {
+  const card = (symbol, yoy, now) => ({ symbol, bases: [{ rows: [{ key: "net_profit", yoy, values: [now, 1, 1] }] }] });
+  const { falls } = profitMovers([card("L", -10497, -50), card("M", -20, 8)], 5);
+  assert.deepEqual(falls.map((row) => [row.symbol, row.loss]), [["L", true], ["M", false]]);
+});
+
+test("a change that prints as zero has no sign", async () => {
+  const { formatChange } = await import("./results.mjs");
+  assert.equal(formatChange(-0.004, ""), "0.0");
+  assert.equal(formatChange(0.2, ""), "+0.2");
+  assert.equal(formatChange(-3.14, "%"), "-3.1%");
+});

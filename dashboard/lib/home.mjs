@@ -9,11 +9,11 @@
  */
 export const HOME_CARDS = [
   { id: "since", scope: "watchlist", markets: ["NSE", "US"] },
+  { id: "watchlist-today", scope: "watchlist", markets: ["NSE", "US"] },
   { id: "results-in", scope: "watchlist", markets: ["NSE", "US"] },
   { id: "shareholding", scope: "watchlist", markets: ["NSE"] },
   { id: "deals", scope: "watchlist", markets: ["NSE"] },
   { id: "coming-up", scope: "watchlist", markets: ["NSE", "US"] },
-  { id: "watchlist-today", scope: "watchlist", markets: ["NSE", "US"] },
   { id: "pulse", scope: "all", markets: ["NSE", "US"] },
   { id: "movers", scope: "all", markets: ["NSE", "US"] },
   { id: "breadth", scope: "all", markets: ["NSE", "US"] },

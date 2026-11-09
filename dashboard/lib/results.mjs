@@ -211,8 +211,10 @@ export function groupByAnnouncedDay(entries, timeZone) {
 /** A growth rate or change for a cell: always signed, so direction never rests on colour. */
 export function formatChange(value, unit = "%") {
   if (value == null) return null;
-  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
-  return `${sign}${Math.abs(value).toFixed(1)}${unit}`;
+  const text = Math.abs(value).toFixed(1);
+  // A change that prints as 0.0 has no direction to state.
+  const sign = Number(text) === 0 ? "" : value > 0 ? "+" : "-";
+  return `${sign}${text}${unit}`;
 }
 
 /**
