@@ -27,7 +27,7 @@ from .market_data import (
     latest_expected_completed_nse_session,
     normalize_market_holidays,
 )
-from .markets import active_profile, bare_symbol, ticker_for
+from .markets import active_profile, bare_symbol, is_bse_only, ticker_for
 from .numeric import round_half_up
 from .price_basis import (
     CHANGE_BAD_PRINT,
@@ -37,7 +37,7 @@ from .price_basis import (
 )
 from .price_probe import probe_expected_session
 from .quarterly_results import VENDOR_QUARTER_COLUMN, vendor_quarter_end
-from .session_bars import SessionBarSource, patch_expected_session_bar
+from .session_bars import SessionBarSource, carry_quiet_session, patch_expected_session_bar
 from .sme_bars import SmeBarHistory
 from .stage import stage_features
 from .valuation_basis import price_ratios
@@ -272,6 +272,7 @@ class StockDataCollector:
         self._action_loader = action_loader
         self.market_profile = active_profile(config)
         self.sme_symbols = frozenset()
+        self.bse_session, self.bse_traded = "", frozenset()
         self.collection_diagnostics = {
             "schema_version": 1,
             "market": self.market_profile.code,
@@ -380,11 +381,23 @@ class StockDataCollector:
             parsed = parsed.tz_convert(market_timezone)
         return [timestamp.date() if not pd.isna(timestamp) else None for timestamp in parsed]
 
+    def _last_real_bar(self, price_data):
+        """Date of the last bar holding any value, or ``None`` when there is none."""
+        dates = self._market_bar_dates(price_data.dropna(how="all").index, self.market_timezone)
+        return max((day for day in dates or () if day is not None), default=None)
+
     def _bars_are_stale(self, price_data, expected_session):
         """True when the last real bar is older than any gap a carried-forward series leaves."""
-        dates = self._market_bar_dates(price_data.dropna(how="all").index, self.market_timezone)
-        last = max((day for day in dates or () if day is not None), default=None)
+        last = self._last_real_bar(price_data)
         return last is not None and last < expected_session - timedelta(days=STALE_BARS_DAYS)
+
+    def _quiet_on_bse(self, symbol, expected_session):
+        """True when BSE's file for the expected session shows ``symbol`` did not trade."""
+        return (
+            is_bse_only(symbol)
+            and self.bse_session == expected_session.isoformat()
+            and symbol not in self.bse_traded
+        )
 
     def _select_completed_price_bars(self, price_data, analysis_as_of):
         """Select only daily bars complete at ``analysis_as_of``.
@@ -504,6 +517,7 @@ class StockDataCollector:
             )
 
         self.sme_symbols = frozenset(result.sme_symbols)
+        self.bse_session, self.bse_traded = result.bse_session, result.bse_traded
         all_symbols = set(result.symbols)
         all_symbols.update(profile.safety_net_symbols)
         filtered = {
@@ -657,6 +671,7 @@ class StockDataCollector:
         session_bar_patched = []
         sme_bars = self._sme_bar_source(expected_price_session)
         sme_bar_priced = []
+        quiet_carried = []
         action_ledger, max_open_gap = self._price_basis_rules(analysis_as_of.date())
         basis_restated = []
         bad_prints = []
@@ -687,26 +702,27 @@ class StockDataCollector:
                         else:
                             price_data = None
                         # A ticker Yahoo failed arrives as an all-NaN block, not an empty one.
-                        # Some SME names carry years-old bars (a last trade in 2024): not a price.
-                        if (
-                            price_data is None
-                            or price_data.dropna(how="all").empty
-                            or (
-                                clean_sym in self.sme_symbols
-                                and self._bars_are_stale(price_data, expected_price_session)
-                            )
-                        ):
-                            # Yahoo has nothing current: an SME name may have the
-                            # exchange's own bars. Never used where Yahoo serves.
-                            price_data = (
+                        yahoo_missing = price_data is None or price_data.dropna(how="all").empty
+                        is_sme = clean_sym in self.sme_symbols
+                        # Years-old bars (a last trade in 2024) are not a price. Yahoo does
+                        # not carry a quiet SME name forward either, so bars short of the
+                        # session are the exchange's to complete: its file has the session.
+                        last_bar = None if yahoo_missing else self._last_real_bar(price_data)
+                        yahoo_behind = last_bar is not None and last_bar < expected_price_session
+                        if yahoo_missing or (is_sme and yahoo_behind):
+                            exchange_bars = (
                                 sme_bars.bars(clean_sym)
-                                if sme_bars is not None and clean_sym in self.sme_symbols
+                                if sme_bars is not None and is_sme
                                 else None
                             )
-                            if price_data is None:
+                            if exchange_bars is not None:
+                                price_data = exchange_bars
+                                sme_bar_priced.append(clean_sym)
+                            elif yahoo_missing or self._bars_are_stale(
+                                price_data, expected_price_session
+                            ):
                                 failed.append(clean_sym)
                                 continue
-                            sme_bar_priced.append(clean_sym)
                         if session_bars is not None:
                             price_data, bar_patched = patch_expected_session_bar(
                                 price_data,
@@ -716,6 +732,12 @@ class StockDataCollector:
                             )
                             if bar_patched:
                                 session_bar_patched.append(clean_sym)
+                        if self._quiet_on_bse(clean_sym, expected_price_session):
+                            price_data, bar_carried = carry_quiet_session(
+                                price_data, expected_price_session, self.market_timezone, STALE_BARS_DAYS
+                            )
+                            if bar_carried:
+                                quiet_carried.append(clean_sym)
                         price_data, price_bar_as_of, price_bar_complete = (
                             self._select_completed_price_bars(price_data, analysis_as_of)
                         )
@@ -1014,6 +1036,9 @@ class StockDataCollector:
         )
         self.collection_diagnostics["technical_session_bar_patched_symbols"] = (
             session_bar_patched
+        )
+        self.collection_diagnostics["technical_quiet_session_carried_symbols"] = sorted(
+            set(quiet_carried) & fresh_symbols
         )
         if session_bar_patched:
             logger.warning(

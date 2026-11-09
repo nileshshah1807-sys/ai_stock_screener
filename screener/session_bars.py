@@ -180,3 +180,34 @@ def patch_expected_session_bar(frame, expected_session, market_timezone, lookup)
             patched[field] = pd.to_numeric(patched[field], errors="coerce").astype(float)
         patched.loc[label, field] = value
     return patched.sort_index(), True
+
+
+def carry_quiet_session(frame, expected_session, market_timezone, max_gap_days):
+    """Return ``frame`` with a zero-volume bar on ``expected_session`` at the last close.
+
+    For a name the exchange's own file shows did not trade that session: Yahoo
+    carries a quiet NSE name forward, but not a BSE one. Left alone, a name
+    last traded days ago holds the session's alignment down although nothing is
+    missing. A last bar more than ``max_gap_days`` old is not quiet, it is stale.
+    """
+    if frame is None or frame.empty or not isinstance(frame.index, pd.DatetimeIndex):
+        return frame, False
+    valid = frame.dropna(how="all")
+    if valid.empty or not {"Close", "Volume"} <= set(valid.columns):
+        return frame, False
+    index = valid.index
+    last = (index.tz_convert(market_timezone) if index.tz is not None else index)[-1]
+    gap = (expected_session - last.date()).days
+    if gap <= 0 or gap > max_gap_days:
+        return frame, False
+    label = pd.Timestamp(expected_session)
+    if index.tz is not None:
+        label = label.tz_localize(market_timezone).tz_convert(index.tz)
+    row = valid.iloc[-1].copy()
+    for field in ("Open", "High", "Low"):
+        if field in row:
+            row[field] = row["Close"]
+    row["Volume"] = 0.0
+    carried = frame.copy()
+    carried.loc[label] = row
+    return carried.sort_index(), True

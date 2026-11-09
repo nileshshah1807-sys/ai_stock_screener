@@ -154,10 +154,19 @@ the scheduled workflows set the same flag.
   the SM/ST/SZ rows of every daily file for ~2 years in `reports_advanced/sme_bars.csv.gz`
   (workflow cache `stock-screener-sme-bars-v1`), fetching only the sessions it lacks:
   a cold start is ~500 files (~6.5 min, 2.4 MB), then one a run. It is asked only
-  for an SME symbol Yahoo returned nothing for; a session the name did not trade
+  for an SME symbol Yahoo returned nothing for, or whose bars stop short of the session (Yahoo does not carry a quiet SME name forward); a session the name did not trade
   is carried forward with zero volume, as Yahoo does. Bars are unadjusted and go
   through the same price-basis restatement as Yahoo's. See
   `technical_sme_bhavcopy_priced_symbols`. Charts (price-series) still need Yahoo.
+- **A BSE-only name BSE's file shows did not trade is carried to the session.**
+  Yahoo does not carry a quiet `.BO` name forward (9 Nov 2026: 42 of 42 lagging
+  sampled names were absent from that day's BSE bhavcopy; every name Yahoo had
+  was in it), which held the alignment guard at 88.9% < 90%. `UniverseResult.bse_traded`
+  names the universe's `.BO` symbols in the newest bhavcopy; when that file is the
+  expected session's, `session_bars.carry_quiet_session` gives a name not in it a
+  zero-volume bar at its last close (last bar within a week). A name BSE traded
+  that Yahoo lacks stays behind: that is real lag. See
+  `technical_quiet_session_carried_symbols`.
 - **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
   `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
   `screener/session_bars.py` fill a symbol's missing expected-session bar from

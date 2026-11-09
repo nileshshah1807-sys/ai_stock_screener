@@ -101,6 +101,9 @@ class UniverseResult:
     notes: tuple[str, ...] = field(default_factory=tuple)
     # Symbols that are SME listings, for display; empty for every other source.
     sme_symbols: tuple[str, ...] = ()
+    # BSE-only symbols the exchange's file shows traded on ``bse_session``, its newest.
+    bse_session: str = ""
+    bse_traded: frozenset[str] = frozenset()
 
 
 def _get(
@@ -242,6 +245,13 @@ def _nse_with_bse(groups, sme=None) -> UniverseResult:
     ]
     added = sorted({f"{symbol.strip().upper()}{BSE_SUFFIX}" for symbol in bse_only["TckrSymb"].dropna()})
     symbols = tuple(dict.fromkeys((*result.symbols, *added)))
+    session = str(bse["TradDt"].max())
+    traded = bse_only.loc[bse_only["TradDt"].eq(bse["TradDt"].max()), "TckrSymb"].dropna()
+    result = replace(
+        result,
+        bse_session=session,
+        bse_traded=frozenset(f"{x.strip().upper()}{BSE_SUFFIX}" for x in traded),
+    )
     logger.info("NSE + BSE-only universe: %d symbols (%d BSE-only)", len(symbols), len(added))
     if sme is not None:
         added_sme = sorted(
