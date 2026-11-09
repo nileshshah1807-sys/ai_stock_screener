@@ -4,7 +4,9 @@ import { notFound, redirect } from "next/navigation";
 
 import { HomeCardSkeleton } from "@/components/home/home-card";
 import { ComingUpCard } from "@/components/home/coming-up-card";
+import { WatchedProvider } from "@/components/home/quick-watch";
 import { SinceCard } from "@/components/home/since-card";
+import { StartWatchingCard } from "@/components/home/start-watching-card";
 import { cardsFor, isScreenerQuery, screenerRedirect } from "@/lib/home.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { getWatchedSymbols } from "@/lib/notifications";
@@ -27,7 +29,8 @@ export default async function HomePage({
   const query = await searchParams;
   if (isScreenerQuery(query)) redirect(screenerRedirect(marketPath(market.slug), query));
 
-  const watching = (await getWatchedSymbols(market.code)).length > 0;
+  const watched = await getWatchedSymbols(market.code);
+  const watching = watched.length > 0;
   const cards = cardsFor(market.code, watching);
 
   const byId: Record<string, React.ReactNode> = {
@@ -36,14 +39,21 @@ export default async function HomePage({
   };
 
   return (
-    <div className="grid gap-4 px-4 py-5 sm:px-6 lg:grid-cols-2">
-      {cards.map((id) =>
-        byId[id] ? (
-          <Suspense key={id} fallback={<HomeCardSkeleton />}>
-            {byId[id]}
+    <WatchedProvider symbols={watched}>
+      <div className="grid gap-4 px-4 py-5 sm:px-6 lg:grid-cols-2">
+        {watching ? null : (
+          <Suspense fallback={<HomeCardSkeleton className="lg:col-span-2" />}>
+            <StartWatchingCard market={market} />
           </Suspense>
-        ) : null,
-      )}
-    </div>
+        )}
+        {cards.map((id) =>
+          byId[id] ? (
+            <Suspense key={id} fallback={<HomeCardSkeleton />}>
+              {byId[id]}
+            </Suspense>
+          ) : null,
+        )}
+      </div>
+    </WatchedProvider>
   );
 }

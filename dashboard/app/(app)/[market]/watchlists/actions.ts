@@ -215,3 +215,43 @@ async function touch(watchlistId: string): Promise<void> {
     .eq("id", watchlistId);
   if (error) console.error("watchlist touch failed", error.message);
 }
+
+/**
+ * One tap from Home: put a symbol on the viewer's first list in this market,
+ * making a list called "Watchlist" if they have none. Reuses
+ * `addToWatchlist`, so the cap and the revalidation stay in one place.
+ */
+export async function quickAddToWatchlist(formData: FormData): Promise<ActionResult> {
+  await requireAccess();
+  const market = marketFromSlug(formData.get("market"));
+  const symbol = cleanSymbol(formData.get("symbol"));
+  if (!market || !symbol) return { ok: false, error: "Missing market or symbol." };
+
+  const supabase = await createClient();
+  const { data: first } = await supabase
+    .from("watchlists")
+    .select("id")
+    .eq("market", market.code)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  let listId = (first as { id: string } | null)?.id ?? null;
+
+  if (!listId) {
+    const { data: created, error } = await supabase
+      .from("watchlists")
+      .insert({ name: "Watchlist", market: market.code })
+      .select("id")
+      .single();
+    if (error || !created) {
+      console.error("quickAddToWatchlist create failed", error?.message);
+      return { ok: false, error: "Could not create a list." };
+    }
+    listId = (created as { id: string }).id;
+  }
+
+  const form = new FormData();
+  form.set("watchlistId", listId);
+  form.set("symbol", symbol);
+  return addToWatchlist(form);
+}
