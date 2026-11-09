@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
 
-import { handleInbound, verifySignature } from "./support-inbound.mjs";
+import { STALE_CLAIM_MS, automatedReason, claimEmail, handleInbound, verifySignature } from "./support-inbound.mjs";
 
 const SECRET = `whsec_${Buffer.from("inbound-test-secret").toString("base64")}`;
 const env = {
@@ -37,17 +37,27 @@ function world({ mail = received } = {}) {
     if (url.startsWith("https://api.resend.com/emails/receiving/")) return { ok: true, status: 200, json: async () => mail };
     return { ok: true, status: 201, json: async () => ({}) };
   };
-  const claimed = new Set();
+  const rows = new Map(); // email id -> { at, done }
+  const store = {
+    insert: async (id, at) => !rows.has(id) && !!rows.set(id, { at, done: false }),
+    reclaim: async (id, staleBefore, at) => {
+      const row = rows.get(id);
+      return !!row && !row.done && row.at < staleBefore && !!rows.set(id, { at, done: false });
+    },
+  };
   return {
     calls,
+    rows,
+    store,
     fetchImpl,
-    claim: async (id) => !claimed.has(id) && !!claimed.add(id),
-    release: async (id) => void claimed.delete(id),
+    claim: (id, now = NOW) => claimEmail(store, id, now),
+    complete: async (id) => void (rows.get(id).done = true),
+    release: async (id) => void rows.delete(id),
   };
 }
 
 const run = (body, headers, w, extra = {}) =>
-  handleInbound({ rawBody: body, headers, env, supportAddress: "support@cupel.in", claim: w.claim, release: w.release, fetchImpl: w.fetchImpl, now: NOW, log: quiet, ...extra });
+  handleInbound({ rawBody: body, headers, env, supportAddress: "support@cupel.in", claim: w.claim, complete: w.complete, release: w.release, fetchImpl: w.fetchImpl, now: NOW, log: quiet, ...extra });
 
 test("the signature must match the body, be fresh and come from the secret", () => {
   const body = event();
@@ -70,7 +80,7 @@ test("unsigned or wrongly signed calls are 401 and touch nothing", async () => {
 test("without the secret it is not configured, not open", async () => {
   const w = world();
   const body = event();
-  const result = await handleInbound({ rawBody: body, headers: signed(body), env: { ...env, RESEND_INBOUND_WEBHOOK_SECRET: "" }, supportAddress: "support@cupel.in", claim: w.claim, release: w.release, fetchImpl: w.fetchImpl, now: NOW });
+  const result = await handleInbound({ rawBody: body, headers: signed(body), env: { ...env, RESEND_INBOUND_WEBHOOK_SECRET: "" }, supportAddress: "support@cupel.in", claim: w.claim, complete: w.complete, release: w.release, fetchImpl: w.fetchImpl, now: NOW });
   assert.equal(result.status, 503);
 });
 
@@ -101,7 +111,7 @@ test("happy path: the body is fetched and a JSM request is raised for the sender
 });
 
 test("a long message is capped, and an html-only one is read as text", async () => {
-  const w = world({ mail: { html: `<p>${"x".repeat(9000)}</p>`, subject: "S" } });
+  const w = world({ mail: { html: `<p>${"x".repeat(9000)}</p>`, subject: "S", authentication: { dmarc: "pass" } } });
   const body = event();
   await run(body, signed(body), w);
   const description = JSON.parse(w.calls[1].init.body).requestFieldValues.description;
@@ -126,10 +136,46 @@ test("a failed ticket gives the claim back and answers 502 so Resend retries", a
   assert.equal((await run(body, signed(body), w)).status, 200);
 });
 
-test("a message that fails DMARC makes no ticket and is not retried", async () => {
-  const w = world({ mail: { ...received, authentication: { dmarc: "fail" } } });
+test("DMARC fails closed: anything but a pass is dropped, with the reason logged and no body", async () => {
+  for (const authentication of [{ dmarc: "fail" }, { dmarc: "none" }, {}, null]) {
+    const w = world({ mail: { ...received, authentication } });
+    const logged = [];
+    const body = event();
+    const result = await run(body, signed(body), w, { log: { error: (...a) => logged.push(JSON.stringify(a)) } });
+    assert.deepEqual(result, { status: 200, body: { ignored: true } }, JSON.stringify(authentication));
+    assert.equal(w.calls.filter((c) => c.url.includes("/servicedeskapi/")).length, 0);
+    assert.match(logged.join(), /dmarc/);
+    assert.doesNotMatch(logged.join(), /refund my last payment/);
+    assert.equal(w.rows.get("em_1").done, true, "a drop is final: no retry");
+  }
+});
+
+test("auto replies and bounces never open a ticket", async () => {
+  assert.equal(automatedReason({ "Auto-Submitted": "auto-replied" }), "auto-submitted");
+  assert.equal(automatedReason({ "auto-submitted": "no" }), null);
+  assert.equal(automatedReason({ Precedence: "bulk" }), "precedence");
+  assert.equal(automatedReason({ "X-Auto-Response-Suppress": "All" }), "auto-response header");
+  assert.equal(automatedReason({ "return-path": "<>" }), "bounce");
+  assert.equal(automatedReason({ "return-path": "a@b.c" }), null);
+  const w = world({ mail: { ...received, headers: { "Auto-Submitted": "auto-replied" } } });
   const body = event();
-  const result = await run(body, signed(body), w);
-  assert.deepEqual(result, { status: 200, body: { ignored: true } });
+  assert.deepEqual((await run(body, signed(body), w)).body, { ignored: true });
   assert.equal(w.calls.filter((c) => c.url.includes("/servicedeskapi/")).length, 0);
+});
+
+test("a call that timed out leaves a claim the retry takes over once it is stale, and a finished one is never retaken", async () => {
+  const w = world();
+  assert.equal(await w.claim("em_9", NOW), true); // the call that then died
+  assert.equal(await w.claim("em_9", NOW + 1000), false); // a quick retry still sees it taken
+  assert.equal(await w.claim("em_9", NOW + STALE_CLAIM_MS + 1), true); // a late retry takes over
+  await w.complete("em_9");
+  assert.equal(await w.claim("em_9", NOW + 10 * STALE_CLAIM_MS), false);
+});
+
+test("a claim that cannot be given back does not stop the 502", async () => {
+  const w = world();
+  const failing = async (url, init) => (url.includes("/servicedeskapi/") ? { ok: false, status: 503, json: async () => ({}) } : w.fetchImpl(url, init));
+  const body = event();
+  const result = await run(body, signed(body), w, { fetchImpl: failing, release: async () => { throw new Error("db down"); } });
+  assert.equal(result.status, 502);
 });

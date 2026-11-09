@@ -10,6 +10,27 @@ import { LIMITS, createJsmRequest, oneLine, supportConfigured } from "./support.
 
 const TOLERANCE_SECONDS = 5 * 60;
 
+/** A claim not completed within this is taken as a crashed or timed-out call and may be taken over. */
+export const STALE_CLAIM_MS = 5 * 60 * 1000;
+
+/**
+ * Takes an email for this call. The store is the table's two moves: `insert` (true
+ * if the id was new) and `reclaim` (true if it took over an unfinished claim older
+ * than `staleBefore`). A finished email is never taken twice.
+ */
+export const claimEmail = async (store, emailId, now = Date.now()) =>
+  (await store.insert(emailId, now)) || (await store.reclaim(emailId, now - STALE_CLAIM_MS, now));
+
+/** Why a message must not open a ticket, or null. Auto replies would otherwise answer each other forever. */
+export function automatedReason(headers = {}) {
+  const h = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), String(v).trim().toLowerCase()]));
+  if (h["auto-submitted"] && h["auto-submitted"] !== "no") return "auto-submitted";
+  if (["bulk", "junk", "list", "auto_reply"].includes(h.precedence)) return "precedence";
+  if ("x-autoreply" in h || "x-autorespond" in h || "x-auto-response-suppress" in h) return "auto-response header";
+  if (h["return-path"] === "<>") return "bounce";
+  return null;
+}
+
 /** Resend signs with the Svix scheme: HMAC-SHA256 of `id.timestamp.body`, base64, `v1,` prefixed, space separated. */
 export function verifySignature({ secret, id, timestamp, signature, body, now = Date.now() }) {
   if (!secret || !id || !timestamp || !signature) return false;
@@ -40,10 +61,12 @@ async function fetchBody(fetchImpl, apiKey, emailId) {
 /**
  * The route's decision. 401 unsigned or wrong, 503 not set up, 200 handled or
  * deliberately ignored (a retry would change nothing), 502 a failure Resend
- * should retry (the claim is given back first).
- * `claim(emailId)` is true for the one caller that wins the email; `release` undoes it.
+ * should retry (the claim is given back first, and a failure to give it back is
+ * only logged: the claim then goes stale and a retry takes it over).
+ * `claim(emailId)` is true for the one caller that wins the email; `complete` marks
+ * it done (a drop is done too: a retry would change nothing); `release` undoes a claim.
  */
-export async function handleInbound({ rawBody, headers, env, supportAddress, claim, release, fetchImpl = fetch, now = Date.now(), log = console }) {
+export async function handleInbound({ rawBody, headers, env, supportAddress, claim, complete, release, fetchImpl = fetch, now = Date.now(), log = console }) {
   const secret = env.RESEND_INBOUND_WEBHOOK_SECRET;
   const apiKey = env.RESEND_API_KEY;
   if (!secret || !apiKey || !supportConfigured(env)) return { status: 503, body: { error: "not_configured" } };
@@ -67,9 +90,13 @@ export async function handleInbound({ rawBody, headers, env, supportAddress, cla
   if (!(await claim(data.email_id))) return { status: 200, body: { duplicate: true } };
   try {
     const mail = await fetchBody(fetchImpl, apiKey, data.email_id);
-    // A forged From would have JSM write to a stranger; the receiving server's DMARC verdict says if it is forged.
-    if (mail.authentication?.dmarc === "fail") {
-      log.error("support inbound: dropped a message that failed DMARC", { emailId: data.email_id });
+    // Fail closed: a forged From would have JSM write to a stranger, and an
+    // unverifiable one cannot be told from a forged one.
+    const dmarc = mail.authentication?.dmarc;
+    const dropped = dmarc !== "pass" ? `dmarc ${dmarc ?? "absent"}` : automatedReason(mail.headers);
+    if (dropped) {
+      log.error("support inbound: dropped a message", { emailId: data.email_id, reason: dropped });
+      await complete(data.email_id);
       return { status: 200, body: { ignored: true } };
     }
     const text = (mail.text ?? stripTags(mail.html ?? "")).replace(/\r\n?/g, "\n").replace(/[^\P{Cc}\n\t]/gu, "").trim();
@@ -85,9 +112,10 @@ export async function handleInbound({ rawBody, headers, env, supportAddress, cla
       },
       log,
     );
+    await complete(data.email_id);
   } catch (error) {
-    await release(data.email_id);
     log.error("support inbound: could not make the ticket", error instanceof Error ? error.message : error);
+    await Promise.resolve(release(data.email_id)).catch((e) => log.error("support inbound: could not release the claim", e instanceof Error ? e.message : e));
     return { status: 502, body: { error: "failed" } };
   }
   return { status: 200, body: { ok: true } };

@@ -292,6 +292,11 @@ shows a mailto link instead of the form.
 | `JSM_SERVICE_DESK_ID` | the service project's id, from `/rest/servicedeskapi/servicedesk` |
 | `JSM_REQUEST_TYPE_ID` | the request type new tickets use, from that desk's `/requesttype` list |
 
+Mail to the support address becomes a ticket through Resend's `email.received`
+webhook (`POST /api/support/inbound`, `storage/support_inbound_schema.sql` applied
+by hand). `RESEND_INBOUND_WEBHOOK_SECRET` is that webhook's signing secret
+(`whsec_...`); without it the route answers 503 and unsigned calls get 401.
+
 The Brandfetch client ID is intentionally browser-visible: Brandfetch requires
 it in each Logo API image URL. Put the real value in Vercel and in the ignored
 local `dashboard/.env.local`; commit only the placeholder in `.env.example`.
