@@ -35,7 +35,7 @@ export function runFreshness(run: ScreenerRun | null) {
   if (age >= 3) {
     return {
       level: "warn" as const,
-      message: `Data is ${age} days old, which is longer than a normal weekend gap.`,
+      message: `Screener ranking is from the ${formatDate(run.price_bar_as_of ?? run.run_date)} run, ${age} days old.`,
     };
   }
   return { level: "ok" as const, message: "" };
@@ -51,9 +51,8 @@ export function FreshnessBanner({ run }: { run: ScreenerRun | null }) {
     <div
       role="status"
       className={cn(
-        // An inset card rather than a full-bleed strip: it sits under the
-        // header as content, not as a second piece of chrome.
-        "mx-4 mt-4 flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm sm:mx-6",
+        // Rendered by the screener layout only, inside its padded column.
+        "flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm",
         critical
           ? "border-destructive/30 bg-destructive/8 text-destructive"
           : "border-caution/30 bg-caution/8 text-caution",
@@ -68,8 +67,7 @@ export function FreshnessBanner({ run }: { run: ScreenerRun | null }) {
         <span className="font-medium">{freshness.message}</span>{" "}
         {run ? (
           <span className="opacity-90">
-            Showing the run for {formatDate(run.price_bar_as_of ?? run.run_date)}
-            , published {formatRelativeAge(run.generated_at_utc)}.
+            Published {formatRelativeAge(run.generated_at_utc)}.
           </span>
         ) : null}
       </p>

@@ -1,3 +1,4 @@
+import { FreshnessBanner } from "@/components/freshness-banner";
 import { SummaryTiles } from "@/components/summary-tiles";
 import { ActiveFilters } from "@/components/screener/active-filters";
 import { ExportLink } from "@/components/screener/export-link";
@@ -66,6 +67,8 @@ export default async function ScreenerLayout({
   return (
     // data-screener scopes the pending dim in globals.css to this view.
     <div data-screener className="space-y-4 px-4 py-5 sm:px-6">
+      <FreshnessBanner run={run} />
+
       {/* The run's rating mix: admin-only, like the ratings (lib/ratings.mjs). */}
       {(await isAdmin()) ? <SummaryTiles run={run} market={market} bseOnly={bseOnly} /> : null}
 
