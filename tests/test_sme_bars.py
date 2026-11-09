@@ -131,6 +131,29 @@ class CollectorSmeTests(unittest.TestCase):
             collector.collection_diagnostics["technical_sme_bhavcopy_priced_symbols"], ["EXAMPLE"]
         )
 
+    def test_an_sme_name_with_years_old_yahoo_bars_takes_the_exchange_bars(self):
+        stale = _history(hole=False, live_row=False)
+        stale.index = stale.index - pd.DateOffset(years=2)
+        history = FakeHistory(self._bars())
+        collector, result = self._collect(pd.concat({"EXAMPLE.NS": stale}, axis=1), history, sme={"EXAMPLE"})
+        self.assertEqual(result.iloc[0]["Current_Price"], 182.0)
+        self.assertEqual(
+            collector.collection_diagnostics["technical_sme_bhavcopy_priced_symbols"], ["EXAMPLE"]
+        )
+
+    def test_stale_yahoo_bars_with_no_exchange_bars_are_dropped_not_scored(self):
+        stale = _history(hole=False, live_row=False)
+        stale.index = stale.index - pd.DateOffset(years=2)
+        _, result = self._collect(pd.concat({"EXAMPLE.NS": stale}, axis=1), FakeHistory(None), sme={"EXAMPLE"})
+        self.assertTrue(result.empty)
+
+    def test_stale_bars_of_a_mainboard_name_are_left_alone(self):
+        stale = _history(hole=False, live_row=False)
+        stale.index = stale.index - pd.DateOffset(years=2)
+        history = FakeHistory(self._bars())
+        self._collect(pd.concat({"EXAMPLE.NS": stale}, axis=1), history, sme=set())
+        self.assertEqual(history.asked, [])
+
     def test_a_mainboard_name_is_never_given_exchange_bars(self):
         history = FakeHistory(self._bars())
         _, result = self._collect(pd.DataFrame(), history, sme=set())
