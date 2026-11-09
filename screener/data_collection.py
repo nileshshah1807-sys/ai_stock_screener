@@ -677,7 +677,8 @@ class StockDataCollector:
                             price_data = data[symbol]
                         else:
                             price_data = None
-                        if price_data is None or price_data.empty:
+                        # A ticker Yahoo failed arrives as an all-NaN block, not an empty one.
+                        if price_data is None or price_data.dropna(how="all").empty:
                             # Yahoo has nothing: an SME name may have the
                             # exchange's own bars. Never used where Yahoo serves.
                             price_data = (

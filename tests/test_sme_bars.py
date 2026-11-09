@@ -120,6 +120,17 @@ class CollectorSmeTests(unittest.TestCase):
             collector.collection_diagnostics["technical_sme_bhavcopy_priced_symbols"], ["EXAMPLE"]
         )
 
+    def test_a_ticker_yahoo_failed_as_an_all_nan_block_is_filled(self):
+        # yfinance returns a failed ticker as a column block of NaN, so ``.empty`` is False.
+        nan = _history(hole=False, live_row=False) * float("nan")
+        yahoo = pd.concat({"EXAMPLE.NS": nan}, axis=1)
+        history = FakeHistory(self._bars())
+        collector, result = self._collect(yahoo, history, sme={"EXAMPLE"})
+        self.assertEqual(history.asked, ["EXAMPLE"])
+        self.assertEqual(
+            collector.collection_diagnostics["technical_sme_bhavcopy_priced_symbols"], ["EXAMPLE"]
+        )
+
     def test_a_mainboard_name_is_never_given_exchange_bars(self):
         history = FakeHistory(self._bars())
         _, result = self._collect(pd.DataFrame(), history, sme=set())
