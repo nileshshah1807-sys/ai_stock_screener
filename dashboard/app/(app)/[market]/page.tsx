@@ -17,7 +17,7 @@ import { ResultsSeasonCard } from "@/components/home/results-season-card";
 import { SinceCard } from "@/components/home/since-card";
 import { StartWatchingCard } from "@/components/home/start-watching-card";
 import { cardsFor, isScreenerQuery, screenerRedirect } from "@/lib/home.mjs";
-import { marketFromSlug, marketPath } from "@/lib/markets";
+import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
 import { getWatchedSymbols } from "@/lib/notifications";
 
 export const metadata: Metadata = { title: "Home" };
@@ -38,6 +38,26 @@ export default async function HomePage({
   const query = await searchParams;
   if (isScreenerQuery(query)) redirect(screenerRedirect(marketPath(market.slug), query));
 
+  // Nothing past the redirect check is awaited here, so the shell and the
+  // skeletons flush at once; the watchlist read happens inside the boundary.
+  return (
+    <Suspense fallback={<HomeSkeleton />}>
+      <HomeCards market={market} />
+    </Suspense>
+  );
+}
+
+function HomeSkeleton() {
+  return (
+    <div className="grid items-start gap-4 px-4 py-5 sm:px-6 lg:grid-cols-2">
+      {Array.from({ length: 4 }, (_, index) => (
+        <HomeCardSkeleton key={index} />
+      ))}
+    </div>
+  );
+}
+
+async function HomeCards({ market }: { market: Market }) {
   const watched = await getWatchedSymbols(market.code);
   const watching = watched.length > 0;
   const cards = cardsFor(market.code, watching);

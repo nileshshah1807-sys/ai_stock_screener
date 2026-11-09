@@ -20,6 +20,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { indexSlug } from "@/lib/indices.mjs";
 import { BSE_SUFFIX } from "@/lib/listing.mjs";
+import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { createDayMemo, localDay, type MarketDay } from "@/lib/market-calendar.mjs";
 import type { MarketCode } from "@/lib/markets";
 import type {
@@ -1269,14 +1270,22 @@ export async function getMovers(
  * round trip. Null when the table or function is not deployed, or nothing is
  * quoted yet -- the page then leaves the section out.
  */
+const liveMarketMemo = sharedMemo<{ data: unknown; error: { message: string } | null }>(60_000);
+
 export const getLiveMarket = cache(async (
   market: MarketCode,
 ): Promise<{ live: LiveMarket | null; failed: boolean }> => {
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("live_market", {
-    p_market: market,
-    p_limit: LIVE_MOVERS_LIMIT,
-  });
+  // The RPC's answer is the same for every viewer and the quotes move every
+  // five minutes, so it is read once a minute per instance; ratings are
+  // stripped per viewer below, after the memo.
+  const { data, error } = await liveMarketMemo(
+    market,
+    async () => {
+      const supabase = await createClient();
+      return supabase.rpc("live_market", { p_market: market, p_limit: LIVE_MOVERS_LIMIT });
+    },
+    (result) => !result.error,
+  );
   // A failed read is told apart from an empty one, so the page can say the
   // prices could not be read rather than that there are none.
   if (error) {

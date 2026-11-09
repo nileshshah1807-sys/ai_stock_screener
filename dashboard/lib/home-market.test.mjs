@@ -50,3 +50,18 @@ test("monthly movers are ranked within each index", () => {
   assert.deepEqual(index.gainers.map((row) => row.symbol), ["C"]);
   assert.deepEqual(index.losers.map((row) => row.symbol), ["B"]);
 });
+
+test("a shared read is served from memory inside its window, and a rejected result is retried", async () => {
+  const { sharedMemo } = await import("./shared-memo.mjs");
+  const memo = sharedMemo(1000);
+  let reads = 0;
+  const load = (value) => async () => (reads++, value);
+
+  assert.equal(await memo("a", load(1), () => true, 0), 1);
+  assert.equal(await memo("a", load(2), () => true, 999), 1);
+  assert.equal(reads, 1);
+  assert.equal(await memo("a", load(3), () => true, 1000), 3);
+  assert.equal(await memo("e", load(null), (value) => value !== null, 0), null);
+  assert.equal(await memo("e", load(4), (value) => value !== null, 1), 4);
+  assert.equal(reads, 4);
+});

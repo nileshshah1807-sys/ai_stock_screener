@@ -131,3 +131,23 @@ export function groupByDay(events, timeZone, today = new Date()) {
       events: items,
     }));
 }
+
+/**
+ * One line per stock, kind and what it says: a call recorded twice (the
+ * recording, then the filed transcript) reads as one event. Keeps the first,
+ * which is the newest in a feed ordered newest first.
+ *
+ * @template {{ symbol: string, kind: string, detail?: object, event_key?: string }} E
+ * @param {E[]} events
+ * @returns {E[]}
+ */
+export function dedupeEvents(events) {
+  const seen = new Set();
+  return events.filter((event) => {
+    const { title, summary } = describeEvent(event);
+    const line = `${event.symbol}|${event.kind}|${title}|${summary}`;
+    if (seen.has(line)) return false;
+    seen.add(line);
+    return true;
+  });
+}

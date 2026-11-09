@@ -5,11 +5,15 @@ import { addDays, marketToday } from "@/lib/home";
 import type { Market } from "@/lib/markets";
 import { getDeclaredSymbols } from "@/lib/results";
 import { quarterEnds, quarterWindow } from "@/lib/results.mjs";
+import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { getUpcoming } from "@/lib/upcoming";
 import { notDeclared } from "@/lib/upcoming.mjs";
 import { getWatchlists } from "@/lib/watchlists";
 
 const WEEK_DAYS = 7;
+
+/** The dates and declarations are the same for every viewer and move slowly. */
+const reads = sharedMemo<{ dated: Awaited<ReturnType<typeof getUpcoming>>; declared: Awaited<ReturnType<typeof getDeclaredSymbols>> }>(300_000);
 
 /**
  * Results due in the next seven days, as the Results page's tile: a company
@@ -19,9 +23,14 @@ const WEEK_DAYS = 7;
 export async function LinedUpCard({ market }: { market: Market }) {
   const today = marketToday(market);
   const quarter = quarterEnds(today)[0];
-  const [dated, declared, lists] = await Promise.all([
-    getUpcoming(market.code, "results", today),
-    getDeclaredSymbols(market.code, quarter),
+  const [{ dated, declared }, lists] = await Promise.all([
+    reads(`${market.code}:${today}`, async () => {
+      const [dated, declared] = await Promise.all([
+        getUpcoming(market.code, "results", today),
+        getDeclaredSymbols(market.code, quarter),
+      ]);
+      return { dated, declared };
+    }, (value) => value.dated !== null),
     getWatchlists(market.code),
   ]);
   if (!dated) return null;

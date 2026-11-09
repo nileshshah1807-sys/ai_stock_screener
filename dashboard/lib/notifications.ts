@@ -5,6 +5,7 @@ import { cache } from "react";
 import type { MarketCode } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/server";
 import { readForSymbols } from "@/lib/symbol-scope.mjs";
+import { dedupeEvents } from "@/lib/notifications.mjs";
 import { getWatchlists } from "@/lib/watchlists";
 
 /**
@@ -138,5 +139,5 @@ export const getBellState = cache(async (market: MarketCode): Promise<BellState>
     getEvents(market, { symbols, limit: BELL_EVENTS }),
     countUnread(market, seenAt, symbols),
   ]);
-  return { events, unread, seenAt, watching: symbols !== null };
+  return { events: dedupeEvents(events), unread, seenAt, watching: symbols !== null };
 });

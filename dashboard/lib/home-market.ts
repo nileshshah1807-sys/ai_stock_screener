@@ -1,6 +1,7 @@
 import "server-only";
 
 import { monthsBefore } from "@/lib/financials.mjs";
+import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { monthlyMovers, profitMovers, pulseBases } from "@/lib/home-market.mjs";
 import { decodeRow, indexPoints, metricPoints } from "@/lib/market-breadth.mjs";
 import type { MarketCode } from "@/lib/markets";
@@ -26,7 +27,14 @@ const SEASON_READ = 400;
 export type PulseIndex = NonNullable<ReturnType<typeof pulseBases>> & { name: string };
 
 /** The headline indices' closes, reduced to the bases the card's changes are measured from. */
-export async function getPulseIndices(market: MarketCode): Promise<PulseIndex[]> {
+export function getPulseIndices(market: MarketCode): Promise<PulseIndex[]> {
+  return pulseMemo(market, () => readPulseIndices(market), (rows) => rows.length > 0);
+}
+
+/** Daily closes: ten minutes is fresh enough and shared by every viewer. */
+const pulseMemo = sharedMemo<PulseIndex[]>(600_000);
+
+async function readPulseIndices(market: MarketCode): Promise<PulseIndex[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("market_breadth")
@@ -133,7 +141,14 @@ export type ResultsSeason = {
  * is in) and the largest year-on-year net profit rises and falls among them,
  * by the Results page's own card rule. Null when no result is stored.
  */
-export async function getResultsSeason(market: MarketCode, today: string, timeZone: string): Promise<ResultsSeason | null> {
+export function getResultsSeason(market: MarketCode, today: string, timeZone: string): Promise<ResultsSeason | null> {
+  return seasonMemo(`${market}:${today}`, () => readResultsSeason(market, today, timeZone), (season) => season !== null);
+}
+
+/** Filings land through the day; five minutes keeps the card current. */
+const seasonMemo = sharedMemo<ResultsSeason | null>(300_000);
+
+async function readResultsSeason(market: MarketCode, today: string, timeZone: string): Promise<ResultsSeason | null> {
   const offered = quarterEnds(today);
   const quarter = (await getLatestResultQuarter(market, offered)) ?? offered[0];
   const { entries } = await getResultFeed(market, { quarter, limit: SEASON_READ });

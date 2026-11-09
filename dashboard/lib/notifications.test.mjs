@@ -97,3 +97,10 @@ test("events group by the exchange's calendar day, newest first", () => {
     ],
   );
 });
+
+test("a call recorded twice reads as one event", async () => {
+  const { dedupeEvents } = await import("./notifications.mjs");
+  const call = (id) => ({ id, symbol: "SBIN", kind: "transcript", event_key: `k${id}`, detail: { quarter: "2026-09-30" } });
+  const other = { id: 9, symbol: "SBIN", kind: "results", event_key: "r", detail: { period: "2026-09-30" } };
+  assert.deepEqual(dedupeEvents([call(1), other, call(2)]).map((event) => event.id), [1, 9]);
+});

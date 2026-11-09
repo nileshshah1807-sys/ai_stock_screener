@@ -31,7 +31,7 @@ export function HomeCard({
 /** The shape a card holds while it streams in, so the page does not jump. */
 export function HomeCardSkeleton({ rows = 4, className }: { rows?: number; className?: string }) {
   return (
-    <div aria-hidden className={cn("panel p-4 sm:p-5", className)}>
+    <div aria-hidden className={cn("panel min-h-56 p-4 sm:p-5", className)}>
       <div className="mb-3 h-4 w-32 animate-pulse rounded bg-muted" />
       <div className="space-y-2.5">
         {Array.from({ length: rows }, (_, index) => (
