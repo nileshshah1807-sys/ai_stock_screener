@@ -3,7 +3,7 @@
 export const SITE_URL = "https://cupel.in";
 
 /** The pages meant to be found: the landing page, the price and the legal pages. Everything else is the signed-in app. */
-export const PUBLIC_PATHS = ["/", "/pricing", "/terms", "/privacy", "/refunds", "/disclaimer"];
+export const PUBLIC_PATHS = ["/", "/pricing", "/help", "/terms", "/privacy", "/refunds", "/disclaimer"];
 
 /** App and auth routes crawlers must leave alone (they are behind sign-in and noindex). */
 export const APP_PATHS = ["/screener", "/account", "/admin", "/api/", "/auth/", "/login", "/no-access", "/ind", "/us", "/nse"];

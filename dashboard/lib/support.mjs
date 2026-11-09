@@ -1,0 +1,99 @@
+/**
+ * The Help & Support form: validation, the Jira Service Management (JSM) request
+ * and the route's whole decision, so the route is a thin wrapper and this file is
+ * what the tests drive. No Next.js import here.
+ */
+
+export const CATEGORIES = ["Billing & plans", "Data question", "Account", "Feature idea", "Something else"];
+
+export const LIMITS = { name: 100, email: 254, subject: 150, message: 5000, messageMin: 10 };
+
+const ENV_KEYS = ["JSM_SITE", "JSM_EMAIL", "JSM_API_TOKEN", "JSM_SERVICE_DESK_ID", "JSM_REQUEST_TYPE_ID"];
+
+const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
+
+/** One line: control characters out, white space collapsed. */
+const oneLine = (value) => String(value ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ").replace(/\s+/g, " ").trim();
+
+/** True when every JSM variable is set; the form falls back to a mailto link otherwise. */
+export const supportConfigured = (env) => ENV_KEYS.every((key) => Boolean(env[key]?.trim()));
+
+/**
+ * @returns {{ok: true, value: {name: string, email: string, subject: string, message: string, category: string}} | {ok: false, error: string}}
+ */
+export function validateSupport(body) {
+  const input = body && typeof body === "object" ? body : {};
+  const name = oneLine(input.name);
+  const email = oneLine(input.email);
+  const subject = oneLine(input.subject);
+  const message = String(input.message ?? "").replace(/\r\n?/g, "\n").replace(/[^\P{Cc}\n\t]/gu, "").trim();
+  const category = CATEGORIES.includes(input.category) ? input.category : null;
+
+  if (!name || name.length > LIMITS.name) return { ok: false, error: "Enter your name (up to 100 characters)." };
+  if (!EMAIL.test(email) || email.length > LIMITS.email) return { ok: false, error: "Enter a valid email address." };
+  if (!category) return { ok: false, error: "Choose a category." };
+  if (subject.length < 3 || subject.length > LIMITS.subject) return { ok: false, error: "Give a subject of 3 to 150 characters." };
+  if (message.length < LIMITS.messageMin || message.length > LIMITS.message) {
+    return { ok: false, error: `Write a message of ${LIMITS.messageMin} to ${LIMITS.message} characters.` };
+  }
+  return { ok: true, value: { name, email, subject, message, category } };
+}
+
+/**
+ * Per-address limiter held in this server instance's memory.
+ * shortcut: serverless instances do not share it, so the real ceiling is per
+ * instance; move to a database counter if the form is ever abused.
+ */
+export function createLimiter({ max = 5, windowMs = 10 * 60 * 1000 } = {}) {
+  const hits = new Map();
+  return (key, now = Date.now()) => {
+    const recent = (hits.get(key) ?? []).filter((at) => now - at < windowMs);
+    if (recent.length >= max) {
+      hits.set(key, recent);
+      return false;
+    }
+    hits.set(key, [...recent, now]);
+    if (hits.size > 5000) for (const [k, v] of hits) if (v.every((at) => now - at >= windowMs)) hits.delete(k);
+    return true;
+  };
+}
+
+/** JSM_SITE may be the subdomain ("cupel") or the full host ("cupel.atlassian.net"). */
+const jsmHost = (site) => (site.includes(".") ? site : `${site}.atlassian.net`).replace(/^https?:\/\//, "").replace(/\/+$/, "");
+
+/** Opens the customer request; JSM emails the customer and threads their replies. */
+export async function createJsmRequest(fetchImpl, env, { name, email, subject, message, category }) {
+  const auth = Buffer.from(`${env.JSM_EMAIL}:${env.JSM_API_TOKEN}`).toString("base64");
+  const response = await fetchImpl(`https://${jsmHost(env.JSM_SITE.trim())}/rest/servicedeskapi/request`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      serviceDeskId: env.JSM_SERVICE_DESK_ID.trim(),
+      requestTypeId: env.JSM_REQUEST_TYPE_ID.trim(),
+      raiseOnBehalfOf: email,
+      requestFieldValues: { summary: subject, description: `From: ${name} <${email}>\nCategory: ${category}\n\n${message}` },
+    }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) throw new Error(`JSM answered ${response.status}`);
+}
+
+/**
+ * The route's decision. Statuses: 200 sent, 400 invalid, 429 too many, 502 JSM
+ * failed, 503 not configured (the form then shows the mailto fallback).
+ * A filled honeypot ("website") gets a 200 and nothing is sent.
+ */
+export async function submitSupport({ body, env, ip, limiter, fetchImpl = fetch, log = console }) {
+  if (!supportConfigured(env)) return { status: 503, body: { error: "not_configured" } };
+  if (body && typeof body === "object" && body.website) return { status: 200, body: { ok: true } };
+  if (!limiter(ip)) return { status: 429, body: { error: "Too many messages from this address. Try again in a few minutes." } };
+  const checked = validateSupport(body);
+  if (!checked.ok) return { status: 400, body: { error: checked.error } };
+  try {
+    await createJsmRequest(fetchImpl, env, checked.value);
+  } catch (error) {
+    log.error("support: could not open the JSM request", error instanceof Error ? error.message : error);
+    return { status: 502, body: { error: "send_failed" } };
+  }
+  return { status: 200, body: { ok: true } };
+}
