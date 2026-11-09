@@ -12,11 +12,11 @@ const NSE = {
   sessionClose: "15:30",
 };
 const HOLIDAY = { day: "2026-11-10", kind: "holiday", reason: "Guru Nanak Jayanti", sessionOpen: null, sessionClose: null };
-const MUHURAT = { day: "2026-11-08", kind: "special_session", reason: "Muhurat trading", sessionOpen: "18:00", sessionClose: "19:00" };
+const MUHURAT = { day: "2026-11-08", kind: "special_session", reason: "Muhurat trading", sessionOpen: "14:20", sessionClose: "15:30" };
 
-// Tuesday 10 Nov 2026, 11:45 IST, and Sunday 8 Nov 2026, 18:30 IST.
+// Tuesday 10 Nov 2026, 11:45 IST, and Sunday 8 Nov 2026, 14:30 IST.
 const TUE = Date.parse("2026-11-10T06:15:00Z");
-const SUN_EVENING = Date.parse("2026-11-08T13:00:00Z");
+const SUN_EVENING = Date.parse("2026-11-08T09:00:00Z"); // 14:30 IST
 const SAT_NOON = Date.parse("2026-11-14T06:15:00Z");
 const LAST_TRADE = "2026-11-09T09:55:00Z";
 
@@ -41,8 +41,8 @@ test("a weekday holiday is closed all day, with the reason", () => {
 test("a special session is open in its own hours, even on a Sunday", () => {
   assert.equal(inSession(SUN_EVENING, NSE, MUHURAT), true);
   assert.equal(inSession(SUN_EVENING, NSE, null), false);
-  assert.equal(inSession(Date.parse("2026-11-08T11:00:00Z"), NSE, MUHURAT), false); // 16:30, before it opens
-  assert.equal(noticeText(MUHURAT, "IST"), "Special session: Muhurat trading, 18:00-19:00 IST");
+  assert.equal(inSession(Date.parse("2026-11-08T08:30:00Z"), NSE, MUHURAT), false); // 14:00, before it opens
+  assert.equal(noticeText(MUHURAT, "IST"), "Special session: Muhurat trading, 14:20-15:30 IST");
   assert.equal(quoteFreshness("2026-11-08T05:00:00Z", LAST_TRADE, NSE, SUN_EVENING, MUHURAT).state, "delayed");
 });
 

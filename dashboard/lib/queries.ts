@@ -1590,6 +1590,17 @@ export async function getRatedSymbols(
 }
 
 /**
+ * Today's calendar row, kept per server instance. It is the same for every
+ * viewer and changes at most once a day, and it sits on every page's critical
+ * path, so it is read once per DAY_MEMO_MS rather than per request. "No row"
+ * and "table not applied" are kept too; any other error is not, so a blip is
+ * retried. The key carries the local day, so midnight rolls over by itself.
+ */
+const DAY_MEMO_MS = 300_000;
+const TABLE_MISSING = new Set(["PGRST205", "42P01"]);
+const dayMemo = new Map<string, { at: number; row: MarketDay | null }>();
+
+/**
  * The exchange calendar's row for today on the market's clock, or null: an
  * ordinary day, an empty table, and a table not yet applied all read the
  * same, so the page keeps the regular hours.
@@ -1597,6 +1608,9 @@ export async function getRatedSymbols(
 export const getMarketDay = cache(
   async (market: MarketCode, timeZone: string): Promise<MarketDay | null> => {
     const day = localDay(Date.now(), timeZone);
+    const key = `${market}:${day}`;
+    const remembered = dayMemo.get(key);
+    if (remembered && Date.now() - remembered.at < DAY_MEMO_MS) return remembered.row;
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("market_calendar")
@@ -1604,13 +1618,17 @@ export const getMarketDay = cache(
       .eq("market", market)
       .eq("day", day)
       .maybeSingle();
-    if (error || !data) return null;
-    return {
-      day: data.day,
-      kind: data.kind,
-      reason: data.reason,
-      sessionOpen: data.session_open,
-      sessionClose: data.session_close,
-    };
+    if (error && !TABLE_MISSING.has(error.code)) return null;
+    const row: MarketDay | null = data
+      ? {
+          day: data.day,
+          kind: data.kind,
+          reason: data.reason,
+          sessionOpen: data.session_open,
+          sessionClose: data.session_close,
+        }
+      : null;
+    dayMemo.set(key, { at: Date.now(), row });
+    return row;
   },
 );
