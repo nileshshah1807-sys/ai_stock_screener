@@ -255,3 +255,22 @@ export async function quickAddToWatchlist(formData: FormData): Promise<ActionRes
   form.set("symbol", symbol);
   return addToWatchlist(form);
 }
+
+/** Undo of `quickAddToWatchlist`: take the symbol off every list of the viewer's in this market. */
+export async function quickRemoveFromWatchlist(formData: FormData): Promise<ActionResult> {
+  await requireAccess();
+  const market = marketFromSlug(formData.get("market"));
+  const symbol = cleanSymbol(formData.get("symbol"));
+  if (!market || !symbol) return { ok: false, error: "Missing market or symbol." };
+
+  const supabase = await createClient();
+  const { data: lists } = await supabase.from("watchlists").select("id").eq("market", market.code);
+  for (const { id } of (lists ?? []) as { id: string }[]) {
+    const form = new FormData();
+    form.set("watchlistId", id);
+    form.set("symbol", symbol);
+    const result = await removeFromWatchlist(form);
+    if (!result.ok) return result;
+  }
+  return { ok: true };
+}

@@ -38,7 +38,7 @@ export async function LinedUpCard({ market }: { market: Market }) {
         today={today}
         lists={lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }))}
       >
-        <ResultsLinedUpTile lined={week.length} declared={null} soonest={week} logos={new Map()} />
+        <ResultsLinedUpTile lined={week.length} declared={null} soonest={[]} logos={new Map()} />
       </UpcomingProvider>
     </HomeCard>
   );

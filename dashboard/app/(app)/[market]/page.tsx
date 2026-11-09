@@ -58,7 +58,7 @@ export default async function HomePage({
 
   return (
     <WatchedProvider symbols={watched}>
-      <div className="grid gap-4 px-4 py-5 sm:px-6 lg:grid-cols-2">
+      <div className="grid items-start gap-4 px-4 py-5 sm:px-6 lg:grid-cols-2">
         {watching ? null : (
           <Suspense fallback={<HomeCardSkeleton className="lg:col-span-2" />}>
             <StartWatchingCard market={market} />

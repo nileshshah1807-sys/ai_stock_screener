@@ -1269,9 +1269,9 @@ export async function getMovers(
  * round trip. Null when the table or function is not deployed, or nothing is
  * quoted yet -- the page then leaves the section out.
  */
-export async function getLiveMarket(
+export const getLiveMarket = cache(async (
   market: MarketCode,
-): Promise<{ live: LiveMarket | null; failed: boolean }> {
+): Promise<{ live: LiveMarket | null; failed: boolean }> => {
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("live_market", {
     p_market: market,
@@ -1284,7 +1284,7 @@ export async function getLiveMarket(
     return { live: null, failed: true };
   }
   return { live: normalizeLiveMarket(data, await isAdmin()), failed: false };
-}
+});
 
 
 /**
