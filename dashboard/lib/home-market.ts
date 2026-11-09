@@ -81,26 +81,35 @@ export async function getMonthlyMovers(market: MarketCode, indices: string[]): P
   return value;
 }
 
+/** Symbols per `in` filter: about 8 KB of URL. */
+const SYMBOL_CHUNK = 400;
 const MONTHLY_MEMO_MS = 3_600_000;
 const monthlyMemo = new Map<string, { at: number; value: MonthlyMovers }>();
 
 async function readMonthlyMovers(market: MarketCode, indices: string[], runDate: string): Promise<MonthlyMovers> {
   const supabase = await createClient();
   try {
-    const [members, stocks] = await Promise.all([
-      readAll<{ index_name: string; symbol: string }>((from, to) =>
-        supabase.from("index_members").select("index_name, symbol").eq("market", market).in("index_name", indices).order("symbol").range(from, to),
-      ),
-      readAll<MonthlyMover>((from, to) =>
-        supabase
-          .from("screener_snapshot_visible")
-          .select("symbol, company, investment_rank, pct_change_1m")
-          .eq("market", market)
-          .eq("run_date", runDate)
-          .order("symbol")
-          .range(from, to),
-      ),
-    ]);
+    const members = await readAll<{ index_name: string; symbol: string }>((from, to) =>
+      supabase.from("index_members").select("index_name, symbol").eq("market", market).in("index_name", indices).order("symbol").range(from, to),
+    );
+    // Only the members' rows, in chunks that keep the URL short, rather than
+    // paging through the whole run.
+    const symbols = [...new Set(members.map((member) => member.symbol))];
+    const stocks: MonthlyMover[] = [];
+    for (let at = 0; at < symbols.length; at += SYMBOL_CHUNK) {
+      stocks.push(
+        ...(await readAll<MonthlyMover>((from, to) =>
+          supabase
+            .from("screener_snapshot_visible")
+            .select("symbol, company, investment_rank, pct_change_1m")
+            .eq("market", market)
+            .eq("run_date", runDate)
+            .in("symbol", symbols.slice(at, at + SYMBOL_CHUNK))
+            .order("symbol")
+            .range(from, to),
+        )),
+      );
+    }
     const bySymbols = new Map<string, string[]>();
     for (const { index_name, symbol } of members) bySymbols.set(index_name, [...(bySymbols.get(index_name) ?? []), symbol]);
     return Object.fromEntries(monthlyMovers(bySymbols, stocks, MONTHLY_LIMIT)) as MonthlyMovers;

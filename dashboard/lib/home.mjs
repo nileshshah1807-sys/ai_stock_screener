@@ -32,9 +32,21 @@ export function cardsFor(market, watching) {
   ).map((card) => card.id);
 }
 
+/**
+ * The query keys the screener reads (`parseFilters`, lib/filters.ts). Only a
+ * link carrying one of these is an old screener link; `/ind?utm_source=x`
+ * stays on Home.
+ */
+export const SCREENER_QUERY_KEYS = new Set([
+  "q", "rating", "sector", "minScore", "maxScore", "actionable", "buyEligible",
+  "excludeCapped", "transcript", "redFlags", "minQuality", "minMomentum",
+  "eligibility", "aboveMa200", "stage", "listing", "minRs", "minCapCr",
+  "sort", "dir", "page", "cols", "density",
+]);
+
 /** Whether a query string means an old screener link (filters, sort, page). */
 export function isScreenerQuery(query) {
-  return Object.keys(query).length > 0;
+  return Object.keys(query).some((key) => SCREENER_QUERY_KEYS.has(key));
 }
 
 /** `/ind?rating=BUY` -> the same query on the screener's own path. */

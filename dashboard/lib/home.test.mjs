@@ -24,6 +24,8 @@ test("US has no shareholding or deals card, with or without a watchlist", () => 
 test("an old screener link keeps its filters on the new path", () => {
   assert.equal(isScreenerQuery({}), false);
   assert.equal(isScreenerQuery({ rating: "BUY" }), true);
+  assert.equal(isScreenerQuery({ utm_source: "x" }), false);
+  assert.equal(isScreenerQuery({ utm_source: "x", page: "2" }), true);
   assert.equal(screenerRedirect("/ind", { rating: "BUY", sector: ["A", "B"], q: undefined }), "/ind/screener?rating=BUY&sector=A&sector=B");
   assert.equal(screenerRedirect("/us", {}), "/us/screener");
 });
