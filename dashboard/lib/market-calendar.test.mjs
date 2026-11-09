@@ -17,7 +17,7 @@ const MUHURAT = { day: "2026-11-08", kind: "special_session", reason: "Muhurat t
 // Tuesday 10 Nov 2026, 11:45 IST, and Sunday 8 Nov 2026, 18:30 IST.
 const TUE = Date.parse("2026-11-10T06:15:00Z");
 const SUN_EVENING = Date.parse("2026-11-08T13:00:00Z");
-const SUN_NOON = Date.parse("2026-11-08T06:15:00Z");
+const SAT_NOON = Date.parse("2026-11-14T06:15:00Z");
 const LAST_TRADE = "2026-11-09T09:55:00Z";
 
 test("a normal day, or no calendar row, keeps the regular hours", () => {
@@ -26,7 +26,7 @@ test("a normal day, or no calendar row, keeps the regular hours", () => {
   assert.deepEqual(tradingHours(NSE, null), { open: "09:15", close: "15:30" });
   assert.equal(noticeText(null, "IST"), null);
   assert.equal(quoteFreshness(LAST_TRADE, LAST_TRADE, NSE, TUE).label, "Delayed · last trade 9 Nov, 15:25 IST");
-  assert.equal(quoteFreshness(LAST_TRADE, LAST_TRADE, NSE, SUN_NOON).label, "Market closed · last trade 9 Nov, 15:25 IST");
+  assert.equal(quoteFreshness(LAST_TRADE, LAST_TRADE, NSE, SAT_NOON).label, "Market closed · last trade 9 Nov, 15:25 IST");
 });
 
 test("a weekday holiday is closed all day, with the reason", () => {
