@@ -43,7 +43,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from screener import index_members
-from screener.market_calendar import calendar_rows, entry_for, fetch_nse_holidays
+from screener.market_calendar import calendar_rows, entry_for, fetch_nse_holidays, parse_nse_holidays
 from screener.markets import MarketProfile, ticker_for
 from screener.markets import resolve as resolve_market
 from screener.numeric import round_half_up, safe_float
@@ -115,7 +115,8 @@ def todays_calendar_entry(
         rows = repo.market_calendar(today.isoformat())
         if members_due(max((row["refreshed_at"] for row in rows), default=None), now):
             payload = fetch_holidays() if profile.code == "NSE" else None
-            if profile.code != "NSE" or payload:
+            # A feed that parses to no holiday (an error body, a renamed key) is a failed feed.
+            if profile.code != "NSE" or parse_nse_holidays(payload):
                 rows = calendar_rows(profile.code, payload)
                 if not dry_run:
                     repo.replace_market_calendar(rows)

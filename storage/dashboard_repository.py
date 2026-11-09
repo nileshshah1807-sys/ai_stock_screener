@@ -889,6 +889,8 @@ class DashboardRepository:
 
     def replace_market_calendar(self, rows: list[dict[str, Any]]) -> int:
         """Make this market's future calendar exactly ``rows``: stamped and upserted, then older stamps deleted."""
+        if not rows:  # never post nothing and then delete everything older
+            return 0
         stamp = datetime.now(UTC).isoformat(timespec="seconds")
         self._request(
             "POST",

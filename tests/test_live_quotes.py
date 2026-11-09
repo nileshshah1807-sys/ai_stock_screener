@@ -15,6 +15,7 @@ from screener.index_members import parse_nse_index_csv
 from screener.market_calendar import calendar_rows, parse_nse_holidays
 from screener.markets import resolve as resolve_market
 from screener.numeric import round_half_up
+from storage.dashboard_repository import DashboardRepository
 from workers.live_quotes import (
     in_session,
     member_rows,
@@ -134,8 +135,22 @@ class CalendarTests(unittest.TestCase):
         repo.replace_market_calendar = written.append
         run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=lambda: None)
         self.assertEqual(written, [])  # no feed, no rebuild: it would drop the holidays
-        run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=lambda: {"CM": []})
-        self.assertEqual([r["day"] for r in written[0]], ["2026-11-08"])
+        for unusable in ({"message": "error"}, {"CM": []}):  # a feed with no holiday is a failed feed
+            run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=lambda unusable=unusable: unusable)
+        self.assertEqual(written, [])
+        good = {"CM": [{"tradingDate": "24-Nov-2026", "description": "Guru Nanak"}]}
+        run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=lambda: good)
+        self.assertEqual([r["day"] for r in written[0]], ["2026-11-08", "2026-11-24"])
+
+    def test_replace_posts_before_it_deletes_and_does_nothing_for_no_rows(self):
+        calls = []
+        repo = DashboardRepository.__new__(DashboardRepository)
+        repo.market = "NSE"
+        repo._request = lambda method, path, **kw: calls.append(method)
+        self.assertEqual(repo.replace_market_calendar([]), 0)
+        self.assertEqual(calls, [])
+        repo.replace_market_calendar([MUHURAT])
+        self.assertEqual(calls, ["POST", "DELETE"])
 
     def test_nse_list_keeps_weekday_holidays_and_the_special_session_wins_its_day(self):
         payload = {"CM": [
