@@ -1,7 +1,9 @@
+import { Bar } from "@/components/home/bar";
 import { HomeCard } from "@/components/home/home-card";
 import { StockIdentity } from "@/components/stock-identity";
 import { formatDate, formatMoneyCompact } from "@/lib/format";
 import { marketToday } from "@/lib/home";
+import { barScale } from "@/lib/home.mjs";
 import { getRecentDeals } from "@/lib/home-watch";
 import { dealValue, dealsLag } from "@/lib/home-watch.mjs";
 import type { Market } from "@/lib/markets";
@@ -21,6 +23,7 @@ export async function DealsCard({ market }: { market: Market }) {
   if (!deals.length) return null;
   const lag = dealsLag(newest, today);
   const top = [...deals].sort((a, b) => dealValue(b) - dealValue(a)).slice(0, SHOWN);
+  const scale = barScale(top.map(dealValue));
 
   return (
     <HomeCard
@@ -28,24 +31,30 @@ export async function DealsCard({ market }: { market: Market }) {
       note={lag ? <span className="text-negative">Feed {lag} days behind · latest {formatDate(newest)}</span> : "last 7 days"}
     >
       <ul className="divide-y divide-border">
-        {top.map((deal) => (
-          <li
-            key={`${deal.kind}:${deal.deal_date}:${deal.symbol}:${deal.client_name}:${deal.side}:${deal.quantity}:${deal.price}`}
-            className="flex items-center gap-3 py-2"
-          >
-            <StockIdentity
-              symbol={deal.symbol}
-              subtitle={`${deal.client_name} · ${formatDate(deal.deal_date)}`}
-              className="min-w-0 flex-1"
-            />
-            <span className="tabular shrink-0 text-right text-xs">
-              <span className={cn("block font-medium", /^b/i.test(deal.side) ? "text-positive" : "text-negative")}>
-                {/^b/i.test(deal.side) ? "Buy" : "Sell"} · {deal.kind}
-              </span>
-              {formatMoneyCompact(dealValue(deal), market)}
-            </span>
-          </li>
-        ))}
+        {top.map((deal) => {
+          const buy = /^b/i.test(deal.side);
+          return (
+            <li
+              key={`${deal.kind}:${deal.deal_date}:${deal.symbol}:${deal.client_name}:${deal.side}:${deal.quantity}:${deal.price}`}
+              className="py-2.5"
+            >
+              <div className="flex items-center gap-3">
+                <StockIdentity
+                  symbol={deal.symbol}
+                  subtitle={`${deal.client_name} · ${formatDate(deal.deal_date)}`}
+                  className="min-w-0 flex-1"
+                />
+                <span className="tabular shrink-0 text-right text-xs">
+                  <span className={cn("block font-medium", buy ? "text-positive" : "text-negative")}>
+                    {buy ? "Buy" : "Sell"} · {deal.kind}
+                  </span>
+                  {formatMoneyCompact(dealValue(deal), market)}
+                </span>
+              </div>
+              <Bar value={dealValue(deal)} scale={scale} tone={buy ? "positive" : "negative"} className="mt-1.5" />
+            </li>
+          );
+        })}
       </ul>
     </HomeCard>
   );

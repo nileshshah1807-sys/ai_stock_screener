@@ -60,3 +60,45 @@ export function screenerRedirect(path, query) {
   const text = params.toString();
   return `${path}/screener${text ? `?${text}` : ""}`;
 }
+
+/**
+ * Where a card sits: the market band at the top, the dated strip under it, or
+ * the content-sized columns. Everything else flows in columns, so a card is as
+ * tall as what it holds and no neighbour is stretched to match it.
+ */
+export const HERO_CARDS = ["pulse", "breadth"];
+export const STRIP_CARDS = ["coming-up"];
+
+/** @param {string[]} ids */
+export function columnCards(ids) {
+  return ids.filter((id) => !HERO_CARDS.includes(id) && !STRIP_CARDS.includes(id));
+}
+
+/**
+ * The largest magnitude among values, so bars in one card share a scale. A
+ * card of nothing but zeros scales to 1 rather than dividing by zero.
+ *
+ * @param {(number | null | undefined)[]} values
+ */
+export function barScale(values) {
+  const peak = Math.max(0, ...values.filter(Number.isFinite).map(Math.abs));
+  return peak || 1;
+}
+
+/** Bar length as a share of the scale, 0-100, never past it. */
+export function barShare(value, scale) {
+  return Number.isFinite(value) ? Math.min(100, (Math.abs(value) / scale) * 100) : 0;
+}
+
+/**
+ * Dated events grouped by day for the timeline, soonest first.
+ *
+ * @template {{ event_date: string }} E
+ * @param {E[]} events
+ * @returns {{ date: string, events: E[] }[]}
+ */
+export function groupByDay(events) {
+  const days = new Map();
+  for (const event of events) days.set(event.event_date, [...(days.get(event.event_date) ?? []), event]);
+  return [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, list]) => ({ date, events: list }));
+}

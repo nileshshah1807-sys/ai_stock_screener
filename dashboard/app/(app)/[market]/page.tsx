@@ -17,7 +17,7 @@ import { ResultsSeasonCard } from "@/components/home/results-season-card";
 import { SinceCard } from "@/components/home/since-card";
 import { StartWatchingCard } from "@/components/home/start-watching-card";
 import { withTiming } from "@/lib/home";
-import { cardsFor, isScreenerQuery, screenerRedirect } from "@/lib/home.mjs";
+import { HERO_CARDS, STRIP_CARDS, cardsFor, columnCards, isScreenerQuery, screenerRedirect } from "@/lib/home.mjs";
 import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
 import { getWatchedSymbols } from "@/lib/notifications";
 
@@ -62,10 +62,15 @@ export default async function HomePage({
 
 function HomeSkeleton() {
   return (
-    <div className="grid items-start gap-4 px-4 py-5 sm:px-6 lg:grid-cols-2">
-      {Array.from({ length: 4 }, (_, index) => (
-        <HomeCardSkeleton key={index} />
-      ))}
+    <div className="space-y-4 px-4 py-5 sm:px-6">
+      <HomeCardSkeleton rows={3} />
+      <div className="gap-4 lg:columns-2 xl:columns-3">
+        {Array.from({ length: 3 }, (_, index) => (
+          <div key={index} className="mb-4 break-inside-avoid">
+            <HomeCardSkeleton />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -88,22 +93,35 @@ async function HomeCards({ market }: { market: Market }) {
     "results-season": <ResultsSeasonTimed market={market} />,
     "lined-up": <LinedUpTimed market={market} />,
   };
+  const shown = (ids: string[]) =>
+    ids.map((id) => (
+      <Suspense key={id} fallback={<HomeCardSkeleton rows={3} />}>
+        {byId[id]}
+      </Suspense>
+    ));
 
+  // The market band and the dated strip are full width; everything else flows
+  // in columns, so a card is as tall as what it holds and never stretches to a
+  // neighbour. Cards that have nothing to say render nothing and leave no hole.
   return (
     <WatchedProvider symbols={watched}>
-      <div className="grid items-start gap-4 px-4 py-5 sm:px-6 lg:grid-cols-2">
+      <div className="space-y-4 px-4 py-5 sm:px-6">
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+          {shown(cards.filter((id) => HERO_CARDS.includes(id)))}
+        </div>
+        {shown(cards.filter((id) => STRIP_CARDS.includes(id)))}
         {watching ? null : (
-          <Suspense fallback={<HomeCardSkeleton className="lg:col-span-2" />}>
+          <Suspense fallback={<HomeCardSkeleton rows={2} />}>
             <StartWatchingCard market={market} />
           </Suspense>
         )}
-        {cards.map((id) =>
-          byId[id] ? (
-            <Suspense key={id} fallback={<HomeCardSkeleton />}>
-              {byId[id]}
-            </Suspense>
-          ) : null,
-        )}
+        <div className="gap-4 lg:columns-2 xl:columns-3">
+          {columnCards(cards).map((id) => (
+            <div key={id} className="mb-4 break-inside-avoid">
+              <Suspense fallback={<HomeCardSkeleton />}>{byId[id]}</Suspense>
+            </div>
+          ))}
+        </div>
       </div>
     </WatchedProvider>
   );

@@ -151,3 +151,22 @@ export function dedupeEvents(events) {
     return true;
   });
 }
+
+/**
+ * One entry per stock, newest event first: a company with a transcript and a
+ * result is one row with two chips, not two rows. Order follows each stock's
+ * newest event.
+ *
+ * @template {{ symbol: string, company?: string | null }} E
+ * @param {E[]} events newest first
+ * @returns {{ symbol: string, company: string | null, events: E[] }[]}
+ */
+export function groupBySymbol(events) {
+  const groups = new Map();
+  for (const event of events) {
+    const group = groups.get(event.symbol) ?? { symbol: event.symbol, company: event.company ?? null, events: [] };
+    group.events.push(event);
+    groups.set(event.symbol, group);
+  }
+  return [...groups.values()];
+}

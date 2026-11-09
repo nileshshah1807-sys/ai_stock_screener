@@ -184,6 +184,7 @@
   --animate-rise: rise var(--duration-slow) var(--ease-entrance) both;
   --animate-fade: fade var(--duration-base) var(--ease-standard) both;
   --animate-grow: grow var(--duration-slow) var(--ease-entrance) both;
+  --animate-draw: draw 700ms var(--ease-entrance) both;
   --animate-sweep: sweep 1.4s ease-in-out infinite;
   /* TICK_FLASH_MS in lib/live-quotes.mjs. */
   --animate-tick-up: tick-up 3s var(--ease-standard) both;
@@ -212,6 +213,15 @@
 
   /* scaleX from the leading edge: bars and meters grow out of their origin
      rather than stretching from the middle. */
+  @keyframes draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+
   @keyframes grow {
     from {
       transform: scaleX(0);

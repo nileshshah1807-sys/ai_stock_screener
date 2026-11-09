@@ -1,7 +1,11 @@
+import { Fragment } from "react";
+
+import { DivBar } from "@/components/home/bar";
 import { Change } from "@/components/home/change";
 import { HomeCard } from "@/components/home/home-card";
 import { StockIdentity } from "@/components/stock-identity";
 import { marketToday } from "@/lib/home";
+import { barScale } from "@/lib/home.mjs";
 import { getRecentShareholding } from "@/lib/home-watch";
 import { shareholdingMoves } from "@/lib/home-watch.mjs";
 import { periodLabel } from "@/lib/financials.mjs";
@@ -21,20 +25,23 @@ export async function ShareholdingCard({ market }: { market: Market }) {
   const moves = shareholdingMoves(rows).slice(0, SHOWN);
   if (!moves.length) return null;
 
+  const scale = barScale(moves.flatMap((move) => GROUPS.map(([key]) => move[key])));
+
   return (
     <HomeCard title="Shareholding moved" note="vs previous quarter, points">
       <ul className="divide-y divide-border">
         {moves.map((move) => (
-          <li key={move.symbol} className="flex items-center gap-3 py-2">
-            <StockIdentity symbol={move.symbol} company={move.company} subtitle={periodLabel(move.period)} className="min-w-0 flex-1" />
-            <span className="tabular flex shrink-0 gap-3 text-xs">
+          <li key={move.symbol} className="py-2.5">
+            <StockIdentity symbol={move.symbol} company={move.company} subtitle={periodLabel(move.period)} />
+            <dl className="mt-2 grid grid-cols-[3.5rem_minmax(0,1fr)_3.25rem] items-center gap-x-2 gap-y-1.5 text-xs">
               {GROUPS.map(([key, label]) => (
-                <span key={key} className="text-right">
-                  <span className="block text-muted-foreground">{label}</span>
-                  <Change value={move[key]} unit="" />
-                </span>
+                <Fragment key={key}>
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd><DivBar value={move[key]} scale={scale} /></dd>
+                  <dd className="text-right"><Change value={move[key]} unit="" /></dd>
+                </Fragment>
               ))}
-            </span>
+            </dl>
           </li>
         ))}
       </ul>

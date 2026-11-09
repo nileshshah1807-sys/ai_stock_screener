@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { CountUp } from "@/components/motion";
 import { HomeCard } from "@/components/home/home-card";
 import { StockIdentity } from "@/components/stock-identity";
 import { formatDate, formatInteger } from "@/lib/format";
@@ -17,7 +18,10 @@ export async function LinedUpCard({ market }: { market: Market }) {
 
   return (
     <HomeCard title="Lined up this week" note="results due">
-      <p className="tabular mb-2 text-2xl font-semibold tracking-tight">{formatInteger(lined.count)}</p>
+      <p className="mb-2 text-sm text-muted-foreground">
+        <CountUp value={lined.count} locale={market.locale} once="lined-up" className="tabular numeral text-3xl font-semibold text-foreground" />{" "}
+        {lined.count === 1 ? "company" : "companies"}
+      </p>
       <ul className="divide-y divide-border">
         {lined.next.map((row) => (
           <li key={row.symbol} className="flex items-center gap-3 py-2">

@@ -30,7 +30,10 @@ const SEASON_LIMIT = 3;
 /** Enough for a peak day (about 900 companies report in a week). */
 const SEASON_READ = 400;
 
-export type PulseIndex = NonNullable<ReturnType<typeof pulseBases>> & { name: string };
+export type PulseIndex = NonNullable<ReturnType<typeof pulseBases>> & { name: string; trend: number[] };
+
+/** Closes drawn in the index tile's sparkline. */
+const PULSE_TREND = 40;
 
 /** The headline indices' closes, reduced to the bases the card's changes are measured from. */
 export function getPulseIndices(market: MarketCode): Promise<PulseIndex[]> {
@@ -60,8 +63,9 @@ async function readPulseIndices(market: MarketCode, db?: Reader): Promise<PulseI
     return [];
   }
   return (data ?? []).flatMap((row) => {
-    const bases = pulseBases(indexPoints(decodeRow(row)));
-    return bases ? [{ name: row.name as string, ...bases }] : [];
+    const points = indexPoints(decodeRow(row));
+    const bases = pulseBases(points);
+    return bases ? [{ name: row.name as string, ...bases, trend: points.slice(-PULSE_TREND).map((point: { value: number }) => point.value) }] : [];
   });
 }
 
@@ -177,11 +181,8 @@ async function readResultsSeason(market: MarketCode, today: string, timeZone: st
   const quarter = (await getLatestResultQuarter(market, offered, db)) ?? offered[0];
   const { entries } = await getResultFeed(market, { quarter, limit: SEASON_READ }, db);
   const latest = groupByAnnouncedDay(entries, timeZone)[0];
-  // Under the cache an empty answer may be a failed read, so it throws and is not kept.
-  if (!latest?.date) {
-    if (db) throw new Error("no results day found");
-    return null;
-  }
+  // A failed read throws above; an empty feed is a real answer (no results yet).
+  if (!latest?.date) return null;
 
   const periods = [quarter, monthsBefore(quarter, 3), monthsBefore(quarter, 12)];
   const symbols = latest.entries.map((entry) => entry.symbol);

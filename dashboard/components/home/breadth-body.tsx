@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { Gauge } from "@/components/home/gauge";
 import { TickFlash } from "@/components/tick-flash";
 import { useMarket } from "@/components/market-provider";
 import type { BreadthNow } from "@/lib/home-market";
@@ -9,8 +10,8 @@ import { marketPath } from "@/lib/markets";
 import { LIVE_DENOMINATORS, useLiveBreadth } from "@/lib/use-live-breadth";
 
 const MEASURES = [
-  { key: "e50", label: "Above 50-day average" },
-  { key: "e200", label: "Above 200-day average" },
+  { key: "e50", label: "Above 50-day average", short: "above 50-day" },
+  { key: "e200", label: "Above 200-day average", short: "above 200-day" },
 ] as const;
 
 /**
@@ -23,26 +24,23 @@ export function BreadthBody({ now }: { now: BreadthNow }) {
 
   return (
     <>
-      <ul className="space-y-4">
-        {MEASURES.map(({ key, label }) => {
+      <ul className="grid grid-cols-2 gap-3">
+        {MEASURES.map(({ key, label, short }) => {
           const total = live?.counts?.[LIVE_DENOMINATORS[key]];
           const count = live?.counts?.[key];
           const percent = total && count !== undefined ? (count / total) * 100 : now[key];
           return (
-            <li key={key}>
-              <div className="flex items-baseline justify-between text-sm">
-                <span>{label}</span>
-                <TickFlash tick={live?.ticks[key]} className="tabular font-mono font-semibold">
-                  {percent === null ? "—" : `${percent.toFixed(0)}%`}
-                </TickFlash>
-              </div>
-              <div
-                className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted"
-                role="img"
-                aria-label={percent === null ? `${label}: not measured` : `${percent.toFixed(0)}% ${label.toLowerCase()}`}
-              >
-                <span className="block h-full bg-foreground/60" style={{ width: `${percent ?? 0}%` }} />
-              </div>
+            <li
+              key={key}
+              role="img"
+              aria-label={percent === null ? `${label}: not measured` : `${percent.toFixed(0)}% ${label.toLowerCase()}`}
+              className="relative"
+            >
+              <Gauge percent={percent} />
+              <TickFlash tick={live?.ticks[key]} className="tabular absolute inset-x-0 bottom-3 text-center font-mono text-xl font-semibold">
+                {percent === null ? "—" : `${percent.toFixed(0)}%`}
+              </TickFlash>
+              <span className="mt-1 block text-center text-xs text-muted-foreground">{short}</span>
             </li>
           );
         })}

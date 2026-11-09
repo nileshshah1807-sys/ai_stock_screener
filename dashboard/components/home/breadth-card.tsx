@@ -1,5 +1,4 @@
 import { BreadthBody } from "@/components/home/breadth-body";
-import { HomeCard } from "@/components/home/home-card";
 import { getBreadthNow } from "@/lib/home-market";
 import type { Market } from "@/lib/markets";
 
@@ -8,8 +7,9 @@ export async function BreadthCard({ market }: { market: Market }) {
   const now = await getBreadthNow(market.code);
   if (!now) return null;
   return (
-    <HomeCard title="Breadth">
+    <section aria-label="Market breadth" className="panel p-4 sm:p-5">
+      <h2 className="mb-3 text-sm font-semibold tracking-[-0.01em]">Breadth</h2>
       <BreadthBody now={now} />
-    </HomeCard>
+    </section>
   );
 }

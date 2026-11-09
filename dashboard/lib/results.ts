@@ -91,6 +91,7 @@ export async function getLatestResultQuarter(
       .limit(1)
       .maybeSingle();
     if (error) {
+      if (db) throw new Error(error.message);
       console.error("getLatestResultQuarter failed", error.message);
       return null;
     }
@@ -105,6 +106,7 @@ export async function getLatestResultQuarter(
     .limit(1)
     .maybeSingle();
   if (error) {
+    if (db) throw new Error(error.message);
     console.error("getLatestResultQuarter failed", error.message);
     return null;
   }
@@ -189,6 +191,7 @@ export async function getResultFeed(
       if (symbols) built = built.in("symbol", symbols);
       const { data, error, count } = await built.range(from, Math.min(from + READ_WINDOW, limit) - 1);
       if (error) {
+        if (db) throw new Error(error.message);
         console.error("getResultFeed failed", error.message);
         return from === 0 ? { entries: [], total: 0 } : { entries, total };
       }

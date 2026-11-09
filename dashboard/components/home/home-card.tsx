@@ -18,7 +18,7 @@ export function HomeCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className={cn("panel flex flex-col p-4 sm:p-5", className)}>
+    <section className={cn("panel flex animate-rise flex-col p-4 sm:p-5", className)}>
       <header className="mb-3 flex items-baseline justify-between gap-3">
         <h2 className="text-sm font-semibold tracking-[-0.01em]">{title}</h2>
         {note ? <span className="tabular text-xs text-muted-foreground">{note}</span> : null}
