@@ -1278,8 +1278,11 @@ export const getLiveMarket = cache(async (
   // The RPC's answer is the same for every viewer and the quotes move every
   // five minutes, so it is read once a minute per instance; ratings are
   // stripped per viewer below, after the memo.
+  const admin = await isAdmin();
+  // The admin flag is in the key: the RPC may answer an admin with more than a
+  // viewer, and one must never be served the other's memo.
   const { data, error } = await liveMarketMemo(
-    market,
+    `${market}:${admin ? "admin" : "viewer"}`,
     async () => {
       const supabase = await createClient();
       return supabase.rpc("live_market", { p_market: market, p_limit: LIVE_MOVERS_LIMIT });
@@ -1292,7 +1295,7 @@ export const getLiveMarket = cache(async (
     console.error("getLiveMarket failed", error.message);
     return { live: null, failed: true };
   }
-  return { live: normalizeLiveMarket(data, await isAdmin()), failed: false };
+  return { live: normalizeLiveMarket(data, admin), failed: false };
 });
 
 

@@ -1,54 +1,39 @@
+import Link from "next/link";
+
 import { HomeCard } from "@/components/home/home-card";
-import { UpcomingProvider } from "@/components/upcoming/upcoming-sheet";
-import { ResultsLinedUpTile } from "@/components/upcoming/upcoming-tiles";
-import { addDays, marketToday } from "@/lib/home";
-import type { Market } from "@/lib/markets";
-import { getDeclaredSymbols } from "@/lib/results";
-import { quarterEnds, quarterWindow } from "@/lib/results.mjs";
-import { sharedMemo } from "@/lib/shared-memo.mjs";
-import { getUpcoming } from "@/lib/upcoming";
-import { notDeclared } from "@/lib/upcoming.mjs";
-import { getWatchlists } from "@/lib/watchlists";
-
-const WEEK_DAYS = 7;
-
-/** The dates and declarations are the same for every viewer and move slowly. */
-const reads = sharedMemo<{ dated: Awaited<ReturnType<typeof getUpcoming>>; declared: Awaited<ReturnType<typeof getDeclaredSymbols>> }>(300_000);
+import { StockIdentity } from "@/components/stock-identity";
+import { formatDate, formatInteger } from "@/lib/format";
+import { marketToday } from "@/lib/home";
+import { getLinedUp } from "@/lib/home-market";
+import { marketPath, type Market } from "@/lib/markets";
 
 /**
- * Results due in the next seven days, as the Results page's tile: a company
- * that has already declared this quarter is not lined up. The tile opens the
- * Results page's full list of upcoming dates.
+ * Results due in the next seven days: the count, the next five companies to
+ * report with their dates, and a way into the Results page's full list.
  */
 export async function LinedUpCard({ market }: { market: Market }) {
-  const today = marketToday(market);
-  const quarter = quarterEnds(today)[0];
-  const [{ dated, declared }, lists] = await Promise.all([
-    reads(`${market.code}:${today}`, async () => {
-      const [dated, declared] = await Promise.all([
-        getUpcoming(market.code, "results", today),
-        getDeclaredSymbols(market.code, quarter),
-      ]);
-      return { dated, declared };
-    }, (value) => value.dated !== null),
-    getWatchlists(market.code),
-  ]);
-  if (!dated) return null;
-  // A US company reporting after the quarter's window is for a later quarter.
-  const remaining = notDeclared(dated, declared, market.code === "US" ? quarterWindow(quarter).through : null);
-  const week = remaining.filter((row) => row.event_date < addDays(today, WEEK_DAYS));
-  if (!week.length) return null;
+  const lined = await getLinedUp(market.code, marketToday(market));
+  if (!lined) return null;
 
   return (
     <HomeCard title="Lined up this week" note="results due">
-      <UpcomingProvider
-        kind="results"
-        rows={remaining}
-        today={today}
-        lists={lists.filter((list) => list.symbols.length).map(({ id, name, symbols }) => ({ id, name, symbols }))}
-      >
-        <ResultsLinedUpTile lined={week.length} declared={null} soonest={[]} logos={new Map()} />
-      </UpcomingProvider>
+      <p className="tabular mb-2 text-2xl font-semibold tracking-tight">{formatInteger(lined.count)}</p>
+      <ul className="divide-y divide-border">
+        {lined.next.map((row) => (
+          <li key={row.symbol} className="flex items-center gap-3 py-2">
+            <StockIdentity symbol={row.symbol} className="min-w-0 flex-1" />
+            <span className="tabular shrink-0 text-xs text-muted-foreground">{formatDate(row.event_date)}</span>
+          </li>
+        ))}
+      </ul>
+      {lined.count > lined.next.length ? (
+        <Link
+          href={marketPath(market.slug, "/results")}
+          className="mt-2 self-start rounded text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          All {formatInteger(lined.count)} on the Results page
+        </Link>
+      ) : null}
     </HomeCard>
   );
 }

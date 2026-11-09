@@ -16,9 +16,22 @@ import { PulseCard } from "@/components/home/pulse-card";
 import { ResultsSeasonCard } from "@/components/home/results-season-card";
 import { SinceCard } from "@/components/home/since-card";
 import { StartWatchingCard } from "@/components/home/start-watching-card";
+import { withTiming } from "@/lib/home";
 import { cardsFor, isScreenerQuery, screenerRedirect } from "@/lib/home.mjs";
 import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
 import { getWatchedSymbols } from "@/lib/notifications";
+
+const SinceTimed = withTiming("since", SinceCard);
+const ResultsInTimed = withTiming("results-in", ResultsInCard);
+const ShareholdingTimed = withTiming("shareholding", ShareholdingCard);
+const DealsTimed = withTiming("deals", DealsCard);
+const ComingUpTimed = withTiming("coming-up", ComingUpCard);
+const WatchlistTodayTimed = withTiming("watchlist-today", WatchlistTodayCard);
+const PulseTimed = withTiming("pulse", PulseCard);
+const MoversTimed = withTiming("movers", MoversCard);
+const BreadthTimed = withTiming("breadth", BreadthCard);
+const ResultsSeasonTimed = withTiming("results-season", ResultsSeasonCard);
+const LinedUpTimed = withTiming("lined-up", LinedUpCard);
 
 export const metadata: Metadata = { title: "Home" };
 export const dynamic = "force-dynamic";
@@ -63,17 +76,17 @@ async function HomeCards({ market }: { market: Market }) {
   const cards = cardsFor(market.code, watching);
 
   const byId: Record<string, React.ReactNode> = {
-    since: <SinceCard market={market} />,
-    "results-in": <ResultsInCard market={market} />,
-    shareholding: <ShareholdingCard market={market} />,
-    deals: <DealsCard market={market} />,
-    "coming-up": <ComingUpCard market={market} />,
-    "watchlist-today": <WatchlistTodayCard market={market} />,
-    pulse: <PulseCard market={market} />,
-    movers: <MoversCard market={market} />,
-    breadth: <BreadthCard market={market} />,
-    "results-season": <ResultsSeasonCard market={market} />,
-    "lined-up": <LinedUpCard market={market} />,
+    since: <SinceTimed market={market} />,
+    "results-in": <ResultsInTimed market={market} />,
+    shareholding: <ShareholdingTimed market={market} />,
+    deals: <DealsTimed market={market} />,
+    "coming-up": <ComingUpTimed market={market} />,
+    "watchlist-today": <WatchlistTodayTimed market={market} />,
+    pulse: <PulseTimed market={market} />,
+    movers: <MoversTimed market={market} />,
+    breadth: <BreadthTimed market={market} />,
+    "results-season": <ResultsSeasonTimed market={market} />,
+    "lined-up": <LinedUpTimed market={market} />,
   };
 
   return (

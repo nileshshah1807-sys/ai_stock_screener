@@ -265,12 +265,15 @@ export async function quickRemoveFromWatchlist(formData: FormData): Promise<Acti
 
   const supabase = await createClient();
   const { data: lists } = await supabase.from("watchlists").select("id").eq("market", market.code);
-  for (const { id } of (lists ?? []) as { id: string }[]) {
-    const form = new FormData();
-    form.set("watchlistId", id);
-    form.set("symbol", symbol);
-    const result = await removeFromWatchlist(form);
-    if (!result.ok) return result;
+  const ids = ((lists ?? []) as { id: string }[]).map((list) => list.id);
+  if (!ids.length) return { ok: true };
+  // One statement for every list in this market (never another market's: the
+  // same symbol can be a different company there).
+  const { error } = await supabase.from("watchlist_items").delete().in("watchlist_id", ids).eq("symbol", symbol);
+  if (error) {
+    console.error("quickRemoveFromWatchlist failed", error.message);
+    return { ok: false, error: "Could not remove from your lists." };
   }
+  revalidateWatchlistViews(symbol);
   return { ok: true };
 }
