@@ -7,7 +7,7 @@ export async function PulseCard({ market }: { market: Market }) {
   const indices = await getPulseIndices(market.code);
   if (!indices.length) return null;
   return (
-    <section aria-label="Market pulse" className="panel p-4 sm:p-5">
+    <section aria-label="Market pulse" className="panel animate-rise p-4 sm:p-5">
       <PulseTiles indices={indices} />
     </section>
   );

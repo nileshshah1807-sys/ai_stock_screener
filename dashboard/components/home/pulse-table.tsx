@@ -39,12 +39,12 @@ export function PulseTiles({ indices }: { indices: PulseIndex[] }) {
   const open = inSession(now, market, marketDay);
 
   return (
-    <>
+    <div className="flex h-full flex-col">
       <p suppressHydrationWarning className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
         <span className={cn("size-2 rounded-full", open ? "bg-positive" : "border border-border")} aria-hidden />
         {open ? "Market open" : "Market closed"}
       </p>
-      <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <ul className="grid flex-1 grid-cols-2 gap-3 lg:grid-cols-4">
         {indices.map((index, position) => {
           const quote = liveOverlay(lookup(index.name), index.last.time);
           const level = quote?.price ?? index.last.value;
@@ -70,9 +70,9 @@ export function PulseTiles({ indices }: { indices: PulseIndex[] }) {
                 >
                   {formatPercent(day ?? null, 2, true)}
                 </span>
-                <div className="relative my-1">
+                <div className="relative mb-1 mt-auto pt-1">
                   <Sparkline values={trend} />
-                  <span className="absolute right-0 top-0 text-[10px] text-muted-foreground">1M</span>
+                  <span className="absolute left-0 top-0 text-[10px] text-muted-foreground">1M</span>
                 </div>
                 <span className="flex justify-between gap-2 text-[11px]">
                   <Delta label="1W" value={pctChange(index.week ?? NaN, level)} />
@@ -83,6 +83,6 @@ export function PulseTiles({ indices }: { indices: PulseIndex[] }) {
           );
         })}
       </ul>
-    </>
+    </div>
   );
 }
