@@ -877,6 +877,44 @@ class DashboardRepository:
             headers={"Prefer": "return=minimal"},
         )
 
+    # -- market calendar --------------------------------------------------
+
+    def market_calendar(self, since: str) -> list[dict[str, Any]]:
+        """This market's holidays and special sessions from ``since`` (a date) on."""
+        return self._request(
+            "GET",
+            "market_calendar",
+            params=self._scoped({"select": "day,kind,reason,session_open,session_close", "day": f"gte.{since}", "order": "day.asc"}),
+        ) or []
+
+    def market_calendar_refreshed_at(self) -> str | None:
+        """When this market's calendar was last rebuilt (any row, past or future), or None."""
+        rows = self._request(
+            "GET",
+            "market_calendar",
+            params=self._scoped({"select": "refreshed_at", "order": "refreshed_at.desc", "limit": "1"}),
+        ) or []
+        return rows[0]["refreshed_at"] if rows else None
+
+    def replace_market_calendar(self, rows: list[dict[str, Any]]) -> int:
+        """Make this market's future calendar exactly ``rows``: stamped and upserted, then older stamps deleted."""
+        if not rows:  # never post nothing and then delete everything older
+            return 0
+        stamp = datetime.now(UTC).isoformat(timespec="seconds")
+        self._request(
+            "POST",
+            "market_calendar?on_conflict=market,day",
+            json=self._stamped([{**row, "refreshed_at": stamp} for row in rows]),
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+        self._request(
+            "DELETE",
+            "market_calendar",
+            params=self._scoped({"refreshed_at": f"lt.{stamp}"}),
+            headers={"Prefer": "return=minimal"},
+        )
+        return len(rows)
+
     def index_members_refreshed_at(self) -> str | None:
         """When this market's constituent lists were last replaced, or None."""
         rows = self._request(
