@@ -12,6 +12,7 @@ import pandas as pd
 
 from screener.data_collection import StockDataCollector
 from screener.price_basis import restate_price_basis
+from screener.session_bars import carry_quiet_session
 from screener.sme_bars import SmeBarHistory
 from tests.test_session_bars import HOLIDAYS, _history
 
@@ -147,6 +148,25 @@ class CollectorSmeTests(unittest.TestCase):
         _, result = self._collect(pd.concat({"EXAMPLE.NS": stale}, axis=1), FakeHistory(None), sme={"EXAMPLE"})
         self.assertTrue(result.empty)
 
+    def test_an_sme_name_whose_yahoo_bars_stop_short_of_the_session_takes_the_exchange_bars(self):
+        # Yahoo does not carry a quiet SME name forward; the exchange file has the session.
+        history = FakeHistory(self._bars())
+        collector, result = self._collect(
+            pd.concat({"EXAMPLE.NS": _history(hole=False, live_row=False)}, axis=1), history, sme={"EXAMPLE"}
+        )
+        self.assertEqual(result.iloc[0]["Price_Bar_As_Of"], EXPECTED.isoformat())
+        self.assertEqual(
+            collector.collection_diagnostics["technical_sme_bhavcopy_priced_symbols"], ["EXAMPLE"]
+        )
+
+    def test_a_lagging_sme_name_the_exchange_does_not_have_keeps_yahoos_bars(self):
+        _, result = self._collect(
+            pd.concat({"EXAMPLE.NS": _history(hole=False, live_row=False, periods=120)}, axis=1),
+            FakeHistory(None),
+            sme={"EXAMPLE"},
+        )
+        self.assertTrue(result.empty)  # as before: behind the session, it leaves to the cache fallback
+
     def test_stale_bars_of_a_mainboard_name_are_left_alone(self):
         stale = _history(hole=False, live_row=False)
         stale.index = stale.index - pd.DateOffset(years=2)
@@ -162,7 +182,7 @@ class CollectorSmeTests(unittest.TestCase):
 
     def test_yahoo_stays_the_source_where_it_serves(self):
         history = FakeHistory(self._bars())
-        collector, _ = self._collect(_history(hole=False, live_row=False), history, sme={"EXAMPLE"})
+        collector, _ = self._collect(self._bars(), history, sme={"EXAMPLE"})
         self.assertEqual(history.asked, [])
         self.assertEqual(collector.collection_diagnostics["technical_sme_bhavcopy_priced_symbols"], [])
 
@@ -203,3 +223,43 @@ class FetchFailureTests(unittest.TestCase):
         with self.assertLogs("screener.sme_bars", level="WARNING"):
             self.assertIsNone(history.bars("SMEONE"))
         self.assertEqual(len(calls), 10)
+
+
+class QuietBseSessionTests(unittest.TestCase):
+    """A BSE name its exchange file shows did not trade is a quiet session, not a lag."""
+
+    def _collect(self, *, traded, session="2026-10-05"):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        config = SimpleNamespace(
+            OUTPUT_DIR=Path(directory.name), PRICE_CACHE_MAX_AGE_HOURS=18, FUND_CACHE_MAX_AGE_DAYS=7,
+            FACTOR_MODEL_ENABLED=False, NSE_MARKET_HOLIDAYS=HOLIDAYS,
+        )
+        collector = StockDataCollector(config, clock=lambda: NOW)
+        collector.bse_session, collector.bse_traded = session, frozenset(traded)
+        yahoo = pd.concat({"EXAMPLE.BO": _history(hole=False, live_row=False, periods=120)}, axis=1)
+        with patch("screener.data_collection.yf.download", return_value=yahoo):
+            return collector, collector.download_stock_data(["EXAMPLE.BO"])
+
+    def test_a_name_not_in_the_exchange_file_is_carried_to_the_session_at_zero_volume(self):
+        collector, result = self._collect(traded=set())
+        self.assertEqual(result.iloc[0]["Price_Bar_As_Of"], EXPECTED.isoformat())
+        self.assertEqual(
+            collector.collection_diagnostics["technical_quiet_session_carried_symbols"], ["EXAMPLE.BO"]
+        )
+
+    def test_a_name_the_exchange_traded_but_yahoo_lacks_is_left_behind(self):
+        collector, result = self._collect(traded={"EXAMPLE.BO"})
+        self.assertTrue(result.empty)
+        self.assertEqual(collector.collection_diagnostics["technical_quiet_session_carried_symbols"], [])
+
+    def test_without_the_sessions_exchange_file_nothing_is_carried(self):
+        _, result = self._collect(traded=set(), session="2026-10-01")
+        self.assertTrue(result.empty)
+
+    def test_a_last_bar_older_than_a_week_is_stale_not_quiet(self):
+        old = _history(hole=False, live_row=False)
+        old.index = old.index - pd.DateOffset(days=14)
+        frame, carried = carry_quiet_session(old, EXPECTED, TZ, 7)
+        self.assertFalse(carried)
+        self.assertIs(frame, old)
