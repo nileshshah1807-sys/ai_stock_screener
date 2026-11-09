@@ -78,8 +78,9 @@ function inQuarters<T>(query: T, market: MarketCode, ends: string[]): T {
 export async function getLatestResultQuarter(
   market: MarketCode,
   offered: string[],
+  db?: Reader,
 ): Promise<string | null> {
-  const supabase = await createClient();
+  const supabase = db ?? (await createClient());
   if (market === "US") {
     const { data, error } = await supabase
       .from("quarterly_filings")
@@ -90,6 +91,7 @@ export async function getLatestResultQuarter(
       .limit(1)
       .maybeSingle();
     if (error) {
+      if (db) throw new Error(error.message);
       console.error("getLatestResultQuarter failed", error.message);
       return null;
     }
@@ -104,6 +106,7 @@ export async function getLatestResultQuarter(
     .limit(1)
     .maybeSingle();
   if (error) {
+    if (db) throw new Error(error.message);
     console.error("getLatestResultQuarter failed", error.message);
     return null;
   }
@@ -120,6 +123,9 @@ export async function runCompanyNames(market: MarketCode): Promise<Map<string, s
   }
   return names;
 }
+
+/** A Supabase client: the viewer's, or the service role for the cached non-viewer reads. */
+export type Reader = Awaited<ReturnType<typeof createClient>>;
 
 export type ResultFeedQuery = {
   quarter: string;
@@ -140,9 +146,10 @@ export type ResultFeedQuery = {
 export async function getResultFeed(
   market: MarketCode,
   { quarter, symbols = null, search = "", limit = 30, byPeriodEnd = false }: ResultFeedQuery,
+  db?: Reader,
 ): Promise<{ entries: ResultFeedEntry[]; total: number | null }> {
   if (symbols && symbols.length === 0) return { entries: [], total: 0 };
-  const supabase = await createClient();
+  const supabase = db ?? (await createClient());
 
   // A filing stored before the company's name was kept with it has none of
   // its own, so a search by name also asks for the symbols the run names so.
@@ -184,6 +191,7 @@ export async function getResultFeed(
       if (symbols) built = built.in("symbol", symbols);
       const { data, error, count } = await built.range(from, Math.min(from + READ_WINDOW, limit) - 1);
       if (error) {
+        if (db) throw new Error(error.message);
         console.error("getResultFeed failed", error.message);
         return from === 0 ? { entries: [], total: 0 } : { entries, total };
       }
@@ -203,8 +211,8 @@ export async function getResultFeed(
 }
 
 /** The companies that have filed for a quarter: "declared so far", and not "lined up" any more. */
-export async function getDeclaredSymbols(market: MarketCode, quarter: string): Promise<Set<string> | null> {
-  const supabase = await createClient();
+export async function getDeclaredSymbols(market: MarketCode, quarter: string, db?: Reader): Promise<Set<string> | null> {
+  const supabase = db ?? (await createClient());
   const symbols = new Set<string>();
   for (let from = 0; ; from += READ_WINDOW) {
     const { data, error } = await inQuarters(
@@ -275,10 +283,9 @@ const toFiling = ({ revenue, operating_profit, net_profit, ...rest }: LineRow): 
   lines: { revenue, operating_profit, net_profit },
 });
 
-type Reader = Awaited<ReturnType<typeof createClient>>;
 
 /** Every window of the filings' three lines for `periods`, narrowed to `symbols` when given. */
-async function readQuarterLines(
+export async function readQuarterLines(
   supabase: Reader,
   market: MarketCode,
   periods: string[],

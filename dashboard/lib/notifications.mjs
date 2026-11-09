@@ -131,3 +131,42 @@ export function groupByDay(events, timeZone, today = new Date()) {
       events: items,
     }));
 }
+
+/**
+ * One line per stock, kind and what it says: a call recorded twice (the
+ * recording, then the filed transcript) reads as one event. Keeps the first,
+ * which is the newest in a feed ordered newest first.
+ *
+ * @template {{ symbol: string, kind: string, detail?: object, event_key?: string }} E
+ * @param {E[]} events
+ * @returns {E[]}
+ */
+export function dedupeEvents(events) {
+  const seen = new Set();
+  return events.filter((event) => {
+    const { title, summary } = describeEvent(event);
+    const line = `${event.symbol}|${event.kind}|${title}|${summary}`;
+    if (seen.has(line)) return false;
+    seen.add(line);
+    return true;
+  });
+}
+
+/**
+ * One entry per stock, newest event first: a company with a transcript and a
+ * result is one row with two chips, not two rows. Order follows each stock's
+ * newest event.
+ *
+ * @template {{ symbol: string, company?: string | null }} E
+ * @param {E[]} events newest first
+ * @returns {{ symbol: string, company: string | null, events: E[] }[]}
+ */
+export function groupBySymbol(events) {
+  const groups = new Map();
+  for (const event of events) {
+    const group = groups.get(event.symbol) ?? { symbol: event.symbol, company: event.company ?? null, events: [] };
+    group.events.push(event);
+    groups.set(event.symbol, group);
+  }
+  return [...groups.values()];
+}

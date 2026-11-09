@@ -101,7 +101,7 @@ export function NewListingView({
     <ZoomIn className="space-y-4 px-4 py-5 sm:px-6">
       <div className="panel p-5 sm:p-6">
         <Link
-          href={marketPath(market.slug)}
+          href={marketPath(market.slug, "/screener")}
           className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ArrowLeft className="size-3" aria-hidden />

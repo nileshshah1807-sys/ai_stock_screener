@@ -7,7 +7,7 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 // The banner is about the screener ranking, so only the Screener page shows it.
 test("the stale-ranking banner is rendered by the screener layout, not the app shell", () => {
   assert.doesNotMatch(read("../components/app-shell.tsx"), /FreshnessBanner/);
-  assert.match(read("../app/(app)/[market]/(screener)/layout.tsx"), /<FreshnessBanner run=\{run\} \/>/);
+  assert.match(read("../app/(app)/[market]/screener/layout.tsx"), /<FreshnessBanner run=\{run\} \/>/);
 });
 
 test("the warning names the screener ranking and its run date", () => {
@@ -27,5 +27,5 @@ test("no file but the screener layout imports FreshnessBanner", () => {
       }
     }
   }
-  assert.deepEqual(importers, ["app/(app)/[market]/(screener)/layout.tsx"]);
+  assert.deepEqual(importers, ["app/(app)/[market]/screener/layout.tsx"]);
 });

@@ -790,7 +790,7 @@ export default async function StockPage({
         */}
         <div className="panel p-5 sm:p-6">
           <Link
-            href={marketPath(market.slug)}
+            href={marketPath(market.slug, "/screener")}
             className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ArrowLeft className="size-3" aria-hidden />

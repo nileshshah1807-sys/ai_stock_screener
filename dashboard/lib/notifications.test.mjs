@@ -97,3 +97,20 @@ test("events group by the exchange's calendar day, newest first", () => {
     ],
   );
 });
+
+test("a call recorded twice reads as one event", async () => {
+  const { dedupeEvents } = await import("./notifications.mjs");
+  const call = (id) => ({ id, symbol: "SBIN", kind: "transcript", event_key: `k${id}`, detail: { quarter: "2026-09-30" } });
+  const other = { id: 9, symbol: "SBIN", kind: "results", event_key: "r", detail: { period: "2026-09-30" } };
+  assert.deepEqual(dedupeEvents([call(1), other, call(2)]).map((event) => event.id), [1, 9]);
+});
+
+test("a stock with two events is one group, in order of its newest", async () => {
+  const { groupBySymbol } = await import("./notifications.mjs");
+  const groups = groupBySymbol([
+    { id: 1, symbol: "KMEW", kind: "transcript" },
+    { id: 2, symbol: "SAILIFE", kind: "results" },
+    { id: 3, symbol: "KMEW", kind: "results" },
+  ]);
+  assert.deepEqual(groups.map((g) => [g.symbol, g.events.map((e) => e.id)]), [["KMEW", [1, 3]], ["SAILIFE", [2]]]);
+});

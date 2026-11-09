@@ -36,7 +36,7 @@ export default async function ScreenerLayout({
   params,
   children,
 }: LayoutProps<"/[market]">) {
-  mark("(screener)/layout RENDERED");
+  mark("screener/layout RENDERED");
   // The parent [market] layout already rejected an unknown slug, so this
   // cannot be null by the time the layout renders.
   const market = marketFromSlug((await params).market)!;

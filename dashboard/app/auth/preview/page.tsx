@@ -313,7 +313,7 @@ export default function PreviewPage() {
 
         <section className="flex flex-col gap-3">
           <h2 className="text-heading">Screener toolbar</h2>
-          {/* Same structure as (screener)/layout.tsx. Suspense because these
+          {/* Same structure as screener/layout.tsx. Suspense because these
               read the query string, which a static page only has on the client. */}
           <Suspense>
             <div className="space-y-2">
