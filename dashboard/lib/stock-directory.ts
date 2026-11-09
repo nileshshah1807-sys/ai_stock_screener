@@ -37,7 +37,11 @@ function loadPayload(market: MarketSlug, runDate: string | null): Promise<Payloa
   // they joined it), and `v` the payload's shape.
   const run = runDate ? `&run=${runDate}` : "";
   const promise = fetch(`/api/search-index?market=${market}${run}&v=2`)
-    .then((response) => (response.ok ? response.json() : {}))
+    .then((response) => {
+      // Thrown, so the catch below forgets this attempt and the next call retries.
+      if (!response.ok) throw new Error(`search-index ${response.status}`);
+      return response.json();
+    })
     .then((payload: Partial<Payload>) => ({
       entries: payload.entries ?? [],
       indices: payload.indices ?? [],

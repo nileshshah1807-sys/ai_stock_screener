@@ -69,7 +69,7 @@ test("a shared read is served from memory inside its window, and a rejected resu
 test("a profit that fell into loss is flagged, not given a rate to print", () => {
   const card = (symbol, yoy, now) => ({ symbol, bases: [{ rows: [{ key: "net_profit", yoy, values: [now, 1, 1] }] }] });
   const { falls } = profitMovers([card("L", -10497, -50), card("M", -20, 8)], 5);
-  assert.deepEqual(falls.map((row) => [row.symbol, row.loss]), [["L", true], ["M", false]]);
+  assert.deepEqual(falls.map((row) => [row.symbol, row.loss]), [["M", false], ["L", true]]);
 });
 
 test("a change that prints as zero has no sign", async () => {

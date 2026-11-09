@@ -49,7 +49,11 @@ export function profitMovers(cards, limit) {
   const byChange = (a, b) => b.change - a.change;
   return {
     rises: rated.filter((row) => row.change > 0).sort(byChange).slice(0, limit),
-    falls: rated.filter((row) => row.change < 0).sort((a, b) => -byChange(a, b)).slice(0, limit),
+    // A company that fell into loss has no real rate (its base may be tiny), so it ranks after the true falls.
+    falls: rated
+      .filter((row) => row.change < 0)
+      .sort((a, b) => Number(a.loss) - Number(b.loss) || -byChange(a, b))
+      .slice(0, limit),
   };
 }
 
