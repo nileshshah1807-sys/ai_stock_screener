@@ -5,7 +5,6 @@ import { ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut, Shapes, Users 
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { FreshnessBanner } from "@/components/freshness-banner";
 import { TrialBannerFor } from "@/components/trial-banner";
 import { HealthLink } from "@/components/health-link";
 import { NotificationBell, NotificationBellFallback } from "@/components/notifications/bell";
@@ -254,7 +253,6 @@ export function AppShell({
             <TrialBannerFor days={viewer.access.daysLeft} userId={viewer.id} />
           </Suspense>
         ) : null}
-        <FreshnessBanner run={run} />
 
         {/*
           A single fade on first paint, deliberately not re-keyed per
