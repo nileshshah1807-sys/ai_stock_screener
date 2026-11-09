@@ -148,7 +148,9 @@ class CalendarTests(unittest.TestCase):
         repo = FakeRepo(snapshot=["AAA"])
         repo.market_calendar = lambda since: []
         repo.market_calendar_refreshed_at = lambda: "2026-11-08T08:00:00+00:00"
-        run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=must_not_fetch)
+        fetched = []  # not must_not_fetch: the calendar step swallows every exception
+        run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=lambda: fetched.append(1))
+        self.assertEqual(fetched, [])
 
     def test_replace_posts_before_it_deletes_and_does_nothing_for_no_rows(self):
         calls = []
