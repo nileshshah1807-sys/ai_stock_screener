@@ -1,0 +1,29 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { cardsFor, isScreenerQuery, screenerRedirect } from "./home.mjs";
+
+test("a viewer with no watchlist sees the market cards only", () => {
+  assert.deepEqual(cardsFor("NSE", false), ["pulse", "movers", "breadth", "results-season", "lined-up"]);
+});
+
+test("a watcher sees their cards first, then the market's", () => {
+  const ids = cardsFor("NSE", true);
+  assert.equal(ids[0], "since");
+  assert.ok(ids.indexOf("watchlist-today") < ids.indexOf("pulse"));
+});
+
+test("US has no shareholding or deals card, with or without a watchlist", () => {
+  for (const watching of [true, false]) {
+    const ids = cardsFor("US", watching);
+    assert.ok(!ids.includes("shareholding") && !ids.includes("deals"));
+  }
+  assert.ok(cardsFor("US", true).includes("since"));
+});
+
+test("an old screener link keeps its filters on the new path", () => {
+  assert.equal(isScreenerQuery({}), false);
+  assert.equal(isScreenerQuery({ rating: "BUY" }), true);
+  assert.equal(screenerRedirect("/ind", { rating: "BUY", sector: ["A", "B"], q: undefined }), "/ind/screener?rating=BUY&sector=A&sector=B");
+  assert.equal(screenerRedirect("/us", {}), "/us/screener");
+});

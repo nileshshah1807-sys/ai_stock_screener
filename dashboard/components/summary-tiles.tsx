@@ -151,7 +151,7 @@ export function SummaryTiles({
         return (
           <Link
             key={tile.rating}
-            href={`${marketPath(market.slug)}?rating=${encodeURIComponent(tile.rating)}`}
+            href={`${marketPath(market.slug, "/screener")}?rating=${encodeURIComponent(tile.rating)}`}
             data-kpi
             className={cn(
               "press group block bg-card px-4 py-3",

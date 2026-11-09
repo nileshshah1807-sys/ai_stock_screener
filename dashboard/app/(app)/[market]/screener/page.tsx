@@ -41,7 +41,7 @@ export default async function ScreenerPage({
   params,
   searchParams,
 }: PageProps<"/[market]">) {
-  mark("(screener)/page RENDERED");
+  mark("screener/page RENDERED");
   const market = marketFromSlug((await params).market)!;
   const run = await getLatestRun(market.code);
 

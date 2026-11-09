@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { ArrowLeftRight, Bookmark, ChartArea, LayoutGrid, LogOut, Shapes, Users } from "lucide-react";
+import { ArrowLeftRight, Bookmark, ChartArea, House, LayoutGrid, LogOut, Shapes, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
@@ -49,24 +49,30 @@ import { signOut } from "@/app/login/actions";
  */
 const TOOL_PATHS = TOOLS.map((tool) => tool.path);
 
-const NAV: readonly { path: string; label: string; icon: typeof LayoutGrid; also?: readonly string[] }[] = [
-  { path: "", label: "Screener", icon: LayoutGrid },
+/*
+ * Home is the market root and the screener its own tab. Movers is the sixth
+ * destination, which a phone's tab bar cannot hold, so the bar leaves it out
+ * (`desktopOnly`): Home's top-movers card and the footer carry it there.
+ */
+const NAV: readonly { path: string; label: string; icon: typeof LayoutGrid; also?: readonly string[]; desktopOnly?: boolean }[] = [
+  { path: "", label: "Home", icon: House },
+  { path: "/screener", label: "Screener", icon: LayoutGrid },
   { path: "/market", label: "Market", icon: ChartArea },
   { path: TOOL_PATHS[0], label: "Tools", icon: Shapes, also: TOOL_PATHS },
   { path: "/watchlists", label: "Watchlists", icon: Bookmark },
-  { path: "/movers", label: "Movers", icon: ArrowLeftRight },
+  { path: "/movers", label: "Movers", icon: ArrowLeftRight, desktopOnly: true },
 ];
 
-function PrimaryNav({ market, className }: { market: Market; className: string }) {
+function PrimaryNav({ market, className, phone = false }: { market: Market; className: string; phone?: boolean }) {
   return (
     <GlassTrack label="Primary" variant="tabs" className={className}>
-      {NAV.map(({ path, label, icon: Icon, also }) => (
+      {NAV.filter((item) => !(phone && item.desktopOnly)).map(({ path, label, icon: Icon, also }) => (
         <NavLink
           key={path}
           href={marketPath(market.slug, path)}
           also={also?.map((other) => marketPath(market.slug, other))}
-          // The screener is the market root, so it must match exactly or
-          // it reads as active on every page in the market.
+          // Home is the market root, so it must match exactly or it reads
+          // as active on every page in the market.
           exact={path === ""}
         >
           <Icon className="size-4 shrink-0" aria-hidden />
@@ -314,6 +320,7 @@ export function AppShell({
         PrimaryNavs is displayed at a time.
       */}
       <PrimaryNav
+        phone
         market={market}
         className="fixed inset-x-0 bottom-0 z-40 border-t bg-card px-1 pb-[env(safe-area-inset-bottom)] md:hidden"
       />
