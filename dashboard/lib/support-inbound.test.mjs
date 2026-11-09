@@ -179,3 +179,12 @@ test("a claim that cannot be given back does not stop the 502", async () => {
   const result = await run(body, signed(body), w, { fetchImpl: failing, release: async () => { throw new Error("db down"); } });
   assert.equal(result.status, 502);
 });
+
+test("a ticket that was made is never made twice, even if marking it complete fails", async () => {
+  const w = world();
+  const body = event();
+  const result = await run(body, signed(body), w, { complete: async () => { throw new Error("db down"); } });
+  assert.equal(result.status, 200);
+  assert.equal(w.calls.filter((c) => c.url.includes("/servicedeskapi/request")).length, 1);
+  assert.ok(w.rows.has("em_1"), "the claim is left as it is");
+});

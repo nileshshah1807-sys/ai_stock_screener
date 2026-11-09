@@ -62,7 +62,8 @@ async function fetchBody(fetchImpl, apiKey, emailId) {
  * The route's decision. 401 unsigned or wrong, 503 not set up, 200 handled or
  * deliberately ignored (a retry would change nothing), 502 a failure Resend
  * should retry (the claim is given back first, and a failure to give it back is
- * only logged: the claim then goes stale and a retry takes it over).
+ * only logged: the claim then goes stale and a retry takes it over). Once the ticket
+ * exists nothing is retried: a failure to mark it complete is only logged.
  * `claim(emailId)` is true for the one caller that wins the email; `complete` marks
  * it done (a drop is done too: a retry would change nothing); `release` undoes a claim.
  */
@@ -112,7 +113,8 @@ export async function handleInbound({ rawBody, headers, env, supportAddress, cla
       },
       log,
     );
-    await complete(data.email_id);
+    // The ticket exists: a failure to mark it must not send Resend back for a second one.
+    await Promise.resolve(complete(data.email_id)).catch((e) => log.error("support inbound: ticket made but could not be marked complete", e instanceof Error ? e.message : e));
   } catch (error) {
     log.error("support inbound: could not make the ticket", error instanceof Error ? error.message : error);
     await Promise.resolve(release(data.email_id)).catch((e) => log.error("support inbound: could not release the claim", e instanceof Error ? e.message : e));
