@@ -6,11 +6,12 @@
 
 export const CATEGORIES = ["Billing & plans", "Data question", "Account", "Feature idea", "Something else"];
 
-export const LIMITS = { name: 100, email: 254, subject: 150, message: 5000, messageMin: 10 };
+export const LIMITS = { name: 100, subject: 150, message: 5000, messageMin: 10 };
 
 const ENV_KEYS = ["JSM_SITE", "JSM_EMAIL", "JSM_API_TOKEN", "JSM_SERVICE_DESK_ID", "JSM_REQUEST_TYPE_ID"];
 
-const EMAIL = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
+/** The largest request body the route reads (the message limit plus the other fields). */
+export const MAX_BODY_BYTES = 10 * 1024;
 
 /** One line: control characters out, white space collapsed. */
 const oneLine = (value) => String(value ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ").replace(/\s+/g, " ").trim();
@@ -19,18 +20,18 @@ const oneLine = (value) => String(value ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp
 export const supportConfigured = (env) => ENV_KEYS.every((key) => Boolean(env[key]?.trim()));
 
 /**
+ * `email` is the signed-in user's session email, never the body's: JSM emails
+ * whoever raiseOnBehalfOf names, so a typed address would let anyone mail a stranger.
  * @returns {{ok: true, value: {name: string, email: string, subject: string, message: string, category: string}} | {ok: false, error: string}}
  */
-export function validateSupport(body) {
+export function validateSupport(body, email) {
   const input = body && typeof body === "object" ? body : {};
   const name = oneLine(input.name);
-  const email = oneLine(input.email);
   const subject = oneLine(input.subject);
   const message = String(input.message ?? "").replace(/\r\n?/g, "\n").replace(/[^\P{Cc}\n\t]/gu, "").trim();
   const category = CATEGORIES.includes(input.category) ? input.category : null;
 
   if (!name || name.length > LIMITS.name) return { ok: false, error: "Enter your name (up to 100 characters)." };
-  if (!EMAIL.test(email) || email.length > LIMITS.email) return { ok: false, error: "Enter a valid email address." };
   if (!category) return { ok: false, error: "Choose a category." };
   if (subject.length < 3 || subject.length > LIMITS.subject) return { ok: false, error: "Give a subject of 3 to 150 characters." };
   if (message.length < LIMITS.messageMin || message.length > LIMITS.message) {
@@ -79,15 +80,17 @@ export async function createJsmRequest(fetchImpl, env, { name, email, subject, m
 }
 
 /**
- * The route's decision. Statuses: 200 sent, 400 invalid, 429 too many, 502 JSM
- * failed, 503 not configured (the form then shows the mailto fallback).
+ * The route's decision; `email` is the session's, null when signed out. Statuses:
+ * 200 sent, 400 invalid, 401 signed out, 429 too many, 502 JSM failed, 503 not
+ * configured (the page then shows the mailto fallback).
  * A filled honeypot ("website") gets a 200 and nothing is sent.
  */
-export async function submitSupport({ body, env, ip, limiter, fetchImpl = fetch, log = console }) {
+export async function submitSupport({ body, email, env, ip, limiter, fetchImpl = fetch, log = console }) {
   if (!supportConfigured(env)) return { status: 503, body: { error: "not_configured" } };
+  if (!email) return { status: 401, body: { error: "sign_in" } };
   if (body && typeof body === "object" && body.website) return { status: 200, body: { ok: true } };
   if (!limiter(ip)) return { status: 429, body: { error: "Too many messages from this address. Try again in a few minutes." } };
-  const checked = validateSupport(body);
+  const checked = validateSupport(body, email);
   if (!checked.ok) return { status: 400, body: { error: checked.error } };
   try {
     await createJsmRequest(fetchImpl, env, checked.value);

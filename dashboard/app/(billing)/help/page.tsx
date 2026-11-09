@@ -48,11 +48,12 @@ export default async function HelpPage() {
 
       <section aria-labelledby="contact" className="grid gap-4">
         <h2 id="contact" className="text-heading">Write to us</h2>
-        {supportConfigured(process.env) ? (
-          <SupportForm email={session?.email ?? ""} name={name} contactEmail={LEGAL.contactEmail} />
+        {session && supportConfigured(process.env) ? (
+          <SupportForm email={session.email} name={name} contactEmail={LEGAL.contactEmail} />
         ) : (
           <p className="text-sm">
             Write to <a href={`mailto:${LEGAL.contactEmail}`} className={LINK}>{LEGAL.contactEmail}</a> and we will reply by email.
+            {session ? null : <> Signed-in members can also use a form here.</>}
           </p>
         )}
       </section>

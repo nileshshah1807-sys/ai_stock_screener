@@ -280,6 +280,18 @@ Vercel, with **Root Directory** set to `dashboard`. Environment variables:
 | `NEXT_PUBLIC_SITE_URL` | deployed origin, no trailing slash |
 | `NEXT_PUBLIC_BRANDFETCH_CLIENT_ID` | public client ID from the Brandfetch developer portal |
 
+Help & Support (`/help`, `POST /api/support`) opens a Jira Service Management
+request for the signed-in member. Optional: with any of these unset the page
+shows a mailto link instead of the form.
+
+| Variable | Value |
+| --- | --- |
+| `JSM_SITE` | the Atlassian site, `cupel-team` or `cupel-team.atlassian.net` |
+| `JSM_EMAIL` | the Atlassian account the API token belongs to |
+| `JSM_API_TOKEN` | that account's API token (secret) |
+| `JSM_SERVICE_DESK_ID` | the service project's id, from `/rest/servicedeskapi/servicedesk` |
+| `JSM_REQUEST_TYPE_ID` | the request type new tickets use, from that desk's `/requesttype` list |
+
 The Brandfetch client ID is intentionally browser-visible: Brandfetch requires
 it in each Logo API image URL. Put the real value in Vercel and in the ignored
 local `dashboard/.env.local`; commit only the placeholder in `.env.example`.

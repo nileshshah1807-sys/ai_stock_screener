@@ -288,8 +288,8 @@ export function AppShell({
 
         <SiteFooter width="px-4 sm:px-6">
           <p>
-            {run?.model_validation_status ??
-              "Research model; point-in-time out-of-sample validation pending."}{" "}
+            {/* The stored status carries no full stop; the fallback did. */}
+            {(run?.model_validation_status ?? "Research model; point-in-time out-of-sample validation pending").replace(/\.+$/, "")}.{" "}
             Not investment advice. {market.advisor}
           </p>
           {/* Run health's way in on a phone, where the header has no room for it. */}

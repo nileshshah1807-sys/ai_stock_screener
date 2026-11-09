@@ -11,7 +11,7 @@ type Status = { kind: "idle" } | { kind: "sending" } | { kind: "sent" } | { kind
 
 const FIELD = "grid gap-1.5";
 
-/** The contact form. A failed send (or JSM not set up) points at the mailto address. */
+/** The contact form, for a signed-in visitor. A failed send (or JSM not set up) points at the mailto address. */
 export function SupportForm({ email, name, contactEmail }: { email: string; name: string; contactEmail: string }) {
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const mail = <a href={`mailto:${contactEmail}`} className="underline underline-offset-2">{contactEmail}</a>;
@@ -48,7 +48,8 @@ export function SupportForm({ email, name, contactEmail }: { email: string; name
         </div>
         <div className={FIELD}>
           <Label htmlFor="support-email">Email</Label>
-          <Input id="support-email" name="email" type="email" defaultValue={email} maxLength={LIMITS.email} autoComplete="email" required />
+          {/* The reply goes to the account's address, so it is shown, not typed. */}
+          <Input id="support-email" value={email} readOnly aria-readonly />
         </div>
       </div>
       <div className={FIELD}>

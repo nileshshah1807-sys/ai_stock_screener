@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { ShieldX } from "lucide-react";
 
+import { SiteFooter } from "@/components/site-footer";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 
@@ -21,31 +22,34 @@ export default async function NoAccessPage() {
   } = await supabase.auth.getUser();
 
   return (
-    <main className="flex min-h-dvh items-center justify-center px-4 py-12">
-      <div className="w-full max-w-md text-center">
-        <ShieldX className="mx-auto size-8 text-muted-foreground" aria-hidden />
-        <h1 className="mt-4 text-lg font-semibold">Access not enabled</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {user?.email ? (
-            <>
-              <span className="font-mono">{user.email}</span> is signed in but
-              is not on the dashboard invite list.
-            </>
-          ) : (
-            "This account is not on the dashboard invite list."
-          )}
-        </p>
-        <p className="mt-4 text-xs text-muted-foreground">
-          An administrator can grant access by adding the address to{" "}
-          <code className="font-mono">dashboard_allowlist</code>.
-        </p>
+    <div className="flex min-h-dvh flex-col">
+      <main className="flex flex-1 items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md text-center">
+          <ShieldX className="mx-auto size-8 text-muted-foreground" aria-hidden />
+          <h1 className="mt-4 text-lg font-semibold">Access not enabled</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {user?.email ? (
+              <>
+                <span className="font-mono">{user.email}</span> is signed in but
+                is not on the dashboard invite list.
+              </>
+            ) : (
+              "This account is not on the dashboard invite list."
+            )}
+          </p>
+          <p className="mt-4 text-xs text-muted-foreground">
+            An administrator can grant access by adding the address to{" "}
+            <code className="font-mono">dashboard_allowlist</code>.
+          </p>
 
-        <form action={signOut} className="mt-6">
-          <Button type="submit" variant="outline" formAction={signOut}>
-            Sign out
-          </Button>
-        </form>
-      </div>
-    </main>
+          <form action={signOut} className="mt-6">
+            <Button type="submit" variant="outline" formAction={signOut}>
+              Sign out
+            </Button>
+          </form>
+        </div>
+      </main>
+      <SiteFooter />
+    </div>
   );
 }
