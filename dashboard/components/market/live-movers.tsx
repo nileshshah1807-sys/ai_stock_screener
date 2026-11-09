@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 
-import { useShowRatings } from "@/components/market-provider";
+import { useMarketDay, useShowRatings } from "@/components/market-provider";
 import { Expand } from "@/components/motion";
 import { RatingBadge } from "@/components/rating-badge";
 import { ScrollFade } from "@/components/scroll-fade";
@@ -298,7 +298,8 @@ function useLiveMarket(
 
 function Freshness({ market, data }: { market: Market; data: LiveMarket }) {
   const now = useNow();
-  const { state, label } = quoteFreshness(data.fetched_at, data.traded_at, market, now);
+  const marketDay = useMarketDay();
+  const { state, label } = quoteFreshness(data.fetched_at, data.traded_at, market, now, marketDay);
   return (
     // The server and the browser read the clock a moment apart.
     <p suppressHydrationWarning className="flex items-center gap-1.5 text-xs text-muted-foreground">

@@ -1,3 +1,5 @@
+import { dayAt, tradingHours } from "./market-calendar.mjs";
+
 /**
  * Intraday quotes beside the model's end-of-day figures.
  *
@@ -121,14 +123,20 @@ export function quoteTime(iso, timeZone, locale, now) {
 }
 
 /**
- * Whether `now` falls in the regular session, Monday to Friday, in the
- * exchange's clock. Holidays are not known here: on one, an in-hours quote
- * that has stopped reads as delayed rather than closed.
+ * Whether `now` falls in the session, in the exchange's clock: Monday to
+ * Friday in the regular hours, unless the calendar says today is a holiday
+ * (never) or a special session (its own hours, weekend or not). With no
+ * calendar row, a holiday's in-hours quote that has stopped reads as delayed
+ * rather than closed.
  *
  * @param {number} now epoch ms
  * @param {{ timezone: string, sessionOpen: string, sessionClose: string }} market
+ * @param {import("./market-calendar.mjs").MarketDay | null} [marketDay]
  */
-export function inSession(now, market) {
+export function inSession(now, market, marketDay = null) {
+  const today = dayAt(marketDay, now, market.timezone);
+  const hours = tradingHours(market, today);
+  if (!hours) return false;
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-GB", {
       timeZone: market.timezone,
@@ -140,9 +148,9 @@ export function inSession(now, market) {
       .formatToParts(new Date(now))
       .map((part) => [part.type, part.value]),
   );
-  if (parts.weekday === "Sat" || parts.weekday === "Sun") return false;
+  if (!today && (parts.weekday === "Sat" || parts.weekday === "Sun")) return false;
   const clock = `${parts.hour}:${parts.minute}`;
-  return clock >= market.sessionOpen && clock < market.sessionClose;
+  return clock >= hours.open && clock < hours.close;
 }
 
 /**
@@ -154,13 +162,18 @@ export function inSession(now, market) {
  * @param {string | null | undefined} tradedAt
  * @param {{ timezone: string, timezoneLabel: string, locale: string, sessionOpen: string, sessionClose: string }} market
  * @param {number} now epoch ms
+ * @param {import("./market-calendar.mjs").MarketDay | null} [marketDay]
  * @returns {{ state: "live" | "closed" | "delayed", label: string }}
  */
-export function quoteFreshness(fetchedAt, tradedAt, market, now) {
+export function quoteFreshness(fetchedAt, tradedAt, market, now, marketDay = null) {
   const time = `${quoteTime(tradedAt, market.timezone, market.locale, now)} ${market.timezoneLabel}`;
   if (isLive(fetchedAt, now)) return { state: "live", label: `Live ${time}` };
-  if (inSession(now, market)) return { state: "delayed", label: `Delayed · last trade ${time}` };
-  return { state: "closed", label: `Market closed · last trade ${time}` };
+  if (inSession(now, market, marketDay)) {
+    return { state: "delayed", label: `Delayed · last trade ${time}` };
+  }
+  const holiday = dayAt(marketDay, now, market.timezone);
+  const why = holiday?.kind === "holiday" ? `: ${holiday.reason}` : "";
+  return { state: "closed", label: `Market closed${why} · last trade ${time}` };
 }
 
 /** How long a price that just moved stays tinted, fading out over the end. */

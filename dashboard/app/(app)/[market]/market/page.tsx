@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 
+import { MarketDayNotice } from "@/components/market-day-notice";
 import { MarketDashboard, type BreadthList } from "@/components/market/market-dashboard";
 import type { GroupKey } from "@/components/market/group-picker";
 import { LiveMovers, LiveMoversSkeleton } from "@/components/market/live-movers";
@@ -57,6 +58,7 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
 
   return (
     <div className="space-y-6 px-4 py-5 sm:px-6">
+      <MarketDayNotice />
       <h1 className="text-title font-semibold">Market</h1>
 
       {/* Today's prices first: what is moving now is the question a reader

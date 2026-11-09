@@ -20,6 +20,7 @@ import { marketPath, type Market } from "@/lib/markets";
 import { LEGAL_PAGES } from "@/lib/legal";
 import { TOOLS } from "@/lib/tools";
 import type { BellState } from "@/lib/notifications";
+import type { MarketDay } from "@/lib/market-calendar.mjs";
 import type { ScreenerRun } from "@/lib/types";
 import type { Viewer } from "@/lib/auth";
 
@@ -171,12 +172,14 @@ function SignOut({ viewer }: { viewer: Viewer }) {
  */
 export function AppShell({
   run,
+  marketDay,
   viewer,
   market,
   notifications,
   children,
 }: {
   run: ScreenerRun | null;
+  marketDay: MarketDay | null;
   viewer: Viewer;
   market: Market;
   notifications: Promise<BellState>;
@@ -266,6 +269,7 @@ export function AppShell({
           <MarketProvider
             market={market}
             runDate={run?.run_date ?? null}
+            marketDay={marketDay}
             showRatings={viewer.role === "admin"}
           >
             {children}

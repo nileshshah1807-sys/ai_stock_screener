@@ -12,6 +12,7 @@ import {
   type ChartPoint,
   type ChartTone,
 } from "@/components/market/breadth-chart";
+import { useMarketDay } from "@/components/market-provider";
 import { ScrollFade } from "@/components/scroll-fade";
 import { BreadthListSheet } from "@/components/market/breadth-list-sheet";
 import { IndexChart } from "@/components/market/index-chart";
@@ -173,6 +174,7 @@ export function MarketDashboard({
   const indexNames = useMemo(() => decodedIndices.map((entry) => entry.name), [decodedIndices]);
   const liveLevel = useLiveQuotes(market.code, indexNames, "index");
   const now = useNow();
+  const marketDay = useMarketDay();
   const liveQuotes = new Map(
     decodedIndices.map(({ name, decoded }) => [
       name,
@@ -196,7 +198,7 @@ export function MarketDashboard({
       : null;
   if (breadthLive && breadthLive.session > liveEnd) liveEnd = breadthLive.session;
   const breadthFreshness = breadthLive
-    ? quoteFreshness(breadthLive.fetched_at, breadthLive.traded_at, market, now)
+    ? quoteFreshness(breadthLive.fetched_at, breadthLive.traded_at, market, now, marketDay)
     : null;
 
   // One x-domain for every chart, so a date sits at the same x everywhere

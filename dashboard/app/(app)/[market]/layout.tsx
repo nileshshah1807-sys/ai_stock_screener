@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { requireAccess } from "@/lib/auth";
 import { marketFromSlug } from "@/lib/markets";
 import { getBellState } from "@/lib/notifications";
-import { getLatestRun } from "@/lib/queries";
+import { getLatestRun, getMarketDay } from "@/lib/queries";
 import { mark, trace } from "@/lib/trace";
 
 /**
@@ -37,13 +37,14 @@ export default async function MarketLayout({
   // not awaited: it is handed to the shell as a promise and streams into the
   // header, so its two rounds of reads no longer hold the page back.
   const notifications = trace("  getBellState", () => getBellState(market.code));
-  const [viewer, run] = await Promise.all([
+  const [viewer, run, marketDay] = await Promise.all([
     trace("  requireAccess", () => requireAccess()),
     trace("  getLatestRun", () => getLatestRun(market.code)),
+    trace("  getMarketDay", () => getMarketDay(market.code, market.timezone)),
   ]);
 
   return (
-    <AppShell run={run} viewer={viewer} market={market} notifications={notifications}>
+    <AppShell run={run} marketDay={marketDay} viewer={viewer} market={market} notifications={notifications}>
       {children}
     </AppShell>
   );
