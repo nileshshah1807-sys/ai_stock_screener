@@ -15,3 +15,17 @@ test("the warning names the screener ranking and its run date", () => {
   assert.match(source, /Screener ranking is from the/);
   assert.doesNotMatch(source, /normal weekend gap/);
 });
+
+test("no file but the screener layout imports FreshnessBanner", () => {
+  const root = new URL("..", import.meta.url);
+  const importers = [];
+  for (const dir of ["app", "components"]) {
+    for (const file of readdirSync(new URL(`${dir}/`, root), { recursive: true })) {
+      if (!/\.(tsx?|mjs)$/.test(file) || file.endsWith("freshness-banner.tsx")) continue;
+      if (/import[^;]*FreshnessBanner/.test(readFileSync(new URL(`${dir}/${file}`, root), "utf8"))) {
+        importers.push(`${dir}/${file}`);
+      }
+    }
+  }
+  assert.deepEqual(importers, ["app/(app)/[market]/(screener)/layout.tsx"]);
+});

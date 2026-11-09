@@ -67,8 +67,7 @@ export function FreshnessBanner({ run }: { run: ScreenerRun | null }) {
         <span className="font-medium">{freshness.message}</span>{" "}
         {run ? (
           <span className="opacity-90">
-            Showing the run for {formatDate(run.price_bar_as_of ?? run.run_date)}
-            , published {formatRelativeAge(run.generated_at_utc)}.
+            Published {formatRelativeAge(run.generated_at_utc)}.
           </span>
         ) : null}
       </p>
