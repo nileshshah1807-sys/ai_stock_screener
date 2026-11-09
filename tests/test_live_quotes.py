@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from screener.index_members import parse_nse_index_csv
+from screener.market_calendar import calendar_rows, parse_nse_holidays
 from screener.markets import resolve as resolve_market
 from screener.numeric import round_half_up
 from workers.live_quotes import (
@@ -103,6 +104,49 @@ class SessionTests(unittest.TestCase):
         # 11:45 IST is 02:15 in New York.
         self.assertFalse(in_session(IN_SESSION, US))
         self.assertTrue(in_session(datetime(2026, 10, 16, 15, 0, tzinfo=UTC), US))
+
+
+MUHURAT = {"day": "2026-11-08", "kind": "special_session", "reason": "Muhurat trading", "session_open": "14:20", "session_close": "15:30"}
+HOLIDAY = {"day": "2026-10-16", "kind": "holiday", "reason": "Test holiday", "session_open": None, "session_close": None}
+# 14:30 IST on Sunday 8 November 2026.
+SUNDAY_MUHURAT = datetime(2026, 11, 8, 9, 0, tzinfo=UTC)
+
+
+class CalendarTests(unittest.TestCase):
+    def test_special_session_runs_on_a_sunday_in_its_own_hours(self):
+        self.assertFalse(in_session(SUNDAY_MUHURAT, NSE))
+        self.assertTrue(in_session(SUNDAY_MUHURAT, NSE, MUHURAT))
+        self.assertFalse(in_session(datetime(2026, 11, 8, 4, 0, tzinfo=UTC), NSE, MUHURAT))  # 09:30, normal hours do not apply
+
+    def test_a_holiday_is_out_of_session_and_fetches_nothing(self):
+        self.assertFalse(in_session(IN_SESSION, NSE, HOLIDAY))
+        repo = FakeRepo(snapshot=["AAA"])
+        repo.market_calendar = lambda since: [{**HOLIDAY, "refreshed_at": FETCHED}]
+        self.assertEqual(run(repo, NSE, now=IN_SESSION, fetch_quotes=must_not_fetch)["status"], "outside_session")
+
+    def test_a_missing_calendar_keeps_the_weekday_rule(self):
+        self.assertEqual(run(FakeRepo(snapshot=["AAA"]), NSE, now=SUNDAY_MUHURAT, fetch_quotes=must_not_fetch)["status"], "outside_session")
+
+    def test_a_stale_calendar_is_rebuilt_and_a_failed_feed_leaves_it_alone(self):
+        repo = FakeRepo(snapshot=["AAA"])
+        repo.market_calendar = lambda since: []
+        written = []
+        repo.replace_market_calendar = written.append
+        run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=lambda: None)
+        self.assertEqual(written, [])  # no feed, no rebuild: it would drop the holidays
+        run(repo, NSE, now=SUNDAY_MUHURAT, fetch_quotes=lambda t: {}, fetch_holidays=lambda: {"CM": []})
+        self.assertEqual([r["day"] for r in written[0]], ["2026-11-08"])
+
+    def test_nse_list_keeps_weekday_holidays_and_the_special_session_wins_its_day(self):
+        payload = {"CM": [
+            {"tradingDate": "24-Nov-2026", "description": "Prakash Gurpurb Sri Guru Nanak Dev"},
+            {"tradingDate": "08-Nov-2026", "description": "Diwali Laxmi Pujan*"},
+            {"tradingDate": "15-Feb-2026", "description": "Mahashivratri"},
+        ]}
+        self.assertEqual([r["day"] for r in parse_nse_holidays(payload)], ["2026-11-24"])  # the Sundays are not holidays
+        kinds = {r["day"]: r["kind"] for r in calendar_rows("NSE", payload)}
+        self.assertEqual(kinds, {"2026-11-08": "special_session", "2026-11-24": "holiday"})
+        self.assertIn("2026-11-26", {r["day"] for r in calendar_rows("US")})
 
 
 class QuoteRowTests(unittest.TestCase):

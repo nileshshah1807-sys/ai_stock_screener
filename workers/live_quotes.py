@@ -6,10 +6,13 @@ them. This worker writes the price the market is trading at now, so the grid,
 the stock page and the Market page's movers can show it beside that model.
 
 The Live quotes workflow runs it. cron-job.org dispatches the workflow every
-five minutes on weekdays; outside the session (``MarketProfile.session_open``
-to ``session_close``, with a few minutes' margin) the worker returns at once,
-and on an exchange holiday it fetches, finds no quote from today, and writes
-nothing.
+five minutes (it must also call on a day with a special session, e.g. a
+Sunday); outside the session (``MarketProfile.session_open`` to
+``session_close``, with a few minutes' margin) the worker returns at once.
+``market_calendar`` (screener/market_calendar.py, rebuilt here once a day)
+refines that: a listed holiday returns before any fetch, and a special
+session runs on its own hours without ``--force``. A holiday the calendar
+lacks still fetches, finds no quote from today, and writes nothing.
 
 One request per 500 symbols to Yahoo's quote endpoint -- the whole NSE
 universe in about six seconds (measured October 2026) -- through yfinance's
@@ -40,6 +43,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from screener import index_members
+from screener.market_calendar import calendar_rows, entry_for, fetch_nse_holidays
 from screener.markets import MarketProfile, ticker_for
 from screener.markets import resolve as resolve_market
 from screener.numeric import round_half_up, safe_float
@@ -80,19 +84,46 @@ def _clock(value: str) -> int:
     return int(hours) * 60 + int(minutes)
 
 
-def in_session(now: datetime, profile: MarketProfile) -> bool:
-    """Whether ``now`` (aware) falls on a weekday within the session's margin.
+def in_session(now: datetime, profile: MarketProfile, entry: dict[str, Any] | None = None) -> bool:
+    """Whether ``now`` (aware) falls within the session's margin on a trading day.
 
-    Holidays are not known here; a holiday run is caught after the fetch, when
-    no quote is from today.
+    ``entry`` is the day's ``market_calendar`` row, if any: a holiday is never
+    in session, and a special session replaces the weekday rule and the hours
+    (Muhurat trading on a Sunday). Without it, weekdays at the profile's hours.
     """
     local = now.astimezone(ZoneInfo(profile.timezone))
-    if local.weekday() >= 5:
+    special = entry if entry and entry["kind"] == "special_session" else None
+    if (entry and entry["kind"] == "holiday") or (local.weekday() >= 5 and not special):
         return False
     minutes = local.hour * 60 + local.minute
-    start = _clock(profile.session_open) - SESSION_MARGIN_MINUTES
-    end = _clock(profile.session_close) + SESSION_MARGIN_MINUTES
+    start = _clock(special["session_open"] if special else profile.session_open) - SESSION_MARGIN_MINUTES
+    end = _clock(special["session_close"] if special else profile.session_close) + SESSION_MARGIN_MINUTES
     return start <= minutes <= end
+
+
+def todays_calendar_entry(
+    repo, profile: MarketProfile, now: datetime, fetch_holidays: Callable[[], dict[str, Any] | None], dry_run: bool
+) -> dict[str, Any] | None:
+    """Today's ``market_calendar`` row, rebuilding the table when it is a day old.
+
+    Never raises: the table is applied by hand and may not exist yet, and the
+    worker then keeps its weekday rule. A failed NSE fetch leaves the stored
+    rows alone, since rebuilding without the feed would drop its holidays.
+    """
+    today = now.astimezone(ZoneInfo(profile.timezone)).date()
+    try:
+        rows = repo.market_calendar(today.isoformat())
+        if members_due(max((row["refreshed_at"] for row in rows), default=None), now):
+            payload = fetch_holidays() if profile.code == "NSE" else None
+            if profile.code != "NSE" or payload:
+                rows = calendar_rows(profile.code, payload)
+                if not dry_run:
+                    repo.replace_market_calendar(rows)
+                rows = [row for row in rows if row["day"] >= today.isoformat()]
+        return entry_for(rows, today)
+    except Exception as exc:
+        logger.warning("Market calendar unavailable (%s); using the weekday rule", exc)
+        return None
 
 
 def yahoo_quotes(
@@ -230,9 +261,11 @@ def run(
     dry_run: bool = False,
     force: bool = False,
     refresh_members: bool = False,
+    fetch_holidays: Callable[[], dict[str, Any] | None] = fetch_nse_holidays,
 ) -> dict[str, Any]:
     """Refresh one market's quotes. Returns a summary for the log and tests."""
-    if not force and not in_session(now, profile):
+    entry = todays_calendar_entry(repo, profile, now, fetch_holidays, dry_run)
+    if not force and not in_session(now, profile, entry):
         logger.info("Outside the %s session; nothing to do", profile.code)
         return {"status": "outside_session"}
 
