@@ -120,6 +120,8 @@ export async function proxy(request: NextRequest) {
     // The help page and its form: someone locked out must be able to write.
     pathname === "/help" ||
     pathname === "/api/support" ||
+    // Resend calls this, not a browser; the route verifies the webhook signature itself.
+    pathname === "/api/support/inbound" ||
     // Crawlers fetch these without signing in.
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||
