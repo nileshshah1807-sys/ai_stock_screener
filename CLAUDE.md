@@ -363,7 +363,7 @@ the scheduled workflows set the same flag.
   quote shows only when it is from a later
   session than the row's bar. A change past `max_open_gap` is withheld as a
   unit change, not a move. The tables are in
-  `storage/live_quotes_schema.sql` and must be applied by hand. `market_calendar` (`storage/market_calendar_schema.sql`, applied by hand; rebuilt by this worker once a day from `screener/market_calendar.py`: NSE's trading-holiday list, a checked-in list of special sessions with their hours -- Muhurat trading -- to extend each year from the exchange's circular, NYSE's static holidays) lets a special session run on its own hours without `--force` and a holiday return before any fetch; absent the table the worker keeps its weekday rule. cron-job.org must also call the worker on a special-session day (a Sunday). The Market
+  `storage/live_quotes_schema.sql` and must be applied by hand. `market_calendar` (`storage/market_calendar_schema.sql`, applied by hand; rebuilt by this worker once a day from `screener/market_calendar.py`: NSE's trading-holiday list, a checked-in list of special sessions with their hours -- Muhurat trading -- to extend each year from the exchange's circular, NYSE's static holidays) lets a special session run on its own hours without `--force` and a holiday return before any fetch; absent the table the worker keeps its weekday rule. cron-job.org gets a one-off schedule on each special-session day (a Sunday), not a 7-day schedule. The Market
   page's breadth charts take a live point from the same quotes:
   `tools/publish_market_breadth.py` also writes each stock's next-session
   levels (`market_breadth_levels`: yesterday's EMAs -- a price is above
