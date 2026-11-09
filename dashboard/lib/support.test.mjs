@@ -7,6 +7,7 @@ const env = { JSM_SITE: "cupel", JSM_EMAIL: "a@b.in", JSM_API_TOKEN: "tok", JSM_
 const good = { name: " Asha ", subject: "Refund", message: "Please refund my last payment.", category: "Billing & plans" };
 const email = "asha@example.com";
 const quiet = { error() {} };
+const response = (status, json = {}) => ({ ok: status < 300, status, json: async () => json });
 const open = () => true;
 
 test("a valid message is cleaned", () => {
@@ -49,7 +50,7 @@ test("invalid input is 400 before JSM is called", async () => {
 });
 
 test("a JSM failure is 502 and does not throw", async () => {
-  const result = await submitSupport({ email, body: good, env, ip: "1", limiter: open, fetchImpl: async () => ({ ok: false, status: 401 }), log: quiet });
+  const result = await submitSupport({ email, body: good, env, ip: "1", limiter: open, fetchImpl: async () => response(500), log: quiet });
   assert.equal(result.status, 502);
 });
 
@@ -77,4 +78,35 @@ test("signed in: JSM is told the session email, not the one typed in the body", 
   await submitSupport({ body: { ...good, email: "stranger@example.com" }, email, env, ip: "1", limiter: open, fetchImpl });
   assert.equal(sent.raiseOnBehalfOf, email);
   assert.doesNotMatch(sent.requestFieldValues.description, /stranger/);
+});
+
+test("a refusal is logged with JSM's own words, never the token or the message", async () => {
+  const logged = [];
+  const log = { error: (...args) => logged.push(JSON.stringify(args)) };
+  const fetchImpl = async () => response(500, { errorMessage: "boom", errors: { requestTypeId: "bad" } });
+  const result = await submitSupport({ email, body: good, env, ip: "1", limiter: open, fetchImpl, log });
+  assert.equal(result.status, 502);
+  assert.deepEqual(result.body, { error: "send_failed" });
+  const text = logged.join("\n");
+  assert.match(text, /boom/);
+  assert.match(text, /requestTypeId/);
+  assert.doesNotMatch(text, /tok|refund my last payment|Basic/);
+});
+
+test("an email JSM does not know is added as a customer, then the request is tried again", async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push(url.split("/servicedeskapi")[1]);
+    return calls.length === 1 ? response(400, { errorMessage: "unknown customer" }) : response(201);
+  };
+  const result = await submitSupport({ email, body: good, env, ip: "1", limiter: open, fetchImpl, log: quiet });
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls, ["/request", "/customer", "/request"]);
+});
+
+test("a JSM server error is not retried", async () => {
+  let n = 0;
+  const result = await submitSupport({ email, body: good, env, ip: "1", limiter: open, fetchImpl: async () => (n++, response(503)), log: quiet });
+  assert.equal(result.status, 502);
+  assert.equal(n, 1);
 });

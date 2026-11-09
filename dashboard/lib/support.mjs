@@ -62,21 +62,46 @@ export function createLimiter({ max = 5, windowMs = 10 * 60 * 1000 } = {}) {
 /** JSM_SITE may be the subdomain ("cupel") or the full host ("cupel.atlassian.net"). */
 const jsmHost = (site) => (site.includes(".") ? site : `${site}.atlassian.net`).replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
-/** Opens the customer request; JSM emails the customer and threads their replies. */
-export async function createJsmRequest(fetchImpl, env, { name, email, subject, message, category }) {
-  const auth = Buffer.from(`${env.JSM_EMAIL}:${env.JSM_API_TOKEN}`).toString("base64");
-  const response = await fetchImpl(`https://${jsmHost(env.JSM_SITE.trim())}/rest/servicedeskapi/request`, {
-    method: "POST",
-    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({
+/** What JSM said about a refusal, for the server log: status and its own error fields, never the request. */
+async function refusal(response) {
+  const detail = await response.json().catch(() => ({}));
+  return { status: response.status, errorMessage: detail.errorMessage, errors: detail.errors };
+}
+
+/**
+ * Opens the customer request; JSM emails the customer and threads their replies.
+ * A desk that only lets "customers I add" raise requests refuses an email it does
+ * not know, so on a 4xx the customer is added and the request tried once more.
+ */
+export async function createJsmRequest(fetchImpl, env, { name, email, subject, message, category }, log = console) {
+  const base = `https://${jsmHost(env.JSM_SITE.trim())}/rest/servicedeskapi`;
+  const headers = {
+    Authorization: `Basic ${Buffer.from(`${env.JSM_EMAIL}:${env.JSM_API_TOKEN}`).toString("base64")}`,
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  };
+  const post = (path, payload) => fetchImpl(`${base}${path}`, { method: "POST", headers, body: JSON.stringify(payload), signal: AbortSignal.timeout(8000) });
+  const open = () =>
+    post("/request", {
       serviceDeskId: env.JSM_SERVICE_DESK_ID.trim(),
       requestTypeId: env.JSM_REQUEST_TYPE_ID.trim(),
       raiseOnBehalfOf: email,
       requestFieldValues: { summary: subject, description: `From: ${name} <${email}>\nCategory: ${category}\n\n${message}` },
-    }),
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!response.ok) throw new Error(`JSM answered ${response.status}`);
+    });
+
+  let response = await open();
+  if (response.ok) return;
+  const first = await refusal(response);
+  log.error("support: JSM refused the request", first);
+  if (first.status < 400 || first.status >= 500) throw new Error(`JSM answered ${first.status}`);
+
+  const customer = await post("/customer", { email, displayName: name });
+  // An existing customer is refused here too; that is fine, the retry decides.
+  if (!customer.ok) log.error("support: JSM customer step", await refusal(customer));
+  response = await open();
+  if (response.ok) return;
+  log.error("support: JSM refused the retry", await refusal(response));
+  throw new Error(`JSM answered ${response.status}`);
 }
 
 /**
@@ -93,7 +118,7 @@ export async function submitSupport({ body, email, env, ip, limiter, fetchImpl =
   const checked = validateSupport(body, email);
   if (!checked.ok) return { status: 400, body: { error: checked.error } };
   try {
-    await createJsmRequest(fetchImpl, env, checked.value);
+    await createJsmRequest(fetchImpl, env, checked.value, log);
   } catch (error) {
     log.error("support: could not open the JSM request", error instanceof Error ? error.message : error);
     return { status: 502, body: { error: "send_failed" } };
