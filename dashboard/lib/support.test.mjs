@@ -119,3 +119,11 @@ test("both the address and the account are counted, so either one alone can be l
   assert.equal((await send(["ip-2", "user-1"])).status, 429);
   assert.equal((await send(["ip-1", "user-2"])).status, 429);
 });
+
+test("a space or newline pasted around the JSM email or token does not reach the auth header", async () => {
+  let call;
+  const fetchImpl = async (url, init) => ((call = init), response(201));
+  const padded = { ...env, JSM_EMAIL: " a@b.in\n", JSM_API_TOKEN: "tok \n" };
+  await submitSupport({ email, body: good, env: padded, keys: ["1"], limiter: open, fetchImpl, log: quiet });
+  assert.equal(call.headers.Authorization, `Basic ${Buffer.from("a@b.in:tok").toString("base64")}`);
+});

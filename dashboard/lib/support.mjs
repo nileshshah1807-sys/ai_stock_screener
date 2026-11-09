@@ -76,7 +76,7 @@ async function refusal(response) {
 export async function createJsmRequest(fetchImpl, env, { name, email, subject, message, category }, log = console) {
   const base = `https://${jsmHost(env.JSM_SITE.trim())}/rest/servicedeskapi`;
   const headers = {
-    Authorization: `Basic ${Buffer.from(`${env.JSM_EMAIL}:${env.JSM_API_TOKEN}`).toString("base64")}`,
+    Authorization: `Basic ${Buffer.from(`${env.JSM_EMAIL.trim()}:${env.JSM_API_TOKEN.trim()}`).toString("base64")}`,
     "Content-Type": "application/json",
     Accept: "application/json",
   };
