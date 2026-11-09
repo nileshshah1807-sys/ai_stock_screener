@@ -24,6 +24,6 @@ export async function POST(request: Request) {
   } catch {}
   const session = await getSession();
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const { status, body: payload } = await submitSupport({ body, email: session?.email ?? null, env: process.env, ip, limiter });
+  const { status, body: payload } = await submitSupport({ body, email: session?.email ?? null, env: process.env, keys: [ip, session?.id ?? ip], limiter });
   return NextResponse.json(payload, { status });
 }

@@ -105,16 +105,16 @@ export async function createJsmRequest(fetchImpl, env, { name, email, subject, m
 }
 
 /**
- * The route's decision; `email` is the session's, null when signed out. Statuses:
+ * The route's decision; `keys` are what the limiter counts (address and account); `email` is the session's, null when signed out. Statuses:
  * 200 sent, 400 invalid, 401 signed out, 429 too many, 502 JSM failed, 503 not
  * configured (the page then shows the mailto fallback).
  * A filled honeypot ("website") gets a 200 and nothing is sent.
  */
-export async function submitSupport({ body, email, env, ip, limiter, fetchImpl = fetch, log = console }) {
+export async function submitSupport({ body, email, env, keys, limiter, fetchImpl = fetch, log = console }) {
   if (!supportConfigured(env)) return { status: 503, body: { error: "not_configured" } };
   if (!email) return { status: 401, body: { error: "sign_in" } };
   if (body && typeof body === "object" && body.website) return { status: 200, body: { ok: true } };
-  if (!limiter(ip)) return { status: 429, body: { error: "Too many messages from this address. Try again in a few minutes." } };
+  if (!keys.map((key) => limiter(key)).every(Boolean)) return { status: 429, body: { error: "Too many messages from this address. Try again in a few minutes." } };
   const checked = validateSupport(body, email);
   if (!checked.ok) return { status: 400, body: { error: checked.error } };
   try {

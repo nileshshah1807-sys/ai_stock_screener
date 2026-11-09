@@ -27,14 +27,14 @@ test("bad input is named, not sent", () => {
 test("any unset JSM variable means not configured, and nothing is fetched", async () => {
   assert.equal(supportConfigured(env), true);
   assert.equal(supportConfigured({ ...env, JSM_API_TOKEN: " " }), false);
-  const result = await submitSupport({ email, body: good, env: {}, ip: "1", limiter: open, fetchImpl: () => assert.fail("fetched") });
+  const result = await submitSupport({ email, body: good, env: {}, keys: ["1"], limiter: open, fetchImpl: () => assert.fail("fetched") });
   assert.deepEqual(result, { status: 503, body: { error: "not_configured" } });
 });
 
 test("a valid message opens a JSM request on behalf of the customer", async () => {
   let call;
   const fetchImpl = async (url, init) => ((call = { url, init }), { ok: true });
-  const result = await submitSupport({ email, body: good, env, ip: "1", limiter: open, fetchImpl });
+  const result = await submitSupport({ email, body: good, env, keys: ["1"], limiter: open, fetchImpl });
   assert.equal(result.status, 200);
   assert.equal(call.url, "https://cupel.atlassian.net/rest/servicedeskapi/request");
   const sent = JSON.parse(call.init.body);
@@ -45,17 +45,17 @@ test("a valid message opens a JSM request on behalf of the customer", async () =
 });
 
 test("invalid input is 400 before JSM is called", async () => {
-  const result = await submitSupport({ email, body: { ...good, subject: "x" }, env, ip: "1", limiter: open, fetchImpl: () => assert.fail("fetched") });
+  const result = await submitSupport({ email, body: { ...good, subject: "x" }, env, keys: ["1"], limiter: open, fetchImpl: () => assert.fail("fetched") });
   assert.equal(result.status, 400);
 });
 
 test("a JSM failure is 502 and does not throw", async () => {
-  const result = await submitSupport({ email, body: good, env, ip: "1", limiter: open, fetchImpl: async () => response(500), log: quiet });
+  const result = await submitSupport({ email, body: good, env, keys: ["1"], limiter: open, fetchImpl: async () => response(500), log: quiet });
   assert.equal(result.status, 502);
 });
 
 test("a filled honeypot is dropped quietly", async () => {
-  const result = await submitSupport({ email, body: { ...good, website: "x" }, env, ip: "1", limiter: open, fetchImpl: () => assert.fail("fetched") });
+  const result = await submitSupport({ email, body: { ...good, website: "x" }, env, keys: ["1"], limiter: open, fetchImpl: () => assert.fail("fetched") });
   assert.equal(result.status, 200);
 });
 
@@ -68,14 +68,14 @@ test("the limiter stops the sixth message in a window and frees after it", () =>
 });
 
 test("signed out: nothing is sent, whatever the body names", async () => {
-  const result = await submitSupport({ body: { ...good, email: "stranger@example.com" }, email: null, env, ip: "1", limiter: open, fetchImpl: () => assert.fail("fetched") });
+  const result = await submitSupport({ body: { ...good, email: "stranger@example.com" }, email: null, env, keys: ["1"], limiter: open, fetchImpl: () => assert.fail("fetched") });
   assert.equal(result.status, 401);
 });
 
 test("signed in: JSM is told the session email, not the one typed in the body", async () => {
   let sent;
   const fetchImpl = async (_url, init) => ((sent = JSON.parse(init.body)), { ok: true });
-  await submitSupport({ body: { ...good, email: "stranger@example.com" }, email, env, ip: "1", limiter: open, fetchImpl });
+  await submitSupport({ body: { ...good, email: "stranger@example.com" }, email, env, keys: ["1"], limiter: open, fetchImpl });
   assert.equal(sent.raiseOnBehalfOf, email);
   assert.doesNotMatch(sent.requestFieldValues.description, /stranger/);
 });
@@ -84,7 +84,7 @@ test("a refusal is logged with JSM's own words, never the token or the message",
   const logged = [];
   const log = { error: (...args) => logged.push(JSON.stringify(args)) };
   const fetchImpl = async () => response(500, { errorMessage: "boom", errors: { requestTypeId: "bad" } });
-  const result = await submitSupport({ email, body: good, env, ip: "1", limiter: open, fetchImpl, log });
+  const result = await submitSupport({ email, body: good, env, keys: ["1"], limiter: open, fetchImpl, log });
   assert.equal(result.status, 502);
   assert.deepEqual(result.body, { error: "send_failed" });
   const text = logged.join("\n");
@@ -99,14 +99,23 @@ test("an email JSM does not know is added as a customer, then the request is tri
     calls.push(url.split("/servicedeskapi")[1]);
     return calls.length === 1 ? response(400, { errorMessage: "unknown customer" }) : response(201);
   };
-  const result = await submitSupport({ email, body: good, env, ip: "1", limiter: open, fetchImpl, log: quiet });
+  const result = await submitSupport({ email, body: good, env, keys: ["1"], limiter: open, fetchImpl, log: quiet });
   assert.equal(result.status, 200);
   assert.deepEqual(calls, ["/request", "/customer", "/request"]);
 });
 
 test("a JSM server error is not retried", async () => {
   let n = 0;
-  const result = await submitSupport({ email, body: good, env, ip: "1", limiter: open, fetchImpl: async () => (n++, response(503)), log: quiet });
+  const result = await submitSupport({ email, body: good, env, keys: ["1"], limiter: open, fetchImpl: async () => (n++, response(503)), log: quiet });
   assert.equal(result.status, 502);
   assert.equal(n, 1);
+});
+
+test("both the address and the account are counted, so either one alone can be limited", async () => {
+  const limiter = createLimiter({ max: 1 });
+  const fetchImpl = async () => response(201);
+  const send = (keys) => submitSupport({ email, body: good, env, keys, limiter, fetchImpl, log: quiet });
+  assert.equal((await send(["ip-1", "user-1"])).status, 200);
+  assert.equal((await send(["ip-2", "user-1"])).status, 429);
+  assert.equal((await send(["ip-1", "user-2"])).status, 429);
 });
