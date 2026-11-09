@@ -2,6 +2,7 @@
 
 import { createContext, useContext } from "react";
 
+import type { MarketDay } from "@/lib/market-calendar.mjs";
 import { DEFAULT_MARKET, marketPath, type Market } from "@/lib/markets";
 
 /**
@@ -30,21 +31,28 @@ const ShowRatingsContext = createContext(false);
  */
 const RunDateContext = createContext<string | null>(null);
 
+/** The exchange calendar's row for today on the market's clock, or null. */
+const MarketDayContext = createContext<MarketDay | null>(null);
+
 export function MarketProvider({
   market,
   runDate,
+  marketDay,
   showRatings,
   children,
 }: {
   market: Market;
   runDate: string | null;
+  marketDay: MarketDay | null;
   showRatings: boolean;
   children: React.ReactNode;
 }) {
   return (
     <MarketContext.Provider value={market}>
       <RunDateContext.Provider value={runDate}>
-        <ShowRatingsContext.Provider value={showRatings}>{children}</ShowRatingsContext.Provider>
+        <MarketDayContext.Provider value={marketDay}>
+          <ShowRatingsContext.Provider value={showRatings}>{children}</ShowRatingsContext.Provider>
+        </MarketDayContext.Provider>
       </RunDateContext.Provider>
     </MarketContext.Provider>
   );
@@ -56,6 +64,10 @@ export function useMarket(): Market {
 
 export function useRunDate(): string | null {
   return useContext(RunDateContext);
+}
+
+export function useMarketDay(): MarketDay | null {
+  return useContext(MarketDayContext);
 }
 
 export function useShowRatings(): boolean {

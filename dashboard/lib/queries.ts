@@ -20,6 +20,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { indexSlug } from "@/lib/indices.mjs";
 import { BSE_SUFFIX } from "@/lib/listing.mjs";
+import { createDayMemo, localDay, type MarketDay } from "@/lib/market-calendar.mjs";
 import type { MarketCode } from "@/lib/markets";
 import type {
   HistoryRow,
@@ -1587,3 +1588,44 @@ export async function getRatedSymbols(
   }
   return new Set(((data as { symbol: string }[] | null) ?? []).map((row) => row.symbol));
 }
+
+/**
+ * Today's calendar row, kept per server instance. It is the same for every
+ * viewer and changes at most once a day, and it sits on every page's critical
+ * path, so it is read once per DAY_MEMO_MS rather than per request. "No row"
+ * and "table not applied" are kept too; any other error is not, so a blip is
+ * retried. The key carries the local day, so midnight rolls over by itself.
+ */
+const DAY_MEMO_MS = 300_000;
+const TABLE_MISSING = new Set(["PGRST205", "42P01"]);
+const dayMemo = createDayMemo(DAY_MEMO_MS);
+
+/**
+ * The exchange calendar's row for today on the market's clock, or null: an
+ * ordinary day, an empty table, and a table not yet applied all read the
+ * same, so the page keeps the regular hours.
+ */
+export const getMarketDay = cache(
+  async (market: MarketCode, timeZone: string): Promise<MarketDay | null> => {
+    const day = localDay(Date.now(), timeZone);
+    return dayMemo(`${market}:${day}`, Date.now(), async () => {
+      const supabase = await createClient();
+      const { data, error } = await supabase
+        .from("market_calendar")
+        .select("day,kind,reason,session_open,session_close")
+        .eq("market", market)
+        .eq("day", day)
+        .maybeSingle();
+      const row: MarketDay | null = data
+        ? {
+            day: data.day,
+            kind: data.kind,
+            reason: data.reason,
+            sessionOpen: data.session_open,
+            sessionClose: data.session_close,
+          }
+        : null;
+      return { row, keep: !error || TABLE_MISSING.has(error.code) };
+    });
+  },
+);

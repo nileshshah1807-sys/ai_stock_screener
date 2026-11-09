@@ -23,7 +23,7 @@ test("no file but the screener layout imports FreshnessBanner", () => {
     for (const file of readdirSync(new URL(`${dir}/`, root), { recursive: true })) {
       if (!/\.(tsx?|mjs)$/.test(file) || file.endsWith("freshness-banner.tsx")) continue;
       if (/import[^;]*FreshnessBanner/.test(readFileSync(new URL(`${dir}/${file}`, root), "utf8"))) {
-        importers.push(`${dir}/${file}`);
+        importers.push(`${dir}/${file}`.replaceAll("\\", "/"));
       }
     }
   }

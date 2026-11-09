@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 
+import { useMarketDay } from "@/components/market-provider";
 import { BreadthChart, type ChartPoint } from "@/components/market/breadth-chart";
 import { indexSlug } from "@/lib/indices.mjs";
 import { quoteFreshness } from "@/lib/live-quotes.mjs";
@@ -37,6 +38,7 @@ export function IndexChart({
   period?: string;
   linked?: boolean;
 }) {
+  const marketDay = useMarketDay();
   // The quote object is replaced only when a new read lands, so scrubbing
   // keeps handing the chart the same array.
   const withLive = useMemo(() => {
@@ -45,7 +47,7 @@ export function IndexChart({
     return [...points, { time: quote.session, value: quote.price }];
   }, [points, quote]);
   const drawn = withLive !== points && quote !== null;
-  const freshness = drawn ? quoteFreshness(quote.fetched_at, quote.traded_at, market, now) : null;
+  const freshness = drawn ? quoteFreshness(quote.fetched_at, quote.traded_at, market, now, marketDay) : null;
   const live =
     drawn && freshness
       ? { pulsing: freshness.state === "live", label: freshness.label, tick: quote.tick }

@@ -94,11 +94,12 @@ export default function PreviewPage() {
     : { kind: "legacy" as const, plan: null, until: null, daysLeft: null };
 
   return (
-    // Wrapped in the real AppShell so the top bar, the tabs, the brand mark,
-    // the freshness banner and the footer are all exercised too -- those are
+    // Wrapped in the real AppShell so the top bar, the tabs, the brand mark
+    // and the footer are all exercised too -- those are
     // the surfaces a component-only preview would silently skip.
     <AppShell
       run={previewRun}
+      marketDay={null}
       viewer={{ id: "preview", email: "preview@localhost", role: "viewer", access }}
       market={DEFAULT_MARKET}
       notifications={Promise.resolve(previewNotifications)}
