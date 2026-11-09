@@ -6,13 +6,16 @@
  * Have a lawyer read the three pages before the service takes money or is
  * opened beyond invited users.
  */
+// Switch to support@cupel.in once forwarding to JSM works (support@cupel.in has no mailbox yet).
+const SUPPORT_EMAIL = "support@cupel-team.atlassian.net";
+
 export const LEGAL = {
   service: "Cupel",
   operator: "Chirayu Shah",
   operatorForm: "an individual operating the service in India",
-  contactEmail: "support@cupel.in",
+  contactEmail: SUPPORT_EMAIL,
   grievanceOfficer: "Chirayu Shah",
-  grievanceEmail: "support@cupel.in",
+  grievanceEmail: SUPPORT_EMAIL,
   jurisdiction: "Bengaluru, India",
   effective: "7 November 2026",
 } as const;

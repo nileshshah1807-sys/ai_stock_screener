@@ -43,10 +43,10 @@ test("a database error while claiming is a failure, not a crash", async () => {
 test("Resend gets the sender, recipient and an idempotency key; a refusal throws", async () => {
   let call;
   const ok = async (url, init) => ((call = { url, init }), { ok: true });
-  await resendSend(ok, "re_key", { to: "a@b.c", subject: "S", text: "T", html: "<p>T</p>" }, "u/paid/sub_1");
+  await resendSend(ok, "re_key", { to: "a@b.c", subject: "S", text: "T", html: "<p>T</p>", replyTo: "support@x.in" }, "u/paid/sub_1");
   assert.equal(call.url, "https://api.resend.com/emails");
   assert.equal(call.init.headers["Idempotency-Key"], "u/paid/sub_1");
-  assert.deepEqual(JSON.parse(call.init.body), { from: "Cupel <team@cupel.in>", to: ["a@b.c"], subject: "S", text: "T", html: "<p>T</p>" });
+  assert.deepEqual(JSON.parse(call.init.body), { from: "Cupel <team@cupel.in>", to: ["a@b.c"], subject: "S", text: "T", html: "<p>T</p>", reply_to: "support@x.in" });
   await assert.rejects(resendSend(async () => ({ ok: false, status: 422 }), "k", { to: "a@b.c", subject: "S", text: "T" }, "i"), /422/);
 });
 

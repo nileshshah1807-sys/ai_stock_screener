@@ -4,7 +4,7 @@ import { getTrialDays } from "@/lib/trial-days";
 import Link from "next/link";
 
 import { BrandMark } from "@/components/brand-mark";
-import { LEGAL_PAGES } from "@/lib/legal";
+import { SiteFooter } from "@/components/site-footer";
 import { sessionMaxAgeSeconds } from "@/lib/session-policy.mjs";
 
 import { LoginForm } from "./login-form";
@@ -38,52 +38,45 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
             : null;
 
   return (
-    <main className="flex min-h-dvh items-center justify-center px-4 py-12">
-      <div className="w-full max-w-sm">
-        {/* The same mark-in-a-disc and wordmark as the app header, so the door
-            and the room behind it are visibly the same product. */}
-        <div className="mb-6 flex animate-rise items-center justify-center gap-2.5">
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <BrandMark className="size-4" />
-          </span>
-          <span className="text-lead font-semibold tracking-[-0.011em]">
-            Cupel
-          </span>
-        </div>
-
-        <div className="panel animate-rise p-6 sm:p-8">
-          <h1 className="text-heading font-semibold">{trial ? `Start your ${trialName(trialDays)}` : "Sign in"}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {trial
-              ? "Full access to both markets, no card needed. Enter your email and we\u2019ll send you a 6-digit code."
-              : "Enter your email and we\u2019ll send you a 6-digit code. No password needed."}
-          </p>
-
-          <div className="mt-6">
-            <LoginForm notice={errorMessage} trial={trial} />
+    <div className="flex min-h-dvh flex-col">
+      <main className="flex flex-1 items-center justify-center px-4 py-12">
+        <div className="w-full max-w-sm">
+          {/* The same mark-in-a-disc and wordmark as the app header, so the door
+              and the room behind it are visibly the same product. */}
+          <div className="mb-6 flex animate-rise items-center justify-center gap-2.5">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <BrandMark className="size-4" />
+            </span>
+            <span className="text-lead font-semibold tracking-[-0.011em]">
+              Cupel
+            </span>
           </div>
-        </div>
 
-        <p className="mt-6 text-center text-xs leading-relaxed text-muted-foreground">
-          {trial ? "Already have an account? " : "New here? "}
-          <Link href={trial ? "/login" : "/login?trial=1"} className="underline underline-offset-2 hover:text-foreground">
-            {trial ? "Sign in" : `Start your ${trialName(trialDays)}`}
-          </Link>
-          <br />
-          Data for research and education, not investment advice.
-        </p>
-        <nav
-          aria-label="Legal"
-          className="mt-3 flex justify-center gap-4 text-xs text-muted-foreground"
-        >
-          {LEGAL_PAGES.map((page) => (
-            <Link key={page.href} href={page.href} className="hover:text-foreground hover:underline">
-              {page.label}
+          <div className="panel animate-rise p-6 sm:p-8">
+            <h1 className="text-heading font-semibold">{trial ? `Start your ${trialName(trialDays)}` : "Sign in"}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {trial
+                ? "Full access to both markets, no card needed. Enter your email and we\u2019ll send you a 6-digit code."
+                : "Enter your email and we\u2019ll send you a 6-digit code. No password needed."}
+            </p>
+
+            <div className="mt-6">
+              <LoginForm notice={errorMessage} trial={trial} />
+            </div>
+          </div>
+
+          <p className="mt-6 text-center text-xs leading-relaxed text-muted-foreground">
+            {trial ? "Already have an account? " : "New here? "}
+            <Link href={trial ? "/login" : "/login?trial=1"} className="underline underline-offset-2 hover:text-foreground">
+              {trial ? "Sign in" : `Start your ${trialName(trialDays)}`}
             </Link>
-          ))}
-        </nav>
-      </div>
-    </main>
+            <br />
+            Data for research and education, not investment advice.
+          </p>
+        </div>
+      </main>
+      <SiteFooter />
+    </div>
   );
 }
 

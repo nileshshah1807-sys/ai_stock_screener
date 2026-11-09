@@ -76,7 +76,7 @@ function html({ subject, heading, paragraphs, button }) {
 <p style="margin:0 0 20px 0;font-size:16px;line-height:24px;color:${C.muted};">${esc(paragraphs[1])}.</p>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${C.primary};border-radius:8px;"><a href="${esc(button.href)}" style="display:inline-block;padding:12px 22px;font-size:16px;font-weight:600;color:${C.onPrimary};text-decoration:none;">${esc(button.label)}</a></td></tr></table>
 </td></tr>
-<tr><td style="padding:16px 4px 0 4px;font-size:13px;line-height:20px;color:${C.muted};">The Cupel team &middot; Reply to this email or write to <a href="mailto:team@cupel.in" style="color:${C.muted};text-decoration:underline;">team@cupel.in</a><br>${link(`${SITE}/terms`, "Terms")} &middot; ${link(`${SITE}/privacy`, "Privacy")} &middot; ${link(`${SITE}/refunds`, "Refunds")}</td></tr>
+<tr><td style="padding:16px 4px 0 4px;font-size:13px;line-height:20px;color:${C.muted};">The Cupel team &middot; Reply to this email and it becomes a support ticket.<br>${link(`${SITE}/terms`, "Terms")} &middot; ${link(`${SITE}/privacy`, "Privacy")} &middot; ${link(`${SITE}/refunds`, "Refunds")}</td></tr>
 </table></td></tr></table></body></html>`;
 }
 
@@ -87,11 +87,11 @@ export function compose(kind, d = {}, now = Date.now()) {
 }
 
 /** One message through Resend's HTTP API. Throws unless Resend accepts it. */
-export async function resendSend(fetchFn, apiKey, { to, subject, text, html }, idempotencyKey) {
+export async function resendSend(fetchFn, apiKey, { to, subject, text, html, replyTo }, idempotencyKey) {
   const response = await fetchFn("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Idempotency-Key": idempotencyKey },
-    body: JSON.stringify({ from: FROM, to: [to], subject, text, html }),
+    body: JSON.stringify({ from: FROM, to: [to], subject, text, html, reply_to: replyTo }),
     signal: AbortSignal.timeout(5000),
   });
   if (!response.ok) throw new Error(`Resend answered ${response.status}`);

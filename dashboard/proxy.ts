@@ -117,6 +117,9 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/login") ||
     pathname.startsWith("/auth") ||
     pathname === "/pricing" ||
+    // The help page and its form: someone locked out must be able to write.
+    pathname === "/help" ||
+    pathname === "/api/support" ||
     // Crawlers fetch these without signing in.
     pathname === "/robots.txt" ||
     pathname === "/sitemap.xml" ||

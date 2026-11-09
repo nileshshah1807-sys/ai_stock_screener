@@ -10,6 +10,7 @@ import { HealthLink } from "@/components/health-link";
 import { NotificationBell, NotificationBellFallback } from "@/components/notifications/bell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { NavLink } from "@/components/nav-link";
+import { SiteFooter } from "@/components/site-footer";
 import { MarketProvider } from "@/components/market-provider";
 import { MarketSwitch } from "@/components/market-switch";
 import { GlassTrack } from "@/components/glass-track";
@@ -17,7 +18,6 @@ import { GlobalSearch, GlobalSearchButton } from "@/components/global-search";
 import { SmoothDetails } from "@/components/motion";
 import { formatDate } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
-import { LEGAL_PAGES } from "@/lib/legal";
 import { TOOLS } from "@/lib/tools";
 import type { BellState } from "@/lib/notifications";
 import type { MarketDay } from "@/lib/market-calendar.mjs";
@@ -286,23 +286,12 @@ export function AppShell({
         </main>
         <SmoothDetails />
 
-        <footer className="border-t px-4 py-5 text-xs text-muted-foreground sm:px-6">
+        <SiteFooter width="px-4 sm:px-6">
           <p>
-            {run?.model_validation_status ??
-              "Research model; point-in-time out-of-sample validation pending."}{" "}
+            {/* The stored status carries no full stop; the fallback did. */}
+            {(run?.model_validation_status ?? "Research model; point-in-time out-of-sample validation pending").replace(/\.+$/, "")}.{" "}
             Not investment advice. {market.advisor}
           </p>
-          <nav aria-label="Legal" className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-            {LEGAL_PAGES.map((page) => (
-              <Link
-                key={page.href}
-                href={page.href}
-                className="rounded underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {page.label}
-              </Link>
-            ))}
-          </nav>
           {/* Run health's way in on a phone, where the header has no room for it. */}
           <Link
             href={marketPath(market.slug, "/health")}
@@ -310,7 +299,7 @@ export function AppShell({
           >
             Run health
           </Link>
-        </footer>
+        </SiteFooter>
       </div>
 
       {/*

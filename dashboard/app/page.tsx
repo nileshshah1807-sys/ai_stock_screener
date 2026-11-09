@@ -13,12 +13,12 @@ import { LandingPricing } from "@/components/landing/landing-pricing";
 import { Pipeline } from "@/components/landing/pipeline";
 import { Sieve } from "@/components/landing/sieve";
 import { StageLine } from "@/components/landing/stage-line";
+import { SiteFooter } from "@/components/site-footer";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { buttonVariants } from "@/components/ui/button";
 import { getSession } from "@/lib/auth";
 import { daysPhrase, trialName } from "@/lib/billing.mjs";
 import { getTrialDays } from "@/lib/trial-days";
-import { LEGAL, LEGAL_PAGES } from "@/lib/legal";
 import { faqJsonLd } from "@/lib/seo.mjs";
 import { cn } from "@/lib/utils";
 
@@ -59,24 +59,12 @@ const faq = (trialDays: number) => [
 ];
 
 const ghost = "rounded-md px-2.5 py-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-const X_URL = "https://x.com/ChirayuShah2103";
-const X_LABEL = "@ChirayuShah2103 on X (opens in a new tab)";
-
-function XIcon() {
-  return (
-    <svg aria-hidden viewBox="0 0 24 24" className="size-4 fill-current">
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-    </svg>
-  );
-}
-
 const section = "mx-auto w-full max-w-6xl px-4 sm:px-6";
 const h2 = "text-title max-w-[22ch] text-balance";
 
 export default async function LandingPage() {
   const [session, trialDays, requestHeaders] = await Promise.all([getSession(), getTrialDays(), headers()]);
   const country = requestHeaders.get("x-vercel-ip-country");
-  const contact = LEGAL.contactEmail.startsWith("[") ? null : LEGAL.contactEmail;
 
   return (
     <div className="landing flex min-h-screen flex-col">
@@ -245,23 +233,7 @@ export default async function LandingPage() {
         </section>
       </main>
 
-      <footer className="border-t bg-card">
-        <div className={cn(section, "py-10")}>
-          <nav aria-label="Legal" className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
-            {LEGAL_PAGES.map((page) => (
-              <Link key={page.href} href={page.href} className="hover:text-foreground hover:underline">{page.label}</Link>
-            ))}
-            <Link href="/pricing" className="hover:text-foreground hover:underline">Pricing</Link>
-            <a href={X_URL} target="_blank" rel="me noopener" aria-label={X_LABEL} className="inline-flex items-center gap-1.5 hover:text-foreground hover:underline">
-              <XIcon /> X
-            </a>
-            {contact ? <a href={`mailto:${contact}`} className="hover:text-foreground hover:underline">Contact: {contact}</a> : null}
-          </nav>
-          <p className="mt-6 text-xs text-muted-foreground">
-            Made and run by {LEGAL.operator}, {LEGAL.operatorForm}. Data for research and education, not investment advice. {LEGAL.service} is not a SEBI-registered investment adviser or research analyst. © {new Date().getFullYear()} {LEGAL.service}.
-          </p>
-        </div>
-      </footer>
+      <SiteFooter width="max-w-6xl px-4 sm:px-6" />
     </div>
   );
 }

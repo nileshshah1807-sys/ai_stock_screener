@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { LEGAL } from "@/lib/legal";
 import { compose, resendSend, sendOnce } from "@/lib/customer-email.mjs";
 
 /**
@@ -31,7 +32,7 @@ async function deliver(admin: SupabaseClient, userId: string, kind: Kind, key: s
       const { data: user } = await admin.auth.admin.getUserById(userId);
       const to = user?.user?.email;
       if (!to) throw new Error("no email address for the user");
-      await resendSend(fetch, apiKey as string, { to, ...compose(kind, data) }, `${userId}/${kind}/${key}`);
+      await resendSend(fetch, apiKey as string, { to, replyTo: LEGAL.contactEmail, ...compose(kind, data) }, `${userId}/${kind}/${key}`);
     },
   });
 }

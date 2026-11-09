@@ -2,7 +2,8 @@ import Link from "next/link";
 
 import { BrandMark } from "@/components/brand-mark";
 import { getSession } from "@/lib/auth";
-import { LEGAL, LEGAL_PAGES } from "@/lib/legal";
+import { SiteFooter } from "@/components/site-footer";
+import { LEGAL } from "@/lib/legal";
 import { isEntitled } from "@/lib/billing.mjs";
 
 const QUIET_LINK =
@@ -18,41 +19,32 @@ export default async function BillingLayout({ children }: LayoutProps<"/">) {
   const inApp = session ? isEntitled(session.access) : false;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-10 sm:py-14">
-      <div className="mb-8 flex items-center justify-between gap-4">
-        <Link
-          href={inApp ? "/screener" : "/login"}
-          className="inline-flex items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <BrandMark className="size-4" />
-          </span>
-          <span className="text-lead font-semibold tracking-[-0.011em]">{LEGAL.service}</span>
-        </Link>
-        {inApp ? (
-          <Link href="/screener" className={QUIET_LINK}>
-            Back to the app
+    <div className="flex min-h-screen flex-col">
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-10 sm:py-14">
+        <div className="mb-8 flex items-center justify-between gap-4">
+          <Link
+            href={inApp ? "/screener" : "/login"}
+            className="inline-flex items-center gap-2.5 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+              <BrandMark className="size-4" />
+            </span>
+            <span className="text-lead font-semibold tracking-[-0.011em]">{LEGAL.service}</span>
           </Link>
-        ) : !session ? (
-          <Link href="/login" className={QUIET_LINK}>
-            Sign in
-          </Link>
-        ) : null}
-      </div>
+          {inApp ? (
+            <Link href="/screener" className={QUIET_LINK}>
+              Back to the app
+            </Link>
+          ) : !session ? (
+            <Link href="/login" className={QUIET_LINK}>
+              Sign in
+            </Link>
+          ) : null}
+        </div>
 
-      {children}
-
-      <p className="mt-12 text-xs leading-relaxed text-muted-foreground">
-        Data for research and education, not investment advice. {LEGAL.service} is not a SEBI-registered
-        investment adviser or research analyst.
-      </p>
-      <nav aria-label="Legal" className="mt-3 flex flex-wrap gap-x-5 gap-y-2 border-t pt-5 text-xs text-muted-foreground">
-        {LEGAL_PAGES.map((page) => (
-          <Link key={page.href} href={page.href} className="hover:text-foreground hover:underline">
-            {page.label}
-          </Link>
-        ))}
-      </nav>
-    </main>
+        {children}
+      </main>
+      <SiteFooter />
+    </div>
   );
 }
