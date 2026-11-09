@@ -96,7 +96,16 @@ export function useStockEntry(
   );
   const runDate = useRunDate();
   useEffect(() => {
-    if (wanted && !directories.has(market)) void loadSearchIndex(market, runDate);
+    if (!wanted || directories.has(market)) return;
+    // Not on load: the first paint and the page's own requests go first, and
+    // the logos and names it fills in arrive when the browser is idle.
+    const load = () => void loadSearchIndex(market, runDate);
+    if (typeof requestIdleCallback === "function") {
+      const handle = requestIdleCallback(load, { timeout: 2500 });
+      return () => cancelIdleCallback(handle);
+    }
+    const handle = setTimeout(load, 300);
+    return () => clearTimeout(handle);
   }, [market, runDate, wanted]);
   return wanted ? (directory?.get(symbol) ?? null) : null;
 }
