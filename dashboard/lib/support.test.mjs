@@ -95,7 +95,7 @@ test("a refusal is logged with JSM's own words, never the token or the message",
 
 test("an email JSM does not know is added as a customer, then the request is tried again", async () => {
   const calls = [];
-  const fetchImpl = async (url, init) => {
+  const fetchImpl = async (url) => {
     calls.push(url.split("/servicedeskapi")[1]);
     return calls.length === 1 ? response(400, { errorMessage: "unknown customer" }) : response(201);
   };
