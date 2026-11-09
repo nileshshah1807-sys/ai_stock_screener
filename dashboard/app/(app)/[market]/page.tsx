@@ -5,6 +5,10 @@ import { notFound, redirect } from "next/navigation";
 import { HomeCardSkeleton } from "@/components/home/home-card";
 import { ComingUpCard } from "@/components/home/coming-up-card";
 import { WatchedProvider } from "@/components/home/quick-watch";
+import { DealsCard } from "@/components/home/deals-card";
+import { ResultsInCard } from "@/components/home/results-in-card";
+import { ShareholdingCard } from "@/components/home/shareholding-card";
+import { WatchlistTodayCard } from "@/components/home/watchlist-today-card";
 import { SinceCard } from "@/components/home/since-card";
 import { StartWatchingCard } from "@/components/home/start-watching-card";
 import { cardsFor, isScreenerQuery, screenerRedirect } from "@/lib/home.mjs";
@@ -35,7 +39,11 @@ export default async function HomePage({
 
   const byId: Record<string, React.ReactNode> = {
     since: <SinceCard market={market} />,
+    "results-in": <ResultsInCard market={market} />,
+    shareholding: <ShareholdingCard market={market} />,
+    deals: <DealsCard market={market} />,
     "coming-up": <ComingUpCard market={market} />,
+    "watchlist-today": <WatchlistTodayCard market={market} />,
   };
 
   return (
