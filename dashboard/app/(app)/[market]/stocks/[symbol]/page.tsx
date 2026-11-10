@@ -475,12 +475,16 @@ export default async function StockPage({
         ? (gateWarning ?? row.rating_cap_reason ?? undefined)
         : undefined,
     },
-    {
-      label: "Trend confirmed",
-      value: row.trend_confirmed ? "Yes" : "No",
-      tone: row.trend_confirmed ? "positive" : "caution",
-      hint: publicText(admin, "BUY requires a constructive medium-term chart, not valuation alone."),
-    },
+    ...(admin
+      ? ([
+          {
+            label: "Trend confirmed",
+            value: row.trend_confirmed ? "Yes" : "No",
+            tone: row.trend_confirmed ? "positive" : "caution",
+            hint: "BUY requires a constructive medium-term chart, not valuation alone.",
+          },
+        ] satisfies Field[])
+      : []),
     {
       label: "Data quality",
       value: dataQuality(row.data_quality).label,
@@ -754,13 +758,18 @@ export default async function StockPage({
 
   const liquidityFields: Field[] = [
     { label: "Grade", value: row.liquidity_grade ?? MISSING },
-    {
-      // Describes the stock's liquidity, not an instruction: research, not
-      // advice. "Executable" read as a go-ahead.
-      label: "Buildable at size",
-      value: row.portfolio_actionable ? "Yes" : "No",
-      tone: row.portfolio_actionable ? "positive" : "caution",
-    },
+    // portfolio_actionable tracks a BUY-grade rating, so only an admin sees it.
+    ...(admin
+      ? ([
+          {
+            // Describes the stock's liquidity, not an instruction: research, not
+            // advice. "Executable" read as a go-ahead.
+            label: "Buildable at size",
+            value: row.portfolio_actionable ? "Yes" : "No",
+            tone: row.portfolio_actionable ? "positive" : "caution",
+          },
+        ] satisfies Field[])
+      : []),
     { label: "20D median turnover", value: formatMoneyCompact(row.median_turnover_20d_inr, market) },
     // Impact cost and the liquidity group are the exchange's own figures and
     // are collected on NSE only; elsewhere the label would sit over a dash.

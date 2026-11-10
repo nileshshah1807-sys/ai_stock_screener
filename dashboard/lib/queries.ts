@@ -389,7 +389,7 @@ export async function getSnapshotPage(
   const supabase = await createClient();
   // A rating filter or sort would reveal the rating it filters on.
   if (!(await isAdmin())) {
-    filters = { ...filters, rating: [], buyEligibleOnly: false, excludeCapped: false, eligibility: [] };
+    filters = { ...filters, rating: [], buyEligibleOnly: false, excludeCapped: false, eligibility: [], actionableOnly: false };
     if (filters.sort && RATING_DERIVED_SORTS.has(filters.sort)) filters.sort = undefined;
   }
   const projection =
@@ -610,7 +610,7 @@ export type CompanyFacts = {
   market_cap: number | null;
   turnover: number | null;
   pe_ratio: number | null;
-  decision_score: number | null;
+  final_score: number | null;
   /** For the company's logo on a feed row; not a filter. */
   logo_domain: string | null;
 };
@@ -634,7 +634,7 @@ export const getCompanyFacts = cache(
         supabase
           .from("screener_snapshot_visible")
           .select(
-            "symbol, industry, market_cap, median_turnover_20d_inr, pe_ratio, decision_score, logo_domain",
+            "symbol, industry, market_cap, median_turnover_20d_inr, pe_ratio, final_score, logo_domain",
           )
           .eq("market", market)
           .eq("run_date", run.run_date)
@@ -655,7 +655,7 @@ export const getCompanyFacts = cache(
           market_cap: row.market_cap as number | null,
           turnover: row.median_turnover_20d_inr as number | null,
           pe_ratio: row.pe_ratio as number | null,
-          decision_score: row.decision_score as number | null,
+          final_score: row.final_score as number | null,
           logo_domain: row.logo_domain as string | null,
         });
       }

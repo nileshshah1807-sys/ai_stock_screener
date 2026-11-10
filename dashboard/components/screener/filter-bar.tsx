@@ -90,8 +90,9 @@ export function FilterBar({
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const showRatings = useShowRatings();
+  // "Executable only" filters on portfolio_actionable, which tracks a BUY-grade rating.
   const toggles = TOGGLES.filter(
-    (toggle) => showRatings || !RATING_FILTER_KEYS.includes(toggle.key),
+    (toggle) => showRatings || !(RATING_FILTER_KEYS.includes(toggle.key) || toggle.key === "actionable"),
   );
 
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
