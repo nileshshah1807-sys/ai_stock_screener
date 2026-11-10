@@ -1254,11 +1254,12 @@ function ratingRank(rating: string | null): number | null {
   return value === undefined ? null : value;
 }
 
-/** What the Movers page and getMovers read; the view's sector and score-delta columns are not used. */
-/** The mover columns that carry no rating; rank is not a rating. */
+/** The mover columns that carry no rating (final score stays visible, as `withoutRatings` leaves it). */
 const RANK_MOVER_COLUMNS =
-  "observed_on, symbol, company, investment_rank, prev_investment_rank, rank_change, prev_observed_on, is_new_entrant";
-const NO_RATINGS = { rating: null, prev_rating: null, rating_changed: null, decision_score: null, final_score: null } as const;
+  "observed_on, symbol, company, investment_rank, prev_investment_rank, rank_change, prev_observed_on, is_new_entrant, final_score";
+/** The rating fields `withoutRatings` nulls on a mover row. */
+const NO_RATINGS = { rating: null, prev_rating: null, rating_changed: null, decision_score: null } as const;
+/** What the Movers page and getMovers read; the view's sector and score-delta columns are not used. */
 const MOVER_COLUMNS =
   "observed_on, symbol, company, investment_rank, prev_investment_rank, rank_change, rating, prev_rating, rating_changed, decision_score, final_score, prev_observed_on, is_new_entrant";
 
