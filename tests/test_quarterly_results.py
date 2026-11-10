@@ -17,6 +17,7 @@ import pandas as pd
 
 from screener.markets import resolve
 from screener.quarterly_results import (
+    INDEX_SME,
     STATUS_DISABLED,
     STATUS_OK,
     STATUS_UNAVAILABLE,
@@ -189,6 +190,20 @@ class IndexTests(unittest.TestCase):
         session = SimpleNamespace(get=get)
         with self.assertRaisesRegex(ValueError, "page 2 empty at 2 of 3"):
             fetch_index_records(date(2026, 1, 1), date(2026, 2, 1), session=session)
+
+    def test_the_board_to_read_is_the_index_asked_of_the_exchange(self):
+        asked = []
+
+        def get(_url, params, **_kwargs):
+            asked.append(params["index"])
+            return SimpleNamespace(
+                raise_for_status=lambda: None, json=lambda: {"data": [{}], "totalCount": 1}
+            )
+
+        session = SimpleNamespace(get=get)
+        fetch_index_records(date(2026, 1, 1), date(2026, 2, 1), session=session)
+        fetch_index_records(date(2026, 1, 1), date(2026, 2, 1), index=INDEX_SME, session=session)
+        self.assertEqual(asked, ["equities", "sme"])
 
     def test_the_taxonomy_is_read_from_the_document_link(self):
         self.assertEqual(
