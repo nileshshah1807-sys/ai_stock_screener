@@ -407,22 +407,23 @@ export default async function StockPage({
       label: "Decision ceiling",
       value: formatScore(row.decision_score_ceiling),
       tone: capFlagged ? "caution" : "muted",
-      hint:
-        capFlagged && !capEnforced
+      hint: !admin
+        ? undefined
+        : capFlagged && !capEnforced
           ? "The ceiling this row's gates imply. Not applied: Model 5.1 publishes research merit for policy gates and reports them instead."
           : "Maximum score permitted by the active gate combination.",
     },
     {
       label: "Published score",
       value: formatScore(row.final_score ?? evidenceScore),
-      hint: "Uncapped. Policy gates limit the rating, not this number.",
+      hint: admin ? "Uncapped. Policy gates limit the rating, not this number." : "Uncapped.",
     },
     {
       label: "Points removed",
       value: capEnforced ? `-${formatNumber(pointsRemoved as number, 2)}` : "None",
       tone: capEnforced ? "negative" : "muted",
       hint:
-        capFlagged && !capEnforced
+        admin && capFlagged && !capEnforced
           ? "A policy gate fired but did not reduce the score. Only evidence-quality gates still cap."
           : undefined,
     },
@@ -592,7 +593,7 @@ export default async function StockPage({
     {
       label: "Market regime",
       value: regime.label,
-      hint: regime.meaning || undefined,
+      hint: publicText(admin, regime.meaning) || undefined,
     },
   ];
 

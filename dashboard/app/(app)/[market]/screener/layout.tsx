@@ -66,6 +66,7 @@ export default async function ScreenerLayout({
     market.code === "NSE" ? countBseOnly(market.code, run.run_date) : Promise.resolve(0),
     getRankedCount(market.code, run.run_date, run.row_count),
   ]);
+  const admin = await isAdmin();
 
   return (
     // data-screener scopes the pending dim in globals.css to this view.
@@ -74,7 +75,7 @@ export default async function ScreenerLayout({
       <FreshnessBanner run={run} />
 
       {/* The run's rating mix: admin-only, like the ratings (lib/ratings.mjs). */}
-      {(await isAdmin()) ? <SummaryTiles run={run} market={market} bseOnly={bseOnly} ranked={ranked} /> : null}
+      {admin ? <SummaryTiles run={run} market={market} bseOnly={bseOnly} ranked={ranked} /> : null}
 
       <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{screenerIntro(market.code)}</p>
 
@@ -117,18 +118,21 @@ export default async function ScreenerLayout({
         <summary className="w-fit cursor-pointer rounded font-medium marker:content-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           Reading the ranks
           <span className="ml-1 font-normal opacity-70 group-open/ranks:hidden">
-            — how Investment, Score, Recommendation and Actionable Rank differ
+            {admin ? "— how Investment, Score, Recommendation and Actionable Rank differ" : "— how the ranks are ordered"}
           </span>
         </summary>
         <p className="mt-1.5 leading-relaxed">
-          {investmentRankExplanation(
-            factorModel,
-            run.recommendation_policy_version,
-          )}{" "}
-          Score Rank uses uncapped evidence, Recommendation Rank groups by
-          published rating, and Actionable Rank is an execution-only view that
-          never changes a score or rating. Price, indicators, turnover, and
-          aligned valuation ratios all use the same completed daily bar.
+          {/* Eligibility, rating and execution wording is admin-only: hidden is still in the page source. */}
+          {admin ? (
+            <>
+              {investmentRankExplanation(factorModel, run.recommendation_policy_version)} Score Rank uses uncapped
+              evidence, Recommendation Rank groups by published rating, and Actionable Rank is an execution-only view
+              that never changes a score or rating.{" "}
+            </>
+          ) : (
+            "Investment Rank orders on the research score. "
+          )}
+          Price, indicators, turnover, and aligned valuation ratios all use the same completed daily bar.
         </p>
       </details>
     </div>
