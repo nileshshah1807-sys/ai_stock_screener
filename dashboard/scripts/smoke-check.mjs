@@ -38,7 +38,7 @@ const MARKETS = {
   us: { code: "US", zone: "America/New_York", open: [9 * 60 + 30, 16 * 60] },
 };
 // Results analysis is NSE-only; the US shows a note, still a 200.
-const PAGES = ["", "/market", "/movers", "/indices", "/watchlists", "/notifications", "/health",
+const PAGES = ["", "/screener", "/market", "/movers", "/indices", "/watchlists", "/notifications", "/health",
   "/concalls", "/results", "/results/analysis", "/returns"];
 const SAMPLE_SIZE = 10;
 const SLOW_MS = 10_000;
@@ -340,7 +340,7 @@ try {
   for (const slug of Object.keys(MARKETS)) {
     const expected = await expectations(slug);
     await liveFreshness(slug);
-    for (const page of PAGES) await attempt(`/${slug}${page}`, expected, { grid: page === "" });
+    for (const page of PAGES) await attempt(`/${slug}${page}`, expected, { grid: page === "/screener" });
     for (const symbol of expected?.picks ?? []) {
       await attempt(`/${slug}/stocks/${encodeURIComponent(symbol)}`, expected, { tabs: true });
     }
