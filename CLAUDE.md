@@ -338,7 +338,8 @@ the scheduled workflows set the same flag.
   notice's text names a conference or earnings call and ties it to results;
   a time is kept only in India time. The worker clears a passed date, reads
   a notice once (`updated_at` is when it last looked at the stock), and
-  skips BSE-only names. Display evidence; the table is in
+  skips BSE-only names. NSE Emerge's board meetings and announcements are read beside
+  the mainboard's (`quarterly_results.read_boards`). Display evidence; the table is in
   `storage/upcoming_events_schema.sql`, applied by hand.
 - **Company documents are links to the exchange's archive, one row each.**
   `workers/company_documents.py` writes `company_documents` (NSE): investor
@@ -349,8 +350,10 @@ the scheduled workflows set the same flag.
   (annual reports: the latest three). The Results card does not store its deck:
   it is the newest presentation within -1..+7 days of the result's broadcast
   time. Transcripts and recordings use the collectors' own tests. Display
-  evidence; the table is in `storage/company_documents_schema.sql`, applied by
-  hand. The backfill (`--backfill-days 365`) is run by hand, never scheduled.
+  evidence, SME included: announcements are read from both boards, an annual report is
+  asked of the mainboard first and NSE Emerge when it has none, and announcement rows keep
+  only companies in the latest snapshot. The table is in
+  `storage/company_documents_schema.sql`, applied by hand. The backfill (`--backfill-days 365`) is run by hand, never scheduled.
 - **US upcoming results come from Alpha Vantage's earnings calendar.**
   `workers/us_upcoming.py` (a step of the US Financial statements workflow, the
   first run of the day, before 09:00 UTC) makes one request a day, keyed by the `ALPHAVANTAGE_API_KEY`

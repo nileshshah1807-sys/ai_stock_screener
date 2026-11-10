@@ -39,6 +39,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from screener.quarterly_results import INDEX_MAINBOARD, read_boards
 from transcripts.collector import is_earnings_transcript
 from transcripts.recordings import is_recording_notice
 from workers.company_documents import record_announcements
@@ -399,8 +400,11 @@ def run(repo, *, now: datetime | None = None, dry_run: bool = False) -> dict[str
             logger.warning("Exchange session not opened (%s); nothing read this run", exc)
             return counts
         try:
-            meetings = nse.boardMeetings(index="equities", from_date=_stamped_window(today, RESULTS_HORIZON_DAYS)[0],
-                                         to_date=_stamped_window(today, RESULTS_HORIZON_DAYS)[1])
+            window = _stamped_window(today, RESULTS_HORIZON_DAYS)
+            meetings = read_boards(
+                lambda start, end, index=INDEX_MAINBOARD: nse.boardMeetings(index=index, from_date=start, to_date=end),
+                *window,
+            )
         except Exception as exc:  # the call notices are still worth reading
             logger.warning("Board meetings unavailable (%s); result dates left as they were", exc)
             meetings = []
@@ -410,7 +414,11 @@ def run(repo, *, now: datetime | None = None, dry_run: bool = False) -> dict[str
 
         try:
             start = datetime.combine(today - timedelta(days=NOTICE_LOOKBACK_DAYS), datetime.min.time())
-            announcements = nse.announcements(index="equities", from_date=start, to_date=datetime.combine(today, datetime.max.time()))
+            announcements = read_boards(
+                lambda start, end, index=INDEX_MAINBOARD: nse.announcements(index=index, from_date=start, to_date=end),
+                start,
+                datetime.combine(today, datetime.max.time()),
+            )
             records = [record for record in announcements if is_call_notice(record)]
             # The same fetch also lists a company's decks, transcripts, recordings and ratings.
             record_announcements(repo, announcements, now=now, dry_run=dry_run)

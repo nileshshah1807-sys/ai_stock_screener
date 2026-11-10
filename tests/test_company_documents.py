@@ -108,8 +108,33 @@ class FakeRepo:
 
 
 class FakeNse:
-    def annual_reports(self, symbol):
+    def annual_reports(self, symbol, segment="equities"):
         return {"data": [{"fromYr": "2025", "toYr": "2026", "broadcast_dttm": "15-MAY-2026 23:48:30", "fileName": "https://nsearchives.nseindia.com/new.pdf"}]}
+
+
+class SmeAnnualReportTests(unittest.TestCase):
+    def test_a_company_with_none_on_the_mainboard_is_asked_of_the_sme_board(self):
+        asked = []
+
+        class Nse:
+            def annual_reports(self, symbol, segment):
+                asked.append(segment)
+                return FakeNse().annual_reports(symbol) if segment == "sme" else {"data": []}
+
+        repo = FakeRepo()
+        counts = sweep_annual_reports(repo, Nse(), ["SMEONE"], pause=0)
+        self.assertEqual((asked, counts["rows"]), (["equities", "sme"], 1))
+
+    def test_a_mainboard_company_is_not_asked_twice(self):
+        asked = []
+
+        class Nse:
+            def annual_reports(self, symbol, segment):
+                asked.append(segment)
+                return FakeNse().annual_reports(symbol)
+
+        sweep_annual_reports(FakeRepo(), Nse(), ["TCS"], pause=0)
+        self.assertEqual(asked, ["equities"])
 
 
 class RunTests(unittest.TestCase):
