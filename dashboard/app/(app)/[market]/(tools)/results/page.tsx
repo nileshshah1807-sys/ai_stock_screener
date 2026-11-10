@@ -23,11 +23,12 @@ import { getUpcoming } from "@/lib/upcoming";
 import { getWatchlists } from "@/lib/watchlists";
 import {
   getCompanyNames,
-  getDeclaredSymbols,
-  getLatestResultQuarter,
+  getDeclaredSymbolsShared,
+  getLatestResultQuarterShared,
   getQuarterFilings,
   getQuarterLines,
   getResultFeed,
+  getResultFeedShared,
   type QuarterFiling,
 } from "@/lib/results";
 import {
@@ -92,7 +93,7 @@ export default async function ResultsPage({
   const today = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
   const offered = us ? quarterEnds(today, US_QUARTERS) : quarterEnds(today);
   const [latest, feed, facts, run] = await Promise.all([
-    getLatestResultQuarter(market.code, offered),
+    getLatestResultQuarterShared(market.code, offered),
     loadFeedFilters(market.code, query, { defaultScope: "all", growth: true }),
     getCompanyFacts(market.code),
     getLatestRun(market.code),
@@ -110,7 +111,7 @@ export default async function ResultsPage({
     getUpcoming(market.code, "results", today),
     // The quarter that ended most recently, not `newest`: until someone files for it `newest` is the
     // season before, and its filers are not the ones the upcoming dates belong to.
-    getDeclaredSymbols(market.code, offered[0]),
+    getDeclaredSymbolsShared(market.code, offered[0]),
     getWatchlists(market.code),
   ]);
   // A company that has filed is no longer lined up, even while its date is today's.
@@ -160,7 +161,7 @@ export default async function ResultsPage({
     entries = passing.slice(0, shown);
     total = passing.length;
   } else {
-    ({ entries, total } = await getResultFeed(market.code, {
+    ({ entries, total } = await getResultFeedShared(market.code, {
       quarter,
       // A search names a company: the default size floor must not hide it (a company
       // the run does not hold yet, or an SME under the floor, still gets its card).

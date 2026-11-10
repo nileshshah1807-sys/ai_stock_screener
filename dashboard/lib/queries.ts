@@ -20,6 +20,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { indexSlug } from "@/lib/indices.mjs";
 import { BSE_SUFFIX } from "@/lib/listing.mjs";
+import { cachedOr } from "@/lib/home-cache";
+import type { Reader } from "@/lib/results";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { createDayMemo, localDay, type MarketDay } from "@/lib/market-calendar.mjs";
 import type { MarketCode } from "@/lib/markets";
@@ -628,41 +630,54 @@ export const getCompanyFacts = cache(
   async (market: MarketCode): Promise<CompanyFacts[] | null> => {
     const run = await getLatestRun(market);
     if (!run) return null;
+    // Score is a rating: only an admin reads it, per request. Everyone else
+    // shares one cross-instance read of the other columns, a chunk per entry.
+    const admin = await isAdmin();
     const supabase = await createClient();
-    const results = await Promise.all(
-      chunkOffsets(run.row_count).map((offset) =>
-        supabase
-          .from("screener_snapshot_visible")
-          .select(
-            "symbol, industry, market_cap, median_turnover_20d_inr, pe_ratio, final_score, logo_domain",
-          )
-          .eq("market", market)
-          .eq("run_date", run.run_date)
-          .order("symbol", { ascending: true })
-          .range(offset, offset + FETCH_CHUNK - 1),
-      ),
-    );
-    const facts: CompanyFacts[] = [];
-    for (const { data, error } of results) {
-      if (error) {
-        console.error("getCompanyFacts failed", error.message);
-        return null;
-      }
-      for (const row of data ?? []) {
-        facts.push({
-          symbol: row.symbol as string,
-          industry: row.industry as string | null,
-          market_cap: row.market_cap as number | null,
-          turnover: row.median_turnover_20d_inr as number | null,
-          pe_ratio: row.pe_ratio as number | null,
-          final_score: row.final_score as number | null,
-          logo_domain: row.logo_domain as string | null,
-        });
-      }
+    const chunk = (offset: number) =>
+      admin
+        ? readFactChunk(supabase, market, run.run_date, offset, "screener_snapshot_visible", true)
+        : cachedOr("facts", market, 900, (db) => readFactChunk(db ?? supabase, market, run.run_date, offset, db ? "screener_snapshot" : "screener_snapshot_visible", false), [
+            run.run_date,
+            String(offset),
+          ]);
+    try {
+      const chunks = await Promise.all(chunkOffsets(run.row_count).map(chunk));
+      return chunks.flat();
+    } catch (error) {
+      console.error("getCompanyFacts failed", error instanceof Error ? error.message : error);
+      return null;
     }
-    return facts;
   },
 );
+
+/** One chunk of the run's company facts; throws on a failed read so a cache never keeps it. */
+async function readFactChunk(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  market: MarketCode,
+  runDate: string,
+  offset: number,
+  table: string,
+  withScore: boolean,
+): Promise<CompanyFacts[]> {
+  const { data, error } = await supabase
+    .from(table)
+    .select(`symbol, industry, market_cap, median_turnover_20d_inr, pe_ratio, logo_domain${withScore ? ", final_score" : ""}`)
+    .eq("market", market)
+    .eq("run_date", runDate)
+    .order("symbol", { ascending: true })
+    .range(offset, offset + FETCH_CHUNK - 1);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+    symbol: row.symbol as string,
+    industry: row.industry as string | null,
+    market_cap: row.market_cap as number | null,
+    turnover: row.median_turnover_20d_inr as number | null,
+    pe_ratio: row.pe_ratio as number | null,
+    final_score: (row.final_score as number | null | undefined) ?? null,
+    logo_domain: row.logo_domain as string | null,
+  }));
+}
 
 /**
  * Did this run score with the Model 5.0 factor architecture?
@@ -1480,42 +1495,36 @@ export async function getMarketBreadth(
   /** A read failed: what is missing is unknown, not unpublished. */
   failed: boolean;
 }> {
-  const supabase = await createClient();
-  const [groupsResult, groupResult, indicesResult] = await Promise.all([
-    supabase
-      .from("market_breadth")
-      .select("scope, name, parent, members")
-      .eq("market", market)
-      .in("scope", ["market", "sector", "industry"])
-      .order("name"),
-    supabase
-      .from("market_breadth")
-      .select(BREADTH_COLUMNS)
-      .eq("market", market)
-      .eq("scope", selected.scope)
-      .eq("name", selected.name)
-      .maybeSingle(),
-    supabase
-      .from("market_breadth")
-      .select(BREADTH_COLUMNS)
-      .eq("market", market)
-      .eq("scope", "index")
-      .order("position"),
-  ]);
-
-  let failed = false;
-  for (const result of [groupsResult, groupResult, indicesResult]) {
-    if (result.error) {
-      console.error("getMarketBreadth failed", result.error.message);
+  // Published once a day, same for every viewer, no rating: read once and
+  // shared across instances (the group's ~90 KB history is its own entry).
+  const read = <T,>(name: string, table: (db: Reader) => PromiseLike<{ data: T | null; error: { message: string } | null }>, extra: string[] = []) =>
+    cachedOr<T | null>(name, market, 600, async (db) => {
+      const { data, error } = await table(db ?? ((await createClient()) as unknown as Reader));
+      if (error) {
+        if (db) throw new Error(error.message);
+        console.error("getMarketBreadth failed", error.message);
+        failed = true;
+      }
+      return data;
+    }, extra).catch((error) => {
+      console.error("getMarketBreadth failed", error instanceof Error ? error.message : error);
       failed = true;
-    }
-  }
-  return {
-    failed,
-    groups: (groupsResult.data as BreadthGroup[] | null) ?? [],
-    group: (groupResult.data as BreadthRow | null) ?? null,
-    indices: (indicesResult.data as BreadthRow[] | null) ?? [],
-  };
+      return null;
+    });
+  let failed = false;
+  const [groups, group, indices] = await Promise.all([
+    read<BreadthGroup[]>("breadth-groups", (db) =>
+      db.from("market_breadth").select("scope, name, parent, members").eq("market", market).in("scope", ["market", "sector", "industry"]).order("name"),
+    ),
+    read<BreadthRow>("breadth-group", (db) =>
+      db.from("market_breadth").select(BREADTH_COLUMNS).eq("market", market).eq("scope", selected.scope).eq("name", selected.name).maybeSingle(),
+      [selected.scope, selected.name],
+    ),
+    read<BreadthRow[]>("breadth-indices", (db) =>
+      db.from("market_breadth").select(BREADTH_COLUMNS).eq("market", market).eq("scope", "index").order("position"),
+    ),
+  ]);
+  return { failed, groups: groups ?? [], group, indices: indices ?? [] };
 }
 
 /**
