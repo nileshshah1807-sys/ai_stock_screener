@@ -1,10 +1,13 @@
 import "server-only";
 
 import { createServerClient } from "@supabase/ssr";
+import { createHash } from "node:crypto";
+
 import { unstable_cache } from "next/cache";
 
 import type { MarketCode } from "@/lib/markets";
 import { getLatestRun, getSearchIndex } from "@/lib/queries";
+import { cachedOr } from "@/lib/home-cache";
 import { createClient } from "@/lib/supabase/server";
 import { bucketOf, halfYearResults, quarterWindow } from "@/lib/results.mjs";
 import { PUSH_DOWN_MAX, readForSymbols } from "@/lib/symbol-scope.mjs";
@@ -206,7 +209,10 @@ export async function getResultFeed(
   const { rows, error } = await readForSymbols<ResultFeedEntry>(symbols, limit, (_pushed, from, to) =>
     query(false).range(from, to),
   );
-  if (error) console.error("getResultFeed failed", error);
+  if (error) {
+    if (db) throw new Error(String(error));
+    console.error("getResultFeed failed", error);
+  }
   return { entries: rows, total: null };
 }
 
@@ -223,6 +229,7 @@ export async function getDeclaredSymbols(market: MarketCode, quarter: string, db
       .order("symbol", { ascending: true })
       .range(from, from + READ_WINDOW - 1);
     if (error) {
+      if (db) throw new Error(error.message);
       console.error("getDeclaredSymbols failed", error.message);
       return null;
     }
@@ -230,6 +237,35 @@ export async function getDeclaredSymbols(market: MarketCode, quarter: string, db
     if (data.length < READ_WINDOW) break;
   }
   return symbols;
+}
+
+/**
+ * The three reads every Results render starts with, shared across viewers and
+ * instances for five minutes (the page re-renders itself on that beat):
+ * all market-wide, none carrying a rating. Filings land within the quarter
+ * hour, so a result may take up to five minutes to reach a cold instance.
+ */
+const RESULTS_REVALIDATE = 300;
+
+export const getLatestResultQuarterShared = (market: MarketCode, offered: string[]) =>
+  cachedOr("latest-quarter", market, RESULTS_REVALIDATE, (db) => getLatestResultQuarter(market, offered, db), offered);
+
+export async function getDeclaredSymbolsShared(market: MarketCode, quarter: string): Promise<Set<string> | null> {
+  const symbols = await cachedOr("declared", market, RESULTS_REVALIDATE, async (db) => {
+    const set = await getDeclaredSymbols(market, quarter, db);
+    return set && [...set];
+  }, [quarter]);
+  return symbols && new Set(symbols);
+}
+
+/** The feed for one quarter and scope; a search is not cached, it names its own rows. */
+export function getResultFeedShared(market: MarketCode, query: ResultFeedQuery) {
+  if (query.search) return getResultFeed(market, query);
+  const { quarter, symbols = null, limit = 30, byPeriodEnd = false } = query;
+  const scope = symbols ? createHash("sha1").update(symbols.join(",")).digest("hex") : "all";
+  return cachedOr("feed", market, RESULTS_REVALIDATE, (db) => getResultFeed(market, query, db), [
+    quarter, String(limit), String(byPeriodEnd), scope,
+  ]);
 }
 
 /** Every filing of these companies for these quarters, on both bases. */

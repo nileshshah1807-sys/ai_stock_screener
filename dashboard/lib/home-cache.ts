@@ -41,3 +41,19 @@ export async function homeCached<T>(
     return undefined;
   }
 }
+
+/**
+ * `homeCached`, else the same read as the viewer. `load` is handed the service
+ * role client when cached and nothing when not, and must throw on a failed
+ * read when handed one so a failure is never kept.
+ */
+export async function cachedOr<T>(
+  name: string,
+  market: string,
+  revalidate: number,
+  load: (db?: Reader) => Promise<T>,
+  extraKey: string[] = [],
+): Promise<T> {
+  const cached = await homeCached(name, market, revalidate, (db) => load(db), extraKey);
+  return cached !== undefined ? cached : load();
+}
