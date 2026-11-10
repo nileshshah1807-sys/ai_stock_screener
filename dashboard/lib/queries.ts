@@ -3,7 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { isAdmin } from "@/lib/auth";
-import { gridProjection } from "@/lib/columns";
+import { gridProjection, UNRATED_COLUMNS } from "@/lib/columns";
 import { withoutRatings } from "@/lib/ratings.mjs";
 import {
   priceCalendarPath,
@@ -412,7 +412,7 @@ export async function getSnapshotPage(
   // A company the run could not rate has a page and a row, but no score or
   // rank to sort, total or export: it is listed apart (getUnratedRows). A
   // watchlist still shows the ones it holds.
-  if (!options.symbols && !options.breadth) query = query.is("unrated_reason", null);
+  if (UNRATED_COLUMNS && !options.symbols && !options.breadth) query = query.is("unrated_reason", null);
 
   if (options.industry) {
     query = query.eq("industry", options.industry);
@@ -1011,6 +1011,7 @@ export async function getUnratedRows(
   runDate: string,
   q?: string,
 ): Promise<{ rows: UnratedRow[]; total: number }> {
+  if (!UNRATED_COLUMNS) return { rows: [], total: 0 };
   const supabase = await createClient();
   let query = supabase
     .from("screener_snapshot_visible")
@@ -1036,6 +1037,7 @@ export async function getUnratedRows(
  */
 export const getRankedCount = cache(
   async (market: MarketCode, runDate: string, rowCount: number): Promise<number> => {
+    if (!UNRATED_COLUMNS) return rowCount;
     const supabase = await createClient();
     const { count, error } = await supabase
       .from("screener_snapshot_visible")
@@ -1055,13 +1057,14 @@ export const getRankedCount = cache(
 export const countBseOnly = cache(
   async (market: MarketCode, runDate: string): Promise<number> => {
     const supabase = await createClient();
-    const { count, error } = await supabase
+    let query = supabase
       .from("screener_snapshot_visible")
       .select("symbol", { count: "exact", head: true })
       .eq("market", market)
       .eq("run_date", runDate)
-      .is("unrated_reason", null)
       .like("symbol", `%${BSE_SUFFIX}`);
+    if (UNRATED_COLUMNS) query = query.is("unrated_reason", null);
+    const { count, error } = await query;
     if (error) {
       console.error("countBseOnly failed", error.message);
       return 0;

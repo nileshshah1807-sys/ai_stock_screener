@@ -75,11 +75,19 @@ export type ColumnSpec = {
  * `symbol` is the row key and the drill-down href, so neither can be dropped
  * by hiding a column.
  */
+/**
+ * `is_sme` and `unrated_reason` exist in the database only once
+ * storage/rating_access_schema.sql with them has been applied. Until the
+ * deploy's UNRATED_COLUMNS env is "on", no read names them, so a preview
+ * against an older database keeps working.
+ */
+export const UNRATED_COLUMNS = process.env.UNRATED_COLUMNS === "on";
+
 export const BASE_FIELDS: readonly string[] = [
   "run_date",
   "symbol",
   "factor_model_applied",
-  "is_sme",
+  ...(UNRATED_COLUMNS ? ["is_sme"] : []),
 ];
 
 export const COLUMNS: readonly ColumnSpec[] = [
