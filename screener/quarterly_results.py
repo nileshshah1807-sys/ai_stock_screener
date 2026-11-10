@@ -66,6 +66,10 @@ SOURCE_LABEL = FILINGS_SOURCE
 
 INDEX_URL = "https://www.nseindia.com/api/integrated-filing-results"
 INDEX_FILING_TYPE = "Integrated Filing- Financials"
+# The exchange keeps the SME board (NSE Emerge) in an index of its own; the same call under
+# ``equities`` returns none of its companies.
+INDEX_MAINBOARD = "equities"
+INDEX_SME = "sme"
 INDEX_PAGE_SIZE = 10000
 # nseindia.com and its archive both reject a request without a browser-shaped
 # User-Agent and a Referer from the site.
@@ -377,8 +381,8 @@ def fetch_index(start, end, *, session=None, timeout=60):
     )
 
 
-def fetch_index_records(start, end, *, session=None, timeout=60):
-    """Every results filing broadcast between two dates, as the exchange serves it."""
+def fetch_index_records(start, end, *, index=INDEX_MAINBOARD, session=None, timeout=60):
+    """Every results filing of one board broadcast between two dates, as the exchange serves it."""
     if session is None:
         import requests
 
@@ -389,7 +393,7 @@ def fetch_index_records(start, end, *, session=None, timeout=60):
         response = session.get(
             INDEX_URL,
             params={
-                "index": "equities",
+                "index": index,
                 "period_ended": "all",
                 "type": INDEX_FILING_TYPE,
                 "from_date": start.strftime("%d-%m-%Y"),
