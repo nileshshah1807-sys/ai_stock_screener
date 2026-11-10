@@ -209,7 +209,10 @@ export async function getResultFeed(
   const { rows, error } = await readForSymbols<ResultFeedEntry>(symbols, limit, (_pushed, from, to) =>
     query(false).range(from, to),
   );
-  if (error) console.error("getResultFeed failed", error);
+  if (error) {
+    if (db) throw new Error(String(error));
+    console.error("getResultFeed failed", error);
+  }
   return { entries: rows, total: null };
 }
 

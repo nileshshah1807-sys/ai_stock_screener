@@ -634,13 +634,17 @@ export const getCompanyFacts = cache(
     // shares one cross-instance read of the other columns, a chunk per entry.
     const admin = await isAdmin();
     const supabase = await createClient();
+    const sharedChunk = (offset: number) =>
+      cachedOr(
+        "facts",
+        market,
+        900,
+        (db) =>
+          readFactChunk(db ?? supabase, market, run.run_date, offset, db ? "screener_snapshot" : "screener_snapshot_visible", false),
+        [run.run_date, String(offset)],
+      );
     const chunk = (offset: number) =>
-      admin
-        ? readFactChunk(supabase, market, run.run_date, offset, "screener_snapshot_visible", true)
-        : cachedOr("facts", market, 900, (db) => readFactChunk(db ?? supabase, market, run.run_date, offset, db ? "screener_snapshot" : "screener_snapshot_visible", false), [
-            run.run_date,
-            String(offset),
-          ]);
+      admin ? readFactChunk(supabase, market, run.run_date, offset, "screener_snapshot_visible", true) : sharedChunk(offset);
     try {
       const chunks = await Promise.all(chunkOffsets(run.row_count).map(chunk));
       return chunks.flat();
@@ -1511,6 +1515,7 @@ export async function getMarketBreadth(
       failed = true;
       return null;
     });
+  // Set by the loader only on a cache miss that failed; a hit never failed.
   let failed = false;
   const [groups, group, indices] = await Promise.all([
     read<BreadthGroup[]>("breadth-groups", (db) =>
