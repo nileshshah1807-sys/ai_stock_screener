@@ -96,7 +96,7 @@ function MoverList({
                 {mode === "new" ? (
                   <>
                     <span className="tabular font-mono text-xs">
-                      {formatScore(row.decision_score)}
+                      {formatScore(row.decision_score ?? row.final_score)}
                     </span>
                     {row.rating ? <RatingBadge rating={row.rating} /> : null}
                   </>
