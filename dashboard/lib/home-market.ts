@@ -134,6 +134,7 @@ async function readMonthlyMovers(market: MarketCode, indices: string[], runDate:
             .select("symbol, company, investment_rank, pct_change_1m")
             .eq("market", market)
             .eq("run_date", runDate)
+            .not("investment_rank", "is", null)
             .in("symbol", symbols.slice(at, at + SYMBOL_CHUNK))
             .order("symbol")
             .range(from, to),

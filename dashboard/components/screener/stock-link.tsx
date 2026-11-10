@@ -15,6 +15,7 @@ export function StockLink({ row }: { row: SnapshotRow }) {
       symbol={row.symbol}
       company={row.company}
       logoDomain={row.logo_domain}
+      sme={row.is_sme}
       // Read by GridKeyboard to find the next row to focus.
       rowLink
       // Explicitly capped, not just min-w-0. The cell is fixed at

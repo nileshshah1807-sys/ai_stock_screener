@@ -36,6 +36,7 @@ export function StockIdentity({
   company,
   logoDomain,
   link = true,
+  sme = false,
   size = "sm",
   emphasis = "symbol",
   subtitle,
@@ -48,6 +49,8 @@ export function StockIdentity({
   logoDomain?: string | null;
   /** False when the caller's row is itself the link or the button. */
   link?: boolean;
+  /** The row's `is_sme`: tags the ticker SME. */
+  sme?: boolean | null;
   size?: keyof typeof SIZES;
   /** "company" leads with the name and puts the ticker under it, for a card's title. */
   emphasis?: "symbol" | "company";
@@ -76,7 +79,7 @@ export function StockIdentity({
         <span className="block truncate text-base font-semibold tracking-[-0.011em] underline-offset-2 group-hover:underline">
           {name ?? symbol}
         </span>
-        {name ? <span className="block font-mono text-xs text-muted-foreground"><SymbolText symbol={symbol} /></span> : null}
+        {name ? <span className="block font-mono text-xs text-muted-foreground"><SymbolText symbol={symbol} sme={sme} /></span> : null}
       </span>
     ) : (
       <span className={cn("min-w-0", textClassName)}>
@@ -88,7 +91,7 @@ export function StockIdentity({
             sizes.symbol,
           )}
         >
-          <SymbolText symbol={symbol} />
+          <SymbolText symbol={symbol} sme={sme} />
         </span>
         <span className={cn("block truncate text-muted-foreground", sizes.line)}>
           {subtitle ?? name ?? MISSING}

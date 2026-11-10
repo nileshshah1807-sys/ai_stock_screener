@@ -24,13 +24,13 @@ export function HalfYearResults({ halfYears, market }: { halfYears: HalfYear[]; 
         Half-year results
       </h3>
       <p className="text-xs text-muted-foreground">
-        Filed as six-month statements, so there is no quarter or year-on-year change to show.
+        Filed as statements longer than a quarter, so there is no quarter or year-on-year change to show.
       </p>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="text-left text-xs text-muted-foreground">
-              <th scope="col" className="px-3 py-2 font-medium">Six months ended</th>
+              <th scope="col" className="px-3 py-2 font-medium">Period ended</th>
               {LINES.map(([key, label]) => (
                 <th key={key} scope="col" className="px-3 py-2 text-right font-medium">{label}</th>
               ))}
@@ -43,7 +43,7 @@ export function HalfYearResults({ halfYears, market }: { halfYears: HalfYear[]; 
                 <th scope="row" className="whitespace-nowrap px-3 py-2 text-left font-medium">
                   {periodLabel(half.period_end)}
                   <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                    {half.is_consolidated ? "Consolidated" : "Standalone"}
+                    {half.months} months · {half.is_consolidated ? "Consolidated" : "Standalone"}
                   </span>
                 </th>
                 {LINES.map(([key]) => (

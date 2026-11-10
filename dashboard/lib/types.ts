@@ -20,6 +20,10 @@ export type SnapshotRow = {
   symbol: string;
   company: string | null;
   logo_domain: string | null;
+  /** SME list company. Not a rating field, so every viewer gets it. */
+  is_sme: boolean | null;
+  /** Why the run left this company unrated; null for a rated one. Not a rating field either. */
+  unrated_reason: string | null;
   sector: string | null;
   industry: string | null;
 

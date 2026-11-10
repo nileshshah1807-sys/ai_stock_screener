@@ -31,6 +31,7 @@ import { Shareholding } from "@/components/stock/shareholding";
 import { Documents } from "@/components/stock/documents";
 import { getCompanyDocuments } from "@/lib/documents";
 import { StockTabs } from "@/components/stock/stock-tabs";
+import { NotRatedBadge } from "@/components/new-listing";
 import { HalfYearResults } from "@/components/stock/half-year-results";
 import { NewListingView } from "@/components/stock/new-listing-view";
 import {
@@ -65,6 +66,7 @@ import {
   getPriceSeries,
   getPriceTail,
   getShareholding,
+  getRankedCount,
   getStock,
   getStockHistory,
   STOCK_HISTORY_LIMIT,
@@ -234,6 +236,7 @@ export default async function StockPage({
     watchlistMembership,
     latestCall,
     upcomingResult,
+    rankedCount,
     halfYears,
   ] = await Promise.all([
     runRead,
@@ -253,6 +256,8 @@ export default async function StockPage({
       symbol,
       new Intl.DateTimeFormat("en-CA", { timeZone: market.timezone }).format(new Date()),
     ),
+    // "Rank of N" counts ranked companies only; row_count includes the unrated.
+    runRead.then((r) => (r ? getRankedCount(market.code, r.run_date, r.row_count) : 0)),
     getHalfYears(market.code, symbol),
   ]);
   if (!run) notFound();
@@ -812,13 +817,13 @@ export default async function StockPage({
                   lands here should hear which company, not a bare ticker. */}
               <h1 className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
                 <span className="font-mono text-[1.75rem] font-bold leading-tight tracking-tight">
-                  <SymbolText symbol={row.symbol} />
+                  <SymbolText symbol={row.symbol} sme={row.is_sme} />
                 </span>
                 <span className="text-heading font-normal text-muted-foreground">
                   {row.company}
                 </span>
               </h1>
-              <EntryBadge row={row} size="md" />
+              {row.unrated_reason ? <NotRatedBadge size="md" /> : <EntryBadge row={row} size="md" />}
             </div>
             {/* Right-aligned, beside the identity rather than down with the
                 numbers. Watching is a decision about this company, not a fact
@@ -838,6 +843,11 @@ export default async function StockPage({
             {formatMoneyCompact(row.market_cap, market)} · Prices as of{" "}
             {formatDate(row.price_bar_as_of ?? run.price_bar_as_of)}
           </p>
+          {row.unrated_reason ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {row.unrated_reason}. It has no score or rank until the run has what it needs.
+            </p>
+          ) : null}
 
           {/*
             Rank and score lead: they are what the page exists to explain, and
@@ -852,7 +862,7 @@ export default async function StockPage({
                   <>
                     {row.investment_rank ?? MISSING}
                     <span className="ml-1 text-xs font-normal text-muted-foreground">
-                      of {formatNumber(run.row_count, 0)}
+                      of {formatNumber(rankedCount, 0)}
                     </span>
                   </>
                 ),
