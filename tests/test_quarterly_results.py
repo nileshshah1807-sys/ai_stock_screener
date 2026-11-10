@@ -31,6 +31,7 @@ from screener.quarterly_results import (
     parse_quarter_facts,
     quarter_from_cumulative,
     quarter_growth,
+    read_boards,
     taxonomy_of,
     vendor_quarter_end,
 )
@@ -204,6 +205,20 @@ class IndexTests(unittest.TestCase):
         fetch_index_records(date(2026, 1, 1), date(2026, 2, 1), session=session)
         fetch_index_records(date(2026, 1, 1), date(2026, 2, 1), index=INDEX_SME, session=session)
         self.assertEqual(asked, ["equities", "sme"])
+
+    def test_the_sme_board_is_read_beside_the_mainboard_and_its_failure_spares_it(self):
+        asked = []
+
+        def fake(start, end, *, index="equities", **_kw):
+            asked.append(index)
+            if index == "sme":
+                raise TimeoutError("emerge")
+            return [{"symbol": "AAA"}]
+
+        with self.assertLogs("screener.quarterly_results", level="WARNING"):
+            records = read_boards(fake, date(2026, 1, 1), date(2026, 2, 1))
+        self.assertEqual(asked, ["equities", "sme"])
+        self.assertEqual(len(records), 1)
 
     def test_the_taxonomy_is_read_from_the_document_link(self):
         self.assertEqual(

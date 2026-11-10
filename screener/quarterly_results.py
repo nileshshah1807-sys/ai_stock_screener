@@ -381,6 +381,19 @@ def fetch_index(start, end, *, session=None, timeout=60):
     )
 
 
+def read_boards(fetch, start, end):
+    """``fetch`` for the mainboard and, beside it, for NSE Emerge (its own index at the exchange).
+
+    A failure reading the SME board is logged and leaves the mainboard whole.
+    """
+    records = fetch(start, end)
+    try:
+        records = [*records, *fetch(start, end, index=INDEX_SME)]
+    except Exception as exc:  # the mainboard stands; the next run asks again
+        logger.warning("SME board not read: %s", exc)
+    return records
+
+
 def fetch_index_records(start, end, *, index=INDEX_MAINBOARD, session=None, timeout=60):
     """Every results filing of one board broadcast between two dates, as the exchange serves it."""
     if session is None:

@@ -31,7 +31,7 @@ import xml.etree.ElementTree as ET
 from datetime import date, datetime
 
 from screener.numeric import round_half_up, safe_float
-from screener.quarterly_results import REQUEST_HEADERS
+from screener.quarterly_results import INDEX_MAINBOARD, REQUEST_HEADERS
 
 logger = logging.getLogger(__name__)
 
@@ -83,12 +83,14 @@ def _session(session):
     return fresh
 
 
-def fetch_index_records(start: date, end: date, *, session=None, timeout=120) -> list[dict]:
-    """Every shareholding pattern broadcast between two dates, as the exchange serves it."""
+def fetch_index_records(
+    start: date, end: date, *, index=INDEX_MAINBOARD, session=None, timeout=120
+) -> list[dict]:
+    """Every shareholding pattern of one board broadcast between two dates, as the exchange serves it."""
     response = _session(session).get(
         INDEX_URL,
         params={
-            "index": "equities",
+            "index": index,
             "from_date": start.strftime("%d-%m-%Y"),
             "to_date": end.strftime("%d-%m-%Y"),
         },
