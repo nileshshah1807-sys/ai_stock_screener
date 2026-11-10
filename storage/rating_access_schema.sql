@@ -144,7 +144,11 @@ select
     prev_decision_score,
     decision_score - prev_decision_score as score_change,
     prev_observed_on,
-    prev_observed_on is null as is_new_entrant
+    prev_observed_on is null as is_new_entrant,
+    -- The published score, visible to every viewer: a non-admin's number for the
+    -- Movers page now that decision_score is gated. Appended, as a replace needs.
+    final_score,
+    prev_final_score
 from (
     select
         t.market,
@@ -160,10 +164,12 @@ from (
         -- score_change is computed from these two and is null with them.
         (case when (select dashboard_is_admin()) then t.decision_score end)::numeric(6,2) as decision_score,
         case when (select dashboard_is_admin()) then p.decision_score::numeric end as prev_decision_score, -- the old view's type, which a replace must keep
-        p.observed_on as prev_observed_on
+        p.observed_on as prev_observed_on,
+        t.final_score,
+        p.final_score as prev_final_score
     from screener_history t
     left join lateral (
-        select q.observed_on, q.investment_rank, q.rating, q.decision_score
+        select q.observed_on, q.investment_rank, q.rating, q.decision_score, q.final_score
         from screener_history q
         where q.market = t.market and q.symbol = t.symbol and q.observed_on < t.observed_on
         order by q.observed_on desc
