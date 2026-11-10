@@ -10,11 +10,14 @@ export const LIMITS = { name: 100, subject: 150, message: 5000, messageMin: 10 }
 
 const ENV_KEYS = ["JSM_SITE", "JSM_EMAIL", "JSM_API_TOKEN", "JSM_SERVICE_DESK_ID", "JSM_REQUEST_TYPE_ID"];
 
+/** The largest inbound webhook body read (metadata only; the text is fetched separately). */
+export const MAX_INBOUND_BYTES = 64 * 1024;
+
 /** The largest request body the route reads (the message limit plus the other fields). */
 export const MAX_BODY_BYTES = 10 * 1024;
 
 /** One line: control characters out, white space collapsed. */
-const oneLine = (value) => String(value ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ").replace(/\s+/g, " ").trim();
+export const oneLine = (value) => String(value ?? "").replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ").replace(/\s+/g, " ").trim();
 
 /** True when every JSM variable is set; the form falls back to a mailto link otherwise. */
 export const supportConfigured = (env) => ENV_KEYS.every((key) => Boolean(env[key]?.trim()));

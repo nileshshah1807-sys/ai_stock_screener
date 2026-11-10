@@ -6,8 +6,7 @@
  * Have a lawyer read the three pages before the service takes money or is
  * opened beyond invited users.
  */
-// Switch to support@cupel.in once forwarding to JSM works (support@cupel.in has no mailbox yet).
-const SUPPORT_EMAIL = "support@cupel-team.atlassian.net";
+const SUPPORT_EMAIL = "support@cupel.in";
 
 export const LEGAL = {
   service: "Cupel",
