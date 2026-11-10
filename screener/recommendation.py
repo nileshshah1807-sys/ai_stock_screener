@@ -97,6 +97,38 @@ def rating_from_score(score):
     return "SELL"
 
 
+def unrated_rows(held_out, display_only, min_sessions):
+    """Display rows for SME names the run could not score, with the reason on each.
+
+    The one place a name with no evidence gets its rating: ``UNRATED``, the same
+    value ``rating_from_score`` gives a missing score. Scores and ranks are left
+    absent, never zero, and the rows are built after ranking so none of them
+    can enter, or move, the cross-section.
+    """
+    parts = []
+    if held_out is not None and len(held_out):
+        parts.append(held_out.assign(Rating_Cap_Reason="Not rated: no annual financial statements yet"))
+    if display_only is not None and len(display_only):
+        history = display_only.assign(
+            Rating_Cap_Reason=[
+                f"Not rated: {int(n)} of {min_sessions} sessions of price history"
+                for n in display_only["Price_History_Sessions"]
+            ]
+        )
+        parts.append(history)
+    if not parts:
+        return pd.DataFrame()
+    rows = pd.concat(parts, ignore_index=True)
+    rows["Rating"] = rating_from_score(None)
+    # The same sentence, under a name that is not a rating field, so a viewer
+    # who cannot read Rating_Cap_Reason can still be told why a name is unrated.
+    rows["Unrated_Reason"] = rows["Rating_Cap_Reason"]
+    rows["Rating_Capped"] = True
+    rows["Buy_Eligible"] = False
+    rows["Decision_Stability_Status"] = "DATA_LIMITED"
+    return rows
+
+
 # Gate failures that are statements about *evidence quality*, not investment
 # policy. Point-in-time validation covers the policy gates only -- the archive
 # excludes unscorable names by construction, so it never measured these and

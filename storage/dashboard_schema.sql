@@ -359,6 +359,8 @@ create table if not exists screener_snapshot (
     return_since_stage2_entry_pct numeric(12,2),
     advance_age_censored boolean,
     pct_from_52w_high numeric(10,3),
+    is_sme boolean,
+    unrated_reason text,
 
     -- Complete source row. Every column above also appears in it; the typed
     -- copies exist for indexing, not as the record of truth. Null on new runs:
@@ -446,6 +448,15 @@ alter table screener_snapshot
 -- old rows are pruned, and `vacuum full screener_snapshot;` (run on its own)
 -- returns their space -- a plain vacuum does not shrink the table's files.
 alter table screener_snapshot alter column payload drop not null;
+
+-- SME display flags (Nov 2026). Neither name matches is_rating_field, so the
+-- *_visible views pass them to every viewer: is_sme tags the company, and
+-- unrated_reason says why an UNRATED row has no rating (null on every other
+-- row). Apply this file, then rating_access_schema.sql so the views carry them,
+-- before the publisher that writes them.
+alter table screener_snapshot
+    add column if not exists is_sme boolean,
+    add column if not exists unrated_reason text;
 
 -- Last completed session's move, added after the Model 5.0 block because it is
 -- not factor evidence: it is display-only and applies to both models. Null on

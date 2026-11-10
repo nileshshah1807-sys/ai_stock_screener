@@ -30,7 +30,7 @@ from screener.liquidity import (
 )
 from screener.market_data import AlternativeData, BacktestEngine, PriceCache, TechnicalEnhancer, fmt_cr, fmt_f, fmt_pct
 from screener.quarterly_results import QuarterlyResultsCollector
-from screener.recommendation import finalize_recommendations
+from screener.recommendation import finalize_recommendations, unrated_rows
 from screener.reporting import EmailReporter, InteractiveDashboard, WhatsAppReporter
 from screener.runtime import Config, IPv4SMTP, IPv4SMTP_SSL, configure_runtime_cache, load_local_config
 from screener.scoring import (
@@ -364,8 +364,11 @@ def run_daily_analysis():
     # restate quarterly at most, so a long cache TTL keeps the daily marginal
     # cost near zero. Only the factor model consumes them.
     factor_model_enabled = bool(getattr(config, "FACTOR_MODEL_ENABLED", False))
+    held_out_sme = pd.DataFrame()
     if factor_model_enabled and getattr(config, "STATEMENT_COLLECTION_ENABLED", True):
-        merged_df = FinancialStatementCollector(config).enrich(merged_df)
+        statement_collector = FinancialStatementCollector(config)
+        merged_df = statement_collector.enrich(merged_df)
+        held_out_sme = statement_collector.held_out
         merged_df = apply_statement_fallbacks(merged_df)
         # The statement fallbacks can supply debt, cash and EBITDA that quote
         # metadata omitted. Re-run the completed-price alignment so EV/EBITDA
@@ -596,7 +599,21 @@ def run_daily_analysis():
     # (screener/valuation_basis.py); the publisher writes it from the export.
     scored_df = attach_basis(scored_df)
     csv_path = config.OUTPUT_DIR / f"advanced_analysis_{analysis_now.strftime('%Y%m%d')}.csv"
-    scored_df.to_csv(csv_path, index=False)
+    # SME names that could not be scored are appended to the export only, after
+    # every rank is fixed, so nothing computed above includes them; the
+    # publisher ships them as UNRATED rows.
+    unrated_df = unrated_rows(
+        held_out_sme,
+        pd.DataFrame(collector.display_only),
+        int(getattr(config, "MIN_PRICE_SESSIONS_REQUIRED", 60)),
+    )
+    export_df = pd.concat([scored_df, unrated_df], ignore_index=True) if len(unrated_df) else scored_df
+    if len(unrated_df):
+        logger.info("%d SME listing(s) published unrated", len(unrated_df))
+        # A column gaining a missing value would turn its ranks into floats ("1.0").
+        for column in scored_df.select_dtypes("integer").columns:
+            export_df[column] = export_df[column].astype("Int64")
+    export_df.to_csv(csv_path, index=False)
     logger.info(f"Results saved: {csv_path}")
 
     if getattr(config, "RUN_MANIFEST_ENABLED", True):
@@ -605,7 +622,7 @@ def run_daily_analysis():
                 "path": csv_path.name,
                 "sha256": sha256_file(csv_path),
                 "size_bytes": csv_path.stat().st_size,
-                "rows": len(scored_df),
+                "rows": len(export_df),
             },
             {
                 "path": diagnostics_path.name,
