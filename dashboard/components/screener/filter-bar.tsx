@@ -17,7 +17,7 @@ import {
 import { ELIGIBILITY_CLASSES, RATINGS, STAGES } from "@/lib/types";
 import { useShowRatings } from "@/components/market-provider";
 import { PendingMarker } from "@/components/nav-pending";
-import { RATING_FILTER_KEYS } from "@/lib/ratings.mjs";
+import { RATING_FILTER_KEYS, publicText } from "@/lib/ratings.mjs";
 import { cn } from "@/lib/utils";
 
 const TOGGLES = [
@@ -360,7 +360,7 @@ export function FilterBar({
                       {toggle.label}
                     </Label>
                     <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                      {toggle.hint}
+                      {publicText(showRatings, toggle.hint)}
                     </p>
                   </div>
                 </div>
@@ -436,12 +436,14 @@ export function FilterBar({
                     />
                   </div>
                   <p className="text-[11px] leading-snug text-muted-foreground">
-                    Rank within the cross-section. BUY needs quality 40; STRONG
-                    BUY needs quality 70, growth 60 and momentum 70.
+                    {publicText(
+                      showRatings,
+                      "Rank within the cross-section. BUY needs quality 40; STRONG BUY needs quality 70, growth 60 and momentum 70.",
+                    )}
                   </p>
                 </fieldset>
 
-                <fieldset className="space-y-1.5">
+                {showRatings ? <fieldset className="space-y-1.5">
                   <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     Eligibility
                   </legend>
@@ -464,7 +466,7 @@ export function FilterBar({
                       </Label>
                     </div>
                   ))}
-                </fieldset>
+                </fieldset> : null}
 
                 <fieldset className="space-y-1.5">
                   <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -533,7 +535,7 @@ export function FilterBar({
                           {toggle.label}
                         </Label>
                         <p className="text-[11px] leading-snug text-muted-foreground">
-                          {toggle.hint}
+                          {publicText(showRatings, toggle.hint)}
                         </p>
                       </div>
                     </div>

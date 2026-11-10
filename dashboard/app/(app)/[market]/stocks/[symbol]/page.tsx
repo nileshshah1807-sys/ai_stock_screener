@@ -14,6 +14,7 @@ import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, tailFromHistory, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { isAdmin } from "@/lib/auth";
+import { PUBLISHED_SCORE_INFO, publicText } from "@/lib/ratings.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
@@ -425,17 +426,22 @@ export default async function StockPage({
           ? "A policy gate fired but did not reduce the score. Only evidence-quality gates still cap."
           : undefined,
     },
-    {
-      label: "Primary constraint",
-      value: gate.label,
-      tone: capFlagged ? "caution" : "muted",
-      hint: gate.meaning || undefined,
-    },
-    {
-      label: "Eligibility class",
-      value: eligibility.label,
-      hint: eligibility.meaning || undefined,
-    },
+    // The constraint and eligibility class are how the rating is decided.
+    ...(admin
+      ? ([
+          {
+            label: "Primary constraint",
+            value: gate.label,
+            tone: capFlagged ? "caution" : "muted",
+            hint: gate.meaning || undefined,
+          },
+          {
+            label: "Eligibility class",
+            value: eligibility.label,
+            hint: eligibility.meaning || undefined,
+          },
+        ] satisfies Field[])
+      : []),
   ];
 
   const gateFields: Field[] = [
@@ -473,7 +479,7 @@ export default async function StockPage({
       label: "Trend confirmed",
       value: row.trend_confirmed ? "Yes" : "No",
       tone: row.trend_confirmed ? "positive" : "caution",
-      hint: "BUY requires a constructive medium-term chart, not valuation alone.",
+      hint: publicText(admin, "BUY requires a constructive medium-term chart, not valuation alone."),
     },
     {
       label: "Data quality",
@@ -975,12 +981,7 @@ export default async function StockPage({
                     title="Published score"
                     info={
                       <>
-                        <p>
-                          The research evidence on a 0-100 scale. Ticks on the
-                          ring mark the REDUCE / HOLD / BUY / STRONG BUY
-                          boundaries; policy gates limit the rating, not the
-                          score.
-                        </p>
+                        <p>{publicText(admin, PUBLISHED_SCORE_INFO)}</p>
                         {factorModel ? (
                           <>
                             <p>
@@ -1009,6 +1010,7 @@ export default async function StockPage({
                       <DecisionScore
                         score={row.final_score ?? row.evidence_score}
                         rating={row.rating}
+                        bands={admin}
                         caption={
                           !capFlagged || !admin
                             ? undefined
@@ -1018,7 +1020,7 @@ export default async function StockPage({
                         }
                       />
                       {factorModel ? (
-                        <FactorBlocks row={row} />
+                        <FactorBlocks row={row} admin={admin} />
                       ) : (
                         <ScoreWaterfall row={row} />
                       )}
@@ -1284,9 +1286,12 @@ export default async function StockPage({
                     <Panel
                       title="Liquidity and execution"
                       info={
-                        factorModel
-                          ? "Execution evidence. It never changes the research score, but it can cap BUY eligibility and therefore affect the rating and eligibility-class rank."
-                          : "An execution overlay. It never changes the score, rating, or investment rank."
+                        publicText(
+                          admin,
+                          factorModel
+                            ? "Execution evidence. It never changes the research score, but it can cap BUY eligibility and therefore affect the rating and eligibility-class rank."
+                            : "An execution overlay. It never changes the score, rating, or investment rank.",
+                        ) || "Execution evidence. It never changes the research score."
                       }
                       className={market.nseEvidence ? undefined : "lg:col-span-2"}
                     >

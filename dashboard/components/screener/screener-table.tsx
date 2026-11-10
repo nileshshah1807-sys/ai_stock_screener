@@ -5,6 +5,7 @@ import { GridScroll } from "@/components/screener/grid-scroll";
 import { ScreenerRows } from "@/components/screener/screener-rows";
 import { PlainHeader, SortHeader } from "@/components/screener/sort-header";
 import { isAdmin } from "@/lib/auth";
+import { publicText } from "@/lib/ratings.mjs";
 import { visibleColumns, type ColumnId, type Density } from "@/lib/columns";
 import { cn } from "@/lib/utils";
 import type { SnapshotRow } from "@/lib/types";
@@ -67,7 +68,8 @@ export async function ScreenerTable({
   const factorModel = rows.some((row) => row.factor_model_applied === true);
   // Ratings are admin-only (lib/ratings.mjs); the rows arrive without them.
   // Header and rows share one hidden list, or the cells shift under the headers.
-  const hidden: ColumnId[] = (await isAdmin()) ? hiddenColumns : [...hiddenColumns, "rating"];
+  const admin = await isAdmin();
+  const hidden: ColumnId[] = admin ? hiddenColumns : [...hiddenColumns, "rating"];
   const columns = visibleColumns(hidden, factorModel);
 
   if (!rows.length) {
@@ -122,7 +124,7 @@ export async function ScreenerTable({
                     numeric={column.numeric}
                     defaultDir={column.defaultDir}
                     className={column.headerClassName}
-                    title={column.title}
+                    title={publicText(admin, column.title)}
                   />
                 ) : (
                   <PlainHeader
@@ -130,7 +132,7 @@ export async function ScreenerTable({
                     label={column.label}
                     numeric={column.numeric}
                     className={column.headerClassName}
-                    title={column.title}
+                    title={publicText(admin, column.title)}
                   />
                 ),
               )}

@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { MISSING } from "@/lib/format";
 import { eligibilityClass, marketRegime, primaryGate } from "@/lib/labels";
+import { publicText } from "@/lib/ratings.mjs";
 import {
   factorContribution,
   publishedFactorWeight,
@@ -18,7 +19,7 @@ import { buildStages } from "@/components/stock/score-waterfall";
  * is the only thing that says so. When the run publishes the blend's
  * cross-sectional percentile, both the raw blend and percentile are shown.
  */
-export function FactorBlocks({ row }: { row: SnapshotRowWithPayload }) {
+export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPayload; admin?: boolean }) {
   if (!row.factor_model_applied) return null;
 
   const payload = row.payload ?? {};
@@ -158,26 +159,31 @@ export function FactorBlocks({ row }: { row: SnapshotRowWithPayload }) {
             )}
           </dd>
         </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Eligibility</dt>
-          <dd title={eligibilityClass(row.eligibility_class).meaning}>
-            {eligibilityClass(row.eligibility_class).label}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-muted-foreground">Binding gate</dt>
-          <dd title={primaryGate(row.primary_gate).meaning}>
-            {primaryGate(row.primary_gate).label}
-            {row.gate_severity ? (
-              <span className="ml-1.5 text-xs text-muted-foreground">
-                +{row.gate_severity - 1} more
-              </span>
-            ) : null}
-          </dd>
-        </div>
+        {/* How the rating is decided: admin-only with the rating itself. */}
+        {admin ? (
+          <>
+            <div>
+              <dt className="text-xs text-muted-foreground">Eligibility</dt>
+              <dd title={eligibilityClass(row.eligibility_class).meaning}>
+                {eligibilityClass(row.eligibility_class).label}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Binding gate</dt>
+              <dd title={primaryGate(row.primary_gate).meaning}>
+                {primaryGate(row.primary_gate).label}
+                {row.gate_severity ? (
+                  <span className="ml-1.5 text-xs text-muted-foreground">
+                    +{row.gate_severity - 1} more
+                  </span>
+                ) : null}
+              </dd>
+            </div>
+          </>
+        ) : null}
         <div>
           <dt className="text-xs text-muted-foreground">Market regime</dt>
-          <dd title={marketRegime(row.market_regime).meaning}>
+          <dd title={publicText(admin, marketRegime(row.market_regime).meaning)}>
             {marketRegime(row.market_regime).label}
           </dd>
         </div>
