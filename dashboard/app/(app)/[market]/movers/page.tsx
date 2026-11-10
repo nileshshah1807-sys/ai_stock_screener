@@ -143,7 +143,7 @@ export default async function MoversPage({
           <p className="mt-1 text-sm text-muted-foreground">
             {hasComparison ? (
               <>
-                How the model&rsquo;s ranks and ratings moved:{" "}
+                How the model&rsquo;s ranks {admin ? "and ratings " : ""}moved:{" "}
                 {formatDate(run.run_date)} compared with the previous published
                 run, {formatDate(movers.previousOn)}. Today&rsquo;s price moves
                 are on the{" "}
