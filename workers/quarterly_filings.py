@@ -249,6 +249,20 @@ def _note_attempts(counts: dict[str, int]) -> None:
             )
 
 
+def fetch_boards(start: date, end: date) -> list[dict[str, Any]]:
+    """The mainboard's results index and, beside it, NSE Emerge's.
+
+    The SME board is its own index at the exchange; a failure reading it leaves the
+    mainboard run whole.
+    """
+    records = quarterly_results.fetch_index_records(start, end)
+    try:
+        records += quarterly_results.fetch_index_records(start, end, index=quarterly_results.INDEX_SME)
+    except Exception as exc:  # the mainboard stands; the next run asks again
+        logger.warning("SME results index not read: %s", exc)
+    return records
+
+
 def run(
     repo,
     *,
@@ -274,7 +288,7 @@ def run(
     stored = repo.quarterly_filing_state()
     if full or not stored:
         lookback_days = FULL_LOOKBACK_DAYS
-    loader = index_records_loader or quarterly_results.fetch_index_records
+    loader = index_records_loader or fetch_boards
     records = loader(today - timedelta(days=lookback_days), today)
     index = quarterly_results.normalise_index(records)
     earlier: dict[tuple[str, str, bool], list[dict[str, Any]]] = {}
@@ -324,7 +338,7 @@ def run(
                     # Stored under the latest filing's id, so it is not due
                     # again until the exchange files something newer.
                     {**source, "Seq_Id": row["Seq_Id"]},
-                    quarterly_results.parse_filing(text, source["Taxonomy"]),
+                    quarterly_results.stored_lines(text, source["Taxonomy"]),
                     broadcast=first.get((row["Symbol"], row["Period_End"])),
                     stored_broadcast=(stored.get(key) or {}).get("broadcast_at"),
                     timezone=profile.timezone,
