@@ -6,10 +6,15 @@
 // Redacted on the server, so the value never reaches a viewer's browser: a
 // hidden badge whose rating is still in the page payload is not hidden.
 
+// Besides the labels, this takes every column the label can be read back from:
+// Decision_Score (Rating is rating_from_score of it), the eligibility tier, the
+// gates and caps, the execution flag and the ranks ordered by rating or
+// eligibility. Final_Score, Investment_Rank, Score_Rank and Action_Rank (all
+// ordered by evidence, not by rating) stay visible.
 // RS_Rating is relative strength, not a buy/sell call. The database applies the
 // same rule (is_rating_field in storage/rating_access_schema.sql); the test
 // fails if the two drift.
-export const RATING_KEY = /rating|(^|_)buy(_|$)|(^|_)capped|cap_reason|(^|_)(hold|reduce|sell)_count$|gate_warning|(^|_)gate_failures$/;
+export const RATING_KEY = /rating|(^|_)buy(_|$)|(^|_)capped|cap_reason|(^|_)(hold|reduce|sell)_count$|gate_warning|(^|_)gate_failures$|(^|_)decision_|(^|_)gate_|primary_gate|eligibility_class|coverage_eligible|(^|_)cap_(enforced|would_apply)|execution_status|portfolio_actionable|(actionable|recommendation)_rank|trend_confirmed/;
 export const NOT_A_RATING = /^rs_rating/;
 
 /** Snapshot column, run column or payload key that carries a rating or its gates. */
