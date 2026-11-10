@@ -130,6 +130,31 @@ function pointChange(current, base) {
 }
 
 /**
+ * A half-year filing as a card basis: its one column, as filed, and no change
+ * against a quarter -- a six-month figure beside a three-month one would
+ * read as growth that is not there.
+ */
+function halfYearTable(current, quarter, basis) {
+  const figures = current.lines.cumulative;
+  const rows = RESULT_LINES.map((line) => {
+    const value = figures[line.key];
+    return {
+      key: line.key, label: line.label, perShare: Boolean(line.perShare),
+      values: [typeof value === "number" && Number.isFinite(value) ? value : null],
+      yoy: null, qoq: null, margin: null,
+    };
+  }).filter((row, index) => !RESULT_LINES[index].optional || row.values[0] != null);
+  return {
+    basis,
+    months: monthsCovered(current.lines),
+    columns: [{ period: quarter, label: periodLabel(quarter) }],
+    rows,
+    filedAt: current.filed_at ?? null,
+    documentUrl: current.viewer_url || current.document_url || null,
+  };
+}
+
+/**
  * One basis of a card: the three quarters' figures and the two changes for
  * every line, or null when the company did not file this quarter on it.
  */
@@ -137,6 +162,7 @@ export function basisTable(filings, quarter, basis) {
   const periods = byPeriod(filings);
   const current = periods.get(quarter)?.[basis];
   if (!current) return null;
+  if (isHalfYear(current.lines)) return halfYearTable(current, quarter, basis);
   const matched = [quarter, monthsBefore(quarter, 3), monthsBefore(quarter, 12)].map((target) => near(periods, target));
   const columns = matched.map((entry) => entry.period);
   const filed = matched.map((entry) => entry[basis] ?? null);
@@ -340,16 +366,30 @@ export function quarterMedians(filings, quarters, symbols = null, windowed = fal
 export const HALF_YEAR_MIN_DAYS = 100;
 
 /**
+ * Whether a filing's `lines` are a half year's: its quarter keys are null and
+ * the figures as filed sit under `lines.cumulative`. The one rule; a row
+ * without `period_days` (a quarter, or a read from before the feed view
+ * carried it) is a quarter.
+ */
+export function isHalfYear(lines) {
+  return lines?.period_days > HALF_YEAR_MIN_DAYS && Boolean(lines.cumulative);
+}
+
+/** Whole months a half-year statement covers (181/182 days -> 6). */
+export function monthsCovered(lines) {
+  return Math.round(lines.period_days / 30.4);
+}
+
+/**
  * A company's half-year statements, newest first: the figures as filed
- * (`lines.cumulative`, since the quarter keys of such a filing are null), one
- * per period, consolidated in preference to standalone. Never compared with a
- * quarter -- there is no QoQ or YoY across lengths -- so no growth is derived.
+ * (`lines.cumulative`), one per period, consolidated in preference to
+ * standalone. Never compared with a quarter -- there is no QoQ or YoY across
+ * lengths -- so no growth is derived.
  */
 export function halfYearResults(filings) {
   const byPeriod = new Map();
   for (const filing of filings ?? []) {
-    const days = filing.lines?.period_days;
-    if (!(days > HALF_YEAR_MIN_DAYS) || !filing.lines?.cumulative) continue;
+    if (!isHalfYear(filing.lines)) continue;
     const held = byPeriod.get(filing.period_end);
     if (!held || (filing.is_consolidated && !held.is_consolidated)) byPeriod.set(filing.period_end, filing);
   }
@@ -357,7 +397,7 @@ export function halfYearResults(filings) {
     .sort((a, b) => b.period_end.localeCompare(a.period_end))
     .map((filing) => ({
       period_end: filing.period_end,
-      months: Math.round(filing.lines.period_days / 30.4),
+      months: monthsCovered(filing.lines),
       is_consolidated: filing.is_consolidated,
       lines: filing.lines.cumulative,
     }));

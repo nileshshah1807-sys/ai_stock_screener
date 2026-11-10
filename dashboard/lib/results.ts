@@ -38,7 +38,7 @@ export type QuarterFiling = {
   filed_at: string | null;
   viewer_url?: string | null;
   document_url: string | null;
-  lines: Record<string, number | null>;
+  lines: Record<string, number | null | Record<string, number | null>>;
 };
 
 /** PostgREST returns at most this many rows per request. */
@@ -276,11 +276,26 @@ type LineRow = Omit<QuarterFiling, "lines"> & {
   revenue: number | null;
   operating_profit: number | null;
   net_profit: number | null;
+  period_days: number | null;
+  half_revenue: number | null;
+  half_operating_profit: number | null;
+  half_net_profit: number | null;
+  half_eps: number | null;
 };
 
-const toFiling = ({ revenue, operating_profit, net_profit, ...rest }: LineRow): QuarterFiling => ({
+// A half year (period_days over 100) carries its figures as filed under
+// `cumulative`, its quarter keys null; a quarter has neither (lib/results.mjs isHalfYear).
+const toFiling = ({
+  revenue, operating_profit, net_profit, period_days,
+  half_revenue, half_operating_profit, half_net_profit, half_eps, ...rest
+}: LineRow): QuarterFiling => ({
   ...rest,
-  lines: { revenue, operating_profit, net_profit },
+  lines: {
+    revenue, operating_profit, net_profit,
+    ...(period_days
+      ? { period_days, cumulative: { revenue: half_revenue, operating_profit: half_operating_profit, net_profit: half_net_profit, eps: half_eps } }
+      : {}),
+  },
 });
 
 
@@ -296,7 +311,7 @@ export async function readQuarterLines(
       supabase
         .from("quarterly_filings")
         .select(
-          "symbol, period_end, is_consolidated, revenue:lines->revenue, operating_profit:lines->operating_profit, net_profit:lines->net_profit",
+          "symbol, period_end, is_consolidated, revenue:lines->revenue, operating_profit:lines->operating_profit, net_profit:lines->net_profit, period_days:lines->period_days, half_revenue:lines->cumulative->revenue, half_operating_profit:lines->cumulative->operating_profit, half_net_profit:lines->cumulative->net_profit, half_eps:lines->cumulative->eps",
           { count: "exact" },
         )
         .eq("market", market),
