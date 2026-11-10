@@ -277,8 +277,10 @@ class FakeNSE:
 
     sessions = 0
 
-    def __init__(self, meetings=None, notices=(), fail_meetings=False, call=(date(2026, 11, 5), time(12, 0))):
+    def __init__(self, meetings=None, notices=(), fail_meetings=False, call=(date(2026, 11, 5), time(12, 0)),
+                 sme_meetings=(), sme_notices=()):
         self.meetings, self.notices, self.fail_meetings, self.call = meetings, list(notices), fail_meetings, call
+        self.sme_meetings, self.sme_notices = list(sme_meetings), list(sme_notices)
         self.downloads = []
 
     def __enter__(self):
@@ -288,13 +290,13 @@ class FakeNSE:
     def __exit__(self, *_):
         return False
 
-    def boardMeetings(self, **kwargs):
+    def boardMeetings(self, index="equities", **kwargs):
         if self.fail_meetings:
             raise TimeoutError("nse")
-        return self.meetings or []
+        return self.sme_meetings if index == "sme" else self.meetings or []
 
-    def announcements(self, **kwargs):
-        return self.notices
+    def announcements(self, index="equities", **kwargs):
+        return self.sme_notices if index == "sme" else self.notices
 
     def download_document(self, url):
         self.downloads.append(url)
@@ -323,6 +325,16 @@ class RunTests(unittest.TestCase):
              "symbol": f"S{n:02d}", "an_dt": "31-Oct-2026 10:00:00", "attchmntFile": f"https://x/S{n:02d}.pdf", "sm_name": "S"}
             for n in range(count)
         ]
+
+    def test_the_sme_board_gives_result_dates_and_call_notices_beside_the_mainboard(self):
+        repo = FakeRepo()
+        nse = FakeNSE(
+            [meeting("AAA", "03-Nov-2026")], sme_meetings=[meeting("SMEONE", "04-Nov-2026")],
+            sme_notices=self.call_notices(2),
+        )
+        counts = self.run_with(repo, nse)
+        self.assertEqual(counts["results"], 2)
+        self.assertEqual(counts["read"], 2)
 
     def test_a_dry_run_writes_nothing(self):
         repo = FakeRepo()

@@ -23,6 +23,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from screener.quarterly_results import INDEX_MAINBOARD, INDEX_SME, read_boards
 from transcripts.collector import is_earnings_transcript
 from transcripts.recordings import is_recording_notice
 
@@ -143,6 +144,15 @@ def sweep_slice(symbols: Iterable[str], today: date, *, everything: bool = False
     return ordered if everything else [s for i, s in enumerate(ordered) if i % 7 == today.weekday()]
 
 
+def _annual_reports(nse, symbol: str) -> list[dict[str, Any]]:
+    """A company's annual reports from the mainboard, or from NSE Emerge where it has none there."""
+    for segment in (INDEX_MAINBOARD, INDEX_SME):
+        rows = annual_report_rows(symbol, nse.annual_reports(symbol=symbol, segment=segment))
+        if rows:
+            return rows
+    return []
+
+
 def sweep_annual_reports(repo, nse, symbols: list[str], *, dry_run: bool = False, budget: float = SWEEP_BUDGET_SECONDS, pause: float = SWEEP_PAUSE_SECONDS) -> dict[str, int]:
     counts = {"symbols": 0, "rows": 0, "written": 0, "dropped": 0}
     stored = repo.company_documents(kind="annual_report")
@@ -163,7 +173,7 @@ def sweep_annual_reports(repo, nse, symbols: list[str], *, dry_run: bool = False
             logger.warning("Annual-report sweep stopped at its time budget after %s symbols", counts["symbols"])
             break
         try:
-            rows = annual_report_rows(symbol, nse.annual_reports(symbol=symbol))
+            rows = _annual_reports(nse, symbol)
         except Exception as exc:  # noqa: BLE001 -- one symbol's refusal must not stop the sweep
             logger.warning("Annual reports for %s unavailable (%s)", symbol, exc)
             continue
@@ -201,7 +211,11 @@ def backfill(repo, nse, *, days: int, now: datetime, dry_run: bool = False) -> i
     written, end = 0, now
     while end > now - timedelta(days=days):
         start = max(end - timedelta(days=BACKFILL_WINDOW_DAYS), now - timedelta(days=days))
-        records = nse.announcements(index="equities", from_date=start.replace(tzinfo=None), to_date=end.replace(tzinfo=None))
+        records = read_boards(
+            lambda first, last, index=INDEX_MAINBOARD: nse.announcements(index=index, from_date=first, to_date=last),
+            start.replace(tzinfo=None),
+            end.replace(tzinfo=None),
+        )
         rows = announcement_rows(records, since=start, universe=universe)
         logger.info("Backfill %s..%s: %s announcements, %s documents", start.date(), end.date(), len(records), len(rows))
         if rows and not dry_run:
