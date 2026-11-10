@@ -1255,10 +1255,6 @@ function ratingRank(rating: string | null): number | null {
 }
 
 /** What the Movers page and getMovers read; the view's sector and score-delta columns are not used. */
-/** The mover columns that carry no rating; rank is not a rating. */
-const RANK_MOVER_COLUMNS =
-  "observed_on, symbol, company, investment_rank, prev_investment_rank, rank_change, prev_observed_on, is_new_entrant";
-const NO_RATINGS = { rating: null, prev_rating: null, rating_changed: null, decision_score: null, final_score: null } as const;
 const MOVER_COLUMNS =
   "observed_on, symbol, company, investment_rank, prev_investment_rank, rank_change, rating, prev_rating, rating_changed, decision_score, final_score, prev_observed_on, is_new_entrant";
 
@@ -1274,38 +1270,28 @@ export async function getMovers(
   runDate: string,
   limit = 25,
 ): Promise<MoverBuckets> {
-  const empty = { observedOn: runDate, previousOn: null, climbers: [], fallers: [], upgrades: [], downgrades: [], entrants: [] };
   const supabase = await createClient();
-  const read = async (db: Reader, columns: string) => {
-    const { data, error } = await db.from("screener_movers").select(columns).eq("market", market).eq("observed_on", runDate);
-    if (error) throw new Error(error.message);
-    return (data ?? []) as unknown as MoverRow[];
-  };
-  try {
-    // Ratings are admin-only: an admin reads them per request. Everyone else
-    // shares one cross-instance read of the rank columns (buckets, not rows,
-    // are cached), and their upgrades and downgrades come out empty.
-    if (await isAdmin()) return bucketMovers(runDate, await read(supabase, MOVER_COLUMNS), limit);
-    return await cachedOr(
-      "movers",
-      market,
-      900,
-      async (db) => {
-        const rows = await read(db ?? supabase, RANK_MOVER_COLUMNS);
-        // The rating fields the page reads, null as `withoutRatings` leaves them.
-        const unrated = rows.map((row) => ({ ...NO_RATINGS, ...row }));
-        return bucketMovers(runDate, unrated, limit);
-      },
-      [runDate, String(limit)],
-    );
-  } catch (error) {
-    console.error("getMovers failed", error instanceof Error ? error.message : error);
-    return empty;
-  }
-}
+  const { data, error } = await supabase
+    .from("screener_movers")
+    .select(MOVER_COLUMNS)
+    .eq("market", market)
+    .eq("observed_on", runDate);
 
-/** Bucket one run's mover rows for display; rows without rating fields leave the rating buckets empty. */
-function bucketMovers(runDate: string, rows: MoverRow[], limit: number): MoverBuckets {
+  if (error) {
+    console.error("getMovers failed", error.message);
+    return {
+      observedOn: runDate,
+      previousOn: null,
+      climbers: [],
+      fallers: [],
+      upgrades: [],
+      downgrades: [],
+      entrants: [],
+    };
+  }
+
+  // Redacted rows carry no rating change, so upgrades and downgrades come out empty.
+  const rows = await forViewer((data ?? []) as MoverRow[]);
   const previousOn =
     rows.find((row) => row.prev_observed_on)?.prev_observed_on ?? null;
 
