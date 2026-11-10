@@ -32,6 +32,7 @@ import { Documents } from "@/components/stock/documents";
 import { getCompanyDocuments } from "@/lib/documents";
 import { StockTabs } from "@/components/stock/stock-tabs";
 import { NotRatedBadge } from "@/components/new-listing";
+import { HalfYearResults } from "@/components/stock/half-year-results";
 import { NewListingView } from "@/components/stock/new-listing-view";
 import {
   Tabs,
@@ -70,6 +71,7 @@ import {
   getStockHistory,
   STOCK_HISTORY_LIMIT,
 } from "@/lib/queries";
+import { getHalfYears } from "@/lib/results";
 import { getWatchlistMembership, getWatchlists } from "@/lib/watchlists";
 
 export const dynamic = "force-dynamic";
@@ -235,6 +237,7 @@ export default async function StockPage({
     latestCall,
     upcomingResult,
     rankedCount,
+    halfYears,
   ] = await Promise.all([
     runRead,
     rowRead,
@@ -255,6 +258,7 @@ export default async function StockPage({
     ),
     // "Rank of N" counts ranked companies only; row_count includes the unrated.
     runRead.then((r) => (r ? getRankedCount(market.code, r.run_date, r.row_count) : 0)),
+    getHalfYears(market.code, symbol),
   ]);
   if (!run) notFound();
 
@@ -1119,6 +1123,7 @@ export default async function StockPage({
                     symbol={row.symbol}
                     asOf={row.price_bar_as_of ?? run.price_bar_as_of}
                   />
+                  <HalfYearResults halfYears={halfYears} market={market} />
                 </Panel>
               ),
             },

@@ -461,6 +461,8 @@ class FinancialStatementCollector:
     """Fetch, cache and derive annual-statement factor inputs per symbol."""
 
     def __init__(self, config, *, ticker_factory=None, clock=None, edgar_client=None):
+        # SME listings left out of the scored frame for want of a statement record.
+        self.held_out = pd.DataFrame()
         self.config = config
         self.market_profile = active_profile(config)
         # Injectable so tests never touch the network.
@@ -709,18 +711,19 @@ class FinancialStatementCollector:
                     return frame.loc[order, "Symbol"].astype(str).tolist()
         return frame["Symbol"].astype(str).tolist()
 
-    @staticmethod
-    def _record_coverage(enriched):
+    def _record_coverage(self, enriched):
         """Attach and report run-level statement coverage.
 
         An SME listing is admitted to the frame only once it has a statement
         record: a young SME often has none, and counting it would pull the
-        coverage below the production floor for the whole run.
+        coverage below the production floor for the whole run. They are kept in
+        ``held_out`` so the run can show them unrated instead of not at all.
         """
         if "Is_SME" in enriched:
             unadmitted = enriched["Is_SME"].astype(bool) & ~enriched["Statement_Record_Available"]
             if unadmitted.any():
                 logger.info("SME listings without a statement record, left out: %d", int(unadmitted.sum()))
+                self.held_out = enriched.loc[unadmitted].reset_index(drop=True)
                 enriched = enriched.loc[~unadmitted].reset_index(drop=True)
         available = int(enriched["Statement_Record_Available"].sum())
         share = available / len(enriched) if len(enriched) else 0.0

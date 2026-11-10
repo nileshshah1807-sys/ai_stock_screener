@@ -102,6 +102,8 @@ class UniverseResult:
     # Symbols that are SME listings, for display; empty for every other source.
     sme_symbols: tuple[str, ...] = ()
     # BSE-only symbols the exchange's file shows traded on ``bse_session``, its newest.
+    # (symbol, company name) for the SME listings, so a name Yahoo does not know can still be shown.
+    sme_names: tuple[tuple[str, str], ...] = ()
     bse_session: str = ""
     bse_traded: frozenset[str] = frozenset()
 
@@ -221,16 +223,20 @@ def _nse_with_bse(groups, sme=None) -> UniverseResult:
         return result
     symbols_nse = list(result.symbols)
     sme_symbols = []
+    sme_names = ()
     isins = set(nse["ISIN NUMBER"].dropna().str.strip())
     notes = [f"nse:{len(result.symbols)}"]
     if sme is not None:
         # A company that moved to the mainboard can linger in the SME list.
         sme = sme.loc[~sme["SYMBOL"].str.strip().isin(set(result.symbols))]
         sme_symbols = sme["SYMBOL"].dropna().str.strip().tolist()
+        sme_names = tuple(zip(sme["SYMBOL"].str.strip(), sme["NAME_OF_COMPANY"].fillna("").str.strip(), strict=True))
         symbols_nse += sme_symbols
         isins |= set(sme["ISIN_NUMBER"].dropna().str.strip())
         notes.append(f"nse_sme:{len(sme_symbols)}")
-    result = replace(result, symbols=tuple(dict.fromkeys(symbols_nse)), sme_symbols=tuple(sme_symbols))
+    result = replace(
+        result, symbols=tuple(dict.fromkeys(symbols_nse)), sme_symbols=tuple(sme_symbols), sme_names=sme_names
+    )
     bse = _recent_bse_bhavcopies()
     if bse is None:
         logger.error("No BSE bhavcopy in the last %d days; NSE symbols only", _BSE_LOOKBACK_DAYS)
@@ -257,7 +263,14 @@ def _nse_with_bse(groups, sme=None) -> UniverseResult:
         added_sme = sorted(
             {f"{x.strip().upper()}{BSE_SUFFIX}" for x in bse_only.loc[bse_only["SctySrs"].isin(_BSE_SME_GROUPS), "TckrSymb"].dropna()}
         )
-        result = replace(result, sme_symbols=(*result.sme_symbols, *added_sme))
+        bse_sme = bse_only.loc[bse_only["SctySrs"].isin(_BSE_SME_GROUPS)].dropna(subset=["TckrSymb"])
+        bse_names = tuple(
+            (f"{x.strip().upper()}{BSE_SUFFIX}", str(n).strip())
+            for x, n in zip(bse_sme["TckrSymb"], bse_sme.get("FinInstrmNm", bse_sme["TckrSymb"]), strict=True)
+        )
+        result = replace(
+            result, sme_symbols=(*result.sme_symbols, *added_sme), sme_names=(*result.sme_names, *bse_names)
+        )
     return replace(
         result,
         symbols=symbols,
