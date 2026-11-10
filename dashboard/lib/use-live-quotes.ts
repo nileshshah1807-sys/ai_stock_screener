@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-import { createClient } from "@/lib/supabase/client";
+import { importFailed, lazyClient } from "@/lib/supabase/lazy-client";
 import { MIN_POLL_MS, nextPollDelay, tickDirection } from "@/lib/live-quotes.mjs";
 import type { MarketCode } from "@/lib/markets";
 
@@ -80,13 +80,16 @@ const batches = new Map<string, Batch>();
 
 async function read(market: MarketCode, kind: QuoteKind, symbols: string[]): Promise<void> {
   const source = SOURCES[kind];
-  let request = createClient()
-    .from(source.table)
-    .select(source.columns)
-    .eq("market", market)
-    .in("symbol", symbols);
-  if (kind === "index") request = request.eq("kind", kind);
-  const { data, error } = await request;
+  const { data, error } = await lazyClient()
+    .then((client) => {
+      const request = client
+        .from(source.table)
+        .select(source.columns)
+        .eq("market", market)
+        .in("symbol", symbols);
+      return kind === "index" ? request.eq("kind", kind) : request;
+    })
+    .catch(importFailed);
   // A failed read leaves the close on screen; the next poll tries again.
   if (error || !data) return;
   const readAt = Date.now();
