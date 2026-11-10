@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-import { createClient } from "@/lib/supabase/client";
+import { lazyClient } from "@/lib/supabase/lazy-client";
 import { MIN_POLL_MS, nextPollDelay, tickDirection } from "@/lib/live-quotes.mjs";
 import type { MarketCode } from "@/lib/markets";
 
@@ -80,7 +80,7 @@ const batches = new Map<string, Batch>();
 
 async function read(market: MarketCode, kind: QuoteKind, symbols: string[]): Promise<void> {
   const source = SOURCES[kind];
-  let request = createClient()
+  let request = (await lazyClient())
     .from(source.table)
     .select(source.columns)
     .eq("market", market)

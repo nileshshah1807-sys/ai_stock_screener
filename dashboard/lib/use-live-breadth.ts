@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { createClient } from "@/lib/supabase/client";
+import { lazyClient } from "@/lib/supabase/lazy-client";
 import { nextPollDelay, tickDirection } from "@/lib/live-quotes.mjs";
 import type { MarketCode } from "@/lib/markets";
 import type { Tick } from "@/lib/use-live-quotes";
@@ -58,7 +58,7 @@ export function useLiveBreadth(market: MarketCode, group: Group): LiveBreadth | 
     const tick = async () => {
       clearTimeout(timer);
       if (document.visibilityState !== "visible") return;
-      const { data: fresh, error } = await createClient().rpc("live_breadth", {
+      const { data: fresh, error } = await (await lazyClient()).rpc("live_breadth", {
         p_market: market,
         p_scope: group.scope,
         p_name: group.name,
