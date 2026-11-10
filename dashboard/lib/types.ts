@@ -327,6 +327,7 @@ export type MoverRow = {
   prev_rating: string | null;
   rating_changed: boolean | null;
   decision_score: number | null;
+  final_score: number | null;
   prev_observed_on: string | null;
   is_new_entrant: boolean | null;
 };
