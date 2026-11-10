@@ -14,6 +14,7 @@ import { isAdmin } from "@/lib/auth";
 import { marketFromSlug } from "@/lib/markets";
 import {
   countBseOnly,
+  getRankedCount,
   getLatestRun,
   getSectors,
   runUsesFactorModel,
@@ -52,7 +53,7 @@ export default async function ScreenerLayout({
   //
   // `??` rather than `||` for the flag, so a run that genuinely scored without
   // the factor model reads as false instead of triggering the fallback query.
-  const [sectors, factorModel, bseOnly] = await Promise.all([
+  const [sectors, factorModel, bseOnly, ranked] = await Promise.all([
     run.sectors?.length
       ? run.sectors
       : trace("  getSectors (fallback)", () =>
@@ -63,6 +64,7 @@ export default async function ScreenerLayout({
         runUsesFactorModel(market.code, run.run_date),
       ),
     market.code === "NSE" ? countBseOnly(market.code, run.run_date) : Promise.resolve(0),
+    getRankedCount(market.code, run.run_date, run.row_count),
   ]);
 
   return (
@@ -72,7 +74,7 @@ export default async function ScreenerLayout({
       <FreshnessBanner run={run} />
 
       {/* The run's rating mix: admin-only, like the ratings (lib/ratings.mjs). */}
-      {(await isAdmin()) ? <SummaryTiles run={run} market={market} bseOnly={bseOnly} /> : null}
+      {(await isAdmin()) ? <SummaryTiles run={run} market={market} bseOnly={bseOnly} ranked={ranked} /> : null}
 
       <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">{screenerIntro(market.code)}</p>
 

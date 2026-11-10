@@ -2,7 +2,7 @@ import { HistoryBar, NotRatedBadge } from "@/components/new-listing";
 import { StockIdentity } from "@/components/stock-identity";
 import { formatDate, formatMoney, formatMoneyCompact, formatPercent } from "@/lib/format";
 import type { Market } from "@/lib/markets";
-import type { NewListingRow } from "@/lib/queries";
+import { UNRATED_LIST_LIMIT, type NewListingRow, type UnratedRow } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 /**
@@ -59,6 +59,57 @@ export function NotRatedRows({ rows, market }: { rows: NewListingRow[]; market: 
                   {formatMoneyCompact(row.market_cap, market)}
                 </td>
                 <td className="w-36 px-4 py-2.5"><HistoryBar row={row} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Companies the run published without a rating -- an SME with no annual
+ * statements yet, a name with too little price history. The reason is the
+ * run's own sentence (`unrated_reason`, readable by every viewer, unlike
+ * Rating_Cap_Reason). They are not in the grid's rank, totals or export.
+ */
+export function UnratedRows({ rows, total, market }: { rows: UnratedRow[]; total: number; market: Market }) {
+  if (!rows.length) return null;
+  return (
+    <section className="panel overflow-hidden" aria-labelledby="unrated-heading">
+      <div className="border-b px-4 py-3">
+        <h2 id="unrated-heading" className="text-sm font-semibold">
+          Not rated <span className="tabular font-normal text-muted-foreground">· {total.toLocaleString(market.locale)} companies</span>
+        </h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          The run has too little data to score these. They have a page, but no score or rank, and are not in the export.
+          {total > rows.length ? ` Largest ${UNRATED_LIST_LIMIT} shown; search by name to find another.` : ""}
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground">
+              <th scope="col" className="px-4 py-2 font-medium">Stock</th>
+              <th scope="col" className="px-4 py-2 font-medium">Rating</th>
+              <th scope="col" className="px-4 py-2 font-medium">Why</th>
+              <th scope="col" className="px-4 py-2 text-right font-medium">Price</th>
+              <th scope="col" className="px-4 py-2 text-right font-medium">Market cap</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {rows.map((row) => (
+              <tr key={row.symbol} className="hover:bg-(--control)">
+                <td className="px-4 py-2.5">
+                  <StockIdentity symbol={row.symbol} company={row.company} logoDomain={row.logo_domain} sme={row.is_sme} textClassName="max-w-[16rem]" />
+                </td>
+                <td className="px-4 py-2.5"><NotRatedBadge /></td>
+                <td className="px-4 py-2.5 text-xs text-muted-foreground">{row.unrated_reason}</td>
+                <td className="tabular px-4 py-2.5 text-right">{formatMoney(row.current_price, market)}</td>
+                <td className="tabular px-4 py-2.5 text-right text-muted-foreground">
+                  {formatMoneyCompact(row.market_cap, market)}
+                </td>
               </tr>
             ))}
           </tbody>

@@ -79,6 +79,7 @@ export const BASE_FIELDS: readonly string[] = [
   "run_date",
   "symbol",
   "factor_model_applied",
+  "is_sme",
 ];
 
 export const COLUMNS: readonly ColumnSpec[] = [

@@ -409,6 +409,11 @@ export async function getSnapshotPage(
 
   let query = source.eq("market", market).eq("run_date", runDate);
 
+  // A company the run could not rate has a page and a row, but no score or
+  // rank to sort, total or export: it is listed apart (getUnratedRows). A
+  // watchlist still shows the ones it holds.
+  if (!options.symbols && !options.breadth) query = query.is("unrated_reason", null);
+
   if (options.industry) {
     query = query.eq("industry", options.industry);
   }
@@ -988,6 +993,64 @@ export async function getNotRatedRows(
   );
 }
 
+export type UnratedRow = Pick<
+  SnapshotRow,
+  "symbol" | "company" | "logo_domain" | "is_sme" | "unrated_reason" | "current_price" | "market_cap" | "price_bar_as_of"
+>;
+
+/** Most unrated rows the Not rated list draws; the full set is searchable from the box above the grid. */
+export const UNRATED_LIST_LIMIT = 100;
+
+/**
+ * The run's companies with no rating (an SME with no statement record yet, or
+ * too little price history), largest first. `total` counts them all; `rows`
+ * is the first UNRATED_LIST_LIMIT that match `q`. Empty on any failure.
+ */
+export async function getUnratedRows(
+  market: MarketCode,
+  runDate: string,
+  q?: string,
+): Promise<{ rows: UnratedRow[]; total: number }> {
+  const supabase = await createClient();
+  let query = supabase
+    .from("screener_snapshot_visible")
+    .select("symbol, company, logo_domain, is_sme, unrated_reason, current_price, market_cap, price_bar_as_of", { count: "exact" })
+    .eq("market", market)
+    .eq("run_date", runDate)
+    .not("unrated_reason", "is", null);
+  const term = q?.trim().replace(/[%,()]/g, "");
+  if (term) query = query.or(`symbol.ilike.%${term}%,company.ilike.%${term}%`);
+  const { data, error, count } = await query
+    .order("market_cap", { ascending: false, nullsFirst: false })
+    .limit(UNRATED_LIST_LIMIT);
+  if (error) {
+    console.error("getUnratedRows failed", error.message);
+    return { rows: [], total: 0 };
+  }
+  return { rows: (data ?? []) as unknown as UnratedRow[], total: count ?? 0 };
+}
+
+/**
+ * Companies in a run that carry a rank. `row_count` also counts the unrated
+ * ones, so a "rank of N" or a universe tile reads this instead.
+ */
+export const getRankedCount = cache(
+  async (market: MarketCode, runDate: string, rowCount: number): Promise<number> => {
+    const supabase = await createClient();
+    const { count, error } = await supabase
+      .from("screener_snapshot_visible")
+      .select("symbol", { count: "exact", head: true })
+      .eq("market", market)
+      .eq("run_date", runDate)
+      .is("unrated_reason", null);
+    if (error) {
+      console.error("getRankedCount failed", error.message);
+      return rowCount;
+    }
+    return count ?? rowCount;
+  },
+);
+
 /** How many of a run's rows are companies listed on BSE alone (`SYMBOL.BO`). */
 export const countBseOnly = cache(
   async (market: MarketCode, runDate: string): Promise<number> => {
@@ -997,6 +1060,7 @@ export const countBseOnly = cache(
       .select("symbol", { count: "exact", head: true })
       .eq("market", market)
       .eq("run_date", runDate)
+      .is("unrated_reason", null)
       .like("symbol", `%${BSE_SUFFIX}`);
     if (error) {
       console.error("countBseOnly failed", error.message);

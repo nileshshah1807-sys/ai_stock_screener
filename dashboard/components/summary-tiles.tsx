@@ -94,13 +94,16 @@ export function SummaryTiles({
   run,
   market,
   bseOnly = 0,
+  ranked,
 }: {
   run: ScreenerRun;
   market: Market;
   /** Rows that are companies listed on BSE alone, named so the total is not a surprise. */
   bseOnly?: number;
+  /** Rows that carry a rank; `row_count` also counts the unrated ones. */
+  ranked?: number;
 }) {
-  const total = run.row_count || 0;
+  const total = ranked ?? (run.row_count || 0);
 
   return (
     /*

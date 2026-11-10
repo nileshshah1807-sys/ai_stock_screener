@@ -1,10 +1,10 @@
-import { NotRatedRows } from "@/components/screener/not-rated-rows";
+import { NotRatedRows, UnratedRows } from "@/components/screener/not-rated-rows";
 import { Pagination } from "@/components/screener/pagination";
 import { ScreenerTable } from "@/components/screener/screener-table";
 import { parseFilters, toSearchParams } from "@/lib/filters";
 import { marketFromSlug } from "@/lib/markets";
 import { showsNotRated } from "@/lib/new-listings.mjs";
-import { getLatestRun, getNotRatedRows, getSnapshotPage, PAGE_SIZE } from "@/lib/queries";
+import { getLatestRun, getNotRatedRows, getSnapshotPage, getUnratedRows, PAGE_SIZE } from "@/lib/queries";
 import { mark, trace } from "@/lib/trace";
 
 // Reads go through the viewer's session, and the grid reflects whatever filters
@@ -69,6 +69,10 @@ export default async function ScreenerPage({
     market.code === "NSE" && onLastPage && showsNotRated(filters)
       ? await getNotRatedRows(market.code, run.run_date, filters.q)
       : [];
+  const unrated =
+    onLastPage && showsNotRated(filters)
+      ? await getUnratedRows(market.code, run.run_date, filters.q)
+      : { rows: [], total: 0 };
 
   return (
     <div className="space-y-4">
@@ -95,6 +99,7 @@ export default async function ScreenerPage({
         params={urlParams}
       />
 
+      <UnratedRows rows={unrated.rows} total={unrated.total} market={market} />
       <NotRatedRows rows={notRated} market={market} />
     </div>
   );
