@@ -515,6 +515,20 @@ def parse_filing(text, taxonomy="", *, cumulative=False):
     return lines if cumulative or covers_a_quarter(text) else dict.fromkeys(lines)
 
 
+def stored_lines(text, taxonomy=""):
+    """What `workers.quarterly_filings` stores for one results document.
+
+    A quarter's statement is its lines. A longer period's -- an SME's half year -- keeps
+    every quarter line empty, so nothing that reads a quarter can mistake it for one, and
+    carries the figures as filed under ``cumulative`` with the length of the period.
+    """
+    days = statement_days(text)
+    lines = parse_filing(text, taxonomy)
+    if days is None or days <= MAX_QUARTER_DAYS:
+        return lines
+    return {**lines, "period_days": days, "cumulative": parse_filing(text, taxonomy, cumulative=True)}
+
+
 def quarter_from_cumulative(lines, days, period_end, earlier):
     """The last quarter of a period the company filed whole, or None.
 
@@ -559,7 +573,12 @@ def facts_frame(rows, timezone):
     records = []
     for row in rows or ():
         filed = pd.Timestamp(row.get("filed_at"))
-        if pd.isna(filed) or row.get("taxonomy") in DISPLAY_ONLY_TAXONOMIES:
+        if (
+            pd.isna(filed)
+            or row.get("taxonomy") in DISPLAY_ONLY_TAXONOMIES
+            # A longer period's figures are never a quarter's, whatever keys they sit under.
+            or (row.get("period_days") or 0) > MAX_QUARTER_DAYS
+        ):
             continue
         if filed.tzinfo is not None:
             filed = filed.tz_convert(timezone)

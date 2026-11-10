@@ -16,10 +16,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from screener.quarterly_results import PARSER_VERSION
+from screener.quarterly_results import PARSER_VERSION, facts_frame
 from workers.quarterly_filings import (
     DEFAULT_LOOKBACK_DAYS,
     FULL_LOOKBACK_DAYS,
+    fetch_boards,
     refresh_valuation_basis,
 )
 from workers.quarterly_filings import run as run_with_pauses
@@ -217,7 +218,45 @@ class StoreTests(FilingsRun):
             records, {"7": document(204, 24, start="2025-04-01", end="2025-09-30")}
         )
         (row,) = repo.upserted
-        self.assertTrue(all(value is None for value in row["lines"].values()))
+        self.assertIsNone(row["lines"]["revenue"])
+        self.assertIsNone(row["lines"]["net_profit"])
+
+    def test_an_sme_half_year_is_stored_as_filed_beside_empty_quarter_lines(self):
+        # ANAWIL, Sep 2026: one filing, 1 Apr - 30 Sep. No reader of a quarter may see it.
+        records = [filing("ANAWIL", "30-SEP-2026", 9, consolidated=False, taxonomy="NONINDAS")]
+        _, repo, _, _ = self.run_worker(
+            records, {"9": document(1539672000, 143869000, start="2026-04-01")}
+        )
+        (row,) = repo.upserted
+        lines = row["lines"]
+        self.assertIsNone(lines["revenue"])
+        self.assertEqual(lines["period_days"], 182)
+        self.assertEqual(lines["cumulative"]["revenue"], 1539672000)
+        self.assertEqual(lines["cumulative"]["pat"], 143869000)
+
+    def test_a_stored_half_year_gives_the_screen_no_quarter_to_grow_from(self):
+        flat = {"symbol": "ANAWIL", "period_end": "2026-09-30", "filed_at": "2026-11-06T18:23:42+05:30", "taxonomy": "NONINDAS", "revenue": 1539672000, "net_profit": 143869000, "period_days": 182}
+        self.assertTrue(facts_frame([flat], "Asia/Kolkata").empty)
+
+    def test_a_quarter_is_stored_without_a_period_length(self):
+        _, repo, _, _ = self.run_worker(
+            [filing("AAA", "30-SEP-2026", 1)], {"1": document(100, 10, start="2026-07-01")}
+        )
+        self.assertNotIn("period_days", repo.upserted[0]["lines"])
+
+    def test_the_sme_board_is_read_beside_the_mainboard_and_its_failure_spares_it(self):
+        asked = []
+
+        def fake(start, end, *, index="equities", **_kw):
+            asked.append(index)
+            if index == "sme":
+                raise TimeoutError("emerge")
+            return [filing("AAA", "30-SEP-2026", 1)]
+
+        with mock.patch("workers.quarterly_filings.quarterly_results.fetch_index_records", fake):
+            records = fetch_boards(date(2026, 1, 1), date(2026, 2, 1))
+        self.assertEqual(asked, ["equities", "sme"])
+        self.assertEqual(len(records), 1)
 
     def test_a_half_year_is_stored_as_the_quarter_after_the_first_quarter(self):
         # MTARTECH, Oct 2026: the only Sep filing stated 1 Apr - 30 Sep. Stored

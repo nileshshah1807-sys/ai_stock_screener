@@ -147,8 +147,13 @@ the scheduled workflows set the same flag.
   slightly. If `Is_SME` is ever added to `SNAPSHOT_COLUMNS`, re-apply
   `rating_access_schema.sql` so the `*_visible` views carry it. Yahoo prices about half the NSE SME list (7 Nov 2026
   sample); the rest drop at the no-price filter. The bhavcopy bar fallback keeps
-  its EQ/BE series. SME filings are not read into `quarterly_filings`: a
-  half-year filing would be stored as a quarter by parser v4.
+  its EQ/BE series. SME results filings are read from the exchange's own
+  `index=sme` (`workers.quarterly_filings.fetch_boards`; a failure there leaves the mainboard run
+  whole) into `quarterly_filings`. Most SMEs file half-yearly, and a longer period is never a
+  quarter: `quarterly_results.stored_lines` keeps every quarter line empty and carries the
+  figures as filed under `lines.cumulative` with `lines.period_days` (181/182). Growth, the
+  trailing year and the feed read the quarter lines only, and `facts_frame` skips any row with
+  `period_days` over `MAX_QUARTER_DAYS`; a dashboard that shows a half-year reads `cumulative`.
 - **An NSE SME name Yahoo has no history for is priced from the bhavcopy.**
   With `SME_BHAVCOPY_PRICES_ENABLED` (NSE workflow) `screener/sme_bars.py` keeps
   the SM/ST/SZ rows of every daily file for ~2 years in `reports_advanced/sme_bars.csv.gz`
