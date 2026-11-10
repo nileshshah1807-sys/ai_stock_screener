@@ -115,9 +115,13 @@ select
     coalesce(min(broadcast_at), min(filed_at)) as announced_at,
     max(company) as company,
     bool_or(is_consolidated) as has_consolidated,
-    bool_or(not is_consolidated) as has_standalone
+    bool_or(not is_consolidated) as has_standalone,
+    -- Set for a statement longer than a quarter (an SME's half year, 181 or 182):
+    -- its figures sit under lines->'cumulative', the quarter lines being empty.
+    max((lines->>'period_days')::integer) as period_days
 from quarterly_filings
 where lines->>'revenue' is not null or lines->>'net_profit' is not null
+   or lines->'cumulative'->>'revenue' is not null or lines->'cumulative'->>'net_profit' is not null
 group by market, symbol, period_end;
 
 revoke all on quarterly_result_feed from public;

@@ -712,6 +712,22 @@ class DashboardRepository:
             if row.get("symbol")
         }
 
+    def latest_snapshot_unrated(self) -> frozenset[str]:
+        """Symbols of this market's newest published run that carry no rating."""
+        run = self.latest_completed_run()
+        if not run:
+            return frozenset()
+        rows = self._paged(
+            "screener_snapshot",
+            {
+                "select": "symbol",
+                "run_date": f"eq.{run['run_date']}",
+                "unrated_reason": "not.is.null",
+                "order": "symbol.asc",
+            },
+        )
+        return frozenset(str(row["symbol"]) for row in rows if row.get("symbol"))
+
     def replace_market_breadth(self, rows: list[dict[str, Any]], chunk_size: int = 5) -> int:
         """Make this market's breadth rows exactly ``rows``.
 

@@ -175,13 +175,15 @@ def benchmark_trailing_return(points) -> pd.Series:
     return (closes / closes.shift(BENCHMARK_SESSIONS) - 1.0).dropna()
 
 
-def build_panels(observations, sessions, benchmark_return=None):
+def build_panels(observations, sessions, benchmark_return=None, unrated=frozenset()):
     """Stack every symbol's flags into (session x symbol) int8 panels.
 
     Returns ``(symbols, panels)`` where each panel has one column per symbol in
     ``symbols`` order. The RS panel is derived last: it is a cross-sectional
     percentile of the raw return, so it needs every symbol before any one of
-    them can be rated.
+    them can be rated. A company with no rating (``unrated``) is a name on the
+    page, not a rank in the percentile: it counts in every price measure and in
+    no RS ratio, numerator or denominator.
     """
     position_of = {day: index for index, day in enumerate(sessions)}
     session_set = set(position_of)
@@ -204,7 +206,8 @@ def build_panels(observations, sessions, benchmark_return=None):
         traded[rows, column] = True
         for name in names:
             panels[name][rows, column] = signals[name]
-        rs_raw[rows, column] = signals["rs_raw"]
+        if symbol not in unrated:
+            rs_raw[rows, column] = signals["rs_raw"]
 
     rated = pd.DataFrame(rs_raw).rank(axis=1, pct=True, method="average").to_numpy()
     rating = 1.0 + 98.0 * rated
@@ -311,6 +314,7 @@ def build_breadth(
     benchmark_points=None,
     index_points=None,
     min_industry_members=MIN_INDUSTRY_MEMBERS,
+    unrated=frozenset(),
 ):
     """Every row the Market page reads for one market, and its latest lists.
 
@@ -335,7 +339,7 @@ def build_breadth(
     benchmark_return = (
         benchmark_trailing_return(benchmark_points) if benchmark_points else None
     )
-    symbols, panels = build_panels(universe, sessions, benchmark_return)
+    symbols, panels = build_panels(universe, sessions, benchmark_return, unrated)
     column_of = {symbol: index for index, symbol in enumerate(symbols)}
 
     rows = []

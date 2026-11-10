@@ -126,6 +126,13 @@ class BuildRowsTests(unittest.TestCase):
         self.assertEqual(series["rsd"][-1], 3)
         self.assertEqual(series["rs"][-1], 1)
 
+    def test_a_company_with_no_rating_counts_in_price_measures_but_not_in_rs(self):
+        market = next(row for row in self.build(unrated=frozenset({"FLAT"})) if row["scope"] == "market")
+        series = decoded(market)
+        self.assertEqual(last(market, "n"), 4)
+        self.assertEqual(last(market, "e50d"), 4)
+        self.assertEqual(series["rsd"][-1], 2)
+
     def test_groups_and_small_industries(self):
         rows = self.build()
         sectors = {row["name"]: row for row in rows if row["scope"] == "sector"}
