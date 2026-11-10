@@ -489,7 +489,7 @@ export default async function StockPage({
     {
       label: "Data quality",
       value: dataQuality(row.data_quality).label,
-      hint: dataQuality(row.data_quality).meaning || undefined,
+      hint: publicText(admin, dataQuality(row.data_quality).meaning) || undefined,
     },
     // Which gates failed and how stable the decision is describe the rating.
     ...(admin
@@ -713,7 +713,7 @@ export default async function StockPage({
   const dcf = dcfStatus(row.dcf_status);
 
   const dcfFields: Field[] = [
-    { label: "Status", value: dcf.label, hint: dcf.meaning || undefined },
+    { label: "Status", value: dcf.label, hint: publicText(admin, dcf.meaning) || undefined },
     {
       label: factorModel ? "Value-block eligible" : "Blend eligible",
       value: row.dcf_blend_eligible ? "Yes" : "No",

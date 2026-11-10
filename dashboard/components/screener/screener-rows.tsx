@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { StockLink } from "@/components/screener/stock-link";
 import { Money } from "@/components/money";
+import { publicText } from "@/lib/ratings.mjs";
 import { useMarket, useShowRatings } from "@/components/market-provider";
 import { EntryBadge } from "@/components/entry-badge";
 import { TickFlash } from "@/components/tick-flash";
@@ -226,6 +227,7 @@ function PercentileCell({ value }: { value: number | null }) {
 }
 
 function DcfCell({ row }: { row: SnapshotRow }) {
+  const showRatings = useShowRatings();
   if (row.dcf_status && row.dcf_base_case_upside !== null) {
     return <ChangeCell value={(row.dcf_base_case_upside ?? 0) * 100} />;
   }
@@ -239,7 +241,7 @@ function DcfCell({ row }: { row: SnapshotRow }) {
       <TooltipContent className="max-w-72">
         <p className="font-medium">{dcfStatus(row.dcf_status).label}</p>
         <p className="text-xs opacity-90">
-          {dcfStatus(row.dcf_status).meaning ||
+          {publicText(showRatings, dcfStatus(row.dcf_status).meaning) ||
             "No usable DCF result. Treated as neutral evidence, not as a negative signal."}
         </p>
       </TooltipContent>
