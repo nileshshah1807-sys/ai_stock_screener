@@ -226,6 +226,9 @@ function lookup(
   return table[key] ?? { label: titleCase(key), meaning: "" };
 }
 
+/** The tables whose meanings reach a non-admin (through publicText); labels.test.mjs holds them to it. */
+export const NON_ADMIN_TABLES = { DCF_STATUS, DATA_QUALITY, MARKET_REGIME };
+
 export const dcfStatus = (value: string | null | undefined) =>
   lookup(DCF_STATUS, value);
 

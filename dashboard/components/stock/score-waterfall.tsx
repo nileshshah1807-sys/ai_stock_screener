@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { formatScore, ratingToken } from "@/lib/format";
 import { dcfStatus } from "@/lib/labels";
 import { researchScoreMode } from "@/lib/model-display.mjs";
+import { publicText } from "@/lib/ratings.mjs";
 import type { SnapshotRowWithPayload } from "@/lib/types";
 
 /**
@@ -145,7 +146,7 @@ export function buildStages(row: SnapshotRowWithPayload): Stage[] {
           : `${dcf.label}. No separate post-research adjustment is applied.`
         : dcfEligible
           ? `${dcf.label}: valuation score ${formatScore(row.dcf_valuation_score)} applied at the configured weight.`
-          : `${dcf.label}. ${dcf.meaning || "Contributes zero, neither reward nor penalty."}`,
+          : `${dcf.label}. ${publicText(Boolean(row.rating), dcf.meaning) || "Contributes zero, neither reward nor penalty."}`,
     },
     {
       key: "transcript",
