@@ -162,7 +162,9 @@ export default async function ResultsPage({
   } else {
     ({ entries, total } = await getResultFeed(market.code, {
       quarter,
-      symbols: feed.symbols,
+      // A search names a company: the default size floor must not hide it (a company
+      // the run does not hold yet, or an SME under the floor, still gets its card).
+      symbols: search && feed.isDefault ? null : feed.symbols,
       search,
       limit: shown,
       byPeriodEnd: !byAnnouncement,
