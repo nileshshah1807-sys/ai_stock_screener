@@ -44,6 +44,25 @@ test("rating columns, gates and counts are rating fields", () => {
     // Free text that spells the rating out ("would cap this at HOLD", "STRONG BUY floor").
     "Gate_Warning",
     "Gate_Failures",
+    // Columns the rating can be read back from (Rating = rating_from_score(Decision_Score)).
+    "decision_score",
+    "decision_score_ceiling",
+    "decision_cap_applied",
+    "decision_stability_status",
+    "eligibility_class",
+    "primary_gate",
+    "gate_severity",
+    "gate_failure_count",
+    "gate_borderline",
+    "Gate_Borderline_Reasons",
+    "Cap_Enforced",
+    "execution_status",
+    "portfolio_actionable",
+    "actionable_rank",
+    "recommendation_rank",
+    "trend_confirmed",
+    "coverage_eligible",
+    "Fundamental_Coverage_Eligible",
   ]) {
     assert.ok(isRatingField(key), key);
   }
@@ -56,8 +75,17 @@ test("relative strength and the evidence are not rating fields", () => {
     "final_score",
     "investment_rank",
     "stage",
-    "primary_gate",
     "row_count",
+    "evidence_score",
+    "research_score",
+    "score_rank",
+    "action_rank",
+    "action_score",
+    "entry_state",
+    "market_regime",
+    "value_quality_cap_applied",
+    "is_sme",
+    "unrated_reason",
     // A score with its ceiling left off, not a rating ceiling.
     "value_score_uncapped",
   ]) {

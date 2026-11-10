@@ -44,7 +44,7 @@ returns boolean
 language sql
 immutable
 as $$
-    select lower(p_key) ~ 'rating|(^|_)buy(_|$)|(^|_)capped|cap_reason|(^|_)(hold|reduce|sell)_count$|gate_warning|(^|_)gate_failures$'
+    select lower(p_key) ~ 'rating|(^|_)buy(_|$)|(^|_)capped|cap_reason|(^|_)(hold|reduce|sell)_count$|gate_warning|(^|_)gate_failures$|(^|_)decision_|(^|_)gate_|primary_gate|eligibility_class|coverage_eligible|(^|_)cap_(enforced|would_apply)|execution_status|portfolio_actionable|(actionable|recommendation)_rank|trend_confirmed'
        and lower(p_key) !~ '^rs_rating'
 $$;
 
@@ -76,19 +76,27 @@ declare
 begin
     select string_agg(
         case
-            when column_name = 'payload' then
+            when c.column_name = 'payload' then
                 'case when (select dashboard_is_admin()) then t.payload else without_ratings(t.payload) end as payload'
             -- The run manifest is an archival record the dashboard never reads,
             -- and its nesting is not known here, so it is admin-only whole.
-            when column_name = 'manifest' or is_rating_field(column_name) then
-                format('case when (select dashboard_is_admin()) then t.%1$I end as %1$I', column_name)
-            else format('t.%I', column_name)
+            -- Cast back to the column's own type: a case expression drops the
+            -- precision of numeric(6,2), and create or replace view refuses a
+            -- column whose type changes.
+            when c.column_name = 'manifest' or is_rating_field(c.column_name) then
+                format(
+                    '(case when (select dashboard_is_admin()) then t.%1$I end)::%2$s as %1$I',
+                    c.column_name, format_type(a.atttypid, a.atttypmod)
+                )
+            else format('t.%I', c.column_name)
         end,
-        ', ' order by ordinal_position
+        ', ' order by c.ordinal_position
     )
     into columns
-    from information_schema.columns
-    where table_schema = 'public' and table_name = p_table;
+    from information_schema.columns c
+    join pg_attribute a
+      on a.attrelid = format('public.%I', p_table)::regclass and a.attname = c.column_name
+    where c.table_schema = 'public' and c.table_name = p_table;
 
     if columns is null then
         raise exception 'rebuild_rating_gated_view: no table public.%', p_table;
@@ -136,7 +144,11 @@ select
     prev_decision_score,
     decision_score - prev_decision_score as score_change,
     prev_observed_on,
-    prev_observed_on is null as is_new_entrant
+    prev_observed_on is null as is_new_entrant,
+    -- The published score, visible to every viewer: a non-admin's number for the
+    -- Movers page now that decision_score is gated. Appended, as a replace needs.
+    final_score,
+    prev_final_score
 from (
     select
         t.market,
@@ -148,12 +160,16 @@ from (
         p.investment_rank as prev_investment_rank,
         case when (select dashboard_is_admin()) then t.rating end as rating,
         case when (select dashboard_is_admin()) then p.rating end as prev_rating,
-        t.decision_score,
-        p.decision_score::numeric as prev_decision_score, -- the old view's type, which a replace must keep
-        p.observed_on as prev_observed_on
+        -- Decision_Score is the rating's input (70/60/50/40), so it is gated like the rating.
+        -- score_change is computed from these two and is null with them.
+        (case when (select dashboard_is_admin()) then t.decision_score end)::numeric(6,2) as decision_score,
+        case when (select dashboard_is_admin()) then p.decision_score::numeric end as prev_decision_score, -- the old view's type, which a replace must keep
+        p.observed_on as prev_observed_on,
+        t.final_score,
+        p.final_score as prev_final_score
     from screener_history t
     left join lateral (
-        select q.observed_on, q.investment_rank, q.rating, q.decision_score
+        select q.observed_on, q.investment_rank, q.rating, q.decision_score, q.final_score
         from screener_history q
         where q.market = t.market and q.symbol = t.symbol and q.observed_on < t.observed_on
         order by q.observed_on desc
