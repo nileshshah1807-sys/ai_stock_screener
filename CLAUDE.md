@@ -148,7 +148,7 @@ the scheduled workflows set the same flag.
   `rating_access_schema.sql` so the `*_visible` views carry it. Yahoo prices about half the NSE SME list (7 Nov 2026
   sample); the rest drop at the no-price filter. The bhavcopy bar fallback keeps
   its EQ/BE series. SME results filings are read from the exchange's own
-  `index=sme` (`workers.quarterly_filings.fetch_boards`; a failure there leaves the mainboard run
+  `index=sme` (`quarterly_results.read_boards`; a failure there leaves the mainboard run
   whole) into `quarterly_filings`. Most SMEs file half-yearly, and a longer period is never a
   quarter: `quarterly_results.stored_lines` keeps every quarter line empty and carries the
   figures as filed under `lines.cumulative` with `lines.period_days` (181/182). Growth, the
