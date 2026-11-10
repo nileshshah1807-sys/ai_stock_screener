@@ -2,7 +2,7 @@
 
 import tempfile
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -223,6 +223,26 @@ class FetchFailureTests(unittest.TestCase):
         with self.assertLogs("screener.sme_bars", level="WARNING"):
             self.assertIsNone(history.bars("SMEONE"))
         self.assertEqual(len(calls), 10)
+
+
+    def test_holidays_between_stored_sessions_are_not_an_exchange_refusing_us(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        path = Path(directory.name) / "b.csv.gz"
+        sessions = [date(2026, 9, 7) + timedelta(days=n) for n in range(0, 28) if (date(2026, 9, 7) + timedelta(days=n)).weekday() < 5]
+        holidays = set(sessions[1::2])  # every other session is a holiday the calendar lacks
+        pd.concat([_day_frame(d) for d in sessions if d not in holidays]).rename(
+            columns={"Trade_Date": "Date"}
+        ).to_csv(path, index=False, compression="gzip")
+        calls = []
+
+        def fetch(day):
+            calls.append(day)
+            raise TimeoutError("holiday")
+
+        history = SmeBarHistory(path, date(2026, 10, 2), TZ, history_days=25, max_consecutive_misses=3, fetch_day=fetch)
+        history.bars("SMEONE")
+        self.assertEqual(set(calls), holidays)
 
 
 class QuietBseSessionTests(unittest.TestCase):
