@@ -393,7 +393,7 @@ the scheduled workflows set the same flag.
   today's EMA exactly when it is above yesterday's -- the prior year's high
   and low, the six-month base), and `live_breadth()` counts the live prices
   against them, so the live point equals the close the evening run will
-  publish at that price. Stage 2 and RS rating stay on the last close. Both
+  publish at that price. Stage 2 and RS rating stay on the last close. A Not rated company counts in every price measure (EMA, 52-week, advancers) and in no RS ratio, numerator or denominator (`latest_snapshot_unrated`). Both
   are in `storage/market_breadth_schema.sql`, applied by hand.
 - **A price ratio is the price over a stored basis, worked out where the
   price is.** `valuation_basis` holds each symbol's company side -- trailing

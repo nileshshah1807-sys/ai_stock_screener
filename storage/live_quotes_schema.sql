@@ -81,6 +81,9 @@ create policy index_members_read
 --
 -- `security invoker` keeps every table's row-level security in force for the
 -- caller.
+--
+-- Advancers, decliners and movers are price-only, so a Not rated company
+-- (an SME with thin evidence) counts in them; nothing here reads a rating.
 create or replace function live_market(p_market text, p_limit integer default 10)
 returns jsonb
 language sql

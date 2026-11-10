@@ -316,6 +316,7 @@ def main(argv=None):
         classification,
         benchmark_points=indices.get(profile.benchmark_symbol) or None,
         index_points=[(label, indices.get(ticker, {})) for ticker, label in profile.headline_indices],
+        unrated=repository.latest_snapshot_unrated(),
     )
     size = sum(len(row["series"]) + len(row["sessions"]) for row in rows)
     logger.info(
