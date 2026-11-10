@@ -85,16 +85,16 @@ const formatDate = (iso) =>
 
 async function expectations(slug) {
   const { code } = MARKETS[slug];
-  const { data: run, error } = await supabase.from("screener_runs").select("run_date, price_bar_as_of, row_count")
+  const { data: run, error } = await supabase.from("screener_runs_visible").select("run_date, price_bar_as_of, row_count")
     .eq("market", code).gt("row_count", 0).order("run_date", { ascending: false }).limit(1).maybeSingle();
   if (error || !run) {
     fail(`/${slug}`, `could not read the latest screener run: ${error?.message ?? "none"}`);
     return null;
   }
-  const { data: sample } = await supabase.from("screener_snapshot").select("symbol")
+  const { data: sample } = await supabase.from("screener_snapshot_visible").select("symbol")
     .eq("market", code).eq("run_date", run.run_date).order("market_cap", { ascending: false, nullsFirst: false }).range(0, 199);
   const symbols = (sample ?? []).map((r) => r.symbol);
-  const bse = await supabase.from("screener_snapshot").select("symbol").eq("market", code).eq("run_date", run.run_date).like("symbol", "%.BO").limit(1);
+  const bse = await supabase.from("screener_snapshot_visible").select("symbol").eq("market", code).eq("run_date", run.run_date).like("symbol", "%.BO").limit(1);
   const recent = await supabase.from("new_listings").select("symbol").eq("market", code).limit(1);
   // Large caps first, two from further down the list, then a BSE-only name and a recent listing.
   const picks = [...symbols.slice(0, 6), symbols[60], symbols[150], bse.data?.[0]?.symbol, recent.data?.[0]?.symbol]
@@ -157,7 +157,8 @@ function scanPage() {
   for (const svg of document.querySelectorAll("svg")) {
     const box = svg.getBoundingClientRect();
     if (!visible(svg) || box.width < 120 || box.height < 60) continue;
-    if (svg.querySelectorAll("path, rect, line, circle, polyline, polygon, text").length < 3) out.deadCharts += 1;
+    // Gauge (track + arc) and Sparkline (area + line) are two shapes by design.
+    if (svg.querySelectorAll("path, rect, line, circle, polyline, polygon, text").length < 2) out.deadCharts += 1;
   }
   out.header = document.body.innerText.match(/(\d{2} [A-Z][a-z]{2,3} \d{4})\s*·\s*v/)?.[1] ?? null;
   const grid = document.body.innerText.match(/\d[\d,]*\s*[–-]\s*\d[\d,]*\s+of\s+([\d,]+)/);
