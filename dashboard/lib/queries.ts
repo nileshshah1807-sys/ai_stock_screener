@@ -166,6 +166,9 @@ const EXPORT_COLUMNS = [
   "entry_state",
 ].join(",");
 
+/** Sorts whose order is the rating's (or its eligibility class's): refused to a non-admin. */
+const RATING_DERIVED_SORTS = new Set(["rating", "decision_score", "eligibility_class", "gate_severity", "actionable_rank"]);
+
 const SORTABLE = new Set([
   "investment_rank",
   "actionable_rank",
@@ -386,8 +389,8 @@ export async function getSnapshotPage(
   const supabase = await createClient();
   // A rating filter or sort would reveal the rating it filters on.
   if (!(await isAdmin())) {
-    filters = { ...filters, rating: [], buyEligibleOnly: false, excludeCapped: false };
-    if (filters.sort === "rating") filters.sort = undefined;
+    filters = { ...filters, rating: [], buyEligibleOnly: false, excludeCapped: false, eligibility: [] };
+    if (filters.sort && RATING_DERIVED_SORTS.has(filters.sort)) filters.sort = undefined;
   }
   const projection =
     options.columns ??

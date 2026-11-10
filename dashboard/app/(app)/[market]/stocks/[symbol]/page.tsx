@@ -486,17 +486,22 @@ export default async function StockPage({
       value: dataQuality(row.data_quality).label,
       hint: dataQuality(row.data_quality).meaning || undefined,
     },
-    {
-      label: "Gate failures",
-      value: row.gate_failure_count ?? 0,
-      tone: (row.gate_failure_count ?? 0) > 0 ? "caution" : "muted",
-      hint: row.gate_failures ?? undefined,
-    },
-    {
-      label: "Stability",
-      value: stabilityStatus(row.decision_stability_status).label,
-      hint: stabilityStatus(row.decision_stability_status).meaning || undefined,
-    },
+    // Which gates failed and how stable the decision is describe the rating.
+    ...(admin
+      ? ([
+          {
+            label: "Gate failures",
+            value: row.gate_failure_count ?? 0,
+            tone: (row.gate_failure_count ?? 0) > 0 ? "caution" : "muted",
+            hint: row.gate_failures ?? undefined,
+          },
+          {
+            label: "Stability",
+            value: stabilityStatus(row.decision_stability_status).label,
+            hint: stabilityStatus(row.decision_stability_status).meaning || undefined,
+          },
+        ] satisfies Field[])
+      : []),
   ];
 
   const coverageFields: Field[] = [
@@ -528,7 +533,7 @@ export default async function StockPage({
       label: "Fundamental coverage",
       value: formatRatioAsPercent(row.fundamental_coverage, 0),
       hint:
-        buyFundamentalCoverageMargin === null
+        buyFundamentalCoverageMargin === null || !admin
           ? undefined
           : `BUY-floor margin ${formatRatioAsPercent(buyFundamentalCoverageMargin, 1, true)}.`,
     },
@@ -536,7 +541,7 @@ export default async function StockPage({
       label: "Technical coverage",
       value: formatRatioAsPercent(row.technical_coverage, 0),
       hint:
-        buyTechnicalCoverageMargin === null
+        buyTechnicalCoverageMargin === null || !admin
           ? undefined
           : `BUY-floor margin ${formatRatioAsPercent(buyTechnicalCoverageMargin, 1, true)}.`,
     },
@@ -576,7 +581,8 @@ export default async function StockPage({
       hint: row.price_bar_aligned === true
         ? "Technical evidence uses the run's expected completed session."
         : row.price_bar_aligned === false
-          ? "An older vendor bar is retained for audit but cannot support BUY conviction."
+          ? publicText(admin, "An older vendor bar is retained for audit but cannot support BUY conviction.") ||
+            "An older vendor bar is retained for audit."
           : undefined,
     },
     {
@@ -618,7 +624,7 @@ export default async function StockPage({
             : "default",
       hint: factorModel
         ? `${row.fund_fields_present ?? MISSING} of ${row.fund_fields_expected ?? MISSING} expected fields. Model 5.0 applies the coverage floors configured for this run.`
-        : `${row.fund_fields_present ?? MISSING} of ${row.fund_fields_expected ?? MISSING} fields the selected sector model expects. BUY needs 55%, STRONG BUY 75%.`,
+        : `${row.fund_fields_present ?? MISSING} of ${row.fund_fields_expected ?? MISSING} fields the selected sector model expects.${admin ? " BUY needs 55%, STRONG BUY 75%." : ""}`,
     },
     { label: "Fundamental score", value: formatScore(row.fundamental_score) },
     { label: "Model", value: row.fundamental_model ?? MISSING },
