@@ -232,6 +232,9 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("return_since_stage2_entry_pct", "Return_Since_Stage2_Entry_Pct", "num:12,2"),
     ("advance_age_censored", "Advance_Age_Censored", "bool"),
     ("pct_from_52w_high", "Pct_From_52W_High", "num:10,3"),
+    # Display flags, readable by every viewer (neither name is a rating field).
+    ("is_sme", "Is_SME", "bool"),
+    ("unrated_reason", "Unrated_Reason", "text"),
 ]
 
 HISTORY_COLUMNS: list[tuple[str, str, str]] = [

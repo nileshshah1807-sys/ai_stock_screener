@@ -22,6 +22,17 @@ class UnratedRowsTests(unittest.TestCase):
         self.assertFalse(rows["Buy_Eligible"].any())
         self.assertEqual(rows.at["NOSTMT", "Rating_Cap_Reason"], "Not rated: no annual financial statements yet")
         self.assertEqual(rows.at["NEWCO", "Rating_Cap_Reason"], "Not rated: 41 of 60 sessions of price history")
+        self.assertEqual(rows["Unrated_Reason"].tolist(), rows["Rating_Cap_Reason"].tolist())
+
+    def test_new_snapshot_columns_are_not_rating_fields(self):
+        # Viewers must read them; the SQL is_rating_field mirrors this pattern.
+        import re
+
+        rating_key = re.compile(
+            r"rating|(^|_)buy(_|$)|(^|_)capped|cap_reason|(^|_)(hold|reduce|sell)_count$|gate_warning|(^|_)gate_failures$"
+        )
+        for name in ("is_sme", "unrated_reason"):
+            self.assertIsNone(rating_key.search(name), name)
 
     def test_decision_columns_are_absent_not_zero(self):
         scored = pd.DataFrame(

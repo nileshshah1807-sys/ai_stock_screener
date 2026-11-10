@@ -141,11 +141,16 @@ the scheduled workflows set the same flag.
   (`SME_EQUITY_L.csv`, bare symbol, Yahoo `SYMBOL.NS`) and BSE groups M/MT not on
   NSE (`SYMBOL.BO`) join the universe; an unset value still means
   `nse_with_bse_only`. `Is_SME` is a display flag, never read by scoring. An SME
-  is admitted to the frame only once it has a statement record
+  is admitted to the scored frame only once it has a statement record
   (`FinancialStatementCollector._record_coverage`), so the 0.95 statement-coverage
   guard is unchanged; so admission can change day to day and shift every rank
-  slightly. If `Is_SME` is ever added to `SNAPSHOT_COLUMNS`, re-apply
-  `rating_access_schema.sql` so the `*_visible` views carry it. Yahoo prices about half the NSE SME list (7 Nov 2026
+  slightly. An SME with no statement record, or under 60 sessions of bars, is
+  appended to the export after ranking as an `UNRATED` row (`recommendation.unrated_rows`):
+  no score, no rank, and `Unrated_Reason` says why. `Is_SME` and `Unrated_Reason`
+  are snapshot columns (`is_sme`, `unrated_reason`), deliberately not rating
+  fields so every viewer reads them; apply `dashboard_schema.sql`, then
+  `rating_access_schema.sql` (the `*_visible` views carry them), before the
+  publisher that writes them. Yahoo prices about half the NSE SME list (7 Nov 2026
   sample); the rest drop at the no-price filter. The bhavcopy bar fallback keeps
   its EQ/BE series. SME filings are not read into `quarterly_filings`: a
   half-year filing would be stored as a quarter by parser v4.

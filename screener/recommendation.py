@@ -120,6 +120,9 @@ def unrated_rows(held_out, display_only, min_sessions):
         return pd.DataFrame()
     rows = pd.concat(parts, ignore_index=True)
     rows["Rating"] = rating_from_score(None)
+    # The same sentence, under a name that is not a rating field, so a viewer
+    # who cannot read Rating_Cap_Reason can still be told why a name is unrated.
+    rows["Unrated_Reason"] = rows["Rating_Cap_Reason"]
     rows["Rating_Capped"] = True
     rows["Buy_Eligible"] = False
     rows["Decision_Stability_Status"] = "DATA_LIMITED"
