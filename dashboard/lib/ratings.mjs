@@ -44,3 +44,22 @@ export function withoutRatings(row) {
   }
   return out;
 }
+
+const RATING_WORD = /\b(STRONG BUY|BUY|HOLD|REDUCE|SELL)\b/;
+
+/**
+ * Copy for a viewer: an admin's text as written; anyone else's without the
+ * sentences that name a rating or the boundaries that turn a score into one
+ * ("BUY needs 40", "Ticks mark the REDUCE / HOLD / BUY boundaries").
+ */
+export function publicText(admin, text) {
+  if (admin || !text) return text;
+  return text
+    .split(/(?<=\.)\s+/)
+    .filter((sentence) => !RATING_WORD.test(sentence))
+    .join(" ");
+}
+
+/** The Published score card's info text, as written for an admin. */
+export const PUBLISHED_SCORE_INFO =
+  "The research evidence on a 0-100 scale. Ticks on the ring mark the REDUCE / HOLD / BUY / STRONG BUY boundaries; policy gates limit the rating, not the score.";

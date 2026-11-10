@@ -14,6 +14,7 @@ import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, tailFromHistory, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { isAdmin } from "@/lib/auth";
+import { PUBLISHED_SCORE_INFO, publicText } from "@/lib/ratings.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
@@ -425,17 +426,22 @@ export default async function StockPage({
           ? "A policy gate fired but did not reduce the score. Only evidence-quality gates still cap."
           : undefined,
     },
-    {
-      label: "Primary constraint",
-      value: gate.label,
-      tone: capFlagged ? "caution" : "muted",
-      hint: gate.meaning || undefined,
-    },
-    {
-      label: "Eligibility class",
-      value: eligibility.label,
-      hint: eligibility.meaning || undefined,
-    },
+    // The constraint and eligibility class are how the rating is decided.
+    ...(admin
+      ? ([
+          {
+            label: "Primary constraint",
+            value: gate.label,
+            tone: capFlagged ? "caution" : "muted",
+            hint: gate.meaning || undefined,
+          },
+          {
+            label: "Eligibility class",
+            value: eligibility.label,
+            hint: eligibility.meaning || undefined,
+          },
+        ] satisfies Field[])
+      : []),
   ];
 
   const gateFields: Field[] = [
@@ -469,28 +475,37 @@ export default async function StockPage({
         ? (gateWarning ?? row.rating_cap_reason ?? undefined)
         : undefined,
     },
-    {
-      label: "Trend confirmed",
-      value: row.trend_confirmed ? "Yes" : "No",
-      tone: row.trend_confirmed ? "positive" : "caution",
-      hint: "BUY requires a constructive medium-term chart, not valuation alone.",
-    },
+    ...(admin
+      ? ([
+          {
+            label: "Trend confirmed",
+            value: row.trend_confirmed ? "Yes" : "No",
+            tone: row.trend_confirmed ? "positive" : "caution",
+            hint: "BUY requires a constructive medium-term chart, not valuation alone.",
+          },
+        ] satisfies Field[])
+      : []),
     {
       label: "Data quality",
       value: dataQuality(row.data_quality).label,
       hint: dataQuality(row.data_quality).meaning || undefined,
     },
-    {
-      label: "Gate failures",
-      value: row.gate_failure_count ?? 0,
-      tone: (row.gate_failure_count ?? 0) > 0 ? "caution" : "muted",
-      hint: row.gate_failures ?? undefined,
-    },
-    {
-      label: "Stability",
-      value: stabilityStatus(row.decision_stability_status).label,
-      hint: stabilityStatus(row.decision_stability_status).meaning || undefined,
-    },
+    // Which gates failed and how stable the decision is describe the rating.
+    ...(admin
+      ? ([
+          {
+            label: "Gate failures",
+            value: row.gate_failure_count ?? 0,
+            tone: (row.gate_failure_count ?? 0) > 0 ? "caution" : "muted",
+            hint: row.gate_failures ?? undefined,
+          },
+          {
+            label: "Stability",
+            value: stabilityStatus(row.decision_stability_status).label,
+            hint: stabilityStatus(row.decision_stability_status).meaning || undefined,
+          },
+        ] satisfies Field[])
+      : []),
   ];
 
   const coverageFields: Field[] = [
@@ -522,7 +537,7 @@ export default async function StockPage({
       label: "Fundamental coverage",
       value: formatRatioAsPercent(row.fundamental_coverage, 0),
       hint:
-        buyFundamentalCoverageMargin === null
+        buyFundamentalCoverageMargin === null || !admin
           ? undefined
           : `BUY-floor margin ${formatRatioAsPercent(buyFundamentalCoverageMargin, 1, true)}.`,
     },
@@ -530,7 +545,7 @@ export default async function StockPage({
       label: "Technical coverage",
       value: formatRatioAsPercent(row.technical_coverage, 0),
       hint:
-        buyTechnicalCoverageMargin === null
+        buyTechnicalCoverageMargin === null || !admin
           ? undefined
           : `BUY-floor margin ${formatRatioAsPercent(buyTechnicalCoverageMargin, 1, true)}.`,
     },
@@ -570,7 +585,8 @@ export default async function StockPage({
       hint: row.price_bar_aligned === true
         ? "Technical evidence uses the run's expected completed session."
         : row.price_bar_aligned === false
-          ? "An older vendor bar is retained for audit but cannot support BUY conviction."
+          ? publicText(admin, "An older vendor bar is retained for audit but cannot support BUY conviction.") ||
+            "An older vendor bar is retained for audit."
           : undefined,
     },
     {
@@ -612,7 +628,7 @@ export default async function StockPage({
             : "default",
       hint: factorModel
         ? `${row.fund_fields_present ?? MISSING} of ${row.fund_fields_expected ?? MISSING} expected fields. Model 5.0 applies the coverage floors configured for this run.`
-        : `${row.fund_fields_present ?? MISSING} of ${row.fund_fields_expected ?? MISSING} fields the selected sector model expects. BUY needs 55%, STRONG BUY 75%.`,
+        : `${row.fund_fields_present ?? MISSING} of ${row.fund_fields_expected ?? MISSING} fields the selected sector model expects.${admin ? " BUY needs 55%, STRONG BUY 75%." : ""}`,
     },
     { label: "Fundamental score", value: formatScore(row.fundamental_score) },
     { label: "Model", value: row.fundamental_model ?? MISSING },
@@ -742,13 +758,18 @@ export default async function StockPage({
 
   const liquidityFields: Field[] = [
     { label: "Grade", value: row.liquidity_grade ?? MISSING },
-    {
-      // Describes the stock's liquidity, not an instruction: research, not
-      // advice. "Executable" read as a go-ahead.
-      label: "Buildable at size",
-      value: row.portfolio_actionable ? "Yes" : "No",
-      tone: row.portfolio_actionable ? "positive" : "caution",
-    },
+    // portfolio_actionable tracks a BUY-grade rating, so only an admin sees it.
+    ...(admin
+      ? ([
+          {
+            // Describes the stock's liquidity, not an instruction: research, not
+            // advice. "Executable" read as a go-ahead.
+            label: "Buildable at size",
+            value: row.portfolio_actionable ? "Yes" : "No",
+            tone: row.portfolio_actionable ? "positive" : "caution",
+          },
+        ] satisfies Field[])
+      : []),
     { label: "20D median turnover", value: formatMoneyCompact(row.median_turnover_20d_inr, market) },
     // Impact cost and the liquidity group are the exchange's own figures and
     // are collected on NSE only; elsewhere the label would sit over a dash.
@@ -975,12 +996,7 @@ export default async function StockPage({
                     title="Published score"
                     info={
                       <>
-                        <p>
-                          The research evidence on a 0-100 scale. Ticks on the
-                          ring mark the REDUCE / HOLD / BUY / STRONG BUY
-                          boundaries; policy gates limit the rating, not the
-                          score.
-                        </p>
+                        <p>{publicText(admin, PUBLISHED_SCORE_INFO)}</p>
                         {factorModel ? (
                           <>
                             <p>
@@ -1009,6 +1025,7 @@ export default async function StockPage({
                       <DecisionScore
                         score={row.final_score ?? row.evidence_score}
                         rating={row.rating}
+                        bands={admin}
                         caption={
                           !capFlagged || !admin
                             ? undefined
@@ -1018,7 +1035,7 @@ export default async function StockPage({
                         }
                       />
                       {factorModel ? (
-                        <FactorBlocks row={row} />
+                        <FactorBlocks row={row} admin={admin} />
                       ) : (
                         <ScoreWaterfall row={row} />
                       )}
@@ -1284,9 +1301,12 @@ export default async function StockPage({
                     <Panel
                       title="Liquidity and execution"
                       info={
-                        factorModel
-                          ? "Execution evidence. It never changes the research score, but it can cap BUY eligibility and therefore affect the rating and eligibility-class rank."
-                          : "An execution overlay. It never changes the score, rating, or investment rank."
+                        publicText(
+                          admin,
+                          factorModel
+                            ? "Execution evidence. It never changes the research score, but it can cap BUY eligibility and therefore affect the rating and eligibility-class rank."
+                            : "An execution overlay. It never changes the score, rating, or investment rank.",
+                        ) || "Execution evidence. It never changes the research score."
                       }
                       className={market.nseEvidence ? undefined : "lg:col-span-2"}
                     >

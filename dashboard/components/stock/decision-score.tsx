@@ -24,11 +24,14 @@ export function DecisionScore({
   score,
   rating,
   caption,
+  bands = false,
   className,
 }: {
   score: number | null | undefined;
   rating: string | null | undefined;
   caption?: string;
+  /** Draw the rating boundaries on the bar; admins only (lib/ratings.mjs). */
+  bands?: boolean;
   className?: string;
 }) {
   const token = ratingToken(rating);
@@ -41,7 +44,7 @@ export function DecisionScore({
       role="img"
       aria-label={
         hasScore
-          ? `Decision score ${formatScore(clamped)} out of 100${rating ? `, rated ${rating}` : ""}.`
+          ? `Decision score ${formatScore(clamped)} out of 100${rating && bands ? `, rated ${rating}` : ""}.`
           : "Decision score unavailable."
       }
     >
@@ -72,7 +75,7 @@ export function DecisionScore({
           ) : null}
           {/* Band boundaries, cut through track and fill alike so the reader
               can see which side of BUY the score lands on. */}
-          {THRESHOLDS.map((threshold) => (
+          {(bands ? THRESHOLDS : []).map((threshold) => (
             <span
               key={threshold}
               className="absolute inset-y-0 w-px bg-card"
@@ -80,17 +83,19 @@ export function DecisionScore({
             />
           ))}
         </div>
-        <div className="tabular relative mt-1 h-4 text-[11px] text-muted-foreground">
-          {THRESHOLDS.map((threshold) => (
-            <span
-              key={threshold}
-              className="absolute -translate-x-1/2"
-              style={{ left: `${threshold}%` }}
-            >
-              {threshold}
-            </span>
-          ))}
-        </div>
+        {bands ? (
+          <div className="tabular relative mt-1 h-4 text-[11px] text-muted-foreground">
+            {THRESHOLDS.map((threshold) => (
+              <span
+                key={threshold}
+                className="absolute -translate-x-1/2"
+                style={{ left: `${threshold}%` }}
+              >
+                {threshold}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {caption ? (

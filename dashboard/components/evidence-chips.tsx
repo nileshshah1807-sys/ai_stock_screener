@@ -1,3 +1,5 @@
+"use client";
+
 import {
   AlertTriangle,
   Check,
@@ -9,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useShowRatings } from "@/components/market-provider";
 import { cn } from "@/lib/utils";
 
 /**
@@ -203,10 +206,11 @@ export function CoverageCell({
   fundamental: number | null;
   technical: number | null;
 }) {
+  const showRatings = useShowRatings();
   const fundamentalShort =
-    fundamental !== null && fundamental < BUY_MIN_FUNDAMENTAL_COVERAGE;
+    showRatings && fundamental !== null && fundamental < BUY_MIN_FUNDAMENTAL_COVERAGE;
   const technicalShort =
-    technical !== null && technical < BUY_MIN_TECHNICAL_COVERAGE;
+    showRatings && technical !== null && technical < BUY_MIN_TECHNICAL_COVERAGE;
 
   return (
     <Tooltip>
@@ -225,10 +229,12 @@ export function CoverageCell({
           Fundamental {share(fundamental)} of the fields the selected sector
           model expects; technical {share(technical)} of its components.
         </p>
-        <p className="mt-1 text-xs opacity-90">
-          BUY needs 55% / 75%, STRONG BUY 75% / 90%. Missing coverage is a gate
-          failure, not neutral evidence.
-        </p>
+        {showRatings ? (
+          <p className="mt-1 text-xs opacity-90">
+            BUY needs 55% / 75%, STRONG BUY 75% / 90%. Missing coverage is a gate
+            failure, not neutral evidence.
+          </p>
+        ) : null}
       </TooltipContent>
     </Tooltip>
   );
