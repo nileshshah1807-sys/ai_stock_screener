@@ -283,3 +283,27 @@ class QuietBseSessionTests(unittest.TestCase):
         frame, carried = carry_quiet_session(old, EXPECTED, TZ, 7)
         self.assertFalse(carried)
         self.assertIs(frame, old)
+
+
+class DisplayOnlyTests(unittest.TestCase):
+    """An SME name with a price but under the session minimum is shown, not scored."""
+
+    def test_a_short_history_sme_is_kept_aside_not_in_the_scored_frame(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        config = SimpleNamespace(
+            OUTPUT_DIR=Path(directory.name), PRICE_CACHE_MAX_AGE_HOURS=18, FUND_CACHE_MAX_AGE_DAYS=7,
+            FACTOR_MODEL_ENABLED=False, NSE_MARKET_HOLIDAYS=HOLIDAYS,
+        )
+        collector = StockDataCollector(config, clock=lambda: NOW)
+        collector.sme_symbols = frozenset({"EXAMPLE"})
+        collector.sme_names = {"EXAMPLE": "Example Ltd"}
+        yahoo = pd.concat({"EXAMPLE.NS": _history(hole=False, live_row=False, periods=30)}, axis=1)
+        yahoo.loc[pd.Timestamp("2026-10-05"), :] = yahoo.iloc[-1].to_numpy()
+        with patch("screener.data_collection.yf.download", return_value=yahoo):
+            result = collector.download_stock_data(["EXAMPLE"])
+        self.assertTrue(result.empty)
+        record = collector.display_only[0]
+        self.assertEqual((record["Symbol"], record["Company"]), ("EXAMPLE", "Example Ltd"))
+        self.assertEqual(record["Price_History_Sessions"], 31)
+        self.assertEqual(collector.collection_diagnostics["technical_display_only_symbols"], ["EXAMPLE"])

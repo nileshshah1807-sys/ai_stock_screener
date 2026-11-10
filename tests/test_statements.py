@@ -319,11 +319,14 @@ class CollectorTests(unittest.TestCase):
             }
         )
 
-        enriched = self.collector([]).enrich(frame).set_index("Symbol")
+        collector = self.collector([])
+        enriched = collector.enrich(frame).set_index("Symbol")
 
         # The mainboard name with no record stays (and counts); the SME goes.
         self.assertEqual(list(enriched.index), ["TCS", "INFY"])
         self.assertEqual(enriched["Statement_Universe_Coverage"].iloc[0], 0.5)
+        # ...but is kept aside, so the run can show it unrated.
+        self.assertEqual(list(collector.held_out["Symbol"]), ["NEWSME"])
 
     def test_expired_row_outside_budget_is_retained_but_not_scored(self):
         self.collector([]).collect(["TCS", "INFY"])
