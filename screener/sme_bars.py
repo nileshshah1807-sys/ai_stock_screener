@@ -85,7 +85,15 @@ class SmeBarHistory:
         fetched = [stored]
         todo = self._missing_sessions(have)[-self.max_fetch_per_run:]
         misses = 0
+        previous = None
         for day in reversed(todo):  # newest first: the recent bars matter most
+            # ``todo`` holds only the sessions we lack, so a stored session between two
+            # misses means they are holidays apart, not an exchange refusing us.
+            if previous is not None and any(
+                (day + timedelta(days=n)).isoformat() in have for n in range(1, (previous - day).days)
+            ):
+                misses = 0
+            previous = day
             try:
                 frame = self._fetch_day(day)
             except Exception as exc:  # a holiday the calendar lacks looks the same
