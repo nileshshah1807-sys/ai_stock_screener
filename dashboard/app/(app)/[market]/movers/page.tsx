@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { ArrowDownRight, ArrowUpRight, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
 
 import { RatingBadge } from "@/components/rating-badge";
-import { Reveal } from "@/components/motion";
 import { StockListRow } from "@/components/stock-identity";
 import { isAdmin } from "@/lib/auth";
 import { formatDate, formatScore, MISSING } from "@/lib/format";
@@ -52,7 +51,7 @@ function MoverList({
   mode: "rank" | "rating" | "new";
 }) {
   return (
-    <section data-mover className="panel overflow-hidden">
+    <section className="panel overflow-hidden">
       <div className="border-b px-4 py-3">
         <h2 className="flex items-center gap-2 text-base font-semibold tracking-[-0.011em]">
           <Icon className="size-4 text-muted-foreground" aria-hidden />
@@ -168,7 +167,9 @@ export default async function MoversPage({
             yesterday's calendar date, so a weekend or exchange holiday does not
             register as the whole universe entering for the first time. */}
         {hasComparison ? (
-          <Reveal selector="[data-mover]" bounce className="grid gap-4 lg:grid-cols-2">
+          // No Reveal: its tween starts at opacity 0 once the bundle hydrates, so the
+          // lists (the page's largest paint) arrived after JS instead of with the HTML.
+          <div className="grid gap-4 lg:grid-cols-2">
             <MoverList
               title="Biggest rank gains"
               description="Largest improvements in Investment Rank since the previous run."
@@ -209,7 +210,7 @@ export default async function MoversPage({
               rows={movers.entrants}
               mode="new"
             />
-          </Reveal>
+          </div>
         ) : null}
 
       <p className="pt-2 text-xs leading-relaxed text-muted-foreground">
