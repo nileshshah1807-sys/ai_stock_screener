@@ -8,7 +8,13 @@ import unittest
 from datetime import date
 from unittest import mock
 
-from screener.shareholding import PARSER_VERSION, parse_deals, parse_pattern, quarter_filings
+from screener.shareholding import (
+    PARSER_VERSION,
+    fetch_index_records,
+    parse_deals,
+    parse_pattern,
+    quarter_filings,
+)
 from workers.shareholding import PacedFetcher, run
 
 PCT = "ShareholdingAsAPercentageOfTotalNumberOfShares"
@@ -132,6 +138,20 @@ class QuarterFilingsTest(unittest.TestCase):
             index_record("ONWARDTEC", "11-JUN-2026", "3", "19-JUN-2026 17:33:47"),
         ])
         self.assertEqual([(r["period_end"], r["record_id"]) for r in rows], [(date(2026, 9, 30), "2")])
+
+
+class IndexTest(unittest.TestCase):
+    def test_the_board_asked_of_the_exchange_is_the_index_given(self):
+        asked = []
+
+        def get(_url, params, **_kwargs):
+            asked.append(params["index"])
+            return mock.Mock(raise_for_status=lambda: None, json=lambda: [])
+
+        session = mock.Mock(get=get)
+        fetch_index_records(date(2026, 10, 1), date(2026, 11, 1), session=session)
+        fetch_index_records(date(2026, 10, 1), date(2026, 11, 1), index="sme", session=session)
+        self.assertEqual(asked, ["equities", "sme"])
 
 
 class ParseDealsTest(unittest.TestCase):

@@ -24,12 +24,13 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from screener import shareholding
 from screener.markets import resolve as resolve_market
-from screener.quarterly_results import REQUEST_HEADERS, DocumentFetcher
+from screener.quarterly_results import REQUEST_HEADERS, DocumentFetcher, read_boards
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +226,8 @@ def run(
         start=start,
         end=today,
         timezone=profile.timezone,
-        index_loader=index_loader or shareholding.fetch_index_records,
+        index_loader=index_loader
+        or partial(read_boards, shareholding.fetch_index_records),
         fetcher=fetcher or PacedFetcher(),
         time_budget_seconds=time_budget_seconds,
         clock=clock,

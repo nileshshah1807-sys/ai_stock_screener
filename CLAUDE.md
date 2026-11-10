@@ -153,7 +153,7 @@ the scheduled workflows set the same flag.
   publisher that writes them. Yahoo prices about half the NSE SME list (7 Nov 2026
   sample); the rest drop at the no-price filter. The bhavcopy bar fallback keeps
   its EQ/BE series. SME results filings are read from the exchange's own
-  `index=sme` (`workers.quarterly_filings.fetch_boards`; a failure there leaves the mainboard run
+  `index=sme` (`quarterly_results.read_boards`; a failure there leaves the mainboard run
   whole) into `quarterly_filings`. Most SMEs file half-yearly, and a longer period is never a
   quarter: `quarterly_results.stored_lines` keeps every quarter line empty and carries the
   figures as filed under `lines.cumulative` with `lines.period_days` (181/182). Growth, the
@@ -312,7 +312,8 @@ the scheduled workflows set the same flag.
   workflow) stores each quarter's shareholding pattern, parsed once from its
   XBRL by `screener/shareholding.py`, in `shareholding_patterns`, and the
   exchange's deal history in `bulk_block_deals`; the stock page's Shareholding
-  tab (NSE only) reads both. FII and DII are the filing's own "Institutions
+  tab (NSE only) reads both. The SME board (`index=sme`) is read beside the mainboard by
+  `quarterly_results.read_boards`; a failure reading it leaves the mainboard whole. FII and DII are the filing's own "Institutions
   (Foreign/Domestic)" subtotals and public is the rest, as StockScans and
   Screener print it; a group nobody is in is 0, since a complete filing omits
   its subtotal. Filings before September 2022 have no such split, so the

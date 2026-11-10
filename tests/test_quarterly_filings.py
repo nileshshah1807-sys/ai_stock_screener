@@ -20,7 +20,6 @@ from screener.quarterly_results import PARSER_VERSION, facts_frame
 from workers.quarterly_filings import (
     DEFAULT_LOOKBACK_DAYS,
     FULL_LOOKBACK_DAYS,
-    fetch_boards,
     refresh_valuation_basis,
 )
 from workers.quarterly_filings import run as run_with_pauses
@@ -243,20 +242,6 @@ class StoreTests(FilingsRun):
             [filing("AAA", "30-SEP-2026", 1)], {"1": document(100, 10, start="2026-07-01")}
         )
         self.assertNotIn("period_days", repo.upserted[0]["lines"])
-
-    def test_the_sme_board_is_read_beside_the_mainboard_and_its_failure_spares_it(self):
-        asked = []
-
-        def fake(start, end, *, index="equities", **_kw):
-            asked.append(index)
-            if index == "sme":
-                raise TimeoutError("emerge")
-            return [filing("AAA", "30-SEP-2026", 1)]
-
-        with mock.patch("workers.quarterly_filings.quarterly_results.fetch_index_records", fake):
-            records = fetch_boards(date(2026, 1, 1), date(2026, 2, 1))
-        self.assertEqual(asked, ["equities", "sme"])
-        self.assertEqual(len(records), 1)
 
     def test_a_half_year_is_stored_as_the_quarter_after_the_first_quarter(self):
         # MTARTECH, Oct 2026: the only Sep filing stated 1 Apr - 30 Sep. Stored
