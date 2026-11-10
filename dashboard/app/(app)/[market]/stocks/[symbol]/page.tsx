@@ -31,6 +31,7 @@ import { Shareholding } from "@/components/stock/shareholding";
 import { Documents } from "@/components/stock/documents";
 import { getCompanyDocuments } from "@/lib/documents";
 import { StockTabs } from "@/components/stock/stock-tabs";
+import { HalfYearResults } from "@/components/stock/half-year-results";
 import { NewListingView } from "@/components/stock/new-listing-view";
 import {
   Tabs,
@@ -68,6 +69,7 @@ import {
   getStockHistory,
   STOCK_HISTORY_LIMIT,
 } from "@/lib/queries";
+import { getHalfYears } from "@/lib/results";
 import { getWatchlistMembership, getWatchlists } from "@/lib/watchlists";
 
 export const dynamic = "force-dynamic";
@@ -232,6 +234,7 @@ export default async function StockPage({
     watchlistMembership,
     latestCall,
     upcomingResult,
+    halfYears,
   ] = await Promise.all([
     runRead,
     rowRead,
@@ -250,6 +253,7 @@ export default async function StockPage({
       symbol,
       new Intl.DateTimeFormat("en-CA", { timeZone: market.timezone }).format(new Date()),
     ),
+    getHalfYears(market.code, symbol),
   ]);
   if (!run) notFound();
 
@@ -1109,6 +1113,7 @@ export default async function StockPage({
                     symbol={row.symbol}
                     asOf={row.price_bar_as_of ?? run.price_bar_as_of}
                   />
+                  <HalfYearResults halfYears={halfYears} market={market} />
                 </Panel>
               ),
             },

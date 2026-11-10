@@ -6,7 +6,7 @@ import { unstable_cache } from "next/cache";
 import type { MarketCode } from "@/lib/markets";
 import { getLatestRun, getSearchIndex } from "@/lib/queries";
 import { createClient } from "@/lib/supabase/server";
-import { bucketOf, quarterWindow } from "@/lib/results.mjs";
+import { bucketOf, halfYearResults, quarterWindow } from "@/lib/results.mjs";
 import { PUSH_DOWN_MAX, readForSymbols } from "@/lib/symbol-scope.mjs";
 
 /**
@@ -381,6 +381,35 @@ export async function getQuarterLines(
       : await readWholeMarket(supabase, market, periods);
   } catch (error) {
     console.error("getQuarterLines failed", error instanceof Error ? error.message : error);
+    return [];
+  }
+}
+
+export type HalfYear = {
+  period_end: string;
+  months: number;
+  is_consolidated: boolean;
+  lines: Record<string, number | null>;
+};
+
+/**
+ * A company's half-year statements (an SME files six months, not a quarter),
+ * read as the viewer from the filings table. Empty on any failure.
+ */
+export async function getHalfYears(market: MarketCode, symbol: string): Promise<HalfYear[]> {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("quarterly_filings")
+      .select("period_end, is_consolidated, lines")
+      .eq("market", market)
+      .eq("symbol", symbol)
+      .order("period_end", { ascending: false })
+      .limit(40);
+    if (error) throw new Error(error.message);
+    return halfYearResults(data) as HalfYear[];
+  } catch (error) {
+    console.error("getHalfYears failed", error instanceof Error ? error.message : error);
     return [];
   }
 }

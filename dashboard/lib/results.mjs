@@ -335,3 +335,30 @@ export function quarterMedians(filings, quarters, symbols = null, windowed = fal
     };
   });
 }
+
+/** A statement over this many days is a half year, not a quarter (workers store it as `lines.period_days`). */
+export const HALF_YEAR_MIN_DAYS = 100;
+
+/**
+ * A company's half-year statements, newest first: the figures as filed
+ * (`lines.cumulative`, since the quarter keys of such a filing are null), one
+ * per period, consolidated in preference to standalone. Never compared with a
+ * quarter -- there is no QoQ or YoY across lengths -- so no growth is derived.
+ */
+export function halfYearResults(filings) {
+  const byPeriod = new Map();
+  for (const filing of filings ?? []) {
+    const days = filing.lines?.period_days;
+    if (!(days > HALF_YEAR_MIN_DAYS) || !filing.lines?.cumulative) continue;
+    const held = byPeriod.get(filing.period_end);
+    if (!held || (filing.is_consolidated && !held.is_consolidated)) byPeriod.set(filing.period_end, filing);
+  }
+  return [...byPeriod.values()]
+    .sort((a, b) => b.period_end.localeCompare(a.period_end))
+    .map((filing) => ({
+      period_end: filing.period_end,
+      months: Math.round(filing.lines.period_days / 30.4),
+      is_consolidated: filing.is_consolidated,
+      lines: filing.lines.cumulative,
+    }));
+}

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  halfYearResults,
   amountDigits,
   basisTable,
   bucketOf,
@@ -280,4 +281,18 @@ test("quarterMedians, windowed, finds a US company's quarter by its own fiscal d
   const [windowed] = quarterMedians(filings, ["2026-09-30"], null, true);
   assert.equal(windowed.results, 3);
   assert.deepEqual(windowed.series.revenue, { median: 20, n: 3 });
+});
+
+test("half-year filings are listed as filed, newest first, consolidated preferred", () => {
+  const half = (period_end, is_consolidated, revenue) => ({
+    period_end, is_consolidated, lines: { period_days: 182, revenue: null, cumulative: { revenue } },
+  });
+  const rows = halfYearResults([
+    half("2026-03-31", false, 1),
+    half("2026-09-30", false, 2),
+    half("2026-09-30", true, 3),
+    { period_end: "2026-06-30", is_consolidated: true, lines: { period_days: 91, revenue: 9 } },
+  ]);
+  assert.deepEqual(rows.map((r) => [r.period_end, r.lines.revenue, r.months]), [["2026-09-30", 3, 6], ["2026-03-31", 1, 6]]);
+  assert.deepEqual(halfYearResults(null), []);
 });
