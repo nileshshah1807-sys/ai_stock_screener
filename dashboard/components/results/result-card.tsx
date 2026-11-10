@@ -31,6 +31,8 @@ type LineRow = {
 
 export type BasisTable = {
   basis: Basis;
+  /** Set for a half-year filing: the months it covers. It has one column and no YoY or QoQ. */
+  months?: number;
   columns: { period: string; label: string }[];
   rows: LineRow[];
   filedAt: string | null;
@@ -191,7 +193,7 @@ export function ResultCard({ card }: { card: ResultCardData }) {
         {/* One quiet line: quarter, basis and when it was filed. A US result has neither basis nor filing time. */}
         <p className="tabular text-xs text-muted-foreground">
           {[
-            table.columns[0]?.label,
+            table.months ? `${table.columns[0]?.label} (${table.months} months)` : table.columns[0]?.label,
             market.code === "US" ? null : BASIS_LABELS[table.basis],
             market.code === "US" ? null : formatDateTimeIST(table.filedAt),
           ]
@@ -226,12 +228,16 @@ export function ResultCard({ card }: { card: ResultCardData }) {
                   {column.label}
                 </th>
               ))}
-              <th scope="col" className="px-2 py-1.5 text-right font-medium">
-                YoY
-              </th>
-              <th scope="col" className="px-2 py-1.5 text-right font-medium">
-                QoQ
-              </th>
+              {table.months ? null : (
+                <>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">
+                    YoY
+                  </th>
+                  <th scope="col" className="px-2 py-1.5 text-right font-medium">
+                    QoQ
+                  </th>
+                </>
+              )}
               {table.columns.slice(1).map((column) => (
                 <th
                   key={column.period}
@@ -288,8 +294,12 @@ export function ResultCard({ card }: { card: ResultCardData }) {
                       )}
                     </th>
                     <AmountCell text={amount(row, row.values[0], digits)} current />
-                    <ChangeCell value={row.yoy} bold />
-                    <ChangeCell value={row.qoq} />
+                    {table.months ? null : (
+                      <>
+                        <ChangeCell value={row.yoy} bold />
+                        <ChangeCell value={row.qoq} />
+                      </>
+                    )}
                     {row.values.slice(1).map((value, index) => (
                       <AmountCell key={index} text={amount(row, value, digits)} />
                     ))}

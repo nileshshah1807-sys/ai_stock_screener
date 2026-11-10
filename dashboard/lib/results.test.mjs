@@ -16,6 +16,7 @@ import {
   quarterWindow,
   quarterMedians,
   quarterLabel,
+  reportsResult,
   resultCard,
 } from "./results.mjs";
 
@@ -295,4 +296,22 @@ test("half-year filings are listed as filed, newest first, consolidated preferre
   ]);
   assert.deepEqual(rows.map((r) => [r.period_end, r.lines.revenue, r.months]), [["2026-09-30", 3, 6], ["2026-03-31", 1, 6]]);
   assert.deepEqual(halfYearResults(null), []);
+});
+
+test("a half-year filing is a one-column card as filed, with no change against a quarter", () => {
+  const half = {
+    symbol: "ANAWIL", period_end: "2026-09-30", is_consolidated: false, filed_at: "2026-11-06T12:00:00Z",
+    lines: { revenue: null, operating_profit: null, net_profit: null, period_days: 182,
+      cumulative: { revenue: 1_539_672_000, operating_profit: 363_011_000, net_profit: 143_869_000, eps: 6.74 } },
+  };
+  const quarter = { symbol: "ANAWIL", period_end: "2026-06-30", is_consolidated: false,
+    lines: { revenue: 700_000_000, operating_profit: 100_000_000, net_profit: 50_000_000 } };
+  const [basis] = resultCard({ symbol: "ANAWIL" }, [half, quarter], "2026-09-30").bases;
+  assert.equal(basis.months, 6);
+  assert.equal(basis.columns.length, 1);
+  const revenue = basis.rows.find((row) => row.key === "revenue");
+  assert.deepEqual([revenue.values, revenue.yoy, revenue.qoq], [[1_539_672_000], null, null]);
+  assert.ok(reportsResult(basis));
+  // A row without period_days is a quarter, as before the feed view carried it.
+  assert.equal(resultCard({ symbol: "ANAWIL" }, [quarter], "2026-06-30").bases[0].months, undefined);
 });
