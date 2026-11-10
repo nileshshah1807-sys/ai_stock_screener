@@ -99,3 +99,8 @@ test("publicText leaves an admin's copy alone and drops rating sentences for any
   );
   assert.equal(publicText(false, null), null);
 });
+
+test("publicText drops the market-regime sentence that names a rating", () => {
+  const shown = publicText(false, "Index inside the band, or level and trend disagree. STRONG BUY needs exceptional momentum.");
+  assert.equal(shown, "Index inside the band, or level and trend disagree.");
+});
