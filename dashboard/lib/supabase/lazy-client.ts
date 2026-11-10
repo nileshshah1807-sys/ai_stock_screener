@@ -6,5 +6,13 @@
  * of every page that shows live prices (cold mobile load, Nov 2026).
  */
 export async function lazyClient() {
-  return (await import("./client")).createClient();
+  try {
+    return (await import("./client")).createClient();
+  } catch {
+    // Offline for a moment, or a chunk replaced by a deploy: one more try.
+    return (await import("./client")).createClient();
+  }
 }
+
+/** A failed import read as a failed query, which every live reader already survives. */
+export const importFailed = (error: unknown) => ({ data: null, error });

@@ -24,7 +24,7 @@ import {
 } from "@/lib/live-market";
 import { indexSlug } from "@/lib/indices.mjs";
 import { marketPath, type Market } from "@/lib/markets";
-import { lazyClient } from "@/lib/supabase/lazy-client";
+import { importFailed, lazyClient } from "@/lib/supabase/lazy-client";
 import { useNow } from "@/lib/use-live-quotes";
 import { cn } from "@/lib/utils";
 
@@ -258,10 +258,9 @@ export function useLiveMarket(
     const tick = async () => {
       clearTimeout(timer);
       if (document.visibilityState !== "visible") return;
-      const { data: fresh, error } = await (await lazyClient()).rpc("live_market", {
-        p_market: market.code,
-        p_limit: limit,
-      });
+      const { data: fresh, error } = await lazyClient()
+        .then((client) => client.rpc("live_market", { p_market: market.code, p_limit: limit }))
+        .catch(importFailed);
       if (stopped) return;
       const next = error ? null : normalizeLiveMarket(fresh, showRatings);
       // A longer list is news even from the same worker run.
