@@ -12,7 +12,7 @@ const DAY = 86_400_000;
 
 /**
  * Daily (cron-job.org, see README): emails each customer whose free trial ends within two
- * days, once. the scheduler sends `Authorization: Bearer $CRON_SECRET`; without
+ * days, once. The scheduler sends `Authorization: Bearer $CRON_SECRET`; without
  * the secret set, or a wrong one, nothing runs. A trial row that already holds
  * a plan (an old mandate set up during the trial) is left out: it is not
  * asking them to pick one.
