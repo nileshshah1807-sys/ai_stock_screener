@@ -128,6 +128,8 @@ export async function proxy(request: NextRequest) {
     // Razorpay's server calls this, not a browser; the route verifies the
     // payload's signature itself.
     pathname === "/api/billing/webhook" ||
+    // The scheduler (cron-job.org) carries no session; the route checks its bearer secret itself.
+    pathname === "/api/cron/trial-ending" ||
     LEGAL_PAGES.some((page) => pathname === page.href);
 
   if (!signedIn && !isPublicRoute) {
