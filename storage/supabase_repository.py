@@ -11,7 +11,7 @@ import requests
 
 from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
-from storage.object_store import ObjectStore
+from storage.object_backend import open_object_store
 
 READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # Results seasons are a quarter apart; two transcripts closer than this are
@@ -57,7 +57,7 @@ class SupabaseRepository:
             "Authorization": f"Bearer {service_role_key}",
             "Content-Type": "application/json",
         }
-        self.objects = ObjectStore(url, service_role_key, timeout_seconds, read_only=self.read_only)
+        self.objects = open_object_store(url, service_role_key, timeout_seconds, read_only=self.read_only)
 
     @classmethod
     def from_environment(cls, market: str | None = None) -> SupabaseRepository:

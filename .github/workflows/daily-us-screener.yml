@@ -304,6 +304,11 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OBJECT_STORE_BACKEND: ${{ vars.OBJECT_STORE_BACKEND }}
+          R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ vars.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           csv="$(ls -1 "${OUTPUT_DIR}"/advanced_analysis_*.csv | sort | tail -n 1)"
           echo "Publishing ${csv} to the dashboard read model as US"

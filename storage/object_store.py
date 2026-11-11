@@ -36,7 +36,36 @@ LIST_PAGE_SIZE = 1000
 REMOVE_BATCH_SIZE = 1000
 
 
-class ObjectStore:
+def send_with_retries(method: str, path: str, url: str, timeout: int, **kwargs) -> requests.Response:
+    """One request, re-sent on a connection error or timeout (``TRANSFER_RETRIES`` times)."""
+    for attempt in range(TRANSFER_RETRIES + 1):
+        try:
+            return requests.request(method, url, timeout=timeout, **kwargs)
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            if attempt == TRANSFER_RETRIES:
+                raise
+            pause = RETRY_BACKOFF_SECONDS * 2**attempt
+            logger.warning(
+                "%s storage:%s failed (%s); retry %d of %d in %ds",
+                method, path, exc, attempt + 1, TRANSFER_RETRIES, pause,
+            )
+            time.sleep(pause)
+    raise AssertionError("unreachable")
+
+
+class GzipText:
+    """gzip text helpers for any store with ``put`` and ``get``."""
+
+    def put_gzip_text(self, path: str, text: str) -> None:
+        # mtime=0 keeps identical content byte-identical across writes.
+        self.put(path, gzip.compress(text.encode("utf-8"), mtime=0))
+
+    def get_gzip_text(self, path: str) -> str | None:
+        body = self.get(path)
+        return None if body is None else gzip.decompress(body).decode("utf-8")
+
+
+class ObjectStore(GzipText):
     def __init__(self, url: str, service_role_key: str, timeout_seconds: int = 60,
                  bucket: str = MARKET_DATA_BUCKET, read_only: bool = False):
         self.base_url = f"{url.rstrip('/')}/storage/v1/object/{bucket}"
@@ -49,21 +78,7 @@ class ObjectStore:
         return f"{self.base_url}/{quote(path, safe='/')}"
 
     def _send(self, method: str, path: str, *, url: str | None = None, **kwargs) -> requests.Response:
-        for attempt in range(TRANSFER_RETRIES + 1):
-            try:
-                return requests.request(
-                    method, url or self._url(path), timeout=self.timeout_seconds, **kwargs
-                )
-            except (requests.ConnectionError, requests.Timeout) as exc:
-                if attempt == TRANSFER_RETRIES:
-                    raise
-                pause = RETRY_BACKOFF_SECONDS * 2**attempt
-                logger.warning(
-                    "%s storage:%s failed (%s); retry %d of %d in %ds",
-                    method, path, exc, attempt + 1, TRANSFER_RETRIES, pause,
-                )
-                time.sleep(pause)
-        raise AssertionError("unreachable")
+        return send_with_retries(method, path, url or self._url(path), self.timeout_seconds, **kwargs)
 
     def put(self, path: str, body: bytes, content_type: str = "application/gzip") -> None:
         """Create or replace one object."""
@@ -124,14 +139,6 @@ class ObjectStore:
             )
             _raise_with_detail(response, "DELETE", batch[0])
         return len(paths)
-
-    def put_gzip_text(self, path: str, text: str) -> None:
-        # mtime=0 keeps identical content byte-identical across writes.
-        self.put(path, gzip.compress(text.encode("utf-8"), mtime=0))
-
-    def get_gzip_text(self, path: str) -> str | None:
-        body = self.get(path)
-        return None if body is None else gzip.decompress(body).decode("utf-8")
 
 
 def _raise_with_detail(response: requests.Response, method: str, path: str) -> None:

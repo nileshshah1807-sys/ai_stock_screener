@@ -11,6 +11,10 @@ refuses a write from a viewer. Only ``ls`` and ``cat`` exist.
         python -m tools.storage_peek ls price-series/NSE
     ... python -m tools.storage_peek cat <path>.json.gz     # gunzipped to stdout
 
+With ``OBJECT_STORE_BACKEND=r2`` it reads the R2 bucket instead, read-only,
+with the ``R2_*`` keys (``storage/object_backend.py``); no sign-in. The bucket
+is private, so this is an admin's local tool.
+
 ``ls`` prints the objects and folders directly under a prefix.
 """
 
@@ -23,6 +27,7 @@ import sys
 
 import requests
 
+from storage.object_backend import r2_from_env
 from storage.object_store import ObjectStore
 
 
@@ -54,15 +59,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=["ls", "cat"])
     parser.add_argument("path", help="a folder prefix (ls) or an object path (cat)")
     args = parser.parse_args(argv)
-    url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or os.environ["SUPABASE_URL"]
-    anon_key = os.environ["NEXT_PUBLIC_SUPABASE_ANON_KEY"]
-    token = sign_in(
-        url,
-        anon_key,
-        os.environ.get("CREED_DASHBOARD_EMAIL", "creed.audit@example.com"),
-        os.environ["CREED_DASHBOARD_PASSWORD"],
-    )
-    store = viewer_store(url, anon_key, token)
+    if os.environ.get("OBJECT_STORE_BACKEND", "").strip().lower() == "r2":
+        store = r2_from_env(read_only=True)
+    else:
+        url = os.environ.get("NEXT_PUBLIC_SUPABASE_URL") or os.environ["SUPABASE_URL"]
+        anon_key = os.environ["NEXT_PUBLIC_SUPABASE_ANON_KEY"]
+        token = sign_in(
+            url,
+            anon_key,
+            os.environ.get("CREED_DASHBOARD_EMAIL", "creed.audit@example.com"),
+            os.environ["CREED_DASHBOARD_PASSWORD"],
+        )
+        store = viewer_store(url, anon_key, token)
     path = args.path.strip("/")
     if args.command == "ls":
         for folder in store.folders(path):
