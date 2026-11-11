@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { AdminView } from "@/components/admin/admin-view";
 import { adminContext, loadUsers } from "@/lib/admin";
 import { asFilter, filterRows } from "@/lib/admin.mjs";
-import { getTrialDays } from "@/lib/trial-days";
+import { getTrialDaysLive } from "@/lib/trial-days";
 import { getSession } from "@/lib/auth";
 
 export const metadata: Metadata = { title: "Admin" };
@@ -21,5 +21,5 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   const all = await loadUsers(ctx.db).catch(() => null);
   if (!all) return <p role="alert" className="panel p-4 text-sm text-destructive">The users could not be read. Check the Supabase service key and try again.</p>;
   const rows = filterRows(all, { q, status });
-  return <AdminView rows={rows} total={all.length} q={q} status={status} adminId={ctx.viewer.id} razorpayKeyId={process.env.RAZORPAY_KEY_ID ?? ""} trialDays={await getTrialDays()} />;
+  return <AdminView rows={rows} total={all.length} q={q} status={status} adminId={ctx.viewer.id} razorpayKeyId={process.env.RAZORPAY_KEY_ID ?? ""} trialDays={await getTrialDaysLive()} />;
 }
