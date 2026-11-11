@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { getTrialDays } from "@/lib/trial-days";
+import { getTrialDaysLive } from "@/lib/trial-days";
 import { adminContext, cancelRazorpay, logAdminAction } from "@/lib/admin";
 import { refundGuard } from "@/lib/admin-refund.mjs";
 import { refundCandidate, runRefund, UNKNOWN } from "@/lib/admin-refund-server";
@@ -84,7 +84,7 @@ export async function undoTrialDenial(_prev: AdminState, formData: FormData): Pr
   const target = await targetOf(ctx, formData);
   if (!target) return fail("User not found.");
   const [trialDays, { data: sub }, { data: signal }] = await Promise.all([
-    getTrialDays(),
+    getTrialDaysLive(),
     ctx.db.from("subscriptions").select("trial_denied_at").eq("user_id", target.id).maybeSingle(),
     ctx.db.from("trial_signals").select("granted").eq("user_id", target.id).maybeSingle(),
   ]);
