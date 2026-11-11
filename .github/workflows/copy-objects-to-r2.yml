@@ -1,0 +1,52 @@
+name: Copy objects to R2
+
+# One-off, by hand (tools/copy_objects_to_r2.py): copies the Supabase
+# `market-data` objects to the R2 bucket, keys unchanged. The R2 and Supabase
+# keys live in this repository's secrets, so it runs here rather than on a
+# laptop. A dry run (the default) lists and counts and writes nothing; an
+# apply run is resumable (it skips what R2 already holds at the same size).
+# Never deletes from Supabase.
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Upload (otherwise a dry run that only counts)
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: copy-objects-to-r2
+  cancel-in-progress: false
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+
+      - name: Install dependencies
+        run: python -m pip install -c requirements-ci.txt requests
+
+      - name: Copy
+        env:
+          APPLY: ${{ inputs.apply && '--apply' || '' }}
+        run: python -m tools.copy_objects_to_r2 ${APPLY}

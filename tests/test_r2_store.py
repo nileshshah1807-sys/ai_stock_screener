@@ -200,19 +200,20 @@ class CopyToolTests(unittest.TestCase):
         self.source.list.side_effect = lambda p: files[p]
         self.source.get.side_effect = lambda k: {"snap/d1/a": b"aaa", "snap/d1/b": b"bb"}[k]
         self.target = mock.Mock(spec=R2Store)
-        self.target.sizes.return_value = {"snap/d1/b": 9}  # b is there, wrong size
+        self.held = {"snap/d1/b": 9}  # b is there, wrong size
+        self.target.sizes.side_effect = lambda prefix: dict(self.held)
 
     def test_dry_run_counts_and_writes_nothing(self):
         counts = copy_prefix(self.source, self.target, "snap", apply=False)
-        self.assertEqual((counts["seen"], counts["missing"], counts["copied"]), (2, 1, 0))
+        self.assertEqual((counts["supabase_objects"], counts["missing_in_r2"], counts["copied"]), (2, 1, 0))
         self.target.put.assert_not_called()
         self.source.get.assert_not_called()
 
     def test_apply_copies_missing_and_different_sizes(self):
         counts = copy_prefix(self.source, self.target, "snap", apply=True)
-        self.assertEqual((counts["copied"], counts["differs"], counts["bytes"]), (2, 1, 5))
+        self.assertEqual((counts["copied"], counts["resized"], counts["supabase_bytes"]), (2, 1, 5))
         self.assertEqual(self.target.put.call_count, 2)
 
     def test_apply_skips_what_r2_already_holds(self):
-        self.target.sizes.return_value = {"snap/d1/a": 3, "snap/d1/b": 2}
+        self.held = {"snap/d1/a": 3, "snap/d1/b": 2}
         self.assertEqual(copy_prefix(self.source, self.target, "snap", apply=True)["copied"], 0)
