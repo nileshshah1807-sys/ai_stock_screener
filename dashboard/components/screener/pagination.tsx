@@ -49,7 +49,7 @@ export function Pagination({
         {/* Disabled controls are rendered as spans, not links: a disabled
             anchor is still focusable and still navigable by keyboard. */}
         {page > 1 ? (
-          <Link
+          <Link prefetch={false}
             href={href(page - 1)}
             scroll={false}
             rel="prev"
@@ -74,7 +74,7 @@ export function Pagination({
         </span>
 
         {page < pages ? (
-          <Link
+          <Link prefetch={false}
             href={href(page + 1)}
             scroll={false}
             rel="next"

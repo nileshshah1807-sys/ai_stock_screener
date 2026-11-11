@@ -49,10 +49,10 @@ export function NavLink({
   const active = exact ? pathname === href : under(href) || (also ?? []).some(under);
 
   return (
-    <Link
+    <Link prefetch={false}
       href={href}
-      // Default prefetch: the shell down to loading.tsx, not the page's data. A full prefetch rendered every
-      // destination on each page view; on Workers that is CPU and an invocation each (1102s under a burst, Nov 2026).
+      // Not prefetched: every prefetch is a Worker invocation that runs the layout (auth, queries); 26 of them on one
+      // /ind view fed the 1102s under a burst (Nov 2026). The click shows loading.tsx and fetches.
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={cn(

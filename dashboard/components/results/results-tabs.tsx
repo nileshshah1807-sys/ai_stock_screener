@@ -20,7 +20,7 @@ export function ResultsTabs({ base }: { base: string }) {
   return (
     <GlassTrack label="Results views" className="w-max gap-0.5 p-0.5">
       {tabs.map(({ href, label, active }) => (
-        <Link
+        <Link prefetch={false}
           key={href}
           href={href}
           aria-current={active ? "page" : undefined}

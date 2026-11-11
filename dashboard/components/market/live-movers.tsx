@@ -377,7 +377,7 @@ function IndexSummary({ market, index }: { market: Market; index: LiveIndexMover
         </div>
       ) : null}
 
-      <Link
+      <Link prefetch={false}
         href={marketPath(market.slug, `/indices/${indexSlug(index.name)}`)}
         className={cn(
           "touch-target inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground sm:ml-auto",

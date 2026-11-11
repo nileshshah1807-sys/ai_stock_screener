@@ -52,7 +52,7 @@ export function PulseTiles({ indices }: { indices: PulseIndex[] }) {
           const trend = index.trend ?? [];
           return (
             <li key={index.name} className="animate-rise" style={{ animationDelay: `${position * 60}ms` }}>
-              <Link
+              <Link prefetch={false}
                 href={marketPath(market.slug, `/indices/${indexSlug(index.name)}`)}
                 className="flex h-full flex-col gap-1 rounded-xl border border-border bg-background/40 p-3 transition-colors duration-(--duration-fast) hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
