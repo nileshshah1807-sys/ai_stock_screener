@@ -1,6 +1,8 @@
 import "server-only";
 
 import type { MarketCode } from "@/lib/markets";
+import { digest, sharedRead } from "@/lib/home-cache";
+import type { Reader } from "@/lib/results";
 import { createClient } from "@/lib/supabase/server";
 import { readForSymbols } from "@/lib/symbol-scope.mjs";
 
@@ -70,11 +72,23 @@ export type ConcallQuery = {
  * was stored most recently first, ties by symbol. A table without `stored_at`
  * (not applied yet) or a row where it is null falls back to symbol order.
  */
-export async function getConcalls(
+export async function getConcalls(market: MarketCode, query: ConcallQuery = {}): Promise<Concall[]> {
+  const { symbols = null, search = "", stances = [], limit = 150 } = query;
+  // `concall_feed` is the same for every viewer, so one cross-instance entry per filter.
+  return sharedRead("concalls", market, 300, (db) => readConcalls(market, query, db), [
+    symbols ? await digest(symbols) : "all",
+    search,
+    stances.join(","),
+    String(limit),
+  ]);
+}
+
+async function readConcalls(
   market: MarketCode,
-  { symbols = null, search = "", stances = [], limit = 150 }: ConcallQuery = {},
+  { symbols = null, search = "", stances = [], limit = 150 }: ConcallQuery,
+  db?: Reader,
 ): Promise<Concall[]> {
-  const supabase = await createClient();
+  const supabase = db ?? (await createClient());
   const read = (columns: string, byStoredAt = false) =>
     readForSymbols<Concall>(symbols, limit, (pushed, from, to) => {
       let query = supabase.from("concall_feed").select(columns).eq("market", market);
@@ -93,7 +107,10 @@ export async function getConcalls(
     // shows them without a stance instead of showing nothing.
     ({ rows, error } = await read(BASE_COLUMNS));
   }
-  if (error) console.error("getConcalls failed", error);
+  if (error) {
+    if (db) throw new Error(String(error));
+    console.error("getConcalls failed", error);
+  }
   return rows;
 }
 

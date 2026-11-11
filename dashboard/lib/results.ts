@@ -7,7 +7,7 @@ import { unstable_cache } from "next/cache";
 
 import type { MarketCode } from "@/lib/markets";
 import { getLatestRun, getSearchIndex } from "@/lib/queries";
-import { cachedOr } from "@/lib/home-cache";
+import { cachedOr, digest, sharedRead } from "@/lib/home-cache";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { createClient } from "@/lib/supabase/server";
 import { bucketOf, halfYearResults, quarterWindow } from "@/lib/results.mjs";
@@ -284,7 +284,17 @@ export async function getQuarterFilings(
   periods: string[],
 ): Promise<QuarterFiling[]> {
   if (!symbols.length) return [];
-  const supabase = await createClient();
+  return sharedRead("filings", market, QUARTER_FILINGS_REVALIDATE, (db) => readQuarterFilings(market, symbols, periods, db), [
+    await digest(symbols),
+    periods.join(","),
+  ]);
+}
+
+/** A result is stored minutes after it is filed; the same beat as the feed. */
+const QUARTER_FILINGS_REVALIDATE = 300;
+
+async function readQuarterFilings(market: MarketCode, symbols: string[], periods: string[], db?: Reader): Promise<QuarterFiling[]> {
+  const supabase = db ?? (await createClient());
   const read = (columns: string) =>
     inQuarters(supabase.from("quarterly_filings").select(columns).eq("market", market).in("symbol", symbols), market, periods)
       // Two bases for each quarter of each company, well inside one response.
@@ -296,6 +306,7 @@ export async function getQuarterFilings(
     ({ data, error } = await read(FILING_COLUMNS));
   }
   if (error) {
+    if (db) throw new Error(error.message);
     console.error("getQuarterFilings failed", error.message);
     return [];
   }

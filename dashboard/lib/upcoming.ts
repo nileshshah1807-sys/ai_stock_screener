@@ -2,6 +2,7 @@ import "server-only";
 
 import { fixtureRows } from "@/lib/upcoming-fixtures.mjs";
 import type { MarketCode } from "@/lib/markets";
+import { sharedRead } from "@/lib/home-cache";
 import { createClient } from "@/lib/supabase/server";
 import { runCompanyNames } from "@/lib/results";
 import { eventsFromRows } from "@/lib/upcoming.mjs";
@@ -47,16 +48,26 @@ type UpcomingRow = {
 };
 
 /** Events of one kind from `today` on, soonest first; null when they cannot be read. */
-export async function getUpcoming(
+export function getUpcoming(
   market: MarketCode,
   kind: UpcomingKind,
   today: string,
+): Promise<UpcomingEvent[] | null> {
+  // Market-wide and the same for every viewer: one cross-instance entry, names included.
+  return sharedRead("upcoming", market, 300, (db) => readUpcoming(market, kind, today, db), [kind, today]);
+}
+
+async function readUpcoming(
+  market: MarketCode,
+  kind: UpcomingKind,
+  today: string,
+  db?: Awaited<ReturnType<typeof createClient>>,
 ): Promise<UpcomingEvent[] | null> {
   // The US has result dates (Alpha Vantage's calendar) but no earnings-call notices.
   if (market !== "NSE" && kind !== "results") return null;
   if (market === "NSE" && process.env.UPCOMING_FIXTURES === "1") return eventsFromRows(fixtureRows(today), kind, today);
   const names = await runCompanyNames(market);
-  const supabase = await createClient();
+  const supabase = db ?? (await createClient());
   const rows: UpcomingRow[] = [];
   for (let from = 0; ; from += READ_WINDOW) {
     const query = supabase.from("upcoming_events").select(COLUMNS).eq("market", market);
@@ -68,6 +79,8 @@ export async function getUpcoming(
       .order("symbol", { ascending: true })
       .range(from, from + READ_WINDOW - 1);
     if (error) {
+      // A missing table is a stable answer worth keeping; any other failure must not be cached.
+      if (db && !MISSING_TABLE.has(error.code)) throw new Error(error.message);
       if (!MISSING_TABLE.has(error.code)) console.error("getUpcoming failed", error.message);
       return null;
     }

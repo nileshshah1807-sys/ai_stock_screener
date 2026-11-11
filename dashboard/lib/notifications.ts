@@ -2,7 +2,9 @@ import "server-only";
 
 import { cache } from "react";
 
+import { digest, sharedRead } from "@/lib/home-cache";
 import type { MarketCode } from "@/lib/markets";
+import type { Reader } from "@/lib/results";
 import { createClient } from "@/lib/supabase/server";
 import { readForSymbols } from "@/lib/symbol-scope.mjs";
 import { dedupeEvents } from "@/lib/notifications.mjs";
@@ -46,11 +48,22 @@ export type EventQuery = {
 };
 
 /** Events for one market, newest first. Baselines are never returned. */
-export async function getEvents(
+export async function getEvents(market: MarketCode, query: EventQuery = {}): Promise<MarketEvent[]> {
+  const { symbols = null, kinds = [], limit = 200 } = query;
+  // `market_events` is the same for every viewer: one cross-instance entry per scope, two minutes old at most.
+  return sharedRead("events", market, 120, (db) => readEvents(market, query, db), [
+    symbols ? await digest(symbols) : "all",
+    kinds.join(","),
+    String(limit),
+  ]);
+}
+
+async function readEvents(
   market: MarketCode,
-  { symbols = null, kinds = [], limit = 200 }: EventQuery = {},
+  { symbols = null, kinds = [], limit = 200 }: EventQuery,
+  db?: Reader,
 ): Promise<MarketEvent[]> {
-  const supabase = await createClient();
+  const supabase = db ?? (await createClient());
   const { rows, error } = await readForSymbols<MarketEvent>(symbols, limit, (pushed, from, to) => {
     let query = supabase
       .from("market_events")
@@ -64,7 +77,10 @@ export async function getEvents(
       .order("id", { ascending: false })
       .range(from, to);
   });
-  if (error) console.error("getEvents failed", error);
+  if (error) {
+    if (db) throw new Error(String(error));
+    console.error("getEvents failed", error);
+  }
   return rows;
 }
 
