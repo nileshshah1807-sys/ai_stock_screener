@@ -2,6 +2,8 @@ import "server-only";
 
 import { gunzipSync } from "node:zlib";
 
+import { getCloudflareContext } from "@opennextjs/cloudflare";
+
 import type { MarketCode } from "@/lib/markets";
 import { createClient } from "@/lib/supabase/server";
 
@@ -30,8 +32,41 @@ export const snapshotPayloadPath = (market: MarketCode, runDate: string, symbol:
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
+/** The slice of R2's bucket API used here (the worker types are not a dependency). */
+type R2Bucket = { get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null> };
+
+/** The MARKET_DATA binding, or null off Cloudflare (local development) or before it is bound. */
+function r2Bucket(): R2Bucket | null {
+  try {
+    return ((getCloudflareContext().env as Record<string, unknown>).MARKET_DATA as R2Bucket | undefined) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const unzip = <T>(buffer: Buffer) => JSON.parse(gunzipSync(buffer).toString("utf8")) as T;
+
+/** From R2; null when there is no binding, no object, or it cannot be read (the caller then asks Supabase). */
+async function readFromR2<T>(path: string): Promise<T | null> {
+  const bucket = r2Bucket();
+  if (!bucket) return null;
+  try {
+    const object = await bucket.get(path);
+    if (!object) {
+      console.warn(`market-data R2 miss, falling back to Supabase: ${path}`);
+      return null;
+    }
+    return unzip<T>(Buffer.from(await object.arrayBuffer()));
+  } catch (cause) {
+    console.warn(`market-data R2 read failed, falling back to Supabase: ${path}`, cause instanceof Error ? cause.message : cause);
+    return null;
+  }
+}
+
 /** One object, unzipped and parsed; null when it is missing or unreadable. */
 export async function readMarketObject<T>(supabase: Supabase, path: string): Promise<T | null> {
+  const fromR2 = await readFromR2<T>(path);
+  if (fromR2 !== null) return fromR2;
   const { data, error } = await supabase.storage.from(MARKET_DATA_BUCKET).download(path);
   if (error || !data) {
     // A symbol the publisher has not reached has no object; that is a gap,
@@ -42,8 +77,7 @@ export async function readMarketObject<T>(supabase: Supabase, path: string): Pro
     return null;
   }
   try {
-    const buffer = Buffer.from(await data.arrayBuffer());
-    return JSON.parse(gunzipSync(buffer).toString("utf8")) as T;
+    return unzip<T>(Buffer.from(await data.arrayBuffer()));
   } catch (cause) {
     console.error(`readMarketObject(${path}) could not be decoded`, cause);
     return null;
