@@ -372,6 +372,17 @@ the scheduled workflows set the same flag.
   webhook (`dashboard/app/api/billing/webhook`) is the only writer of paid status
   (service role: that route, `create-subscription`, and `billing/confirm`, which applies the same event through `billing_apply_event` only after the checkout signature verifies and Razorpay's own subscription state is read, so a payer has access in seconds); the admin users page's "Refund & end access" refunds the latest payment, cancels at once and calls `billing_refund_end_access`, after which the token hook refuses that subscription whatever a later webhook says; a `subscription.charged` for a subscription held as cancelled, after its paid period (a cycle-end cancel Razorpay did not honour), is undone by the webhook (cancel now, full refund, `late_charge_undone` row in `admin_actions`) and never applied; ratings stay
   admin-only whatever the plan. The `cupel-staging` Worker (workers.dev, deployed from the `staging` branch) uses Razorpay TEST keys on the live database: `RAZORPAY_TEST_PLANS` (`lib/plan-overrides.mjs`; ignored when `APP_ENV=production`) swaps in test plan and offer ids at checkout and in the admin view, and every admin action that writes plans or settings is refused outside production (`APP_ENV=production` is set on the production Worker only, never on staging or a preview Worker; unset fails closed). Checkout outside production is refused unless the email is in `PREVIEW_CHECKOUT_EMAILS` (unset = nobody), since staging purchases write to the shared `subscriptions` table. Applied by hand; `billing_schema.sql` revokes and re-grants every column on `subscriptions`, so it grants all of them itself (a test checks) and re-applying it alone is safe.
+- **cron-job.org dispatches workflows with a GitHub token.** Every
+  dispatch-only workflow (live quotes, quarterly filings, financial statements,
+  call recordings, Muhurat trading) is started by a cron-job.org job calling
+  GitHub's `workflow_dispatch` API with a fine-grained token, set as the
+  `Authorization` header of each of the seven jobs. It needs **Actions: Read and
+  write** on this repository (Workflows: write is a different permission and
+  gives 403), and it has no expiration. A bad or revoked token makes every call
+  fail and nothing starts: on 11 Nov 2026 live quotes stopped at 16:20 UTC (401),
+  and after the first replacement they stayed down on 403 until the permission
+  was fixed. cron-job.org keeps the status code, not the response body; read the
+  history of a job for it. A new token goes into all seven jobs.
 - **Live prices are display-only, every five minutes during the session.**
   `workers/live_quotes.py` (the Live quotes workflow, dispatch-only:
   cron-job.org calls it every 5 minutes on weekdays; do not add a
