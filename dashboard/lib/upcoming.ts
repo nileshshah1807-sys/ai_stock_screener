@@ -48,25 +48,31 @@ type UpcomingRow = {
 };
 
 /** Events of one kind from `today` on, soonest first; null when they cannot be read. */
-export function getUpcoming(
+export async function getUpcoming(
   market: MarketCode,
   kind: UpcomingKind,
   today: string,
-): Promise<UpcomingEvent[] | null> {
-  // Market-wide and the same for every viewer: one cross-instance entry, names included.
-  return sharedRead("upcoming", market, 300, (db) => readUpcoming(market, kind, today, db), [kind, today]);
-}
-
-async function readUpcoming(
-  market: MarketCode,
-  kind: UpcomingKind,
-  today: string,
-  db?: Awaited<ReturnType<typeof createClient>>,
 ): Promise<UpcomingEvent[] | null> {
   // The US has result dates (Alpha Vantage's calendar) but no earnings-call notices.
   if (market !== "NSE" && kind !== "results") return null;
   if (market === "NSE" && process.env.UPCOMING_FIXTURES === "1") return eventsFromRows(fixtureRows(today), kind, today);
-  const names = await runCompanyNames(market);
+  // The rows are the same for every viewer: one cross-instance entry. The names are read outside it:
+  // they come from the search index, which reads the session (cookies), and that must never run
+  // inside a cached loader (the failed read would be remembered for the whole request).
+  const [rows, names] = await Promise.all([
+    sharedRead("upcoming", market, 300, (db) => readUpcomingRows(market, kind, today, db), [kind, today]),
+    runCompanyNames(market),
+  ]);
+  if (!rows) return null;
+  return eventsFromRows(rows.map((row) => ({ ...row, company: names.get(row.symbol) ?? null })), kind, today);
+}
+
+async function readUpcomingRows(
+  market: MarketCode,
+  kind: UpcomingKind,
+  today: string,
+  db?: Awaited<ReturnType<typeof createClient>>,
+): Promise<UpcomingRow[] | null> {
   const supabase = db ?? (await createClient());
   const rows: UpcomingRow[] = [];
   for (let from = 0; ; from += READ_WINDOW) {
@@ -87,7 +93,7 @@ async function readUpcoming(
     rows.push(...(data as UpcomingRow[]));
     if (data.length < READ_WINDOW) break;
   }
-  return eventsFromRows(rows.map((row) => ({ ...row, company: names.get(row.symbol) ?? null })), kind, today);
+  return rows;
 }
 
 /** The date of this company's coming results, or null. */
