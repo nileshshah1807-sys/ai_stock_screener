@@ -10,6 +10,13 @@
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // With routes set, wrangler turns the workers.dev address off unless told otherwise; Creed's smoke runs there.
+  "workers_dev": true,
+  // Production hostnames. Attached here so a deploy keeps them; wrangler adds a missing one and leaves an existing one alone.
+  "routes": [
+    { "pattern": "cupel.in", "custom_domain": true },
+    { "pattern": "www.cupel.in", "custom_domain": true }
+  ],
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   // Run the Worker near the database (the Supabase project is in ap-northeast-1, Tokyo).
   // An explicit host, not "smart": Smart Placement needs traffic to learn and stayed
