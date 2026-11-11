@@ -4,6 +4,9 @@
   // Text vars set in the Cloudflare dashboard (JSM_*, TRIAL_GUARD_SALT) and secrets are not in this file;
   // without this a `wrangler deploy` would wipe the vars. Secrets survive either way.
   "keep_vars": true,
+  // wrangler's esbuild would wrap functions in __name() helpers; next-themes sends one of them to the browser as
+  // inline script text, where __name does not exist ("ReferenceError: __name is not defined", theme script dead).
+  "keep_names": false,
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
