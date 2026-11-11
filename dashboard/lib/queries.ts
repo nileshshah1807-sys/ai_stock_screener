@@ -1231,6 +1231,8 @@ export const getSectors = cache(
 );
 
 export type MoverBuckets = {
+  /** The read failed: the buckets are empty because nothing was read, not because nothing moved. */
+  failed: boolean;
   observedOn: string | null;
   previousOn: string | null;
   climbers: MoverRow[];
@@ -1280,6 +1282,7 @@ export async function getMovers(
   if (error) {
     console.error("getMovers failed", error.message);
     return {
+      failed: true,
       observedOn: runDate,
       previousOn: null,
       climbers: [],
@@ -1338,6 +1341,7 @@ export async function getMovers(
     .slice(0, limit);
 
   return {
+    failed: false,
     observedOn: runDate,
     previousOn,
     climbers,

@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowDownRight, ArrowUpRight, Sparkles, TrendingDown, TrendingUp } from "lucide-react";
@@ -7,7 +8,8 @@ import { Reveal } from "@/components/motion";
 import { StockListRow } from "@/components/stock-identity";
 import { isAdmin } from "@/lib/auth";
 import { formatDate, formatScore, MISSING } from "@/lib/format";
-import { marketFromSlug, marketPath } from "@/lib/markets";
+import { MoverListSkeleton } from "@/components/skeletons";
+import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
 import { getLatestRun, getMovers } from "@/lib/queries";
 import type { MoverRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -114,55 +116,69 @@ function MoverList({
   );
 }
 
-export default async function MoversPage({
-  params,
-}: PageProps<"/[market]/movers">) {
+export default async function MoversPage({ params }: PageProps<"/[market]/movers">) {
   const market = marketFromSlug((await params).market)!;
-  const run = await getLatestRun(market.code);
-
-  if (!run) {
-    return (
-      <div className="px-4 py-6 sm:px-6">
-        <p className="text-sm text-muted-foreground">
-          No screener run has been published yet.
-        </p>
-      </div>
-    );
-  }
-
-  const [movers, admin] = await Promise.all([getMovers(market.code, run.run_date), isAdmin()]);
-  const hasComparison = Boolean(movers.previousOn);
+  const admin = await isAdmin();
 
   return (
     <div className="space-y-4 px-4 py-5 sm:px-6">
-        <div>
-          {/* The mock's page title sits at 36px with the tracking pulled in.
-              It is one element per page, so it can carry that weight without
-              competing with the panels below it. */}
-          <h1 className="text-title font-semibold">Movers</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {hasComparison ? (
-              <>
-                How the model&rsquo;s ranks {admin ? "and ratings " : ""}moved:{" "}
-                {formatDate(run.run_date)} compared with the previous published
-                run, {formatDate(movers.previousOn)}. Today&rsquo;s price moves
-                are on the{" "}
-                <Link
-                  href={marketPath(market.slug, "/market")}
-                  className="underline underline-offset-2 hover:text-foreground"
-                >
-                  Market
-                </Link>{" "}
-                page.
-              </>
-            ) : (
-              <>
-                Only one run is on record. Movement appears once a second run
-                has been published.
-              </>
-            )}
-          </p>
-        </div>
+      <div>
+        {/* The mock's page title sits at 36px with the tracking pulled in.
+            It is one element per page, so it can carry that weight without
+            competing with the panels below it. The subtitle is static: it
+            paints with the heading, and the run dates it used to carry arrive
+            with the lists, which wait on the read. */}
+        <h1 className="text-title font-semibold">Movers</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          How the model&rsquo;s ranks {admin ? "and ratings " : ""}moved between published runs. Today&rsquo;s price
+          moves are on the{" "}
+          <Link
+            href={marketPath(market.slug, "/market")}
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Market
+          </Link>{" "}
+          page.
+        </p>
+      </div>
+
+      <Suspense fallback={<MoversSkeleton />}>
+        <MoversBody market={market} admin={admin} />
+      </Suspense>
+    </div>
+  );
+}
+
+function MoversSkeleton() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2" aria-busy="true">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <MoverListSkeleton key={i} rows={6} />
+      ))}
+    </div>
+  );
+}
+
+async function MoversBody({ market, admin }: { market: Market; admin: boolean }) {
+  const run = await getLatestRun(market.code);
+  if (!run) {
+    return <p className="text-sm text-muted-foreground">No screener run has been published yet.</p>;
+  }
+
+  const movers = await getMovers(market.code, run.run_date);
+  // A failed read is not "one run on record": say it could not be read.
+  if (movers.failed) {
+    return <p className="text-sm text-muted-foreground">Couldn&rsquo;t load movers. Reload to retry.</p>;
+  }
+  const hasComparison = Boolean(movers.previousOn);
+
+  return (
+    <>
+      <p className="text-sm text-muted-foreground">
+        {hasComparison
+          ? `${formatDate(run.run_date)} compared with the previous published run, ${formatDate(movers.previousOn)}.`
+          : "Only one run is on record. Movement appears once a second run has been published."}
+      </p>
 
         {/* The comparison is against the previous *available* run, not
             yesterday's calendar date, so a weekend or exchange holiday does not
@@ -219,6 +235,6 @@ export default async function MoversPage({
         It is not a trade signal, and the underlying model has not been
         validated out of sample.
       </p>
-    </div>
+    </>
   );
 }
