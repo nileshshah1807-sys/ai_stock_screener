@@ -1,6 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "cupel-dashboard",
+  // Text vars set in the Cloudflare dashboard (JSM_*, TRIAL_GUARD_SALT) and secrets are not in this file;
+  // without this a `wrangler deploy` would wipe the vars. Secrets survive either way.
+  "keep_vars": true,
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
