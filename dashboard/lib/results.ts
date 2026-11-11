@@ -8,6 +8,7 @@ import { unstable_cache } from "next/cache";
 import type { MarketCode } from "@/lib/markets";
 import { getLatestRun, getSearchIndex } from "@/lib/queries";
 import { cachedOr } from "@/lib/home-cache";
+import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { createClient } from "@/lib/supabase/server";
 import { bucketOf, halfYearResults, quarterWindow } from "@/lib/results.mjs";
 import { PUSH_DOWN_MAX, readForSymbols } from "@/lib/symbol-scope.mjs";
@@ -246,15 +247,22 @@ export async function getDeclaredSymbols(market: MarketCode, quarter: string, db
  * hour, so a result may take up to five minutes to reach a cold instance.
  */
 const RESULTS_REVALIDATE = 300;
+/** One instance keeps these reads a minute (an R2 cache hit costs 0.7-2.2 s on Workers); well inside the five they are shared for. */
+const kept = sharedMemo<unknown>(60_000, 100);
+const memo = <T>(key: string, load: () => Promise<T>) => kept(key, load) as Promise<T>;
 
 export const getLatestResultQuarterShared = (market: MarketCode, offered: string[]) =>
-  cachedOr("latest-quarter", market, RESULTS_REVALIDATE, (db) => getLatestResultQuarter(market, offered, db), offered);
+  memo(`latest-quarter:${market}:${offered.join(",")}`, () =>
+    cachedOr("latest-quarter", market, RESULTS_REVALIDATE, (db) => getLatestResultQuarter(market, offered, db), offered),
+  );
 
 export async function getDeclaredSymbolsShared(market: MarketCode, quarter: string): Promise<Set<string> | null> {
-  const symbols = await cachedOr("declared", market, RESULTS_REVALIDATE, async (db) => {
-    const set = await getDeclaredSymbols(market, quarter, db);
-    return set && [...set];
-  }, [quarter]);
+  const symbols = await memo(`declared:${market}:${quarter}`, () =>
+    cachedOr("declared", market, RESULTS_REVALIDATE, async (db) => {
+      const set = await getDeclaredSymbols(market, quarter, db);
+      return set && [...set];
+    }, [quarter]),
+  );
   return symbols && new Set(symbols);
 }
 
@@ -263,9 +271,10 @@ export function getResultFeedShared(market: MarketCode, query: ResultFeedQuery) 
   if (query.search) return getResultFeed(market, query);
   const { quarter, symbols = null, limit = 30, byPeriodEnd = false } = query;
   const scope = symbols ? createHash("sha1").update(symbols.join(",")).digest("hex") : "all";
-  return cachedOr("feed", market, RESULTS_REVALIDATE, (db) => getResultFeed(market, query, db), [
-    quarter, String(limit), String(byPeriodEnd), scope,
-  ]);
+  const key = [quarter, String(limit), String(byPeriodEnd), scope];
+  return memo(`feed:${market}:${key.join(":")}`, () =>
+    cachedOr("feed", market, RESULTS_REVALIDATE, (db) => getResultFeed(market, query, db), key),
+  );
 }
 
 /** Every filing of these companies for these quarters, on both bases. */

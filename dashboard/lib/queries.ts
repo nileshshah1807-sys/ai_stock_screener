@@ -663,6 +663,9 @@ export type CompanyFacts = {
  * companies in the missing part, so the caller is told there is nothing to
  * filter by and shows the feed unfiltered.
  */
+/** The five fact chunks come from R2 at 0.7-2.2 s each on Workers; a warm instance keeps them for a minute. */
+const factsMemo = sharedMemo<CompanyFacts[]>(60_000);
+
 export const getCompanyFacts = cache(
   async (market: MarketCode): Promise<CompanyFacts[] | null> => {
     const run = await getLatestRun(market);
@@ -672,14 +675,14 @@ export const getCompanyFacts = cache(
     const admin = await isAdmin();
     const supabase = await createClient();
     const sharedChunk = (offset: number) =>
-      cachedOr(
+      factsMemo(`${market}:${run.run_date}:${offset}`, () => cachedOr(
         "facts",
         market,
         900,
         (db) =>
           readFactChunk(db ?? supabase, market, run.run_date, offset, db ? "screener_snapshot" : "screener_snapshot_visible", false),
         [run.run_date, String(offset)],
-      );
+      ));
     const chunk = (offset: number) =>
       admin ? readFactChunk(supabase, market, run.run_date, offset, "screener_snapshot_visible", true) : sharedChunk(offset);
     try {
