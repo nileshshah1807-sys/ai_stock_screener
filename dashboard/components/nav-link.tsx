@@ -51,15 +51,8 @@ export function NavLink({
   return (
     <Link
       href={href}
-      /*
-       * The full route, data included, not just the shell down to loading.tsx
-       * (the default for a dynamic route). Measured: a first visit spent
-       * 0.3-2s in the page's queries after the skeleton appeared; a
-       * prefetched one renders in under 70ms. Bounded: five destinations, and
-       * staleTimes.dynamic holds each for 60s, so it is not refetched on every
-       * render.
-       */
-      prefetch
+      // Default prefetch: the shell down to loading.tsx, not the page's data. A full prefetch rendered every
+      // destination on each page view; on Workers that is CPU and an invocation each (1102s under a burst, Nov 2026).
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={cn(
