@@ -8,7 +8,7 @@ const live = { id: "pro", razorpay_plan_id: "plan_LIVE", razorpay_offer_id: "off
 const quiet = () => {};
 
 test("on Preview the test ids replace the live ones, only for listed plans", () => {
-  const env = { VERCEL_ENV: "preview", RAZORPAY_TEST_PLANS: MAP };
+  const env = { APP_ENV: "preview", RAZORPAY_TEST_PLANS: MAP };
   const out = withTestIds(live, env, quiet);
   assert.equal(out.razorpay_plan_id, "plan_T");
   assert.equal(out.razorpay_offer_id, "offer_T");
@@ -22,21 +22,21 @@ test("on Preview the test ids replace the live ones, only for listed plans", () 
 
 test("the override is ignored in production, with a warning", () => {
   const warnings = [];
-  const env = { VERCEL_ENV: "production", RAZORPAY_TEST_PLANS: MAP };
+  const env = { APP_ENV: "production", RAZORPAY_TEST_PLANS: MAP };
   assert.deepEqual(testPlanIds(env, (m) => warnings.push(m)), {});
   assert.equal(withTestIds(live, env, quiet), live);
   assert.match(warnings[0], /ignored/);
 });
 
 test("unset or malformed leaves the row alone", () => {
-  assert.equal(withTestIds(live, { VERCEL_ENV: "preview" }, quiet), live);
-  assert.equal(withTestIds(live, { VERCEL_ENV: "preview", RAZORPAY_TEST_PLANS: "{nope" }, quiet), live);
-  assert.equal(withTestIds(live, { VERCEL_ENV: "preview", RAZORPAY_TEST_PLANS: "[1]" }, quiet), live);
+  assert.equal(withTestIds(live, { APP_ENV: "preview" }, quiet), live);
+  assert.equal(withTestIds(live, { APP_ENV: "preview", RAZORPAY_TEST_PLANS: "{nope" }, quiet), live);
+  assert.equal(withTestIds(live, { APP_ENV: "preview", RAZORPAY_TEST_PLANS: "[1]" }, quiet), live);
 });
 
 test("plan writes are refused everywhere but production", () => {
-  assert.equal(plansReadOnlyReason({ VERCEL_ENV: "production" }), null);
-  for (const VERCEL_ENV of ["preview", "development", undefined]) assert.match(plansReadOnlyReason({ VERCEL_ENV }), /read-only/);
+  assert.equal(plansReadOnlyReason({ APP_ENV: "production" }), null);
+  for (const APP_ENV of ["preview", "development", undefined]) assert.match(plansReadOnlyReason({ APP_ENV }), /read-only/);
 });
 
 test("every admin plan write checks the read-only guard first", async () => {
@@ -51,11 +51,11 @@ test("every admin plan write checks the read-only guard first", async () => {
 
 test("outside production only listed emails may start a checkout; production is unaffected", async () => {
   const { previewCheckoutBlock } = await import("./plan-overrides.mjs");
-  const env = { VERCEL_ENV: "preview", PREVIEW_CHECKOUT_EMAILS: " Test@Example.com ,b@x.co" };
+  const env = { APP_ENV: "preview", PREVIEW_CHECKOUT_EMAILS: " Test@Example.com ,b@x.co" };
   assert.equal(previewCheckoutBlock("test@example.com", env), null);
   assert.equal(previewCheckoutBlock("real@customer.in", env), "preview_checkout_not_allowed");
   assert.equal(previewCheckoutBlock(undefined, env), "preview_checkout_not_allowed");
-  assert.equal(previewCheckoutBlock("test@example.com", { VERCEL_ENV: "preview" }), "preview_checkout_not_allowed"); // list unset: nobody
-  assert.equal(previewCheckoutBlock("real@customer.in", { VERCEL_ENV: "production" }), null);
-  assert.equal(previewCheckoutBlock("real@customer.in", { VERCEL_ENV: "production", PREVIEW_CHECKOUT_EMAILS: "" }), null);
+  assert.equal(previewCheckoutBlock("test@example.com", { APP_ENV: "preview" }), "preview_checkout_not_allowed"); // list unset: nobody
+  assert.equal(previewCheckoutBlock("real@customer.in", { APP_ENV: "production" }), null);
+  assert.equal(previewCheckoutBlock("real@customer.in", { APP_ENV: "production", PREVIEW_CHECKOUT_EMAILS: "" }), null);
 });

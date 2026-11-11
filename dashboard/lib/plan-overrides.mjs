@@ -7,7 +7,7 @@
  * Pure: the environment is passed in.
  */
 
-const isProduction = (env) => env.VERCEL_ENV === "production";
+const isProduction = (env) => env.APP_ENV === "production";
 
 /** The parsed override map, or {} (unset, malformed, or production). */
 export function testPlanIds(env = process.env, warn = console.warn) {

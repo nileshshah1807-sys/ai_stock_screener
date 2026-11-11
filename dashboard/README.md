@@ -322,6 +322,7 @@ Server-side variables (runtime secrets unless noted):
 | `RESEND_API_KEY` | Resend key for the trial-ending emails (secret) |
 | `CRON_SECRET` | shared secret the trial-ending route checks (secret); see below |
 | `TRIAL_GUARD_SALT` | salt for the free-trial device check (secret) |
+| `APP_ENV` | `production` on the production Worker ONLY. Unset (or anything else) means preview: checkout is refused except for `PREVIEW_CHECKOUT_EMAILS`, plan edits are read-only, and `RAZORPAY_TEST_PLANS` swaps in test ids. Never set it on a preview Worker or in `wrangler.jsonc` `vars` (replaces Vercel's `VERCEL_ENV`) |
 | `SESSION_MAX_AGE_HOURS` | optional, hours a sign-in lasts (default 168) |
 | `PREVIEW_TRIAL_DAYS` | optional, trial length override |
 | `SCREENER_TRACE` | optional, `1` turns on request tracing |
@@ -362,7 +363,7 @@ daily job is run by cron-job.org:
 - Schedule: `30 4 * * *`, timezone UTC
 - Header: `Authorization: Bearer <CRON_SECRET>` (the same value as the Worker secret)
 - Timeout 60 s, no retries
-- Enable it only after the domain points at the Cloudflare Worker.
+- Create the job before the domain moves, and enable it once the domain points at the Worker; nothing in the repo checks that it exists, and without it trial-ending emails silently stop.
 
 Without `CRON_SECRET` set, or with a wrong header, the route answers 401 and
 sends nothing.

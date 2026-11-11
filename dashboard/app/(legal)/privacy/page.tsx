@@ -81,7 +81,7 @@ export default function PrivacyPage() {
       <h2>3. Who processes it for us</h2>
       <ul>
         <li>Supabase: database, authentication and sign-in emails.</li>
-        <li>Vercel: hosting of the website.</li>
+        <li>Cloudflare: hosting and delivery of the website. Its cache holds market-wide data only, not personal data.</li>
         <li>
           Razorpay Software Pvt Ltd: payments, receipts and autopay notices. Razorpay also handles
           payment data under its own{" "}
@@ -90,7 +90,7 @@ export default function PrivacyPage() {
         <li>Resend: sending our account and billing emails (your email address and the text of the email).</li>
       </ul>
       <p>
-        Supabase, Vercel and Resend process data only on our instructions. Our database and servers are in Tokyo,
+        Supabase, Cloudflare and Resend process data only on our instructions. Our database is in Tokyo,
         Japan, so your data is stored outside India. We transfer it only to countries the
         Government of India has not restricted. We may disclose data where the law, a court or a
         regulator requires it.

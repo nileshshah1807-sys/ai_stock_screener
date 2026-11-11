@@ -140,10 +140,10 @@ test("an address matches only itself in an ilike: _ % and \\ are escaped", () =>
 
 test("an unknown subscription lets a delete go on only in production", () => {
   const unknown = { error: { code: "BAD_REQUEST_ERROR", description: "The ID provided is invalid or could not be found." } };
-  assert.equal(cancelSettled(true, 200, null, { VERCEL_ENV: "preview" }), true);
-  assert.equal(cancelSettled(false, 400, unknown, { VERCEL_ENV: "production" }), true);
+  assert.equal(cancelSettled(true, 200, null, { APP_ENV: "preview" }), true);
+  assert.equal(cancelSettled(false, 400, unknown, { APP_ENV: "production" }), true);
   // Preview has test keys on the live database: the same answer is given for a real customer's live subscription.
-  assert.equal(cancelSettled(false, 400, unknown, { VERCEL_ENV: "preview" }), false);
+  assert.equal(cancelSettled(false, 400, unknown, { APP_ENV: "preview" }), false);
   assert.equal(cancelSettled(false, 404, null, {}), false);
-  assert.equal(cancelSettled(false, 500, null, { VERCEL_ENV: "production" }), false);
+  assert.equal(cancelSettled(false, 500, null, { APP_ENV: "production" }), false);
 });
