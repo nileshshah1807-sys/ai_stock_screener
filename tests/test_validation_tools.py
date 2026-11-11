@@ -45,7 +45,7 @@ from validation.reproducibility import (
     write_run_manifest,
 )
 
-PRODUCTION = "(github.event_name == 'schedule' || inputs.mode == 'production')"
+PRODUCTION = "(github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production')"
 
 
 class ReproducibilityManifestTests(unittest.TestCase):
@@ -809,10 +809,10 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
                     workflow,
                 )
                 self.assertIn("inputs.mode == 'validation' && 'validation' || 'production'", workflow)
-                # The cron dedupe and the session guard stay schedule-only.
-                self.assertIn("        if: github.event_name == 'schedule'\n", workflow)
+                # The dedupe and the session guard stay scheduled-only (the schedule event or the `scheduled` input).
+                self.assertIn("        if: (github.event_name == 'schedule' || inputs.scheduled)\n", workflow)
                 self.assertIn(
-                    "if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'",
+                    "if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled)",
                     workflow,
                 )
 
@@ -820,8 +820,8 @@ class IsolatedWorkflowSafetyTests(unittest.TestCase):
             Path(__file__).resolve().parents[1] / ".github" / "workflows" / "daily-stock-screener.yml"
         ).read_text(encoding="utf-8")
         self.assertIn("BACKTEST_WRITES_ENABLED: ${{ " + PRODUCTION + " }}", nse)
-        self.assertIn("EMAIL_ENABLED: ${{ github.event_name == 'schedule' }}", nse)
-        self.assertIn("GMAIL_REFRESH_TOKEN: ${{ github.event_name == 'schedule' && secrets", nse)
+        self.assertIn("EMAIL_ENABLED: ${{ (github.event_name == 'schedule' || inputs.scheduled) }}", nse)
+        self.assertIn("GMAIL_REFRESH_TOKEN: ${{ (github.event_name == 'schedule' || inputs.scheduled) && secrets", nse)
 
     def test_dedupe_keys_on_the_session_guard_step(self):
         for filename, market, zone in (
