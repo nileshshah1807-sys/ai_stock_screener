@@ -15,11 +15,15 @@ from __future__ import annotations
 import argparse
 import os
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 
 from storage.object_backend import r2_from_env
 from storage.object_store import ObjectStore
 from storage.r2_store import R2Store
 
+#: Objects are small and the work is waiting on two servers: 16 in flight.
+WORKERS = 16
+PROGRESS_EVERY = 500
 DEFAULT_PREFIXES = ("snapshot-payload", "price-series", "transcripts")
 
 
@@ -30,26 +34,37 @@ def walk(store: ObjectStore, prefix: str) -> Iterator[str]:
         yield from walk(store, f"{prefix}/{folder}")
 
 
-def copy_prefix(source: ObjectStore, target: R2Store, prefix: str, apply: bool) -> dict[str, int]:
+def _copy_one(source: ObjectStore, target: R2Store, key: str, held: dict[str, int]) -> tuple[str, int]:
+    """Copy one object; returns ``(outcome, bytes)`` with outcome gone, same, new or resized."""
+    body = source.get(key)
+    if body is None:  # pruned while we copied
+        return "gone", 0
+    if key in held and held[key] == len(body):
+        return "same", len(body)
+    target.put(key, body)
+    return ("resized" if key in held else "new"), len(body)
+
+
+def copy_prefix(source: ObjectStore, target: R2Store, prefix: str, apply: bool,
+                workers: int = WORKERS) -> dict[str, int]:
     """Counts for one prefix; ``supabase_bytes`` is read only when applying (it needs the bodies)."""
     held = target.sizes(prefix)
-    counts = {"supabase_objects": 0, "supabase_bytes": 0, "missing_in_r2": 0, "copied": 0, "resized": 0}
-    for key in walk(source, prefix):
-        counts["supabase_objects"] += 1
-        absent = key not in held
-        counts["missing_in_r2"] += absent
-        if not apply:
-            continue
-        body = source.get(key)
-        if body is None:  # pruned while we copied
-            counts["supabase_objects"] -= 1
-            counts["missing_in_r2"] -= absent
-            continue
-        counts["supabase_bytes"] += len(body)
-        if absent or len(body) != held[key]:
-            counts["resized"] += not absent
-            target.put(key, body)
-            counts["copied"] += 1
+    keys = list(walk(source, prefix))
+    counts = {"supabase_objects": len(keys), "supabase_bytes": 0,
+              "missing_in_r2": sum(key not in held for key in keys), "copied": 0, "resized": 0}
+    if apply:
+        done = 0
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for outcome, size in pool.map(lambda key: _copy_one(source, target, key, held), keys):
+                done += 1
+                if outcome == "gone":
+                    counts["supabase_objects"] -= 1
+                    continue
+                counts["supabase_bytes"] += size
+                counts["copied"] += outcome in ("new", "resized")
+                counts["resized"] += outcome == "resized"
+                if done % PROGRESS_EVERY == 0:
+                    print(f"{prefix}: {done}/{len(keys)} done, {counts['copied']} uploaded", flush=True)
     final = target.sizes(prefix)
     counts["r2_objects"] = len(final)
     counts["r2_bytes"] = sum(final.values())
