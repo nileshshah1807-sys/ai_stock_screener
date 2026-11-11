@@ -431,6 +431,15 @@ the scheduled workflows set the same flag.
   (`Rating`, `Rank`, `Buy_Eligible`, `Final_Score`, ...). The scoring layer emits
   components and `Core_*` diagnostics only. A rescored export purges stale
   canonical columns first.
+- **Objects go through `open_object_store`, which `OBJECT_STORE_BACKEND` steers.**
+  `supabase` (also unset or "", as a workflow passes an unset variable) is the
+  Supabase bucket; `dual` writes Supabase then Cloudflare R2 (`storage/r2_store.py`,
+  S3 over `requests` with SigV4, no boto3), reads Supabase, logs each backend's
+  upload time and never fails a run on an R2 error; `r2` is R2 only. Keys are the
+  same in both. `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`,
+  `R2_SECRET_ACCESS_KEY` carry the bucket. `tools/copy_objects_to_r2.py` is the
+  one-off copy (dry run unless `--apply`); `tools.storage_peek` reads R2 with
+  `OBJECT_STORE_BACKEND=r2`.
 - **A snapshot row's payload is a Storage object, not a column.** The complete
   source record is `market-data/snapshot-payload/{MARKET}/{run_date}/{symbol}.json.gz`,
   written before the run is published and swept with the run when it is
