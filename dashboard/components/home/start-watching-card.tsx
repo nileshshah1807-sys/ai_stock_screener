@@ -25,7 +25,7 @@ export async function StartWatchingCard({ market }: { market: Market }) {
       <p className="mb-3 max-w-prose text-sm text-muted-foreground">
         Watch a few stocks and Home leads with what changed on them: new results, calls, filings and
         trades. Start with today&apos;s movers, or{" "}
-        <Link href={marketPath(market.slug, "/screener")} className="underline underline-offset-2 hover:no-underline">
+        <Link prefetch={false} href={marketPath(market.slug, "/screener")} className="underline underline-offset-2 hover:no-underline">
           pick from the screener
         </Link>
         .

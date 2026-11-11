@@ -31,7 +31,7 @@ export async function LinedUpCard({ market }: { market: Market }) {
         ))}
       </ul>
       {lined.count > lined.next.length ? (
-        <Link
+        <Link prefetch={false}
           href={marketPath(market.slug, "/results")}
           className="mt-2 self-start rounded text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >

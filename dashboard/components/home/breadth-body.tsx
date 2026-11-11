@@ -56,7 +56,7 @@ export function BreadthBody({ now }: { now: BreadthNow }) {
           <Sparkline values={now.trend50} />
         </div>
       ) : null}
-      <Link
+      <Link prefetch={false}
         href={marketPath(market.slug, "/market")}
         className="mt-4 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
