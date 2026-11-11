@@ -23,7 +23,8 @@ export async function POST(request: Request) {
     body = JSON.parse(text);
   } catch {}
   const session = await getSession();
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  // Cloudflare sets cf-connecting-ip to the client; x-forwarded-for is the fallback for local runs.
+  const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const { status, body: payload } = await submitSupport({ body, email: session?.email ?? null, env: process.env, keys: [ip, session?.id ?? ip], limiter });
   return NextResponse.json(payload, { status });
 }
