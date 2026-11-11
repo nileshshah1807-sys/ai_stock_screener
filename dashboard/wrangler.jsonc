@@ -6,7 +6,10 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
   // Run the Worker near the database (the Supabase project is in ap-northeast-1, Tokyo).
-  "placement": { "mode": "smart" },
+  // An explicit host, not "smart": Smart Placement needs traffic to learn and stayed
+  // INSUFFICIENT_INVOCATIONS. Measured from Bengaluru: data pages' first byte fell
+  // (RELIANCE 1977 -> 632 ms, screener 2016 -> 1121 ms); /login, with no database read, rose.
+  "placement": { "hostname": "aeikzaubhepxjxqdhkjz.supabase.co" },
   "r2_buckets": [
     // Next's incremental cache (open-next.config.ts). Create it first: npx wrangler r2 bucket create cupel-next-cache
     { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "cupel-next-cache" }
