@@ -37,9 +37,8 @@ function body(source, name) {
 for (const file of readdirSync(dir).filter((name) => /\.tsx?$/.test(name) && !/\.test\./.test(name))) {
   const source = readFileSync(new URL(file, dir), "utf8");
   // `sharedRead("x", market, 300, (db) => readX(...)` -- the named loader and its body.
-  const named = [...source.matchAll(/(?:sharedRead|cachedOr|homeCached)\s*\([^)]*?\(\s*db\s*\)\s*=>\s*(\w+)\s*\(/gs)].map((m) => m[1]);
-  // `load` is the wrapper in home-cache.ts handing its caller's loader on, not a loader.
-  for (const name of new Set(named.filter((name) => name !== "load"))) {
+  const named = [...source.matchAll(/(?:sharedRead|cachedOr)\s*\([^)]*?\(\s*db\s*\)\s*=>\s*(\w+)\s*\(/gs)].map((m) => m[1]);
+  for (const name of new Set(named)) {
     test(`${file}: cached loader ${name} reads no session`, () => {
       const text = body(source, name);
       assert.ok(text, `${name} must be a function in ${file}`);
