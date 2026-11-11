@@ -5,7 +5,6 @@ import { useTheme } from "next-themes";
 import {
   AreaSeries,
   HistogramSeries,
-  LastPriceAnimationMode,
   LineSeries,
   createChart,
   createSeriesMarkers,
@@ -306,15 +305,32 @@ export function PriceChart({
     if (added) chart.current?.timeScale().fitContent();
   }, [livePrice, liveVolume, liveSession, visible]);
 
-  // The heartbeat: the line's end pulses while the quote is live, and stops
-  // once the session is over and the point is only "as of".
+  // The heartbeat: a ring at the line's end while the quote is live, the same
+  // one the Market page's breadth chart draws (CSS, positioned from the chart's
+  // own coordinates). The library's lastPriceAnimation never ran on this page.
+  const [edge, setEdge] = useState<{ x: number; y: number } | null>(null);
   useEffect(() => {
-    priceSeries.current?.applyOptions({
-      lastPriceAnimation: pulsing
-        ? LastPriceAnimationMode.Continuous
-        : LastPriceAnimationMode.Disabled,
-    });
-  }, [pulsing, visible, resolvedTheme]);
+    const node = container.current;
+    const timeScale = chart.current?.timeScale();
+    if (!pulsing || !node || !timeScale) {
+      setEdge(null);
+      return;
+    }
+    const place = () => {
+      const point = livePoint.current;
+      const x = point ? timeScale.timeToCoordinate(point.time as unknown as UTCTimestamp) : null;
+      const y = point ? (priceSeries.current?.priceToCoordinate(point.price) ?? null) : null;
+      setEdge(x === null || y === null ? null : { x, y });
+    };
+    place();
+    timeScale.subscribeVisibleLogicalRangeChange(place);
+    const resize = new ResizeObserver(place);
+    resize.observe(node);
+    return () => {
+      timeScale.unsubscribeVisibleLogicalRangeChange(place);
+      resize.disconnect();
+    };
+  }, [pulsing, livePrice, liveSession, visible, ma50, ma200, resolvedTheme, height, markers]);
 
   if (points.length === 0) {
     return (
@@ -355,7 +371,20 @@ export function PriceChart({
         </span>
       </div>
 
-      <div ref={container} style={{ height }} />
+      <div className="relative">
+        <div ref={container} style={{ height }} />
+        {pulsing && edge ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute size-1.5 rounded-full animate-heartbeat"
+            style={{
+              left: edge.x - 3,
+              top: edge.y - 3,
+              background: palette(resolvedTheme === "dark").price,
+            }}
+          />
+        ) : null}
+      </div>
 
       <p className="text-xs leading-relaxed text-muted-foreground">
         Split-adjusted closes, the series the model scores. Gaps are untraded
