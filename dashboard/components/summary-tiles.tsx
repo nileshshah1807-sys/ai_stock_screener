@@ -152,7 +152,7 @@ export function SummaryTiles({
         const share = total ? (count / total) * 100 : 0;
 
         return (
-          <Link
+          <Link prefetch={false}
             key={tile.rating}
             href={`${marketPath(market.slug, "/screener")}?rating=${encodeURIComponent(tile.rating)}`}
             data-kpi

@@ -23,7 +23,7 @@ export function HealthLink({ href }: { href: string }) {
   const active = pathname === href || pathname.startsWith(`${href}/`);
 
   return (
-    <Link
+    <Link prefetch={false}
       href={href}
       aria-current={active ? "page" : undefined}
       aria-label="Run health"

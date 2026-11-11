@@ -59,7 +59,7 @@ export async function ResultsSeasonCard({ market }: { market: Market }) {
         <p className="text-sm text-muted-foreground">
           {formatInteger(season.count)} {season.count === 1 ? "company" : "companies"} reported {season.day === today ? "today" : formatDate(season.day)}
         </p>
-        <Link href={marketPath(market.slug, "/results")} className="ml-auto rounded text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <Link prefetch={false} href={marketPath(market.slug, "/results")} className="ml-auto rounded text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           All results
         </Link>
       </section>
@@ -76,7 +76,7 @@ export async function ResultsSeasonCard({ market }: { market: Market }) {
         <Movers title="Biggest profit rises" rows={season.rises} scale={scale} />
         <Movers title="Biggest profit falls" rows={season.falls} scale={scale} />
       </div>
-      <Link
+      <Link prefetch={false}
         href={marketPath(market.slug, "/results")}
         className="mt-3 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >

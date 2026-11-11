@@ -35,7 +35,7 @@ export function MarketSwitch({ current }: { current: Market }) {
       {MARKET_LIST.map((market) => {
         const active = market.slug === current.slug;
         return (
-          <Link
+          <Link prefetch={false}
             key={market.slug}
             href={switchMarketPath(pathname, market.slug)}
             aria-current={active ? "true" : undefined}
