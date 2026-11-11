@@ -654,6 +654,9 @@ export type CompanyFacts = {
   logo_domain: string | null;
 };
 
+/** One cross-instance entry for the whole list, so a fresh instance makes one cache read, not five (0.7-2.2 s each from R2). */
+const factsMemo = sharedMemo<CompanyFacts[]>(60_000);
+
 /**
  * Every company in the latest run with the facts a feed is filtered by.
  *
@@ -663,31 +666,27 @@ export type CompanyFacts = {
  * companies in the missing part, so the caller is told there is nothing to
  * filter by and shows the feed unfiltered.
  */
-/** The five fact chunks come from R2 at 0.7-2.2 s each on Workers; a warm instance keeps them for a minute. */
-const factsMemo = sharedMemo<CompanyFacts[]>(60_000);
-
 export const getCompanyFacts = cache(
   async (market: MarketCode): Promise<CompanyFacts[] | null> => {
     const run = await getLatestRun(market);
     if (!run) return null;
     // Score is a rating: only an admin reads it, per request. Everyone else
-    // shares one cross-instance read of the other columns, a chunk per entry.
+    // shares one cross-instance read of the other columns.
     const admin = await isAdmin();
     const supabase = await createClient();
-    const sharedChunk = (offset: number) =>
-      factsMemo(`${market}:${run.run_date}:${offset}`, () => cachedOr(
-        "facts",
-        market,
-        900,
-        (db) =>
-          readFactChunk(db ?? supabase, market, run.run_date, offset, db ? "screener_snapshot" : "screener_snapshot_visible", false),
-        [run.run_date, String(offset)],
-      ));
-    const chunk = (offset: number) =>
-      admin ? readFactChunk(supabase, market, run.run_date, offset, "screener_snapshot_visible", true) : sharedChunk(offset);
+    const readAll = async (db: Parameters<typeof readFactChunk>[0], table: "screener_snapshot" | "screener_snapshot_visible", withScore: boolean) =>
+      (await Promise.all(chunkOffsets(run.row_count).map((offset) => readFactChunk(db, market, run.run_date, offset, table, withScore)))).flat();
     try {
-      const chunks = await Promise.all(chunkOffsets(run.row_count).map(chunk));
-      return chunks.flat();
+      if (admin) return await readAll(supabase, "screener_snapshot_visible", true);
+      return await factsMemo(`${market}:${run.run_date}`, () =>
+        cachedOr(
+          "facts",
+          market,
+          900,
+          (db) => readAll(db ?? supabase, db ? "screener_snapshot" : "screener_snapshot_visible", false),
+          [run.run_date, "all"],
+        ),
+      );
     } catch (error) {
       console.error("getCompanyFacts failed", error instanceof Error ? error.message : error);
       return null;
