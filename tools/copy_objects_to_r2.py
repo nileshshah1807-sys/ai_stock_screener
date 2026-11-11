@@ -31,22 +31,28 @@ def walk(store: ObjectStore, prefix: str) -> Iterator[str]:
 
 
 def copy_prefix(source: ObjectStore, target: R2Store, prefix: str, apply: bool) -> dict[str, int]:
+    """Counts for one prefix; ``supabase_bytes`` is read only when applying (it needs the bodies)."""
     held = target.sizes(prefix)
-    counts = {"seen": 0, "missing": 0, "differs": 0, "copied": 0, "bytes": 0}
+    counts = {"supabase_objects": 0, "supabase_bytes": 0, "missing_in_r2": 0, "copied": 0, "resized": 0}
     for key in walk(source, prefix):
-        counts["seen"] += 1
+        counts["supabase_objects"] += 1
         absent = key not in held
-        counts["missing"] += absent
+        counts["missing_in_r2"] += absent
         if not apply:
             continue
         body = source.get(key)
         if body is None:  # pruned while we copied
+            counts["supabase_objects"] -= 1
+            counts["missing_in_r2"] -= absent
             continue
+        counts["supabase_bytes"] += len(body)
         if absent or len(body) != held[key]:
-            counts["differs"] += not absent
+            counts["resized"] += not absent
             target.put(key, body)
             counts["copied"] += 1
-            counts["bytes"] += len(body)
+    final = target.sizes(prefix)
+    counts["r2_objects"] = len(final)
+    counts["r2_bytes"] = sum(final.values())
     return counts
 
 
