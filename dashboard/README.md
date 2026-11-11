@@ -356,6 +356,14 @@ number before adding either; the paid plan's limit is 10 MiB.
 **Next's cache.** `unstable_cache` reads (Home, Results, Market breadth) are
 kept in the R2 bucket `cupel-next-cache`, with an in-datacentre cache in front.
 
+**Staging (payment tests).** A second Worker, `cupel-staging` on workers.dev,
+deployed from the `staging` branch, replaces the old Vercel Preview link. It
+runs on the live database with Razorpay TEST keys, `RAZORPAY_TEST_PLANS` and
+`PREVIEW_CHECKOUT_EMAILS` set, and `APP_ENV` unset, so checkout is refused
+except for the listed emails and plan edits stay read-only. Never set
+`APP_ENV=production` on it. Deploy it with a copy of `wrangler.jsonc` that
+changes `name` and the `WORKER_SELF_REFERENCE` service to `cupel-staging`.
+
 **Trial-ending emails.** Cloudflare Workers has no cron wired to this app, so the
 daily job is run by cron-job.org:
 

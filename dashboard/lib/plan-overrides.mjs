@@ -1,5 +1,5 @@
 /**
- * Razorpay test plan ids for Vercel Preview. Preview shares the production
+ * Razorpay test plan ids for the staging Worker. Preview shares the production
  * database, whose plans rows hold LIVE plan and offer ids, so a Preview checkout
  * (Razorpay TEST keys) would fail on them. RAZORPAY_TEST_PLANS maps a plan id to
  * test ids: {"pro":{"plan":"plan_..","offer":"offer_.."},"pro-monthly":{"plan":"plan_.."}}.
