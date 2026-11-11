@@ -19,6 +19,20 @@ export const dynamic = "force-dynamic";
  * not be able to serve this to an unauthenticated request.
  */
 export async function GET(request: NextRequest) {
+  try {
+    return await respond(request);
+  } catch (error) {
+    // A failed read is logged and answered as an empty index the browser must not keep, never a 500.
+    console.error("search-index failed", error instanceof Error ? error.message : error);
+    const market = marketFromSlug(request.nextUrl.searchParams.get("market")) ?? DEFAULT_MARKET;
+    return NextResponse.json(
+      { market: market.slug, runDate: null, entries: [], indices: [] },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+}
+
+async function respond(request: NextRequest) {
   const viewer = await getViewer();
   if (!viewer) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
