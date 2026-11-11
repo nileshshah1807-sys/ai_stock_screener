@@ -61,6 +61,11 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OBJECT_STORE_BACKEND: ${{ vars.OBJECT_STORE_BACKEND }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       ARCHIVE_ROOT: reports_advanced/backtest
       # The screener's universe: BSE-only and SME companies are charted from Yahoo.
       NSE_UNIVERSE_SOURCE: "nse_with_sme"
@@ -147,6 +152,11 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OBJECT_STORE_BACKEND: ${{ vars.OBJECT_STORE_BACKEND }}
+      R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ vars.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       MARKET: "US"
       # The screener's source universe. Charts are also built for names the
       # liquidity prefilter drops that day, which costs a few MB and means a

@@ -22,7 +22,7 @@ import requests
 
 from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
-from storage.object_store import ObjectStore
+from storage.object_backend import open_object_store
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ class DashboardRepository:
         if not url or not service_role_key:
             raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required")
         self.base_url = f"{url.rstrip('/')}/rest/v1"
-        self._objects = ObjectStore(url, service_role_key, timeout_seconds)
+        self._objects = open_object_store(url, service_role_key, timeout_seconds)
         # Raises on an unknown code, so a typo cannot publish a US run into the
         # NSE market.
         self.market = resolve_market(market).code
