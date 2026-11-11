@@ -549,6 +549,8 @@ export async function getSnapshotPage(
  * which buys a keystroke-latency search with no network round trip. The full
  * grid still filters server-side; this only powers "jump to a stock".
  */
+const searchIndexMemo = sharedMemo<SearchEntry[]>(60_000);
+
 export const getSearchIndex = cache(
   async (
     market: MarketCode,
@@ -564,7 +566,7 @@ export const getSearchIndex = cache(
       c: (row.company as string) ?? "",
       r: row.investment_rank as number | null,
       g: admin ? (row.rating as string | null) : null,
-      d: row.final_score as number | null,
+      d: (row.final_score as number | null | undefined) ?? null,
       l: (row.logo_domain as string | null) ?? null,
     });
 
@@ -576,6 +578,41 @@ export const getSearchIndex = cache(
         .eq("run_date", runDate)
         .order("investment_rank", { ascending: true, nullsFirst: false })
         .range(offset, offset + FETCH_CHUNK - 1);
+
+    // Everyone but an admin gets the same index, so it is read once for all of them (not once per viewer,
+    // 5 requests and ~4,700 rows each time) and kept in R2 and, for a minute, in the instance's memory.
+    // No rating column is read on the shared path (`rating` is null in a viewer's copy). `final_score` is: the
+    // snapshot view shows it to every viewer, so this copy carries what theirs does.
+    if (!admin && rowCount && rowCount > 0) {
+      const shared = (offset: number) =>
+        searchIndexMemo(`${market}:${runDate}:${offset}`, () =>
+          cachedOr(
+            "search-index",
+            market,
+            3600,
+            async (db) => {
+              const { data, error } = await (db ?? supabase)
+                .from(db ? "screener_snapshot" : "screener_snapshot_visible")
+                .select("symbol, company, investment_rank, final_score, logo_domain")
+                .eq("market", market)
+                .eq("run_date", runDate)
+                .order("investment_rank", { ascending: true, nullsFirst: false })
+                // A tie-break: rows with equal rank must not move between chunks.
+                .order("symbol", { ascending: true })
+                .range(offset, offset + FETCH_CHUNK - 1);
+              if (error) throw new Error(error.message);
+              return (data ?? []).map((row) => toEntry(row as Record<string, unknown>));
+            },
+            [runDate, String(offset)],
+          ),
+        );
+      try {
+        return (await Promise.all(chunkOffsets(rowCount).map(shared))).flat();
+      } catch (error) {
+        console.error("getSearchIndex failed", error instanceof Error ? error.message : error);
+        return [];
+      }
+    }
 
     if (rowCount && rowCount > 0) {
       const results = await Promise.all(chunkOffsets(rowCount).map(chunk));
