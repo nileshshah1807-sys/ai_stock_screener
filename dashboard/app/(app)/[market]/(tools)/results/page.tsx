@@ -92,11 +92,17 @@ export default async function ResultsPage({
 
   const today = new Intl.DateTimeFormat("en-CA", { timeZone }).format(new Date());
   const offered = us ? quarterEnds(today, US_QUARTERS) : quarterEnds(today);
-  const [latest, feed, facts, run] = await Promise.all([
+  // One round: none of these reads needs another's answer, and each is a trip to the database.
+  const [latest, feed, facts, run, dated, declaredSymbols, lists] = await Promise.all([
     getLatestResultQuarterShared(market.code, offered),
     loadFeedFilters(market.code, query, { defaultScope: "all", growth: true }),
     getCompanyFacts(market.code),
     getLatestRun(market.code),
+    getUpcoming(market.code, "results", today),
+    // The quarter that ended most recently, not `newest`: until someone files for it `newest` is the
+    // season before, and its filers are not the ones the upcoming dates belong to.
+    getDeclaredSymbolsShared(market.code, offered[0]),
+    getWatchlists(market.code),
   ]);
   // The newest quarter anyone has filed for: in the first days after a
   // quarter ends nobody has, and an empty page would hide last season.
@@ -107,13 +113,6 @@ export default async function ResultsPage({
   const quarter = chosenQuarter(query.quarter, ended) ?? newest;
   const quarters = ended.map((end) => ({ value: end, label: quarterLabel(end, { fiscal: !us }) }));
 
-  const [dated, declaredSymbols, lists] = await Promise.all([
-    getUpcoming(market.code, "results", today),
-    // The quarter that ended most recently, not `newest`: until someone files for it `newest` is the
-    // season before, and its filers are not the ones the upcoming dates belong to.
-    getDeclaredSymbolsShared(market.code, offered[0]),
-    getWatchlists(market.code),
-  ]);
   // A company that has filed is no longer lined up, even while its date is today's.
   // The tile follows the page's own filter scope (by default the market-cap floor), so it reads what
   // the list below and Analysis count; the Upcoming sheet has its own search and watchlist chips and
