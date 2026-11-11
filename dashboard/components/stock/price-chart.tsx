@@ -141,10 +141,13 @@ export function PriceChart({
 
   const range = RANGES.find((entry) => entry.label === rangeLabel) ?? RANGES[2];
 
-  // Only a session after the chart's last one: once the evening run publishes
-  // today's close, the drawn bar stands and the quote steps aside.
+  // `quote` is already only a session the evening run has not published
+  // (liveOverlay, against the row's bar date). The price series, though, can
+  // hold that session's bar already, a partial one the series worker wrote
+  // mid-session, so a quote of the same session replaces it (`>=`); `>` left
+  // the chart on the stale partial bar, with no live point and no heartbeat.
   const lastTime = points[points.length - 1]?.time;
-  const livePrice = quote && (!lastTime || quote.session > lastTime) ? quote.price : null;
+  const livePrice = quote && (!lastTime || quote.session >= lastTime) ? quote.price : null;
   const liveVolume = livePrice === null ? null : (quote?.volume ?? null);
   const liveSession = livePrice === null ? null : (quote?.session ?? null);
   const pulsing = livePrice !== null && isLive(quote?.fetched_at, now);
