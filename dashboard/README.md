@@ -347,6 +347,11 @@ server-rendered page may need the paid plan. Static files are served from the
 assets binding and do not count. The visitor's country on the landing page
 comes from Cloudflare's `cf-ipcountry` header.
 
+**Bundle size.** The compressed Worker is about 2.73 MiB against the free plan's 3 MiB
+limit, roughly 9% headroom (`npx wrangler deploy --dry-run` prints it as
+"gzip"). A heavy dependency or a large new page can tip it over, so check that
+number before adding either; the paid plan's limit is 10 MiB.
+
 **Next's cache.** `unstable_cache` reads (Home, Results, Market breadth) are
 kept in the R2 bucket `cupel-next-cache`, with an in-datacentre cache in front.
 
