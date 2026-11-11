@@ -40,7 +40,7 @@ export async function ResultsInCard({ market }: { market: Market }) {
             <li key={`${entry.symbol}:${entry.period_end}`} className="py-2.5">
               <div className="flex items-center gap-3">
                 <StockIdentity symbol={entry.symbol} company={entry.company} className="min-w-0 flex-1" />
-                <Link href={href} className="shrink-0 rounded text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <Link prefetch={false} href={href} className="shrink-0 rounded text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   {formatDate(entry.announced_at)}
                 </Link>
               </div>
