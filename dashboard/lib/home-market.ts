@@ -199,24 +199,9 @@ export type BreadthNow = { session: string; e50: number | null; e200: number | n
 /** Sessions of the 50-day share drawn under the gauges. */
 const BREADTH_TREND = 22;
 
-/** Published once an evening and the same for every viewer: ten minutes is fresh enough. */
-const breadthMemo = sharedMemo<BreadthNow | null>(600_000);
-
 /** The market's share of stocks above their 50- and 200-day averages at the last published close, in percent. */
-export function getBreadthNow(market: MarketCode): Promise<BreadthNow | null> {
-  return breadthMemo(
-    market,
-    async () => {
-      const cached = await homeCached("breadth-now", market, 600, (db) => readBreadthNow(market, db));
-      return cached !== undefined ? cached : readBreadthNow(market);
-    },
-    (value) => value !== null,
-  );
-}
-
-/** Throws when `db` is given and the read fails, so the cache never keeps a failure. */
-async function readBreadthNow(market: MarketCode, db?: Reader): Promise<BreadthNow | null> {
-  const supabase = db ?? (await createClient());
+export async function getBreadthNow(market: MarketCode): Promise<BreadthNow | null> {
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("market_breadth")
     .select("sessions, series")
@@ -224,10 +209,7 @@ async function readBreadthNow(market: MarketCode, db?: Reader): Promise<BreadthN
     .eq("scope", "market")
     .eq("name", "")
     .maybeSingle();
-  if (error) {
-    if (db) throw new Error(error.message);
-    console.error("getBreadthNow failed", error.message);
-  }
+  if (error) console.error("getBreadthNow failed", error.message);
   const decoded = decodeRow(data);
   if (!decoded) return null;
   const share = (key: string) => metricPoints(decoded, key, `${key}d`, "share").at(-1)?.value ?? null;
