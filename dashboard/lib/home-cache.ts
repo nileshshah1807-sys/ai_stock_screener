@@ -3,6 +3,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 
 import type { Reader } from "@/lib/results";
+import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /** Tag on every cached Home read; `revalidateTag` it to drop them all early. */
@@ -56,4 +57,27 @@ export async function cachedOr<T>(
 ): Promise<T> {
   const cached = await homeCached(name, market, revalidate, (db) => load(db), extraKey);
   return cached !== undefined ? cached : load();
+}
+
+const kept = sharedMemo<unknown>(60_000, 200);
+
+/**
+ * `cachedOr` behind a 60 s per-instance memo: a warm instance answers from
+ * memory, a fresh one makes one cross-instance cache read instead of a live
+ * query (0.4-1.5 s from a Worker). Same rules as `cachedOr`.
+ */
+export function sharedRead<T>(
+  name: string,
+  market: string,
+  revalidate: number,
+  load: (db?: Reader) => Promise<T>,
+  extraKey: string[] = [],
+): Promise<T> {
+  return kept(`${name}:${market}:${extraKey.join(":")}`, () => cachedOr(name, market, revalidate, load, extraKey)) as Promise<T>;
+}
+
+/** A short stable key for a long list (symbols), so a cache key stays small. */
+export async function digest(parts: readonly string[]): Promise<string> {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(parts.join("\n")));
+  return [...new Uint8Array(bytes).slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
