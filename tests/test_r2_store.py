@@ -133,6 +133,23 @@ class DualStoreTests(unittest.TestCase):
         self.dual.put("a", b"x")
         self.assertEqual(self.dual.r2_failures, 1)
 
+    def test_three_failures_in_a_row_switch_the_mirror_off_for_the_run(self):
+        self.secondary.put.side_effect = requests.ReadTimeout("slow")
+        for _ in range(6):
+            self.dual.put("a", b"x")
+        self.assertEqual(self.secondary.put.call_count, 3)
+        self.assertEqual(self.primary.put.call_count, 6)
+        self.assertTrue(self.dual.r2_off)
+        self.dual.remove(["a"])
+        self.secondary.remove.assert_not_called()
+
+    def test_a_success_resets_the_failure_streak(self):
+        self.secondary.put.side_effect = [requests.ReadTimeout("x")] * 2 + [None] + [requests.ReadTimeout("x")] * 2
+        for _ in range(5):
+            self.dual.put("a", b"x")
+        self.assertFalse(self.dual.r2_off)
+        self.assertEqual(self.secondary.put.call_count, 5)
+
     def test_a_supabase_failure_stops_before_r2(self):
         self.primary.put.side_effect = requests.HTTPError("403")
         with self.assertRaises(requests.HTTPError):
@@ -159,7 +176,9 @@ class BackendSwitchTests(unittest.TestCase):
         self.assertIsInstance(self.open(OBJECT_STORE_BACKEND=""), ObjectStore)
 
     def test_dual_and_r2(self):
-        self.assertIsInstance(self.open(OBJECT_STORE_BACKEND="dual", **R2_ENV), DualStore)
+        dual = self.open(OBJECT_STORE_BACKEND="dual", **R2_ENV)
+        self.assertIsInstance(dual, DualStore)
+        self.assertEqual((dual.secondary.retries, dual.secondary.timeout_seconds), (0, 15))
         self.assertIsInstance(self.open(OBJECT_STORE_BACKEND="r2", **R2_ENV), R2Store)
 
     def test_a_missing_r2_key_names_itself(self):

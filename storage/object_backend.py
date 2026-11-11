@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 R2_ENV = ("R2_ACCOUNT_ID", "R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
 #: A dual-mode run logs its running upload time per backend every this many puts.
 SUMMARY_EVERY = 500
+#: The mirror must never cost a run its time: a short timeout, no retries, and
+#: after this many failures in a row it is switched off for the rest of the run.
+MIRROR_TIMEOUT_SECONDS = 15
+MIRROR_MAX_FAILURES = 3
 
 
 class DualStore(GzipText):
@@ -34,6 +38,8 @@ class DualStore(GzipText):
         self.puts = 0
         self.seconds = {"supabase": 0.0, "r2": 0.0}
         self.r2_failures = 0
+        self.r2_streak = 0
+        self.r2_off = False
         atexit.register(self.log_summary)
 
     def log_summary(self) -> None:
@@ -51,11 +57,18 @@ class DualStore(GzipText):
             self.seconds[backend] += time.monotonic() - started
 
     def _mirror(self, what: str, call, *args) -> None:
+        if self.r2_off:
+            return
         try:
             self._timed("r2", call, *args)
+            self.r2_streak = 0
         except Exception as exc:  # noqa: BLE001 - R2 must not fail a run Supabase served
             self.r2_failures += 1
+            self.r2_streak += 1
             logger.warning("r2 %s failed (%s); Supabase has it", what, exc)
+            if self.r2_streak >= MIRROR_MAX_FAILURES:
+                self.r2_off = True
+                logger.error("r2 failed %d times in a row; not mirroring for the rest of this run", self.r2_streak)
 
     def put(self, path: str, body: bytes, content_type: str = "application/gzip") -> None:
         self._timed("supabase", self.primary.put, path, body, content_type)
@@ -80,11 +93,12 @@ class DualStore(GzipText):
         return removed
 
 
-def r2_from_env(read_only: bool = False, timeout_seconds: int = 60) -> R2Store:
+def r2_from_env(read_only: bool = False, timeout_seconds: int = 60, retries: int | None = None) -> R2Store:
     missing = [name for name in R2_ENV if not os.environ.get(name)]
     if missing:
         raise ValueError(f"{', '.join(missing)} required for an R2 object store")
-    return R2Store(*(os.environ[name] for name in R2_ENV), timeout_seconds=timeout_seconds, read_only=read_only)
+    extra = {} if retries is None else {"retries": retries}
+    return R2Store(*(os.environ[name] for name in R2_ENV), timeout_seconds=timeout_seconds, read_only=read_only, **extra)
 
 
 def open_object_store(url: str, service_role_key: str, timeout_seconds: int = 60, read_only: bool = False):
@@ -96,6 +110,6 @@ def open_object_store(url: str, service_role_key: str, timeout_seconds: int = 60
     if backend == "dual":
         return DualStore(
             ObjectStore(url, service_role_key, timeout_seconds, read_only=read_only),
-            r2_from_env(read_only, timeout_seconds),
+            r2_from_env(read_only, MIRROR_TIMEOUT_SECONDS, retries=0),
         )
     raise ValueError(f"OBJECT_STORE_BACKEND must be supabase, dual or r2, not {backend!r}")
