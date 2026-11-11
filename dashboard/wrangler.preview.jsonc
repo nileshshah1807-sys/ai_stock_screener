@@ -9,9 +9,9 @@
   "placement": { "hostname": "aeikzaubhepxjxqdhkjz.supabase.co" },
   "r2_buckets": [
     // Next's incremental cache (open-next.config.ts). Create it first: npx wrangler r2 bucket create cupel-next-cache
-    { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "cupel-next-cache" }
-    // Phase 2, not wired: lib/market-data.ts moves to a private bucket `market-data`:
-    // { "binding": "MARKET_DATA", "bucket_name": "market-data" }
+    { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "cupel-next-cache" },
+    // Chart series and snapshot payloads (lib/market-data.ts), copied from Supabase Storage by workers; Storage stays the fallback.
+    { "binding": "MARKET_DATA", "bucket_name": "market-data" }
   ],
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "cupel-preview" }]
 }
