@@ -29,7 +29,7 @@ GitHub Actions: daily-stock-screener.yml  (16:30 IST, 18:30 IST recovery)
                   screener_history    (slim, retained indefinitely)
                     │
                     ▼
-        This app (Vercel), reading as the signed-in user under RLS
+        This app (Cloudflare Workers), reading as the signed-in user under RLS
 ```
 
 The publish step is the **last** step in the workflow. If Supabase is
@@ -203,7 +203,7 @@ In Supabase → Authentication → URL Configuration, add the callback URLs:
 
 ```text
 http://localhost:3000/auth/callback
-https://<your-vercel-domain>/auth/callback
+https://<your-domain>/auth/callback
 ```
 
 Supabase's built-in SMTP is rate-limited (a few messages per hour). That is
@@ -271,7 +271,28 @@ npm run dev
 
 ### 5. Deploy
 
-Vercel, with **Root Directory** set to `dashboard`. Environment variables:
+Cloudflare Workers, through `@opennextjs/cloudflare` (`wrangler.jsonc`,
+`open-next.config.ts`). From `dashboard/`:
+
+```bash
+npx wrangler login                                   # once
+npx wrangler r2 bucket create cupel-next-cache       # once: Next's incremental cache
+npm run cf:deploy                                    # = opennextjs-cloudflare build && deploy
+npm run cf:preview                                   # same build, run locally in workerd
+```
+
+Two kinds of variable:
+
+- **Build time** (`NEXT_PUBLIC_*`): Next inlines them into the browser bundle, so
+  they must be in the environment of the `cf:deploy` / `cf:build` run (for
+  local use, `dashboard/.env.production` or `.env.local`). Setting them only on
+  the Worker does nothing for the browser.
+- **Runtime** (everything else): Worker secrets and variables. Set a secret with
+  `npx wrangler secret put NAME`, or in the dashboard under Workers & Pages >
+  cupel-dashboard > Settings > Variables and secrets. Secrets marked below are
+  secret; do not put them in `wrangler.jsonc`.
+
+Environment variables to copy from the old Vercel project:
 
 | Variable | Value |
 | --- | --- |
@@ -292,19 +313,68 @@ shows a mailto link instead of the form.
 | `JSM_SERVICE_DESK_ID` | the service project's id, from `/rest/servicedeskapi/servicedesk` |
 | `JSM_REQUEST_TYPE_ID` | the request type new tickets use, from that desk's `/requesttype` list |
 
+Server-side variables (runtime secrets unless noted):
+
+| Variable | Value |
+| --- | --- |
+| `SUPABASE_SERVICE_ROLE_KEY` | service-role key (secret); cached shared reads and billing |
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Razorpay credentials (secrets) |
+| `RESEND_API_KEY` | Resend key for the trial-ending emails (secret) |
+| `CRON_SECRET` | shared secret the trial-ending route checks (secret); see below |
+| `TRIAL_GUARD_SALT` | salt for the free-trial device check (secret) |
+| `APP_ENV` | `production` on the production Worker ONLY. Unset (or anything else) means preview: checkout is refused except for `PREVIEW_CHECKOUT_EMAILS`, plan edits are read-only, and `RAZORPAY_TEST_PLANS` swaps in test ids. Never set it on a preview Worker or in `wrangler.jsonc` `vars` (replaces Vercel's `VERCEL_ENV`) |
+| `SESSION_MAX_AGE_HOURS` | optional, hours a sign-in lasts (default 168) |
+| `PREVIEW_TRIAL_DAYS` | optional, trial length override |
+| `SCREENER_TRACE` | optional, `1` turns on request tracing |
+
 The Brandfetch client ID is intentionally browser-visible: Brandfetch requires
-it in each Logo API image URL. Put the real value in Vercel and in the ignored
+it in each Logo API image URL. Put the real value in the build environment and in the ignored
 local `dashboard/.env.local`; commit only the placeholder in `.env.example`.
-After changing a `NEXT_PUBLIC_` value in Vercel, redeploy because Next.js
+After changing a `NEXT_PUBLIC_` value, redeploy because Next.js
 inlines public environment variables at build time.
 
-**Function region.** `vercel.json` pins the server functions to `hnd1`
-(Tokyo) because the Supabase project is in `ap-northeast-1` (Tokyo). Every
-page waits on one or two Supabase reads before it can answer, so the function
-belongs next to the database: from another region each read crosses an ocean,
-and a page pays that once per read rather than once per page. If the Supabase
-project ever moves, move this with it -- the region is in the database host's
-address (`db.<project>.supabase.co`).
+**Function region.** The Supabase project is in `ap-northeast-1` (Tokyo) and
+every page waits on one or two Supabase reads before it can answer, so the
+Worker should run next to the database. `wrangler.jsonc` sets Smart Placement
+(`"placement": {"mode": "smart"}`), which moves the Worker toward the back end
+it talks to; a Worker cannot be pinned to a region the way `vercel.json` did.
+Check it after a deploy (the Cloudflare dashboard shows the placement
+status) and compare a page's time against the old numbers. The region is in
+the database host's address (`db.<project>.supabase.co`).
+
+**Rendering limits.** A Worker's free plan allows 10 ms of CPU per request and a
+3 MiB compressed bundle; the paid plan allows 30 s and 10 MiB. A
+server-rendered page may need the paid plan. Static files are served from the
+assets binding and do not count. The visitor's country on the landing page
+comes from Cloudflare's `cf-ipcountry` header.
+
+**Bundle size.** The compressed Worker is about 2.73 MiB against the free plan's 3 MiB
+limit, roughly 9% headroom (`npx wrangler deploy --dry-run` prints it as
+"gzip"). A heavy dependency or a large new page can tip it over, so check that
+number before adding either; the paid plan's limit is 10 MiB.
+
+**Next's cache.** `unstable_cache` reads (Home, Results, Market breadth) are
+kept in the R2 bucket `cupel-next-cache`, with an in-datacentre cache in front.
+
+**Staging (payment tests).** A second Worker, `cupel-staging` on workers.dev,
+deployed from the `staging` branch, replaces the old Vercel Preview link. It
+runs on the live database with Razorpay TEST keys, `RAZORPAY_TEST_PLANS` and
+`PREVIEW_CHECKOUT_EMAILS` set, and `APP_ENV` unset, so checkout is refused
+except for the listed emails and plan edits stay read-only. Never set
+`APP_ENV=production` on it. Deploy it with a copy of `wrangler.jsonc` that
+changes `name` and the `WORKER_SELF_REFERENCE` service to `cupel-staging`.
+
+**Trial-ending emails.** Cloudflare Workers has no cron wired to this app, so the
+daily job is run by cron-job.org:
+
+- Request: `GET https://cupel.in/api/cron/trial-ending`
+- Schedule: `30 4 * * *`, timezone UTC
+- Header: `Authorization: Bearer <CRON_SECRET>` (the same value as the Worker secret)
+- Timeout 60 s, no retries
+- Create the job before the domain moves, and enable it once the domain points at the Worker; nothing in the repo checks that it exists, and without it trial-ending emails silently stop.
+
+Without `CRON_SECRET` set, or with a wrong header, the route answers 401 and
+sends nothing.
 
 Company logo domains come from Yahoo's issuer `website` metadata and are
 published as `screener_snapshot.logo_domain`. Re-run

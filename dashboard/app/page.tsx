@@ -64,7 +64,7 @@ const h2 = "text-title max-w-[22ch] text-balance";
 
 export default async function LandingPage() {
   const [session, trialDays, requestHeaders] = await Promise.all([getSession(), getTrialDays(), headers()]);
-  const country = requestHeaders.get("x-vercel-ip-country");
+  const country = requestHeaders.get("cf-ipcountry");
 
   return (
     <div className="landing flex min-h-screen flex-col">

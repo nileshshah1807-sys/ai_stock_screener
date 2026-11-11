@@ -105,7 +105,7 @@ export async function enforceTrialGuard(supabase: SupabaseClient) {
     const ended = await guardTrial({
       userId: user.id,
       email: user.email,
-      ip: h.get("x-real-ip"),
+      ip: h.get("cf-connecting-ip") ?? h.get("x-real-ip"),
       deviceId: c.get(DEVICE_COOKIE)?.value ?? null,
       // Confirmed, not created: Supabase creates the user when the code is requested.
       createdAt: user.email_confirmed_at ?? user.created_at ?? null,

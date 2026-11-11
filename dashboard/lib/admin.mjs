@@ -175,7 +175,7 @@ export function namePlan(raw) {
  */
 export function cancelSettled(ok, status, json, env = process.env) {
   if (ok) return true;
-  return env.VERCEL_ENV === "production" && isUnknownSubscription(status, json);
+  return env.APP_ENV === "production" && isUnknownSubscription(status, json);
 }
 
 /**

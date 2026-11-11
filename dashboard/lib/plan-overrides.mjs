@@ -1,5 +1,5 @@
 /**
- * Razorpay test plan ids for Vercel Preview. Preview shares the production
+ * Razorpay test plan ids for the staging Worker. Preview shares the production
  * database, whose plans rows hold LIVE plan and offer ids, so a Preview checkout
  * (Razorpay TEST keys) would fail on them. RAZORPAY_TEST_PLANS maps a plan id to
  * test ids: {"pro":{"plan":"plan_..","offer":"offer_.."},"pro-monthly":{"plan":"plan_.."}}.
@@ -7,7 +7,7 @@
  * Pure: the environment is passed in.
  */
 
-const isProduction = (env) => env.VERCEL_ENV === "production";
+const isProduction = (env) => env.APP_ENV === "production";
 
 /** The parsed override map, or {} (unset, malformed, or production). */
 export function testPlanIds(env = process.env, warn = console.warn) {
