@@ -674,16 +674,14 @@ export const getCompanyFacts = cache(
     // shares one cross-instance read of the other columns.
     const admin = await isAdmin();
     const supabase = await createClient();
-    const readAll = async (db: Parameters<typeof readFactChunk>[0], table: "screener_snapshot" | "screener_snapshot_visible", withScore: boolean) =>
-      (await Promise.all(chunkOffsets(run.row_count).map((offset) => readFactChunk(db, market, run.run_date, offset, table, withScore)))).flat();
     try {
-      if (admin) return await readAll(supabase, "screener_snapshot_visible", true);
+      if (admin) return await readAllFacts(supabase, market, run, "screener_snapshot_visible", true);
       return await factsMemo(`${market}:${run.run_date}`, () =>
         cachedOr(
           "facts",
           market,
           900,
-          (db) => readAll(db ?? supabase, db ? "screener_snapshot" : "screener_snapshot_visible", false),
+          (db) => readAllFacts(db ?? supabase, market, run, db ? "screener_snapshot" : "screener_snapshot_visible", false),
           [run.run_date, "all"],
         ),
       );
@@ -693,6 +691,20 @@ export const getCompanyFacts = cache(
     }
   },
 );
+
+/** The run's whole facts list, chunk by chunk in parallel; a cached loader, so it reads only the client it is handed. */
+async function readAllFacts(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  market: MarketCode,
+  run: { run_date: string; row_count: number },
+  table: string,
+  withScore: boolean,
+): Promise<CompanyFacts[]> {
+  const chunks = await Promise.all(
+    chunkOffsets(run.row_count).map((offset) => readFactChunk(supabase, market, run.run_date, offset, table, withScore)),
+  );
+  return chunks.flat();
+}
 
 /** One chunk of the run's company facts; throws on a failed read so a cache never keeps it. */
 async function readFactChunk(
