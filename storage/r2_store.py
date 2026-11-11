@@ -19,7 +19,7 @@ from xml.sax.saxutils import escape
 
 import requests
 
-from storage.object_store import REMOVE_BATCH_SIZE, GzipText, _raise_with_detail, send_with_retries
+from storage.object_store import REMOVE_BATCH_SIZE, TRANSFER_RETRIES, GzipText, _raise_with_detail, send_with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +63,13 @@ def _local(tag: str) -> str:
 
 class R2Store(GzipText):
     def __init__(self, account_id: str, bucket: str, access_key_id: str, secret_access_key: str,
-                 timeout_seconds: int = 60, read_only: bool = False):
+                 timeout_seconds: int = 60, read_only: bool = False, retries: int = TRANSFER_RETRIES):
         self.host = f"{account_id}.r2.cloudflarestorage.com"
         self.bucket = bucket
         self.access_key_id = access_key_id
         self.secret_access_key = secret_access_key
         self.timeout_seconds = timeout_seconds
+        self.retries = retries
         self.read_only = read_only
 
     def _request(self, method: str, key: str, *, params: dict[str, str] | None = None, body: bytes = b"",
@@ -87,7 +88,7 @@ class R2Store(GzipText):
             f"SignedHeaders={signed_names},Signature={signature}"
         )
         url = f"https://{self.host}{uri}" + (f"?{query}" if query else "")
-        return send_with_retries(method, key, url, self.timeout_seconds, headers=signed, data=body)
+        return send_with_retries(method, key, url, self.timeout_seconds, self.retries, headers=signed, data=body)
 
     def put(self, path: str, body: bytes, content_type: str = "application/gzip") -> None:
         """Create or replace one object."""

@@ -36,18 +36,19 @@ LIST_PAGE_SIZE = 1000
 REMOVE_BATCH_SIZE = 1000
 
 
-def send_with_retries(method: str, path: str, url: str, timeout: int, **kwargs) -> requests.Response:
-    """One request, re-sent on a connection error or timeout (``TRANSFER_RETRIES`` times)."""
-    for attempt in range(TRANSFER_RETRIES + 1):
+def send_with_retries(method: str, path: str, url: str, timeout: int, retries: int = TRANSFER_RETRIES,
+                      **kwargs) -> requests.Response:
+    """One request, re-sent on a connection error or timeout (``retries`` times)."""
+    for attempt in range(retries + 1):
         try:
             return requests.request(method, url, timeout=timeout, **kwargs)
         except (requests.ConnectionError, requests.Timeout) as exc:
-            if attempt == TRANSFER_RETRIES:
+            if attempt == retries:
                 raise
             pause = RETRY_BACKOFF_SECONDS * 2**attempt
             logger.warning(
                 "%s storage:%s failed (%s); retry %d of %d in %ds",
-                method, path, exc, attempt + 1, TRANSFER_RETRIES, pause,
+                method, path, exc, attempt + 1, retries, pause,
             )
             time.sleep(pause)
     raise AssertionError("unreachable")
