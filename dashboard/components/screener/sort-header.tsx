@@ -62,7 +62,7 @@ export function SortHeader({
       )}
       title={title}
     >
-      <Link
+      <Link prefetch={false}
         href={`?${next.toString()}`}
         scroll={false}
         className={cn(

@@ -25,7 +25,7 @@ export function ToolsNav({ market, admin }: { market: Market; admin: boolean }) 
         const href = marketPath(market.slug, path);
         const active = pathname === href || pathname.startsWith(`${href}/`);
         return (
-          <Link
+          <Link prefetch={false}
             key={path}
             href={href}
             aria-current={active ? "page" : undefined}

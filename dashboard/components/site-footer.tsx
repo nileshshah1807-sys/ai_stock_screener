@@ -55,21 +55,21 @@ export function SiteFooter({ width = "max-w-3xl px-4", children }: { width?: str
             <p className="mt-1 max-w-xs text-sm">Daily equity research for NSE and US stocks.</p>
           </div>
           <Group title="Support" className="col-start-1 sm:col-start-auto">
-            <li><Link href="/help" className={LINK}>Help &amp; Support</Link></li>
+            <li><Link prefetch={false} href="/help" className={LINK}>Help &amp; Support</Link></li>
             <li>
               <ExternalLink href={LEGAL.requestsUrl}>View my requests</ExternalLink>
             </li>
             <li><a href={`mailto:${LEGAL.contactEmail}`} className={cn(LINK, "[overflow-wrap:anywhere]")}>{LEGAL.contactEmail}</a></li>
           </Group>
           <Group title="Product" className="col-start-1 sm:col-start-auto">
-            <li><Link href="/pricing" className={LINK}>Pricing</Link></li>
+            <li><Link prefetch={false} href="/pricing" className={LINK}>Pricing</Link></li>
             <li>
               <ExternalLink href={X_URL} rel="me noopener">X</ExternalLink>
             </li>
           </Group>
           <Group title="Legal" className="col-start-2 row-span-2 row-start-2 sm:col-start-auto sm:row-span-1 sm:row-start-auto">
             {LEGAL_PAGES.map((link) => (
-              <li key={link.href}><Link href={link.href} className={LINK}>{link.label}</Link></li>
+              <li key={link.href}><Link prefetch={false} href={link.href} className={LINK}>{link.label}</Link></li>
             ))}
           </Group>
         </nav>

@@ -85,7 +85,7 @@ function PrimaryNav({ market, className, phone = false }: { market: Market; clas
 
 function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
   return (
-    <Link
+    <Link prefetch={false}
       href={marketPath(market.slug)}
       className={cn(
         "flex min-w-0 items-center gap-2.5 rounded-md",
@@ -126,7 +126,7 @@ function Brand({ run, market }: { run: ScreenerRun | null; market: Market }) {
 function Avatar({ viewer }: { viewer: Viewer }) {
   const initials = viewer.email.slice(0, 2).toUpperCase();
   return (
-    <Link
+    <Link prefetch={false}
       href="/account"
       className="flex size-9 shrink-0 items-center justify-center rounded-full sm:ml-1 sm:size-7 bg-muted text-[0.625rem] font-semibold tracking-[0.02em] text-muted-foreground ring-1 ring-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       title={`${viewer.email} \u2013 account`}
@@ -246,7 +246,7 @@ export function AppShell({
               <ThemeToggle />
             </span>
             {viewer.role === "admin" ? (
-              <Link href="/admin" aria-label="Admin: users" title="Admin: users" className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "hidden text-muted-foreground hover:text-foreground sm:inline-flex")}>
+              <Link prefetch={false} href="/admin" aria-label="Admin: users" title="Admin: users" className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "hidden text-muted-foreground hover:text-foreground sm:inline-flex")}>
                 <Users className="size-4" aria-hidden />
               </Link>
             ) : null}
@@ -293,7 +293,7 @@ export function AppShell({
             Not investment advice. {market.advisor}
           </p>
           {/* Run health's way in on a phone, where the header has no room for it. */}
-          <Link
+          <Link prefetch={false}
             href={marketPath(market.slug, "/health")}
             className="mt-2 inline-block rounded underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
           >
