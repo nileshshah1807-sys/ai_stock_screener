@@ -1,24 +1,30 @@
 name: Daily stock screener
-run-name: Daily stock screener (${{ github.event_name }}${{ inputs.mode && format(', {0}', inputs.mode) || '' }})
+run-name: Daily stock screener (${{ github.event_name }}${{ inputs.scheduled && ', scheduled' || '' }}${{ inputs.mode && format(', {0}', inputs.mode) || '' }})
+
+# Dispatch only: cron-job.org calls GitHub's workflow-dispatch API, NSE at 07 past 11, 13, 15 and 17 UTC, daily,
+# with the body {"ref":"main","inputs":{"mode":"production","scheduled":"true"}}.
+# GitHub's own schedule was not used because it delays and drops runs (see
+# quarterly-filings.yml). `scheduled` makes such a run count as the scheduled one
+# everywhere this file used to test the schedule event. The slots below were the
+# schedule's rationale and still describe why there are several a day:
+#
+# Primary at 16:37 IST; fallback at 18:37 IST, after the 16:15 NSE
+# trade-modification cutoff. Calendar-day and completed-session guards
+# keep fallback/weekend/holiday runs from rebuilding the same snapshot.
+# The 20:37 and 22:37 IST slots exist because GitHub starts these hours
+# late or not at all (5 Oct 2026: the 16:30 IST slot began at 00:54 IST and
+# nothing followed it), and because they fall after NSE has published the
+# bhavcopy the price fallback reads. All four build the same session, so
+# once one succeeds the rest stop at the dedupe step.
+#
+# Minute 7, not 0. GitHub runs schedules best-effort and says the start of
+# an hour is when they are delayed most. On the hour, the primary slot's
+# start slid from about 20:10 IST in early September 2026 to about 22:30
+# by October, with one run a day appearing out of four slots. Moving off
+# the hour is GitHub's own advice; it lowers the odds and guarantees
+# nothing.
 
 on:
-  schedule:
-    # Primary at 16:37 IST; fallback at 18:37 IST, after the 16:15 NSE
-    # trade-modification cutoff. Calendar-day and completed-session guards
-    # keep fallback/weekend/holiday runs from rebuilding the same snapshot.
-    # The 20:37 and 22:37 IST slots exist because GitHub starts these hours
-    # late or not at all (5 Oct 2026: the 16:30 IST slot began at 00:54 IST and
-    # nothing followed it), and because they fall after NSE has published the
-    # bhavcopy the price fallback reads. All four build the same session, so
-    # once one succeeds the rest stop at the dedupe step.
-    #
-    # Minute 7, not 0. GitHub runs schedules best-effort and says the start of
-    # an hour is when they are delayed most. On the hour, the primary slot's
-    # start slid from about 20:10 IST in early September 2026 to about 22:30
-    # by October, with one run a day appearing out of four slots. Moving off
-    # the hour is GitHub's own advice; it lowers the odds and guarantees
-    # nothing.
-    - cron: "7 11,13,15,17 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -29,6 +35,14 @@ on:
         type: choice
         options: [production, validation]
         default: production
+      scheduled:
+        description: >-
+          Run as the scheduled build: skips a session already published, stops
+          at the session guard, emails (NSE) and takes the production gates.
+          cron-job.org sets it; a manual run leaves it off.
+        required: false
+        default: false
+        type: boolean
       send_email:
         description: Reserved for compatibility; manual validation never sends email
         required: true
@@ -57,24 +71,24 @@ jobs:
       # only scheduled runs send the email.
       OUTPUT_DIR: ${{ inputs.mode == 'validation' && format('.validation-output/{0}', github.run_id) || 'reports_advanced' }}
       YFINANCE_CACHE_DIR: ${{ inputs.mode == 'validation' && format('.validation-output/{0}/yfinance_cache', github.run_id) || 'reports_advanced/yfinance_cache' }}
-      BACKTEST_WRITES_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') }}
+      BACKTEST_WRITES_ENABLED: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') }}
       RUN_MANIFEST_ENABLED: "True"
       # Model 5.x is the production contract, for scheduled runs and production
       # dispatches alike. Validation dispatches remain isolated 4.x smoke runs.
-      FACTOR_MODEL_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && 'True' || 'False' }}
+      FACTOR_MODEL_ENABLED: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && 'True' || 'False' }}
       # 5.1.0: value/quality reweighting and research-first ranking, both
       # justified in docs/Review/p0_implementation_plan.md §8. Semantic ranking
       # change, so the version bumps per the contract in screener/runtime.py.
       # 5.2.0: the latest reported quarter enters the growth block
       # (FACTOR_GROWTH_QUARTER_SHARE); see docs/model_methodology.md.
-      MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.2.0' || '4.0.0-candidate' }}
-      RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.5.0' || '4.0.0-candidate' }}
+      MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && '5.2.0' || '4.0.0-candidate' }}
+      RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && '5.5.0' || '4.0.0-candidate' }}
       OUTPUT_SCHEMA_VERSION: "4.2.0"
-      MODEL_VALIDATION_STATUS: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && 'Production active; point-in-time validated over four windows incl. 2018-2020 drawdown; weights fitted in-sample, forward validation pending' || 'Research model; point-in-time out-of-sample validation pending' }}
+      MODEL_VALIDATION_STATUS: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && 'Production active; point-in-time validated over four windows incl. 2018-2020 drawdown; weights fitted in-sample, forward validation pending' || 'Research model; point-in-time out-of-sample validation pending' }}
       # A factor cross-section is not representative while statement coverage
       # is partial. The first production run can build the whole NSE cache;
       # subsequent runs normally reuse its 90-day statement records.
-      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '2500' || '400' }}
+      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && '2500' || '400' }}
       FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0.95"
       # Latest-quarter growth is measured from NSE's results filings, with
       # Yahoo's quote metadata for what the filings cannot serve (banks and
@@ -88,13 +102,13 @@ jobs:
       # production runs); a validation dispatch keeps Yahoo's figures.
       QUARTERLY_RESULTS_FILINGS_ENABLED: "True"
       # Only the scheduled run emails; a manual rerun must not send it twice.
-      EMAIL_ENABLED: ${{ github.event_name == 'schedule' }}
+      EMAIL_ENABLED: ${{ (github.event_name == 'schedule' || inputs.scheduled) }}
       EMAIL_DELIVERY_METHOD: GMAIL_API
-      EMAIL_SENDER: ${{ github.event_name == 'schedule' && secrets.EMAIL_SENDER || '' }}
-      EMAIL_RECEIVER: ${{ github.event_name == 'schedule' && secrets.EMAIL_RECEIVER || '' }}
-      GMAIL_CLIENT_ID: ${{ github.event_name == 'schedule' && secrets.GMAIL_CLIENT_ID || '' }}
-      GMAIL_CLIENT_SECRET: ${{ github.event_name == 'schedule' && secrets.GMAIL_CLIENT_SECRET || '' }}
-      GMAIL_REFRESH_TOKEN: ${{ github.event_name == 'schedule' && secrets.GMAIL_REFRESH_TOKEN || '' }}
+      EMAIL_SENDER: ${{ (github.event_name == 'schedule' || inputs.scheduled) && secrets.EMAIL_SENDER || '' }}
+      EMAIL_RECEIVER: ${{ (github.event_name == 'schedule' || inputs.scheduled) && secrets.EMAIL_RECEIVER || '' }}
+      GMAIL_CLIENT_ID: ${{ (github.event_name == 'schedule' || inputs.scheduled) && secrets.GMAIL_CLIENT_ID || '' }}
+      GMAIL_CLIENT_SECRET: ${{ (github.event_name == 'schedule' || inputs.scheduled) && secrets.GMAIL_CLIENT_SECRET || '' }}
+      GMAIL_REFRESH_TOKEN: ${{ (github.event_name == 'schedule' || inputs.scheduled) && secrets.GMAIL_REFRESH_TOKEN || '' }}
       ATTACH_CSV: "True"
       ATTACH_PDF: "True"
       TRANSCRIPT_SENTIMENT_ENABLED: "True"
@@ -141,13 +155,13 @@ jobs:
       LIQUIDITY_MIN_TRADING_FREQUENCY: "0.80"
       LIQUIDITY_MAX_TURNOVER_TOP5_SHARE: "0.50"
       # Shadow-only evidence: it adds audit columns and never changes live score/rating.
-      RED_FLAG_ENRICHMENT_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && (vars.RED_FLAG_ENRICHMENT_ENABLED || 'True') || 'False' }}
-      SUPABASE_URL: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && secrets.SUPABASE_URL || '' }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
+      RED_FLAG_ENRICHMENT_ENABLED: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && (vars.RED_FLAG_ENRICHMENT_ENABLED || 'True') || 'False' }}
+      SUPABASE_URL: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && secrets.SUPABASE_URL || '' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
     steps:
       - name: Skip successful scheduled duplicate
         id: schedule-dedupe
-        if: github.event_name == 'schedule'
+        if: (github.event_name == 'schedule' || inputs.scheduled)
         shell: bash
         run: |
           # Keyed to the session a run could build -- the IST date of the most
@@ -172,7 +186,7 @@ jobs:
               published=true
               break
             fi
-          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow daily-stock-screener.yml --event schedule --status success --limit 20 --json databaseId,createdAt --jq '.[] | "\(.databaseId) \(.createdAt)"')
+          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow daily-stock-screener.yml --status success --limit 20 --json databaseId,createdAt --jq '.[] | "\(.databaseId) \(.createdAt)"')
           if [ "${published}" = "true" ]; then
             echo "skip=true" >> "${GITHUB_OUTPUT}"
             echo "A scheduled screener run already covered the ${session} session; skipping fallback."
@@ -193,7 +207,7 @@ jobs:
           # that actually save time (29 Sept 2026). Installing afresh costs ~1 min.
 
       - name: Restore market-data cache
-        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
+        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production')
         id: market-data-cache
         uses: actions/cache/restore@v6
         with:
@@ -212,7 +226,7 @@ jobs:
       # composite cache changes GitHub's hidden cache version and invalidates
       # every warm production entry created before Model 5.0.
       - name: Restore production statement cache
-        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
+        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production')
         id: production-statement-cache
         uses: actions/cache/restore@v6
         with:
@@ -222,7 +236,7 @@ jobs:
             stock-screener-statements-v1-${{ runner.os }}-
 
       - name: Restore SME bar history
-        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
+        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production')
         id: sme-bar-history
         uses: actions/cache/restore@v6
         with:
@@ -243,7 +257,7 @@ jobs:
 
       - name: Check whether completed NSE session is already published
         id: session-guard
-        if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled)
         run: python -m workers.scheduled_session_guard
 
       - name: Run stock screener
@@ -264,7 +278,7 @@ jobs:
           retention-days: 7
 
       - name: Save refreshed market-data cache
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production')
         uses: actions/cache/save@v6
         with:
           path: |
@@ -279,14 +293,14 @@ jobs:
         # Checkpoint a valid partial/full statement build even when the screener
         # later fails the coverage guard. This avoids refetching successful
         # records on the next run. hashFiles prevents saving a missing cache.
-        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production') && hashFiles('reports_advanced/statement_cache.csv') != ''
+        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && hashFiles('reports_advanced/statement_cache.csv') != ''
         uses: actions/cache/save@v6
         with:
           path: reports_advanced/statement_cache.csv
           key: ${{ steps.production-statement-cache.outputs.cache-primary-key }}
 
       - name: Save SME bar history
-        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production') && hashFiles('reports_advanced/sme_bars.csv.gz') != ''
+        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && hashFiles('reports_advanced/sme_bars.csv.gz') != ''
         uses: actions/cache/save@v6
         with:
           path: reports_advanced/sme_bars.csv.gz
@@ -301,7 +315,7 @@ jobs:
         #
         # Scheduled runs and production dispatches only: a validation dispatch
         # is an isolated candidate run and must never overwrite what production serves.
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production')
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

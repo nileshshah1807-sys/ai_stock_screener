@@ -1,5 +1,5 @@
 name: Daily US screener
-run-name: Daily US screener (${{ github.event_name }}${{ inputs.mode && format(', {0}', inputs.mode) || '' }})
+run-name: Daily US screener (${{ github.event_name }}${{ inputs.scheduled && ', scheduled' || '' }}${{ inputs.mode && format(', {0}', inputs.mode) || '' }})
 
 # The NSE workflow's twin. Every step is the same because the pipeline is the
 # same -- `python app.py` reads MARKET and takes its universe, ticker suffix,
@@ -11,27 +11,32 @@ run-name: Daily US screener (${{ github.event_name }}${{ inputs.mode && format('
 # independent failure consequences; a matrix would couple their concurrency
 # groups and let an NSE failure cancel a US run that was fine.
 
+# Dispatch only: cron-job.org calls GitHub's workflow-dispatch API, US at 37 past 21, 23, 1, 3 and 5 UTC, daily,
+# with the body {"ref":"main","inputs":{"mode":"production","scheduled":"true"}}.
+# GitHub's own schedule was not used because it delays and drops runs (see
+# quarterly-filings.yml). `scheduled` makes such a run count as the scheduled one
+# everywhere this file used to test the schedule event. The slots below were the
+# schedule's rationale and still describe why there are several a day:
+#
+# Primary at 17:37 ET, fallbacks at 19:37 and 21:37 ET, all after the 16:00
+# close. Yahoo can serve the session's bar incomplete for hours after the
+# close; the price-session alignment guard then fails the run, and the next
+# slot retries. Cron is UTC and does not observe US daylight saving, so
+# these fire an hour earlier in local terms over winter -- still well clear
+# of the close -- and the completed-session guard refuses a duplicate
+# rebuild either way. The 21:30 ET slot is 01:30 UTC the next day, and
+# GitHub often starts it hours late, past midnight ET, which is why the
+# dedupe step below keys runs to the ET session, not to any calendar date.
+# The 03:30 and 05:30 UTC slots exist because GitHub sometimes drops a
+# scheduled run outright (29 Sept 2026: the 17:30 ET slot never appeared
+# and the 19:30 ET one failed on an unfinalised Yahoo bar). They stay inside
+# the same ET session -- the next one only closes at 16:00 ET -- and once
+# the session is published each is a ~30 second no-op at the dedupe step.
+#
+# Minute 37, not 30: the half hour is a busy mark for GitHub's best-effort
+# scheduler too. See the note in daily-stock-screener.yml.
+
 on:
-  schedule:
-    # Primary at 17:37 ET, fallbacks at 19:37 and 21:37 ET, all after the 16:00
-    # close. Yahoo can serve the session's bar incomplete for hours after the
-    # close; the price-session alignment guard then fails the run, and the next
-    # slot retries. Cron is UTC and does not observe US daylight saving, so
-    # these fire an hour earlier in local terms over winter -- still well clear
-    # of the close -- and the completed-session guard refuses a duplicate
-    # rebuild either way. The 21:30 ET slot is 01:30 UTC the next day, and
-    # GitHub often starts it hours late, past midnight ET, which is why the
-    # dedupe step below keys runs to the ET session, not to any calendar date.
-    # The 03:30 and 05:30 UTC slots exist because GitHub sometimes drops a
-    # scheduled run outright (29 Sept 2026: the 17:30 ET slot never appeared
-    # and the 19:30 ET one failed on an unfinalised Yahoo bar). They stay inside
-    # the same ET session -- the next one only closes at 16:00 ET -- and once
-    # the session is published each is a ~30 second no-op at the dedupe step.
-    #
-    # Minute 37, not 30: the half hour is a busy mark for GitHub's best-effort
-    # scheduler too. See the note in daily-stock-screener.yml.
-    - cron: "37 21,23 * * *"
-    - cron: "37 1,3,5 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -42,6 +47,14 @@ on:
         type: choice
         options: [production, validation]
         default: production
+      scheduled:
+        description: >-
+          Run as the scheduled build: skips a session already published, stops
+          at the session guard, emails (NSE) and takes the production gates.
+          cron-job.org sets it; a manual run leaves it off.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -83,9 +96,9 @@ jobs:
       YFINANCE_CACHE_DIR: ${{ inputs.mode == 'validation' && format('.validation-output/us-{0}/yfinance_cache', github.run_id) || 'reports_advanced/us/yfinance_cache' }}
       RUN_MANIFEST_ENABLED: "True"
 
-      FACTOR_MODEL_ENABLED: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && 'True' || 'False' }}
-      MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.2.0' || '4.0.0-candidate' }}
-      RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '5.5.0' || '4.0.0-candidate' }}
+      FACTOR_MODEL_ENABLED: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && 'True' || 'False' }}
+      MODEL_VERSION: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && '5.2.0' || '4.0.0-candidate' }}
+      RECOMMENDATION_POLICY_VERSION: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && '5.5.0' || '4.0.0-candidate' }}
       OUTPUT_SCHEMA_VERSION: "4.2.0"
       # Deliberately not the NSE line. The model's point-in-time validation was
       # run on NSE data; nothing has yet been validated out of sample on US
@@ -96,7 +109,7 @@ jobs:
       # 40 requests a minute a smaller budget would leave coverage under the
       # 0.95 floor below, and the run fails rather than publish a ranking of
       # whichever names happened to be fetched first.
-      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && '6000' || '400' }}
+      STATEMENT_FETCH_MAX_SYMBOLS_PER_RUN: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && '6000' || '400' }}
       FACTOR_MIN_STATEMENT_UNIVERSE_COVERAGE: "0.95"
 
       # Ask Yahoo for ~20 large caps first; if they lack the session's bar the
@@ -163,12 +176,12 @@ jobs:
       # Email goes out for the NSE run only; a second daily report is noise.
       EMAIL_ENABLED: "False"
 
-      SUPABASE_URL: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && secrets.SUPABASE_URL || '' }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ (github.event_name == 'schedule' || inputs.mode == 'production') && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
+      SUPABASE_URL: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && secrets.SUPABASE_URL || '' }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && secrets.SUPABASE_SERVICE_ROLE_KEY || '' }}
     steps:
       - name: Skip successful scheduled duplicate
         id: schedule-dedupe
-        if: github.event_name == 'schedule'
+        if: (github.event_name == 'schedule' || inputs.scheduled)
         shell: bash
         run: |
           # A run is keyed to the session it could build -- the ET date of the
@@ -196,7 +209,7 @@ jobs:
               published=true
               break
             fi
-          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow daily-us-screener.yml --event schedule --status success --limit 20 --json databaseId,createdAt --jq '.[] | "\(.databaseId) \(.createdAt)"')
+          done < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow daily-us-screener.yml --status success --limit 20 --json databaseId,createdAt --jq '.[] | "\(.databaseId) \(.createdAt)"')
           if [ "${published}" = "true" ]; then
             echo "skip=true" >> "${GITHUB_OUTPUT}"
             echo "A scheduled US screener run already covered the ${session} session; skipping fallback."
@@ -220,7 +233,7 @@ jobs:
       # price, fundamental or statement caches. Sharing them would have each
       # run evict the other's warm data every day.
       - name: Restore market-data cache
-        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
+        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production')
         id: market-data-cache
         uses: actions/cache/restore@v6
         with:
@@ -234,7 +247,7 @@ jobs:
             us-screener-data-v1-${{ runner.os }}-
 
       - name: Restore production statement cache
-        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
+        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production')
         id: production-statement-cache
         uses: actions/cache/restore@v6
         with:
@@ -258,7 +271,7 @@ jobs:
 
       - name: Check whether completed US session is already published
         id: session-guard
-        if: steps.schedule-dedupe.outputs.skip != 'true' && github.event_name == 'schedule'
+        if: steps.schedule-dedupe.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled)
         run: python -m workers.scheduled_session_guard
 
       - name: Run stock screener
@@ -279,7 +292,7 @@ jobs:
           retention-days: 7
 
       - name: Save refreshed market-data cache
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production')
         uses: actions/cache/save@v6
         with:
           path: |
@@ -290,7 +303,7 @@ jobs:
           key: ${{ steps.market-data-cache.outputs.cache-primary-key }}
 
       - name: Save refreshed production statement cache
-        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production') && hashFiles('reports_advanced/us/statement_cache.csv') != ''
+        if: always() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production') && hashFiles('reports_advanced/us/statement_cache.csv') != ''
         uses: actions/cache/save@v6
         with:
           path: reports_advanced/us/statement_cache.csv
@@ -300,7 +313,7 @@ jobs:
         # Last, for the same reason as the NSE workflow: a Supabase outage must
         # cost only the dashboard refresh, never the day's report or the warm
         # cache that a cold rebuild would take about an hour to recreate.
-        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.mode == 'production')
+        if: success() && steps.schedule-dedupe.outputs.skip != 'true' && steps.session-guard.outputs.skip != 'true' && (github.event_name == 'schedule' || inputs.scheduled || inputs.mode == 'production')
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

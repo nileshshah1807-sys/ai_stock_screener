@@ -477,6 +477,15 @@ dashboard/    Next.js front end, with its own README; routes are nested
 
 - The repo is edited from both Windows and WSL. `.gitattributes` pins LF; keep
   `core.autocrlf=input` locally or the whole tree shows as modified.
+- **The NSE and US screeners are dispatched by cron-job.org with `scheduled=true`.**
+  Their `schedule:` blocks are gone (GitHub drops and delays them; see
+  `quarterly-filings.yml`). The body is
+  `{"ref":"main","inputs":{"mode":"production","scheduled":"true"}}`: NSE at 07
+  past 11, 13, 15 and 17 UTC, US at 37 past 21, 23, 1, 3 and 5 UTC, daily.
+  `inputs.scheduled` counts everywhere the files test the `schedule` event
+  (dedupe, session guard, NSE email, the production gates); a plain manual
+  dispatch leaves it off and behaves as before. The dedupe step finds a covered
+  session by the guard step's conclusion, whatever the trigger.
 - **The scheduled workflows run the suite inside their own job env.** Every
   variable in a workflow's `env:` block leaks into its `unittest` pre-flight, so
   a test that assumes a variable is unset passes in CI and fails the cron run
