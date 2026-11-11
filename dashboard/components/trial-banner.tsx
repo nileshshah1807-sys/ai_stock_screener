@@ -27,7 +27,7 @@ export function TrialBanner({ days, setUp }: { days: number; setUp?: string | nu
           {setUp ? ` · ${setUp}` : ""}
         </span>
       </span>
-      <Link
+      <Link prefetch={false}
         href={setUp ? "/account" : "/pricing"}
         className="rounded underline underline-offset-2 hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
