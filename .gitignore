@@ -41,3 +41,8 @@ SIGN-IN-LINK.html
 
 # Knowledge graph (rebuilt locally; changes on every merge)
 graphify-out/
+
+# Cloudflare build and local state
+dashboard/.open-next/
+dashboard/.wrangler/
+dashboard/.dev.vars
