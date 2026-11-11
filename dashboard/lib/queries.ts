@@ -597,6 +597,8 @@ export const getSearchIndex = cache(
                 .eq("market", market)
                 .eq("run_date", runDate)
                 .order("investment_rank", { ascending: true, nullsFirst: false })
+                // A tie-break: rows with equal rank must not move between chunks.
+                .order("symbol", { ascending: true })
                 .range(offset, offset + FETCH_CHUNK - 1);
               if (error) throw new Error(error.message);
               return (data ?? []).map((row) => toEntry(row as Record<string, unknown>));

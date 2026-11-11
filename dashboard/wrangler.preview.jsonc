@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cupel-preview",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  // Run the Worker near the database (the Supabase project is in ap-northeast-1, Tokyo).
+  "placement": { "hostname": "aeikzaubhepxjxqdhkjz.supabase.co" },
+  "r2_buckets": [
+    // Next's incremental cache (open-next.config.ts). Create it first: npx wrangler r2 bucket create cupel-next-cache
+    { "binding": "NEXT_INC_CACHE_R2_BUCKET", "bucket_name": "cupel-next-cache" }
+    // Phase 2, not wired: lib/market-data.ts moves to a private bucket `market-data`:
+    // { "binding": "MARKET_DATA", "bucket_name": "market-data" }
+  ],
+  "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "cupel-preview" }]
+}

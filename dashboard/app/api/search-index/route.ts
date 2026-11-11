@@ -69,7 +69,11 @@ export async function GET(request: NextRequest) {
         // A run is immutable once published, so the browser can hold this for
         // the rest of the session. The client names the run in the URL
         // (lib/stock-directory.ts), so a new run is a new URL, never a stale hit.
-        "Cache-Control": "private, max-age=3600, stale-while-revalidate=86400",
+        // An empty index from a run that has rows is a failed read: never let the browser keep it.
+        "Cache-Control":
+          rated.length === 0 && run.row_count > 0
+            ? "no-store"
+            : "private, max-age=3600, stale-while-revalidate=86400",
       },
     },
   );
