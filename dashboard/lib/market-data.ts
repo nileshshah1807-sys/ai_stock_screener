@@ -5,6 +5,7 @@ import { gunzipSync } from "node:zlib";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import type { MarketCode } from "@/lib/markets";
+import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -63,10 +64,26 @@ async function readFromR2<T>(path: string): Promise<T | null> {
   }
 }
 
+/**
+ * Objects this instance has read lately. A stock page asks for three on every
+ * request, and each R2 read is a network round trip; the objects change at most
+ * once an evening. Raw payloads are kept (ratings included), which is safe: the
+ * memo is server memory and getStock redacts for the viewer after the read.
+ */
+const objectMemo = sharedMemo<unknown>(300_000, 40);
+
 /** One object, unzipped and parsed; null when it is missing or unreadable. */
-export async function readMarketObject<T>(supabase: Supabase, path: string): Promise<T | null> {
+export function readMarketObject<T>(supabase: Supabase, path: string): Promise<T | null> {
+  return objectMemo(path, () => loadMarketObject<T>(supabase, path), (value) => value !== null) as Promise<T | null>;
+}
+
+async function loadMarketObject<T>(supabase: Supabase, path: string): Promise<T | null> {
+  const started = Date.now();
   const fromR2 = await readFromR2<T>(path);
-  if (fromR2 !== null) return fromR2;
+  if (fromR2 !== null) {
+    console.log(`market-data R2 ${Date.now() - started} ms: ${path}`);
+    return fromR2;
+  }
   const { data, error } = await supabase.storage.from(MARKET_DATA_BUCKET).download(path);
   if (error || !data) {
     // A symbol the publisher has not reached has no object; that is a gap,
