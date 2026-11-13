@@ -442,6 +442,7 @@ type LiveContext = {
 const CELLS: Record<ColumnId, (row: SnapshotRow, live: LiveContext) => ReactNode> = {
   rank: (row) => row.investment_rank ?? MISSING,
   stock: (row) => <StockLink row={row} />,
+  custom: (row) => formatScore(row.custom_score ?? null),
   score: (row) => <ScoreCell row={row} />,
   quality: (row) => <PercentileCell value={row.quality_percentile} />,
   momentum: (row) => <PercentileCell value={row.momentum_percentile} />,
@@ -514,7 +515,7 @@ export function ScreenerRows({
   /** Pre-rendered trailing cells by symbol, when the table has a row action. */
   actions?: Record<string, ReactNode>;
 }) {
-  const columns = visibleColumns(hiddenColumns, factorModel);
+  const columns = visibleColumns(hiddenColumns, factorModel, rows.some((row) => "custom_score" in row));
   const market = useMarket();
   // Only when a live column is on screen: a grid with Price, 1D, market cap
   // and P/E hidden asks for nothing. Sorting stays on the close's figures.

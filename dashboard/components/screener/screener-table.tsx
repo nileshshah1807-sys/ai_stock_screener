@@ -70,7 +70,9 @@ export async function ScreenerTable({
   // Header and rows share one hidden list, or the cells shift under the headers.
   const admin = await isAdmin();
   const hidden: ColumnId[] = admin ? hiddenColumns : [...hiddenColumns, ...ADMIN_ONLY_COLUMNS];
-  const columns = visibleColumns(hidden, factorModel);
+  // "Your score" shows only while the viewer has built one: the rows then carry it.
+  const custom = rows.some((row) => "custom_score" in row);
+  const columns = visibleColumns(hidden, factorModel, custom);
 
   if (!rows.length) {
     return (

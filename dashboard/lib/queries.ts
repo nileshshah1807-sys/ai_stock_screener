@@ -5,6 +5,7 @@ import { cache } from "react";
 import { isAdmin } from "@/lib/auth";
 import { gridProjection } from "@/lib/columns";
 import { isVerdictField, withoutRatings } from "@/lib/ratings.mjs";
+import { SCORE_FACTORS, parseWeights, rankByWeights, weightedScore } from "@/lib/custom-score.mjs";
 import {
   priceCalendarPath,
   priceSeriesPath,
@@ -389,8 +390,9 @@ export async function getSnapshotPage(
   } = {},
 ): Promise<{ rows: SnapshotRow[]; total: number }> {
   const supabase = await createClient();
+  const admin = await isAdmin();
   // A rating filter or sort would reveal the rating it filters on.
-  if (!(await isAdmin())) {
+  if (!admin) {
     filters = { ...filters, rating: [], buyEligibleOnly: false, excludeCapped: false, eligibility: [], actionableOnly: false };
     if (filters.sort && RATING_DERIVED_SORTS.has(filters.sort)) filters.sort = undefined;
     // The model's score and rank are admin-only too: neither sort nor filter on them.
@@ -403,129 +405,176 @@ export async function getSnapshotPage(
       ? gridProjection(filters.hiddenColumns)
       : GRID_COLUMNS);
 
-  // PostgREST applies the same select, filters, order and range to a
-  // set-returning function as to the table, so everything below is shared.
-  const source = options.breadth
-    ? supabase
-        .rpc(
-          "breadth_snapshot",
-          { p_market: market, p_metric: options.breadth },
-          { count: "exact" },
-        )
-        .select(projection)
-    : supabase.from("screener_snapshot_visible").select(projection, { count: "exact" });
+  // An empty restriction means "nothing", never "everything" (see the symbols filter below).
+  if (options.symbols && !options.symbols.length) return { rows: [], total: 0 };
 
-  let query = source.eq("market", market).eq("run_date", runDate);
+  /** The run's rows under these filters, reading `select`; the grid and the weighted ranking share it. */
+  const build = (select: string, withCount: boolean) => {
+    // PostgREST applies the same select, filters, order and range to a
+    // set-returning function as to the table, so everything below is shared.
+    const source = options.breadth
+      ? supabase
+          .rpc(
+            "breadth_snapshot",
+            { p_market: market, p_metric: options.breadth },
+            withCount ? { count: "exact" } : undefined,
+          )
+          .select(select)
+      : supabase.from("screener_snapshot_visible").select(select, withCount ? { count: "exact" } : undefined);
 
-  // A company the run could not rate has a page and a row, but no score or
-  // rank to sort, total or export: it is listed apart (getUnratedRows). A
-  // watchlist still shows the ones it holds.
-  if (!options.symbols && !options.breadth) query = query.is("unrated_reason", null);
+    let query = source.eq("market", market).eq("run_date", runDate);
 
-  if (options.industry) {
-    query = query.eq("industry", options.industry);
-  }
+    // A company the run could not rate has a page and a row, but no score or
+    // rank to sort, total or export: it is listed apart (getUnratedRows). A
+    // watchlist still shows the ones it holds.
+    if (!options.symbols && !options.breadth) query = query.is("unrated_reason", null);
 
-  if (options.symbols) {
-    // An empty restriction means "nothing", never "everything". Falling through
-    // to an unrestricted read would show an empty watchlist the entire
-    // universe, which is the worst possible failure for this feature.
-    if (!options.symbols.length) return { rows: [], total: 0 };
-    // PostgREST expresses this as `symbol=in.(A,B,C)` in the query string, so
-    // the set size is bounded by URL length. WATCHLIST_MAX_SYMBOLS keeps it
-    // inside a couple of kilobytes.
-    query = query.in("symbol", [...options.symbols]);
-  }
-
-  if (filters.q?.trim()) {
-    const term = filters.q.trim().replace(/[%,()]/g, "");
-    if (term) {
-      query = query.or(`symbol.ilike.%${term}%,company.ilike.%${term}%`);
+    if (options.industry) {
+      query = query.eq("industry", options.industry);
     }
-  }
-  if (filters.rating?.length) {
-    query = query.in("rating", filters.rating);
-  }
-  if (filters.sector?.length) {
-    query = query.in("sector", filters.sector);
-  }
-  // Filter on the number the table displays. Since Model 5.1 that is the
-  // uncapped published score; filtering on the capped decision_score would
-  // silently exclude rows whose visible score is inside the requested range.
-  if (typeof filters.minScore === "number") {
-    query = query.gte("final_score", filters.minScore);
-  }
-  if (typeof filters.maxScore === "number") {
-    query = query.lte("final_score", filters.maxScore);
-  }
-  if (filters.actionableOnly) {
-    query = query.eq("portfolio_actionable", true);
-  }
-  if (filters.buyEligibleOnly) {
-    query = query.eq("buy_eligible", true);
-  }
-  if (filters.excludeCapped) {
-    query = query.or("rating_capped.is.null,rating_capped.eq.false");
-  }
-  if (filters.hasTranscript) {
-    query = query.eq("transcript_scoring_eligible", true);
-  }
-  if (filters.redFlagsOnly) {
-    query = query.gt("red_flag_severity", 0);
-  }
-  // Model 5.0 filters. On a 4.x run these columns are null, and PostgREST
-  // comparison operators exclude nulls, so applying one would empty the grid
-  // rather than be ignored. That is the correct behaviour -- the filter asks
-  // for evidence the run does not have -- and the filter bar hides these
-  // controls entirely unless the run used the factor model.
-  if (typeof filters.minQuality === "number") {
-    query = query.gte("quality_percentile", filters.minQuality);
-  }
-  if (typeof filters.minMomentum === "number") {
-    query = query.gte("momentum_percentile", filters.minMomentum);
-  }
-  if (filters.eligibility?.length) {
-    const classes = filters.eligibility
-      .map((value) => Number(value))
-      .filter((value) => Number.isInteger(value));
-    if (classes.length) {
-      query = query.in("eligibility_class", classes);
+
+    if (options.symbols) {
+      // An empty restriction means "nothing", never "everything". Falling through
+      // to an unrestricted read would show an empty watchlist the entire
+      // universe, which is the worst possible failure for this feature.
+      // PostgREST expresses this as `symbol=in.(A,B,C)` in the query string, so
+      // the set size is bounded by URL length. WATCHLIST_MAX_SYMBOLS keeps it
+      // inside a couple of kilobytes.
+      query = query.in("symbol", [...options.symbols]);
     }
+
+    if (filters.q?.trim()) {
+      const term = filters.q.trim().replace(/[%,()]/g, "");
+      if (term) {
+        query = query.or(`symbol.ilike.%${term}%,company.ilike.%${term}%`);
+      }
+    }
+    if (filters.rating?.length) {
+      query = query.in("rating", filters.rating);
+    }
+    if (filters.sector?.length) {
+      query = query.in("sector", filters.sector);
+    }
+    // Filter on the number the table displays. Since Model 5.1 that is the
+    // uncapped published score; filtering on the capped decision_score would
+    // silently exclude rows whose visible score is inside the requested range.
+    if (typeof filters.minScore === "number") {
+      query = query.gte("final_score", filters.minScore);
+    }
+    if (typeof filters.maxScore === "number") {
+      query = query.lte("final_score", filters.maxScore);
+    }
+    if (filters.actionableOnly) {
+      query = query.eq("portfolio_actionable", true);
+    }
+    if (filters.buyEligibleOnly) {
+      query = query.eq("buy_eligible", true);
+    }
+    if (filters.excludeCapped) {
+      query = query.or("rating_capped.is.null,rating_capped.eq.false");
+    }
+    if (filters.hasTranscript) {
+      query = query.eq("transcript_scoring_eligible", true);
+    }
+    if (filters.redFlagsOnly) {
+      query = query.gt("red_flag_severity", 0);
+    }
+    // Model 5.0 filters. On a 4.x run these columns are null, and PostgREST
+    // comparison operators exclude nulls, so applying one would empty the grid
+    // rather than be ignored. That is the correct behaviour -- the filter asks
+    // for evidence the run does not have -- and the filter bar hides these
+    // controls entirely unless the run used the factor model.
+    if (typeof filters.minQuality === "number") {
+      query = query.gte("quality_percentile", filters.minQuality);
+    }
+    if (typeof filters.minMomentum === "number") {
+      query = query.gte("momentum_percentile", filters.minMomentum);
+    }
+    if (filters.eligibility?.length) {
+      const classes = filters.eligibility
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value));
+      if (classes.length) {
+        query = query.in("eligibility_class", classes);
+      }
+    }
+    if (filters.aboveMa200) {
+      query = query.gte("price_to_ma200_pct", 0);
+    }
+    // Entry timing. Null on runs without stages, so these empty the grid there
+    // for the same reason the factor filters do; the filter bar hides them.
+    if (filters.stage?.length) {
+      query = query.in("stage", filters.stage);
+    }
+    // One exchange, not both: a row is either NSE-listed or BSE-only.
+    const listing = new Set(filters.listing ?? []);
+    if (listing.has("nse") !== listing.has("bse")) {
+      query = listing.has("bse")
+        ? query.like("symbol", `%${BSE_SUFFIX}`)
+        : query.not("symbol", "like", `%${BSE_SUFFIX}`);
+    }
+    if (typeof filters.minRs === "number") {
+      query = query.gte("rs_rating", filters.minRs);
+    }
+    // An unreported market cap is excluded, as PostgREST drops nulls from a
+    // comparison: a size floor cannot vouch for a size it was never told.
+    if (typeof filters.minCapCr === "number") {
+      query = query.gte("market_cap", filters.minCapCr * RUPEES_PER_CRORE);
+    }
+    return query;
+  };
+
+  const page = Math.max(1, filters.page ?? 1);
+  const from = (page - 1) * PAGE_SIZE;
+
+  // A score the viewer built from their own weights (lib/custom-score.mjs). Postgres cannot order by
+  // it, so the filtered run's factor columns are read whole, ranked here, and the page read by symbol.
+  const weights = parseWeights(filters.weights);
+  if (weights && filters.sort === "custom_score") {
+    const fields = ["symbol", ...SCORE_FACTORS.map((factor) => factor.column)].join(",");
+    const chunk = (at: number, withCount: boolean) =>
+      build(fields, withCount).order("symbol", { ascending: true }).range(at, at + FETCH_CHUNK - 1);
+    const first = await chunk(0, true);
+    if (first.error) {
+      console.error("getSnapshotPage (weighted) failed", first.error.message);
+      return { rows: [], total: 0 };
+    }
+    const offsets: number[] = [];
+    for (let at = FETCH_CHUNK; at < (first.count ?? 0); at += FETCH_CHUNK) offsets.push(at);
+    const rest = await Promise.all(offsets.map((at) => chunk(at, false)));
+    const failed = rest.find((result) => result.error);
+    if (failed?.error) {
+      console.error("getSnapshotPage (weighted) failed", failed.error.message);
+      return { rows: [], total: 0 };
+    }
+    const all = [first, ...rest].flatMap((result) => (result.data ?? []) as unknown as Record<string, unknown>[]);
+    const ranked = rankByWeights(all, weights);
+    const slice = ranked.slice(from, from + PAGE_SIZE);
+    if (!slice.length) return { rows: [], total: ranked.length };
+    const { data, error } = await build(projection, false).in("symbol", slice.map((entry) => entry.symbol));
+    if (error) {
+      console.error("getSnapshotPage (weighted) failed", error.message);
+      return { rows: [], total: 0 };
+    }
+    const bySymbol = new Map(((data ?? []) as unknown as SnapshotRow[]).map((row) => [row.symbol, row]));
+    const rows = slice.flatMap(({ symbol, score }) => {
+      const row = bySymbol.get(symbol);
+      return row ? [{ ...row, custom_score: score }] : [];
+    });
+    return { rows: await forViewer(rows), total: ranked.length };
   }
-  if (filters.aboveMa200) {
-    query = query.gte("price_to_ma200_pct", 0);
-  }
-  // Entry timing. Null on runs without stages, so these empty the grid there
-  // for the same reason the factor filters do; the filter bar hides them.
-  if (filters.stage?.length) {
-    query = query.in("stage", filters.stage);
-  }
-  // One exchange, not both: a row is either NSE-listed or BSE-only.
-  const listing = new Set(filters.listing ?? []);
-  if (listing.has("nse") !== listing.has("bse")) {
-    query = listing.has("bse")
-      ? query.like("symbol", `%${BSE_SUFFIX}`)
-      : query.not("symbol", "like", `%${BSE_SUFFIX}`);
-  }
-  if (typeof filters.minRs === "number") {
-    query = query.gte("rs_rating", filters.minRs);
-  }
-  // An unreported market cap is excluded, as PostgREST drops nulls from a
-  // comparison: a size floor cannot vouch for a size it was never told.
-  if (typeof filters.minCapCr === "number") {
-    query = query.gte("market_cap", filters.minCapCr * RUPEES_PER_CRORE);
-  }
+
+  const query = build(projection, true);
 
   const sortColumn =
     filters.sort && SORTABLE.has(filters.sort)
       ? filters.sort
-      : "investment_rank";
+      : admin
+        ? "investment_rank"
+        : "market_cap";
   const ascending = filters.dir
     ? filters.dir === "asc"
     : sortColumn.endsWith("rank") || ASCENDING_BY_DEFAULT.has(sortColumn);
-
-  const page = Math.max(1, filters.page ?? 1);
-  const from = (page - 1) * PAGE_SIZE;
 
   // nullsFirst:false keeps rows with no value for the sort key at the bottom,
   // so an unranked or uncovered stock never displaces a scored one at the top.
@@ -539,8 +588,11 @@ export async function getSnapshotPage(
     return { rows: [], total: 0 };
   }
 
+  const rows = (data ?? []) as unknown as SnapshotRow[];
   return {
-    rows: await forViewer((data ?? []) as unknown as SnapshotRow[]),
+    rows: await forViewer(
+      weights ? rows.map((row) => ({ ...row, custom_score: weightedScore(row as unknown as Record<string, unknown>, weights) })) : rows,
+    ),
     total: count ?? 0,
   };
 }

@@ -11,9 +11,11 @@
  * table in `screener-table.tsx`, keyed by the same `id`.
  */
 
+import { SCORE_FACTORS } from "@/lib/custom-score.mjs";
 export type ColumnId =
   | "rank"
   | "stock"
+  | "custom"
   | "score"
   | "quality"
   | "momentum"
@@ -40,7 +42,8 @@ export type ColumnId =
  * both sets would double the grid width and leave whichever model did not run
  * as a full column of dashes.
  */
-export type ColumnAvailability = "always" | "factor" | "legacy";
+/** `custom`: only while the viewer has built their own score (lib/custom-score.mjs). */
+export type ColumnAvailability = "always" | "factor" | "legacy" | "custom";
 
 export type ColumnSpec = {
   id: ColumnId;
@@ -103,6 +106,17 @@ export const COLUMNS: readonly ColumnSpec[] = [
     cellClassName: "sticky-col",
     fields: ["company", "logo_domain"],
     required: true,
+  },
+  {
+    id: "custom",
+    label: "Your score",
+    sort: "custom_score",
+    numeric: true,
+    title: "Your own score: the weights you chose over the measures shown here. Not Cupel's rating or rank.",
+    cellClassName: "tabular text-right font-mono text-xs",
+    fields: SCORE_FACTORS.map((factor) => factor.column),
+    required: true,
+    availability: "custom",
   },
   {
     id: "score",
@@ -420,11 +434,13 @@ export const ADMIN_ONLY_COLUMNS: readonly ColumnId[] = ["rank", "score", "fundam
 export function visibleColumns(
   hidden: readonly ColumnId[],
   factorModel: boolean,
+  custom = false,
 ): ColumnSpec[] {
   const hiddenSet = new Set(hidden);
   return COLUMNS.filter((column) => {
     if (hiddenSet.has(column.id)) return false;
     const availability = column.availability ?? "always";
+    if (availability === "custom") return custom;
     if (availability === "factor") return factorModel;
     if (availability === "legacy") return !factorModel;
     return true;

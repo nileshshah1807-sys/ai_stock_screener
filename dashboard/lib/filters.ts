@@ -49,7 +49,9 @@ export function parseFilters(params: RawParams): ScreenerFilters {
     listing: list(params.listing),
     minRs: num(params.minRs),
     minCapCr: num(params.minCapCr),
-    sort: str(params.sort) ?? "investment_rank",
+    // A mix the viewer built orders the grid by it until they pick another sort.
+    sort: str(params.sort) ?? (str(params.w) ? "custom_score" : "investment_rank"),
+    weights: str(params.w),
     dir: dir === "asc" || dir === "desc" ? dir : undefined,
     page: Math.max(1, num(params.page) ?? 1),
     hiddenColumns: parseHiddenColumns(str(params.cols)),

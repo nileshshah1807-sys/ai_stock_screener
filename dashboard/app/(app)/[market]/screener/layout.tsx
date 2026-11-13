@@ -7,6 +7,7 @@ import { FilterBar } from "@/components/screener/filter-bar";
 import { SavedViews } from "@/components/screener/saved-views";
 import { StockSearch } from "@/components/screener/stock-search";
 import { ViewOptions } from "@/components/screener/view-options";
+import { ScoreBuilder } from "@/components/screener/score-builder";
 import { investmentRankExplanation } from "@/lib/model-display.mjs";
 import { screenerIntro } from "@/lib/screener-intro.mjs";
 
@@ -90,6 +91,7 @@ export default async function ScreenerLayout({
           <div className="flex-1">
             <FilterBar sectors={sectors} factorModel={factorModel} exchanges={bseOnly > 0} />
           </div>
+          <ScoreBuilder factorModel={factorModel} />
           <ViewOptions factorModel={factorModel} />
           <StockSearch />
           <ExportLink />

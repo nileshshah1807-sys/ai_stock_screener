@@ -40,6 +40,8 @@ export type SnapshotRow = {
   decision_score_ceiling: number | null;
   decision_score: number | null;
   final_score: number | null;
+  /** The viewer's own weighted score, when they built one (lib/custom-score.mjs). */
+  custom_score?: number | null;
 
   rating: Rating | string | null;
   investment_rating: string | null;
@@ -417,6 +419,8 @@ export type ScreenerFilters = {
   rating?: string[];
   sector?: string[];
   minScore?: number;
+  /** The viewer's own weights, as `q20.m30` (lib/custom-score.mjs). */
+  weights?: string;
   maxScore?: number;
   actionableOnly?: boolean;
   buyEligibleOnly?: boolean;
