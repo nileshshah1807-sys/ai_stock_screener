@@ -17,8 +17,10 @@ export NEXT_PUBLIC_SITE_URL="${NEXT_PUBLIC_SITE_URL:-https://cupel.in}"
 export NEXT_TELEMETRY_DISABLED=1
 log="${TMPDIR:-/tmp}/cupel-cf-build.log"
 npx opennextjs-cloudflare build > "$log" 2>&1 || { tail -30 "$log"; exit 1; }
-npx wrangler deploy --dry-run 2>&1 | grep "Total Upload" || true
-npx opennextjs-cloudflare deploy 2>&1 | grep -E "Deployed|Current Version|rror" || true
+npx wrangler deploy --dry-run > "$log" 2>&1 || { tail -30 "$log"; exit 1; }
+grep "Total Upload" "$log"
+npx opennextjs-cloudflare deploy > "$log" 2>&1 || { tail -30 "$log"; exit 1; }
+grep -E "Deployed|Current Version" "$log" || { echo "deploy printed no version"; tail -30 "$log"; exit 1; }
 # A cold Worker's first requests are the slow ones: take them here, not on a visitor.
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do curl -s -o /dev/null -w "%{http_code} " "$NEXT_PUBLIC_SITE_URL/login"; done
 echo
