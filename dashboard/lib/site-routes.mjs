@@ -6,7 +6,7 @@
 export const PRIVATE_SEGMENTS = ["ind", "us", "nse", "screener", "account", "admin", "admin-plans-preview", "billing-preview", "no-access", "api"];
 
 /** Top-level segments anyone may open: the home page, the public pages and the files crawlers fetch. */
-export const PUBLIC_SEGMENTS = ["", "pricing", "help", "terms", "privacy", "refunds", "disclaimer", "login", "auth", "robots.txt", "sitemap.xml", "opengraph-image", "favicon.ico", "icon.svg"];
+export const PUBLIC_SEGMENTS = ["", "pricing", "help", "terms", "privacy", "refunds", "disclaimer", "login", "auth", "robots.txt", "sitemap.xml", "favicon.ico", "icon.svg"];
 
 const first = (pathname) => (pathname.split("/")[1] ?? "").toLowerCase();
 

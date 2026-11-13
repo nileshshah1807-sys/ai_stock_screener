@@ -20,10 +20,10 @@ test("every top-level route is classed public or private, so a new one cannot sl
 
 test("only the app's own segments need a session; an unknown path does not", () => {
   for (const path of ["/ind", "/us/concalls", "/NSE", "/screener", "/account", "/api/export", "/admin/plans"]) assert.equal(isPrivatePath(path), true, path);
-  for (const path of ["/", "/nope-xyz", "/favicon.ico", "/opengraph-image", "/pricing", "/login", "/users", "/industries"]) assert.equal(isPrivatePath(path), false, path);
+  for (const path of ["/", "/nope-xyz", "/favicon.ico", "/pricing", "/login", "/users", "/industries"]) assert.equal(isPrivatePath(path), false, path);
 });
 
 test("an unknown first segment is not a route, so it can answer 404", () => {
-  for (const path of ["/", "/pricing", "/robots.txt", "/opengraph-image", "/ind/concalls", "/auth/callback"]) assert.equal(isKnownPath(path), true, path);
+  for (const path of ["/", "/pricing", "/robots.txt", "/sitemap.xml", "/ind/concalls", "/auth/callback"]) assert.equal(isKnownPath(path), true, path);
   for (const path of ["/nope-xyz", "/wp-login.php", "/users"]) assert.equal(isKnownPath(path), false, path);
 });

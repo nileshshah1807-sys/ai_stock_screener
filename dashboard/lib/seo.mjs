@@ -2,6 +2,12 @@
 
 export const SITE_URL = "https://cupel.in";
 
+/**
+ * The share card (public/og.png, 1200x630): a static file, because next/og's renderer put the
+ * Worker bundle over its 3 MiB limit. The landing's headline, mark and colours.
+ */
+export const OG_IMAGE = { url: "/og.png", width: 1200, height: 630, alt: "Cupel: thousands of stocks in, a short list out. NSE and US stocks, quarterly results and earnings calls." };
+
 /** The pages meant to be found: the landing page, the price and the legal pages. Everything else is the signed-in app. */
 export const PUBLIC_PATHS = ["/", "/pricing", "/help", "/terms", "/privacy", "/refunds", "/disclaimer"];
 

@@ -18,7 +18,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { buttonVariants } from "@/components/ui/button";
 import { daysPhrase, trialName } from "@/lib/billing.mjs";
 import { getTrialDays } from "@/lib/trial-days";
-import { faqJsonLd, siteJsonLd } from "@/lib/seo.mjs";
+import { OG_IMAGE, faqJsonLd, siteJsonLd } from "@/lib/seo.mjs";
 import { cn } from "@/lib/utils";
 
 const TITLE = "Cupel: NSE and US stock screener, results and earnings calls";
@@ -32,7 +32,7 @@ export const metadata: Metadata = {
   description: DESCRIPTION,
   robots: { index: true, follow: true },
   alternates: { canonical: "/" },
-  openGraph: { title: TITLE, description: DESCRIPTION, siteName: "Cupel", type: "website" },
+  openGraph: { title: TITLE, description: DESCRIPTION, siteName: "Cupel", type: "website", images: [OG_IMAGE] },
 };
 
 // Built once and rebuilt every five minutes, the same page for every visitor (the signed-in buttons
