@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { headers } from "next/headers";
 import { Suspense } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
@@ -13,16 +12,16 @@ import { LandingPricing } from "@/components/landing/landing-pricing";
 import { Pipeline } from "@/components/landing/pipeline";
 import { Sieve } from "@/components/landing/sieve";
 import { StageLine } from "@/components/landing/stage-line";
+import { VisitorSwap } from "@/components/landing/visitor-swap";
 import { SiteFooter } from "@/components/site-footer";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { buttonVariants } from "@/components/ui/button";
-import { getSession } from "@/lib/auth";
 import { daysPhrase, trialName } from "@/lib/billing.mjs";
 import { getTrialDays } from "@/lib/trial-days";
-import { faqJsonLd } from "@/lib/seo.mjs";
+import { faqJsonLd, siteJsonLd } from "@/lib/seo.mjs";
 import { cn } from "@/lib/utils";
 
-const TITLE = "Cupel: daily screener for NSE and US stocks";
+const TITLE = "Cupel: NSE and US stock screener, results and earnings calls";
 const DESCRIPTION =
   "Screen NSE and US stocks, read quarterly results as companies file them, and follow what management said on earnings calls. Data for research and education, not investment advice.";
 
@@ -35,6 +34,10 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
   openGraph: { title: TITLE, description: DESCRIPTION, siteName: "Cupel", type: "website" },
 };
+
+// Built once and rebuilt every five minutes, the same page for every visitor (the signed-in buttons
+// and the market tab are chosen in the browser): served from the cache, not rendered per request.
+export const revalidate = 300;
 
 const COVERAGE = [
   ["Quarterly results", "Exchange filing", "Financial statements"],
@@ -63,8 +66,7 @@ const section = "mx-auto w-full max-w-6xl px-4 sm:px-6";
 const h2 = "text-title max-w-[22ch] text-balance";
 
 export default async function LandingPage() {
-  const [session, trialDays, requestHeaders] = await Promise.all([getSession(), getTrialDays(), headers()]);
-  const country = requestHeaders.get("cf-ipcountry");
+  const trialDays = await getTrialDays();
 
   return (
     <div className="landing flex min-h-screen flex-col">
@@ -90,23 +92,24 @@ export default async function LandingPage() {
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <ThemeToggle />
-            {session ? (
-              <Link href="/screener" className={cn(buttonVariants(), "h-9")}>Open the app</Link>
-            ) : (
-              <>
-                <Link href="/login" className={cn(buttonVariants({ variant: "ghost" }), "hidden h-9 sm:inline-flex")}>Sign in</Link>
-                <Link href="/login?trial=1" className={cn(buttonVariants(), "h-9")}>
-                  <span className="sm:hidden">Try free</span>
-                  <span className="hidden sm:inline">Start {trialName(trialDays)}</span>
-                </Link>
-              </>
-            )}
+            <VisitorSwap
+              signedIn={<Link href="/screener" className={cn(buttonVariants(), "h-9")}>Open the app</Link>}
+              signedOut={
+                <>
+                  <Link href="/login" className={cn(buttonVariants({ variant: "ghost" }), "hidden h-9 sm:inline-flex")}>Sign in</Link>
+                  <Link href="/login?trial=1" className={cn(buttonVariants(), "h-9")}>
+                    <span className="sm:hidden">Try free</span>
+                    <span className="hidden sm:inline">Start {trialName(trialDays)}</span>
+                  </Link>
+                </>
+              }
+            />
           </div>
         </div>
       </header>
 
       <main id="main" className="flex-1">
-        <LandingMarket initial={country === "US" ? "us" : "ind"}>
+        <LandingMarket>
           <section className="border-b">
             <div className={cn(section, "py-12 sm:py-16")}>
               <div className="max-w-3xl motion-safe:animate-rise">
@@ -117,12 +120,15 @@ export default async function LandingPage() {
                   Cupel screens NSE and US stocks every evening, so you start from a short list, not a whole market.
                 </p>
                 <div className="mt-7 flex flex-wrap items-center gap-3">
-                  <Link href={session ? "/screener" : "/login?trial=1"} className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>
-                    {session ? "Open the app" : `Start ${trialName(trialDays)}`}
-                  </Link>
-                  {session ? null : (
-                    <Link href="/login" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>Sign in</Link>
-                  )}
+                  <VisitorSwap
+                    signedIn={<Link href="/screener" className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>Open the app</Link>}
+                    signedOut={
+                      <>
+                        <Link href="/login?trial=1" className={cn(buttonVariants({ size: "lg" }), "h-11 px-5")}>Start {trialName(trialDays)}</Link>
+                        <Link href="/login" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>Sign in</Link>
+                      </>
+                    }
+                  />
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground">Data for research and education, not investment advice.</p>
               </div>
@@ -207,6 +213,7 @@ export default async function LandingPage() {
         <section id="faq" className={cn(section, "scroll-mt-16 border-t py-14 sm:py-20")}>
           <h2 data-reveal className={h2}>Questions</h2>
           <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: faqJsonLd(faq(trialDays)) }} />
+          <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: siteJsonLd() }} />
           <div data-stagger className="mt-8 max-w-3xl divide-y border-y">
             {faq(trialDays).map(([q, a]) => (
               <details key={q} className="group py-4">
@@ -224,10 +231,15 @@ export default async function LandingPage() {
           <div className={cn(section, "flex flex-col items-start gap-5 py-14 sm:py-20")}>
             <h2 data-reveal className={h2}>Try it on this week&apos;s results</h2>
             <div className="flex flex-wrap gap-3">
-              <Link href={session ? "/screener" : "/login?trial=1"} className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>
-                {session ? "Open the app" : `Start ${trialName(trialDays)}`}
-              </Link>
-              {session ? null : <Link href="/login" className="inline-flex h-11 items-center rounded-md px-4 text-sm font-medium underline underline-offset-4 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Sign in</Link>}
+              <VisitorSwap
+                signedIn={<Link href="/screener" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>Open the app</Link>}
+                signedOut={
+                  <>
+                    <Link href="/login?trial=1" className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-11 px-5")}>Start {trialName(trialDays)}</Link>
+                    <Link href="/login" className="inline-flex h-11 items-center rounded-md px-4 text-sm font-medium underline underline-offset-4 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Sign in</Link>
+                  </>
+                }
+              />
             </div>
           </div>
         </section>

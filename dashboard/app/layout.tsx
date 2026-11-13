@@ -46,6 +46,8 @@ export const metadata: Metadata = {
     "Daily equity research screener across NSE and US markets: model decision " +
     "scores, evidence gates, and execution suitability.",
   robots: { index: false, follow: false },
+  // A share shows app/opengraph-image large; X falls back to og:image for the picture.
+  twitter: { card: "summary_large_image" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

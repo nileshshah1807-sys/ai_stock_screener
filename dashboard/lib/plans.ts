@@ -1,3 +1,4 @@
+import { createPublicClient } from "@/lib/supabase/public";
 import { createClient } from "@/lib/supabase/server";
 
 export type Plan = {
@@ -31,7 +32,8 @@ export type Subscription = {
  * rather than show an empty list as if nothing were for sale.
  */
 export async function getPlans(): Promise<Plan[] | null> {
-  const supabase = await createClient();
+  const supabase = createPublicClient();
+  if (!supabase) return null;
   const { data, error } = await supabase
     .from("plans")
     .select("id, name, amount_paise, period, offer_name, offer_amount_paise, offer_ends_at")
