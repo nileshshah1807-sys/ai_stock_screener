@@ -1,6 +1,7 @@
 import { defineCloudflareConfig } from "@opennextjs/cloudflare";
 import r2IncrementalCache from "@opennextjs/cloudflare/overrides/incremental-cache/r2-incremental-cache";
 import { withRegionalCache } from "@opennextjs/cloudflare/overrides/incremental-cache/regional-cache";
+import memoryQueue from "@opennextjs/cloudflare/overrides/queue/memory-queue";
 
 /*
  * `unstable_cache` (lib/home-cache.ts, lib/results.ts, lib/queries.ts) needs an
@@ -8,7 +9,12 @@ import { withRegionalCache } from "@opennextjs/cloudflare/overrides/incremental-
  * the free KV plan allows 1,000 writes a day and these entries are rewritten
  * every few minutes; R2's free plan allows a million writes a month. The
  * regional cache keeps hot entries in front of it.
+ *
+ * The queue refreshes a page built with `revalidate` (the landing page, Refunds) once it is stale,
+ * through the WORKER_SELF_REFERENCE binding in wrangler.jsonc; without one such a page would keep
+ * its build-time copy until the next deploy.
  */
 export default defineCloudflareConfig({
   incrementalCache: withRegionalCache(r2IncrementalCache, { mode: "long-lived", shouldLazilyUpdateOnCacheHit: true }),
+  queue: memoryQueue,
 });

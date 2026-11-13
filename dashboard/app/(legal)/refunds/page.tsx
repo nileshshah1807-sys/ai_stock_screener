@@ -11,6 +11,9 @@ export const metadata: Metadata = {
   alternates: { canonical: "/refunds" },
 };
 
+// The trial length is the only live figure: rebuilt every five minutes, never per request.
+export const revalidate = 300;
+
 export default async function RefundsPage() {
   const trialDays = await getTrialDays();
   return (

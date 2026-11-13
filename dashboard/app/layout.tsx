@@ -5,7 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
-import { SITE_URL } from "@/lib/seo.mjs";
+import { OG_IMAGE, SITE_URL } from "@/lib/seo.mjs";
 
 import "./globals.css";
 
@@ -46,6 +46,9 @@ export const metadata: Metadata = {
     "Daily equity research screener across NSE and US markets: model decision " +
     "scores, evidence gates, and execution suitability.",
   robots: { index: false, follow: false },
+  // Every page shares the card large; X falls back to og:image for the picture.
+  openGraph: { images: [OG_IMAGE] },
+  twitter: { card: "summary_large_image" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -2,8 +2,8 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { DEVICE_COOKIE } from "@/lib/device-cookie";
-import { LEGAL_PAGES } from "@/lib/legal";
 import { isSessionExpired } from "@/lib/session-policy.mjs";
+import { isKnownPath, isPrivatePath } from "@/lib/site-routes.mjs";
 
 /**
  * Next.js 16 renamed Middleware to Proxy. Same execution model: this runs
@@ -111,28 +111,17 @@ export async function proxy(request: NextRequest) {
   }
 
   const { pathname, search } = request.nextUrl;
-  // The legal pages and the price are public: a visitor reads them before
-  // agreeing to them.
-  const isPublicRoute =
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/auth") ||
-    pathname === "/pricing" ||
-    // The help page and its form: someone locked out must be able to write.
-    pathname === "/help" ||
+  // Calls from servers, not browsers: each route checks its own signature or bearer secret
+  // (Razorpay's webhook, cron-job.org's trial-ending run); the help form must work locked out.
+  const isPublicApi =
     pathname === "/api/support" ||
-    // Crawlers fetch these without signing in.
-    pathname === "/robots.txt" ||
-    pathname === "/sitemap.xml" ||
-    // The landing page; /screener is the app's entry and stays behind sign-in.
-    pathname === "/" ||
-    // Razorpay's server calls this, not a browser; the route verifies the
-    // payload's signature itself.
     pathname === "/api/billing/webhook" ||
-    // The scheduler (cron-job.org) carries no session; the route checks its bearer secret itself.
-    pathname === "/api/cron/trial-ending" ||
-    LEGAL_PAGES.some((page) => pathname === page.href);
+    pathname === "/api/cron/trial-ending";
 
-  if (!signedIn && !isPublicRoute) {
+  // `[market]` would take any first segment and send it through the app's access check.
+  if (!isKnownPath(pathname)) return NextResponse.rewrite(new URL("/_not-found", request.url));
+
+  if (!signedIn && isPrivatePath(pathname) && !isPublicApi) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     // Preserve the destination so a deep link survives the login round trip.
