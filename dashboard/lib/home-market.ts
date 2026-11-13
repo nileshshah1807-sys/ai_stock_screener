@@ -70,7 +70,7 @@ async function readPulseIndices(market: MarketCode, db?: Reader): Promise<PulseI
 }
 
 /** Every row of a ranged read, a window at a time, until a short one. */
-async function readAll<T>(read: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>) {
+export async function readAll<T>(read: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>) {
   const rows: T[] = [];
   for (let from = 0; ; from += WINDOW) {
     const { data, error } = await read(from, from + WINDOW - 1);

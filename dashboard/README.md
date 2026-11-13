@@ -321,6 +321,7 @@ Server-side variables (runtime secrets unless noted):
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Razorpay credentials (secrets) |
 | `RESEND_API_KEY` | Resend key for the trial-ending emails (secret) |
 | `CRON_SECRET` | shared secret the trial-ending route checks (secret); see below |
+| `DIGEST_TOKEN` | bearer token `GET /api/digest` checks (secret): the post-ideas routine's daily JSON (`?market=ind\|us`, shape in `lib/digest.mjs`, no rating, rank, score or return); unset = 401 for everyone |
 | `TRIAL_GUARD_SALT` | salt for the free-trial device check (secret) |
 | `APP_ENV` | `production` on the production Worker ONLY. Unset (or anything else) means preview: checkout is refused except for `PREVIEW_CHECKOUT_EMAILS`, plan edits are read-only, and `RAZORPAY_TEST_PLANS` swaps in test ids. Never set it on a preview Worker or in `wrangler.jsonc` `vars` (replaces Vercel's `VERCEL_ENV`) |
 | `SESSION_MAX_AGE_HOURS` | optional, hours a sign-in lasts (default 168) |

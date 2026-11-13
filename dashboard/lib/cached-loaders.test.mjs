@@ -34,10 +34,11 @@ function body(source, name) {
   return source.slice(start, end === -1 ? undefined : end);
 }
 
-for (const file of readdirSync(dir).filter((name) => /\.tsx?$/.test(name) && !/\.test\./.test(name))) {
+// home-cache.ts defines the wrappers; its own `(db) => load(db)` is the caller's loader.
+for (const file of readdirSync(dir).filter((name) => /\.tsx?$/.test(name) && !/\.test\./.test(name) && name !== "home-cache.ts")) {
   const source = readFileSync(new URL(file, dir), "utf8");
   // `sharedRead("x", market, 300, (db) => readX(...)` -- the named loader and its body.
-  const named = [...source.matchAll(/(?:sharedRead|cachedOr)\s*\([^)]*?\(\s*db\s*\)\s*=>\s*(\w+)\s*\(/gs)].map((m) => m[1]);
+  const named = [...source.matchAll(/(?:sharedRead|cachedOr|homeCached)\s*\([^)]*?\(\s*db\s*\)\s*=>\s*(\w+)\s*\(/gs)].map((m) => m[1]);
   for (const name of new Set(named)) {
     test(`${file}: cached loader ${name} reads no session`, () => {
       const text = body(source, name);

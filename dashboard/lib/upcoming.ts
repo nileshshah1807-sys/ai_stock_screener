@@ -40,7 +40,7 @@ const READ_WINDOW = 1000;
 /** PostgREST and Postgres codes for a table that is not there yet: nothing to log until it is applied. */
 const MISSING_TABLE = new Set(["PGRST205", "42P01"]);
 
-type UpcomingRow = {
+export type UpcomingRow = {
   symbol: string;
   next_result_date: string | null;
   next_call_at: string | null;
@@ -67,7 +67,7 @@ export async function getUpcoming(
   return eventsFromRows(rows.map((row) => ({ ...row, company: names.get(row.symbol) ?? null })), kind, today);
 }
 
-async function readUpcomingRows(
+export async function readUpcomingRows(
   market: MarketCode,
   kind: UpcomingKind,
   today: string,

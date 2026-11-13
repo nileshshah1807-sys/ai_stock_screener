@@ -130,6 +130,8 @@ export async function proxy(request: NextRequest) {
     pathname === "/api/billing/webhook" ||
     // The scheduler (cron-job.org) carries no session; the route checks its bearer secret itself.
     pathname === "/api/cron/trial-ending" ||
+    // The post-ideas routine carries no session; the route checks its bearer token itself.
+    pathname === "/api/digest" ||
     LEGAL_PAGES.some((page) => pathname === page.href);
 
   if (!signedIn && !isPublicRoute) {

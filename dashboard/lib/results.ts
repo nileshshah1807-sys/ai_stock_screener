@@ -293,7 +293,7 @@ export async function getQuarterFilings(
 /** A result is stored minutes after it is filed; the same beat as the feed. */
 const QUARTER_FILINGS_REVALIDATE = 300;
 
-async function readQuarterFilings(market: MarketCode, symbols: string[], periods: string[], db?: Reader): Promise<QuarterFiling[]> {
+export async function readQuarterFilings(market: MarketCode, symbols: string[], periods: string[], db?: Reader): Promise<QuarterFiling[]> {
   const supabase = db ?? (await createClient());
   const read = (columns: string) =>
     inQuarters(supabase.from("quarterly_filings").select(columns).eq("market", market).in("symbol", symbols), market, periods)

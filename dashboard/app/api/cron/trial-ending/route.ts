@@ -1,7 +1,7 @@
-import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse, type NextRequest } from "next/server";
 
+import { bearerMatches } from "@/lib/bearer.mjs";
 import { notifyTrialEnding } from "@/lib/customer-email-server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -18,10 +18,7 @@ const DAY = 86_400_000;
  * asking them to pick one.
  */
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  const given = Buffer.from(request.headers.get("authorization") ?? "");
-  const want = Buffer.from(`Bearer ${secret}`);
-  if (!secret || given.length !== want.length || !timingSafeEqual(given, want)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  if (!bearerMatches(request.headers.get("authorization"), process.env.CRON_SECRET)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   const admin = createAdminClient();
   if (!admin) return NextResponse.json({ error: "not_configured" }, { status: 503 });
 

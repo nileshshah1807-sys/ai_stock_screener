@@ -83,7 +83,7 @@ export async function getConcalls(market: MarketCode, query: ConcallQuery = {}):
   ]);
 }
 
-async function readConcalls(
+export async function readConcalls(
   market: MarketCode,
   { symbols = null, search = "", stances = [], limit = 150 }: ConcallQuery,
   db?: Reader,
