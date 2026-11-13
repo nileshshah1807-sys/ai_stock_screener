@@ -278,6 +278,7 @@ Cloudflare Workers, through `@opennextjs/cloudflare` (`wrangler.jsonc`,
 npx wrangler login                                   # once
 npx wrangler r2 bucket create cupel-next-cache       # once: Next's incremental cache
 npm run cf:deploy                                    # = opennextjs-cloudflare build && deploy
+scripts/deploy-production.sh                         # production: build, size, deploy, prime (env listed inside)
 npm run cf:preview                                   # same build, run locally in workerd
 ```
 
