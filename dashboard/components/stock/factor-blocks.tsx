@@ -55,11 +55,14 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
               <div className="flex items-baseline justify-between gap-2 text-sm">
                 <span className="font-medium">
                   {block.label}
-                  <span className="ml-1.5 text-xs text-muted-foreground">
-                    {block.weight === null
-                      ? MISSING
-                      : `${(block.weight * 100).toFixed(1)}%`}
-                  </span>
+                  {/* Weights and points rebuild the blended score: admin-only (lib/ratings.mjs). */}
+                  {admin ? (
+                    <span className="ml-1.5 text-xs text-muted-foreground">
+                      {block.weight === null
+                        ? MISSING
+                        : `${(block.weight * 100).toFixed(1)}%`}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="tabular font-mono text-xs">
                   {block.score === null ? (
@@ -102,15 +105,17 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
                   on every block it was five repeats of a fact that changes
                   nothing, and it hid the one block that is thin. */}
               <p className={cn("text-xs", thin ? "text-caution" : "text-muted-foreground")}>
-                {block.contribution === null
-                  ? MISSING
-                  : `${block.contribution.toFixed(2)} pts`}
-                {block.coverage === null
-                  ? " · coverage unknown"
-                  : block.coverage < 0.995
-                    ? ` · ${Math.round(block.coverage * 100)}% covered`
-                    : ""}
-                {thin ? " · too thin to count, shrunk toward 50" : ""}
+                {[
+                  admin ? (block.contribution === null ? MISSING : `${block.contribution.toFixed(2)} pts`) : null,
+                  block.coverage === null
+                    ? "coverage unknown"
+                    : block.coverage < 0.995
+                      ? `${Math.round(block.coverage * 100)}% covered`
+                      : null,
+                  thin ? "too thin to count, shrunk toward 50" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </p>
             </li>
           );
@@ -124,6 +129,7 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
         the transcript step of the score chain (`buildStages`), so the figure
         is the one the finalizer applied.
       */}
+      {admin ? (
       <div className="flex items-baseline justify-between gap-2 border-t pt-3 text-sm">
         <span className="font-medium">
           Transcript
@@ -146,8 +152,10 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
             : (row.transcript_status ?? "No transcript")}
         </span>
       </div>
+      ) : null}
 
       <dl className="grid grid-cols-2 gap-x-6 gap-y-2 border-t pt-3 text-sm">
+        {admin ? (
         <div>
           <dt className="text-xs text-muted-foreground">Research score</dt>
           <dd className="tabular font-mono">
@@ -159,6 +167,7 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
             )}
           </dd>
         </div>
+        ) : null}
         {/* How the rating is decided: admin-only with the rating itself. */}
         {admin ? (
           <>

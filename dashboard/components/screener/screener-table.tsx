@@ -6,7 +6,7 @@ import { ScreenerRows } from "@/components/screener/screener-rows";
 import { PlainHeader, SortHeader } from "@/components/screener/sort-header";
 import { isAdmin } from "@/lib/auth";
 import { publicText } from "@/lib/ratings.mjs";
-import { visibleColumns, type ColumnId, type Density } from "@/lib/columns";
+import { ADMIN_ONLY_COLUMNS, visibleColumns, type ColumnId, type Density } from "@/lib/columns";
 import { cn } from "@/lib/utils";
 import type { SnapshotRow } from "@/lib/types";
 
@@ -66,10 +66,10 @@ export async function ScreenerTable({
   // settles it. Showing both column sets would double the grid width and leave
   // whichever model did not run as a full column of dashes.
   const factorModel = rows.some((row) => row.factor_model_applied === true);
-  // Ratings are admin-only (lib/ratings.mjs); the rows arrive without them.
+  // Ratings, rank and score are admin-only (lib/ratings.mjs); the rows arrive without them.
   // Header and rows share one hidden list, or the cells shift under the headers.
   const admin = await isAdmin();
-  const hidden: ColumnId[] = admin ? hiddenColumns : [...hiddenColumns, "rating"];
+  const hidden: ColumnId[] = admin ? hiddenColumns : [...hiddenColumns, ...ADMIN_ONLY_COLUMNS];
   const columns = visibleColumns(hidden, factorModel);
 
   if (!rows.length) {

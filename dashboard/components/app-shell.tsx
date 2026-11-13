@@ -54,19 +54,20 @@ const TOOL_PATHS = TOOLS.map((tool) => tool.path);
  * destination, which a phone's tab bar cannot hold, so the bar leaves it out
  * (`desktopOnly`): Home's top-movers card and the footer carry it there.
  */
-const NAV: readonly { path: string; label: string; icon: typeof LayoutGrid; also?: readonly string[]; desktopOnly?: boolean }[] = [
+const NAV: readonly { path: string; label: string; icon: typeof LayoutGrid; also?: readonly string[]; desktopOnly?: boolean; adminOnly?: boolean }[] = [
   { path: "", label: "Home", icon: House },
   { path: "/screener", label: "Screener", icon: LayoutGrid },
   { path: "/market", label: "Market", icon: ChartArea },
   { path: TOOL_PATHS[0], label: "Tools", icon: Shapes, also: TOOL_PATHS },
   { path: "/watchlists", label: "Watchlists", icon: Bookmark },
-  { path: "/movers", label: "Movers", icon: ArrowLeftRight, desktopOnly: true },
+  // Rank changes: admin-only, with the rank (lib/ratings.mjs).
+  { path: "/movers", label: "Movers", icon: ArrowLeftRight, desktopOnly: true, adminOnly: true },
 ];
 
-function PrimaryNav({ market, className, phone = false }: { market: Market; className: string; phone?: boolean }) {
+function PrimaryNav({ market, className, phone = false, admin = false }: { market: Market; className: string; phone?: boolean; admin?: boolean }) {
   return (
     <GlassTrack label="Primary" variant="tabs" className={className}>
-      {NAV.filter((item) => !(phone && item.desktopOnly)).map(({ path, label, icon: Icon, also }) => (
+      {NAV.filter((item) => !(phone && item.desktopOnly) && (admin || !item.adminOnly)).map(({ path, label, icon: Icon, also }) => (
         <NavLink
           key={path}
           href={marketPath(market.slug, path)}
@@ -215,6 +216,7 @@ export function AppShell({
           */}
           <PrimaryNav
             market={market}
+            admin={viewer.role === "admin"}
             className={cn(
               "max-md:hidden md:order-last md:-mx-3 md:h-11 md:w-[calc(100%+1.5rem)]",
               "xl:order-none xl:mx-0 xl:h-14 xl:w-auto xl:shrink-0",
@@ -311,6 +313,7 @@ export function AppShell({
       <PrimaryNav
         phone
         market={market}
+        admin={viewer.role === "admin"}
         className="fixed inset-x-0 bottom-0 z-40 border-t bg-card px-1 pb-[env(safe-area-inset-bottom)] md:hidden"
       />
     </div>

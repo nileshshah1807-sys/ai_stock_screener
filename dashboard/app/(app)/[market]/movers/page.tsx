@@ -6,7 +6,7 @@ import { ArrowDownRight, ArrowUpRight, Sparkles, TrendingDown, TrendingUp } from
 import { RatingBadge } from "@/components/rating-badge";
 import { Reveal } from "@/components/motion";
 import { StockListRow } from "@/components/stock-identity";
-import { isAdmin } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { formatDate, formatScore, MISSING } from "@/lib/format";
 import { MoverListSkeleton } from "@/components/skeletons";
 import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
@@ -117,8 +117,10 @@ function MoverList({
 }
 
 export default async function MoversPage({ params }: PageProps<"/[market]/movers">) {
+  // Rank changes are the model's verdict: admin-only (lib/ratings.mjs), like Returns.
+  await requireAdmin();
   const market = marketFromSlug((await params).market)!;
-  const admin = await isAdmin();
+  const admin = true;
 
   return (
     <div className="space-y-4 px-4 py-5 sm:px-6">

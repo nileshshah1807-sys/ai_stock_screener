@@ -411,6 +411,12 @@ export function parseDensity(raw: string | undefined): Density {
  * offered to the caller, which matches how the table probed the rows before
  * this registry existed.
  */
+/**
+ * Columns only an admin sees: the rating, and the model's verdict as a rank or
+ * a blended score (lib/ratings.mjs). Factor percentiles stay for everyone.
+ */
+export const ADMIN_ONLY_COLUMNS: readonly ColumnId[] = ["rank", "score", "fundamental", "technical", "rating"];
+
 export function visibleColumns(
   hidden: readonly ColumnId[],
   factorModel: boolean,

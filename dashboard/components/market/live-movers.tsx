@@ -448,11 +448,13 @@ function MoverColumn({
 }
 
 function MoverRow({ market, row }: { market: Market; row: LiveMover }) {
+  // The rank is admin-only (lib/ratings.mjs).
+  const showRank = useShowRatings();
   return (
     <StockListRow
       symbol={row.symbol}
       company={row.company}
-      rank={row.investment_rank}
+      rank={showRank ? row.investment_rank : null}
       // An index member the screener does not rate has no stock page to open.
       linked={row.investment_rank !== null}
     >

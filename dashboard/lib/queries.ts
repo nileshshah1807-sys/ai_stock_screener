@@ -4,7 +4,7 @@ import { cache } from "react";
 
 import { isAdmin } from "@/lib/auth";
 import { gridProjection } from "@/lib/columns";
-import { withoutRatings } from "@/lib/ratings.mjs";
+import { isVerdictField, withoutRatings } from "@/lib/ratings.mjs";
 import {
   priceCalendarPath,
   priceSeriesPath,
@@ -393,6 +393,9 @@ export async function getSnapshotPage(
   if (!(await isAdmin())) {
     filters = { ...filters, rating: [], buyEligibleOnly: false, excludeCapped: false, eligibility: [], actionableOnly: false };
     if (filters.sort && RATING_DERIVED_SORTS.has(filters.sort)) filters.sort = undefined;
+    // The model's score and rank are admin-only too: neither sort nor filter on them.
+    if (filters.sort && isVerdictField(filters.sort)) filters = { ...filters, sort: "market_cap", dir: undefined };
+    filters = { ...filters, minScore: undefined };
   }
   const projection =
     options.columns ??
@@ -564,9 +567,9 @@ export const getSearchIndex = cache(
     const toEntry = (row: Record<string, unknown>): SearchEntry => ({
       s: row.symbol as string,
       c: (row.company as string) ?? "",
-      r: row.investment_rank as number | null,
+      r: admin ? (row.investment_rank as number | null) : null,
       g: admin ? (row.rating as string | null) : null,
-      d: (row.final_score as number | null | undefined) ?? null,
+      d: admin ? ((row.final_score as number | null | undefined) ?? null) : null,
       l: (row.logo_domain as string | null) ?? null,
     });
 
@@ -581,23 +584,23 @@ export const getSearchIndex = cache(
 
     // Everyone but an admin gets the same index, so it is read once for all of them (not once per viewer,
     // 5 requests and ~4,700 rows each time) and kept in R2 and, for a minute, in the instance's memory.
-    // No rating column is read on the shared path (`rating` is null in a viewer's copy). `final_score` is: the
-    // snapshot view shows it to every viewer, so this copy carries what theirs does.
+    // No rating, rank or score is read on the shared path: all three are admin-only (lib/ratings.mjs).
     if (!admin && rowCount && rowCount > 0) {
       const shared = (offset: number) =>
         searchIndexMemo(`${market}:${runDate}:${offset}`, () =>
           cachedOr(
-            "search-index",
+            // v2: a viewer's copy carries no rank or score and is ordered by size, not by rank.
+            "search-index-v2",
             market,
             3600,
             async (db) => {
               const { data, error } = await (db ?? supabase)
                 .from(db ? "screener_snapshot" : "screener_snapshot_visible")
-                .select("symbol, company, investment_rank, final_score, logo_domain")
+                .select("symbol, company, logo_domain")
                 .eq("market", market)
                 .eq("run_date", runDate)
-                .order("investment_rank", { ascending: true, nullsFirst: false })
-                // A tie-break: rows with equal rank must not move between chunks.
+                .order("market_cap", { ascending: false, nullsFirst: false })
+                // A tie-break: rows of equal size must not move between chunks.
                 .order("symbol", { ascending: true })
                 .range(offset, offset + FETCH_CHUNK - 1);
               if (error) throw new Error(error.message);

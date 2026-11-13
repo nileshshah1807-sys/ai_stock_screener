@@ -364,9 +364,9 @@ export function StockPicker({
                     onClick={() => pick(result)}
                     className={optionClass}
                   >
-                    <span className="tabular w-9 shrink-0 font-mono text-xs text-muted-foreground">
-                      {entry.r ?? "—"}
-                    </span>
+                    {entry.r !== null ? (
+                      <span className="tabular w-9 shrink-0 font-mono text-xs text-muted-foreground">{entry.r}</span>
+                    ) : null}
                     <StockIdentity
                       symbol={entry.s}
                       company={entry.c || null}
@@ -375,9 +375,10 @@ export function StockPicker({
                       size="md"
                       className="flex-1"
                     />
-                    <span className="tabular shrink-0 font-mono text-xs">
-                      {entry.d?.toFixed(1) ?? "—"}
-                    </span>
+                    {/* Rank and score are admin-only (lib/ratings.mjs): a viewer's index carries neither. */}
+                    {entry.d !== null ? (
+                      <span className="tabular shrink-0 font-mono text-xs">{entry.d.toFixed(1)}</span>
+                    ) : null}
                     {entry.g ? <RatingBadge rating={entry.g} /> : null}
                     {/* Fixed-width slot whether or not a glyph is in it, so the
                         rating badges above and below stay on one vertical line as

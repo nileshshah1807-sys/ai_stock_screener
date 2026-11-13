@@ -368,6 +368,8 @@ export function FilterBar({
               ))}
             </fieldset>
 
+            {/* The score is admin-only (lib/ratings.mjs). */}
+            {showRatings ? (
             <fieldset className="space-y-1.5">
               <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Minimum decision score
@@ -391,6 +393,7 @@ export function FilterBar({
                 }}
               />
             </fieldset>
+            ) : null}
 
             {factorModel ? (
               <>

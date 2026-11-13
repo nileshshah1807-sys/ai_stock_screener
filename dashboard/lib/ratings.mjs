@@ -23,8 +23,27 @@ export function isRatingField(key) {
   return RATING_KEY.test(k) && !NOT_A_RATING.test(k);
 }
 
-/** Screener query keys that filter on a rating, so filtering cannot reveal one. */
-export const RATING_FILTER_KEYS = ["rating", "buyEligible", "excludeCapped"];
+// The model's verdict as a number or a position -- the blended score, the rank
+// ordered by it, and the weights that rebuild it -- is admin-only too: a paid
+// ranking is research under SEBI's rules whatever its label. Hidden here, on
+// the server; the database views do not null these yet (rating_access_schema.sql).
+// Factor scores and percentiles (quality_score, momentum_percentile, ...) stay:
+// each describes the stock on one measure, not the model's overall view.
+export const VERDICT_KEY =
+  /^(prev_)?(investment_rank|score_rank|action_rank|final_score|evidence_score|research_score(_raw)?|combined_score|score_after_dcf|fundamental_score|technical_score|action_score|timing_score)$|^(rank|score)_change$|_weight$/;
+
+/** Column or payload key that carries the model's overall score, rank or a blend weight. */
+export function isVerdictField(key) {
+  return VERDICT_KEY.test(String(key).toLowerCase());
+}
+
+/** Hidden from a non-admin: a rating field or a verdict field. */
+export function isAdminOnlyField(key) {
+  return isRatingField(key) || isVerdictField(key);
+}
+
+/** Screener query keys that filter on a rating or the score, so filtering cannot reveal either. */
+export const RATING_FILTER_KEYS = ["rating", "buyEligible", "excludeCapped", "minScore"];
 
 /** True when a preset's query string filters on a rating. */
 export function usesRatingFilter(query) {
@@ -33,17 +52,18 @@ export function usesRatingFilter(query) {
 }
 
 /**
- * A copy of `row` with every rating field nulled, its `payload` included.
- * Nulled rather than deleted, so the row keeps the shape its type promises.
+ * A copy of `row` with every admin-only field (ratings and the verdict) nulled,
+ * its `payload` included. Nulled rather than deleted, so the row keeps the shape
+ * its type promises.
  */
 export function withoutRatings(row) {
   if (!row || typeof row !== "object") return row;
   const out = {};
   for (const [key, value] of Object.entries(row)) {
-    if (isRatingField(key)) out[key] = null;
+    if (isAdminOnlyField(key)) out[key] = null;
     else if (key === "payload" && value && typeof value === "object") {
       out[key] = Object.fromEntries(
-        Object.entries(value).filter(([field]) => !isRatingField(field)),
+        Object.entries(value).filter(([field]) => !isAdminOnlyField(field)),
       );
     } else out[key] = value;
   }

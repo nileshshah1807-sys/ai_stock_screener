@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { QuickWatch } from "@/components/home/quick-watch";
+import { useShowRatings } from "@/components/market-provider";
 import { shortName, useLiveMarket } from "@/components/market/live-movers";
 import { ScrollFade } from "@/components/scroll-fade";
 import { SegmentedControl } from "@/components/segmented-control";
@@ -19,6 +20,8 @@ type Row = { symbol: string; company: string | null; investment_rank: number | n
 const SHOWN = 5;
 
 function List({ title, rows, empty }: { title: string; rows: Row[]; empty: string }) {
+  // The rank is admin-only (lib/ratings.mjs).
+  const showRank = useShowRatings();
   return (
     <div>
       <h3 className="pb-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">{title}</h3>
@@ -29,7 +32,7 @@ function List({ title, rows, empty }: { title: string; rows: Row[]; empty: strin
               <StockListRow
                 symbol={row.symbol}
                 company={row.company}
-                rank={row.investment_rank}
+                rank={showRank ? row.investment_rank : null}
                 // An index member the screener does not rate has no stock page.
                 linked={row.investment_rank !== null}
               >
