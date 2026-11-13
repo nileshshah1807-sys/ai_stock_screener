@@ -1,6 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "cupel-preview",
+  // Keep the variables set on the Worker (NEXT_INC_CACHE_R2_PREFIX keeps this preview's cache apart from
+  // production's in the shared bucket); without it a deploy deletes every variable not listed here.
+  "keep_vars": true,
+  // As in wrangler.jsonc: __name() helpers would break next-themes' inline script in the browser.
+  "keep_names": false,
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
