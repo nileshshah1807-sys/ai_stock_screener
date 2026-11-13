@@ -32,3 +32,22 @@ export function sharedMemo(ttlMs, max = 50) {
     return value;
   };
 }
+
+/**
+ * A cached `{ at, value }` entry's value while it is at most `revalidate`
+ * seconds old, else undefined (the caller reads live).
+ *
+ * `unstable_cache` hands back a stale entry and refreshes it behind the
+ * request, so a key few viewers read (a filter combination) would show what it
+ * held hours ago, missing the newest calls and results. An entry without a
+ * stamp (written before this rule) is stale.
+ *
+ * @template T
+ * @param {{ at: number, value: T } | undefined} entry
+ * @param {number} revalidate seconds
+ * @param {number} [now] epoch ms
+ * @returns {T | undefined}
+ */
+export function freshValue(entry, revalidate, now = Date.now()) {
+  return entry && now - entry.at <= revalidate * 1000 ? entry.value : undefined;
+}
