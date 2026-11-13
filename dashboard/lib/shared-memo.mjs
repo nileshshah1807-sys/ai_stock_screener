@@ -34,20 +34,24 @@ export function sharedMemo(ttlMs, max = 50) {
 }
 
 /**
- * A cached `{ at, value }` entry's value while it is at most `revalidate`
- * seconds old, else undefined (the caller reads live).
+ * The window a shared-cache entry belongs to, for its key: one per
+ * `revalidate` seconds.
  *
  * `unstable_cache` hands back a stale entry and refreshes it behind the
- * request, so a key few viewers read (a filter combination) would show what it
- * held hours ago, missing the newest calls and results. An entry without a
- * stamp (written before this rule) is stale.
+ * request, so a key few viewers read (a filter combination) showed what it
+ * held hours ago. With the window in the key an entry is never read past its
+ * window, and a new window is one ordinary miss: no extra read on any hit
+ * (a stamp checked after the read cost a second one and put signed-in pages
+ * over the Worker's limits, 13 Nov 2026). Each key's windows are offset by a
+ * hash of the key, so a page's reads do not all miss in the same request.
  *
- * @template T
- * @param {{ at: number, value: T } | undefined} entry
  * @param {number} revalidate seconds
+ * @param {string} key the entry's other key parts, joined
  * @param {number} [now] epoch ms
- * @returns {T | undefined}
  */
-export function freshValue(entry, revalidate, now = Date.now()) {
-  return entry && now - entry.at <= revalidate * 1000 ? entry.value : undefined;
+export function cacheWindow(revalidate, key, now = Date.now()) {
+  const span = revalidate * 1000;
+  let offset = 0;
+  for (const char of key) offset = (offset * 31 + char.charCodeAt(0)) % span;
+  return String(Math.floor((now + offset) / span));
 }
