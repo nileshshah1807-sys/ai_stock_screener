@@ -207,8 +207,7 @@ export function liveMover(row, showRatings) {
     company: row.company,
     price: Number(row.price),
     change_pct: Number(row.change_pct),
-    // shortcut: reads the rank until live_market (storage/live_quotes_schema.sql) is re-applied with `rated`; drop the fallback then.
-    rated: row.rated ?? (row.investment_rank !== null && row.investment_rank !== undefined),
+    rated: row.rated === true,
     rating: showRatings ? row.rating : null,
   };
 }
