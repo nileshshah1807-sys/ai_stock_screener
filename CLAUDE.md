@@ -439,6 +439,13 @@ the scheduled workflows set the same flag.
   `isAdmin()` (`dashboard/lib/ratings.mjs` holds the rule, kept equal to the
   SQL by its test). Re-apply the schema file after adding a column to any of
   the three tables, or the view will not carry it.
+- **Saved screener views live in the viewer's account.** `saved_views`
+  (`storage/saved_views_schema.sql`, applied by hand after `dashboard_schema.sql`,
+  whose `dashboard_has_access()` its policy uses) holds at most `SAVED_VIEWS_MAX`
+  (50, `dashboard/lib/saved-views.mjs`) per user and market, enforced by a trigger;
+  a test keeps the two equal. Until it is applied the screener keeps views in
+  localStorage; after, a viewer's browser views move to the account on their next
+  visit (`screener/actions.ts`).
 - **The model's rank and score are shown to no one, admins included.** The
   pipeline still writes them; the dashboard strips them on the server
   (`isVerdictField`, `withoutVerdict` in `dashboard/lib/ratings.mjs`) until the

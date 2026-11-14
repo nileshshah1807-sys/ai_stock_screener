@@ -34,13 +34,17 @@ create unique index if not exists saved_views_owner_name_idx
 -- dashboard/lib/saved-views.mjs; a test keeps the two equal). In the database
 -- because the API is reachable with the viewer's own token, not only through
 -- the dashboard. Per row, so a multi-row insert counts its own earlier rows;
--- the advisory lock serialises one user's concurrent inserts.
+-- the advisory lock serialises one user's concurrent inserts. An update that
+-- moves a row to another market is checked too; any other update is not.
 create or replace function saved_views_enforce_cap()
 returns trigger
 language plpgsql
 set search_path = public
 as $$
 begin
+    if tg_op = 'UPDATE' and new.market = old.market then
+        return new;
+    end if;
     perform pg_advisory_xact_lock(hashtext('saved_views:' || new.user_id::text || ':' || new.market));
     if (select count(*) from saved_views
         where user_id = new.user_id and market = new.market) >= 50 then
@@ -53,7 +57,7 @@ $$;
 
 drop trigger if exists saved_views_cap on saved_views;
 create trigger saved_views_cap
-    before insert on saved_views
+    before insert or update of market on saved_views
     for each row execute function saved_views_enforce_cap();
 
 alter table saved_views enable row level security;

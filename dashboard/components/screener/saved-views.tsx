@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { useMarket, useShowRatings } from "@/components/market-provider";
 import { usesRatingFilter, usesVerdict } from "@/lib/ratings.mjs";
 import { deleteView, loadSavedViews, saveView } from "@/app/(app)/[market]/screener/actions";
+import { SAVED_VIEWS_MAX, unsentViews } from "@/lib/saved-views.mjs";
 
 const CHIP =
   "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium " +
@@ -93,12 +94,19 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
 
   useEffect(() => {
     let live = true;
-    const legacy = savedViewsSnapshot();
+    // Beyond the cap stays in the browser and moves on a later visit.
+    const legacy = savedViewsSnapshot().slice(0, SAVED_VIEWS_MAX);
     loadSavedViews(market.code, legacy)
       .then((result) => {
         if (!live || !result.ok) return;
-        // Moved into the account (or already there by name): the browser copy goes.
-        if (legacy.length) writeSavedViews([]);
+        // Moved into the account (or already there by name): what was sent
+        // leaves the browser, and nothing saved since.
+        if (legacy.length) writeSavedViews(unsentViews(savedViewsSnapshot(), legacy));
+        if (result.notMoved) {
+          toast.warning(
+            `${result.notMoved} saved ${result.notMoved === 1 ? "view" : "views"} did not move to your account: ${SAVED_VIEWS_MAX} per market is the limit.`,
+          );
+        }
         setAccount(result.views);
       })
       .catch(() => {});

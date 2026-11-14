@@ -22,7 +22,7 @@ import {
 
 export type AccountView = { id: string; label: string; query: string };
 type Failure = { ok: false; unavailable: boolean; error: string };
-export type ViewsResult = { ok: true; views: AccountView[] } | Failure;
+export type ViewsResult = { ok: true; views: AccountView[]; notMoved?: number } | Failure;
 
 const TABLE_MISSING = new Set(["PGRST205", "42P01"]);
 const MARKET_CODES = MARKET_LIST.map((market) => market.code);
@@ -50,7 +50,8 @@ const toView = (row: Row): AccountView => ({ id: row.id, label: row.name, query:
 
 /**
  * The viewer's views in one market. `legacy` is the browser's old list: it is
- * moved into the account first, in one insert; the caller clears it on success.
+ * moved into the account first, in one insert; the caller clears what it sent
+ * on success. `notMoved` is how many the per-market cap kept out.
  */
 export async function loadSavedViews(
   market: MarketCode,
@@ -65,11 +66,13 @@ export async function loadSavedViews(
     .order("created_at", { ascending: true });
   if (error) return failure(error, "loadSavedViews");
   let rows = (data ?? []) as Row[];
+  let notMoved = 0;
 
-  if (legacy.length) {
+  if (Array.isArray(legacy) && legacy.length) {
     const names: Record<string, string[]> = {};
     for (const row of rows) (names[row.market] ??= []).push(row.name);
-    const fresh = legacyImportRows(legacy, names, MARKET_CODES);
+    const { rows: fresh, notMoved: capped } = legacyImportRows(legacy, names, MARKET_CODES);
+    notMoved = capped;
     if (fresh.length) {
       const { data: added, error: insertError } = await supabase
         .from("saved_views")
@@ -80,7 +83,7 @@ export async function loadSavedViews(
     }
   }
 
-  return { ok: true, views: rows.filter((row) => row.market === market).map(toView) };
+  return { ok: true, views: rows.filter((row) => row.market === market).map(toView), notMoved };
 }
 
 /** Save under a name; the same name, in any case, is overwritten. */

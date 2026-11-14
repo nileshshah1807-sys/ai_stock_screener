@@ -36,7 +36,9 @@ export function cleanViewQuery(raw) {
  * Browser views had no market and showed on every tab, so each goes to every
  * market. A name the account already has in that market keeps the account's
  * copy; of two browser views with one name the later wins; nothing beyond the
- * cap is written.
+ * cap is written. `local` comes from the browser, so only the first
+ * SAVED_VIEWS_MAX are read and an oversized entry is dropped before parsing.
+ * `notMoved` counts the views the cap kept out of at least one market.
  *
  * @param {Array<{label: unknown, query: unknown}>} local
  * @param {Record<string, string[]>} existingNames names already stored, by market
@@ -44,23 +46,42 @@ export function cleanViewQuery(raw) {
  */
 export function legacyImportRows(local, existingNames, markets) {
   const byName = new Map();
-  for (const view of local) {
-    const name = cleanViewName(view.label);
-    const query = cleanViewQuery(view.query);
+  for (const view of local.slice(0, SAVED_VIEWS_MAX)) {
+    const label = String(view?.label ?? "");
+    const raw = String(view?.query ?? "");
+    if (label.length > NAME_MAX || raw.length > QUERY_MAX) continue;
+    const name = cleanViewName(label);
+    const query = cleanViewQuery(raw);
     if (!name || !query) continue;
     byName.delete(name.toLowerCase());
     byName.set(name.toLowerCase(), { name, query });
   }
   const rows = [];
+  const capped = new Set();
   for (const market of markets) {
     const taken = new Set((existingNames[market] ?? []).map((name) => name.toLowerCase()));
     let room = SAVED_VIEWS_MAX - taken.size;
     for (const [key, view] of byName) {
-      if (room <= 0) break;
       if (taken.has(key)) continue;
+      if (room <= 0) {
+        capped.add(key);
+        continue;
+      }
       rows.push({ market, ...view });
       room -= 1;
     }
   }
-  return rows;
+  return { rows, notMoved: capped.size };
+}
+
+/**
+ * The browser's list once an import succeeded: only what was sent leaves, so a
+ * view saved while the import was in flight stays.
+ * @template {{id: string}} T
+ * @param {T[]} current
+ * @param {T[]} sent
+ */
+export function unsentViews(current, sent) {
+  const ids = new Set(sent.map((view) => view.id));
+  return current.filter((view) => !ids.has(view.id));
 }
