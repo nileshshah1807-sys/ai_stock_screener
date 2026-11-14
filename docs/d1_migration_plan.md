@@ -234,6 +234,10 @@ plus about 1 MB a day slimmed. That is three of the ten databases, each well und
 - Day 1 (14 Nov): concall_feed 3,193/3,193, valuation_basis 8,543/8,543, bulk_block_deals 63,500 of
   102,142; 75,236 rows written. Re-sending 50 unchanged rows wrote 0 in D1 (meta.rows_written); one
   earlier re-send of 500 wrote 469, cause not found (the rows compared equal afterwards).
+- Length: about 11 daily runs at 75k. Left after day 1 ~530k rows, plus screener_history's index
+  (one more row written per row: 303,160 rows -> ~606k writes, ~8 days alone; copied last). The index
+  stays: without it one stock's history scans all 303k rows, and 5M rows read a day would cover only
+  ~16 uncached stock pages.
 - Copied rows go stale until that table is mirrored (`dual`), which needs a per-table list first.
 - For `dual`, a writer's `on_conflict` columns must be the D1 primary key (no unique indexes are copied).
   True for the phase-2 tables; `market_events` and the transcript tables upsert on a natural key behind
