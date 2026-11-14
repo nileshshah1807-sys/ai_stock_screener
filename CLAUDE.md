@@ -438,6 +438,12 @@ the scheduled workflows set the same flag.
   `isAdmin()` (`dashboard/lib/ratings.mjs` holds the rule, kept equal to the
   SQL by its test). Re-apply the schema file after adding a column to any of
   the three tables, or the view will not carry it.
+- **The model's rank and score are shown to no one, admins included.** The
+  pipeline still writes them; the dashboard strips them on the server
+  (`isVerdictField`, `withoutVerdict` in `dashboard/lib/ratings.mjs`) until the
+  service is SEBI-registered, and `SHOW_VERDICT` is the one switch back. Viewers
+  rank by their own "Your score" (`dashboard/lib/custom-score.mjs`). Do not add
+  a surface, preset or sort that shows or reorders by the verdict.
 - **`screener/recommendation.py` is the only writer of canonical decisions**
   (`Rating`, `Rank`, `Buy_Eligible`, `Final_Score`, ...). The scoring layer emits
   components and `Core_*` diagnostics only. A rescored export purges stale
