@@ -22,6 +22,7 @@ import requests
 
 from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
+from storage.d1_backend import table_session
 from storage.object_backend import open_object_store
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ class DashboardRepository:
         # NSE market.
         self.market = resolve_market(market).code
         self.timeout_seconds = timeout_seconds
-        self.session = requests.Session()
+        self.session = table_session()
         self.headers = {
             "apikey": service_role_key,
             "Authorization": f"Bearer {service_role_key}",
@@ -678,6 +679,8 @@ class DashboardRepository:
         return written
 
     def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
+        """Store deals not stored yet. The key is the whole trade, so a stored deal
+        never changes; re-sending the history each run used to rewrite every row."""
         written = 0
         for chunk in chunked(rows, chunk_size):
             self._request(
@@ -685,7 +688,7 @@ class DashboardRepository:
                 "bulk_block_deals?on_conflict="
                 "market,kind,deal_date,symbol,client_name,side,quantity,price",
                 json=self._stamped(chunk),
-                headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+                headers={"Prefer": "resolution=ignore-duplicates,return=minimal"},
                 retries=2,
             )
             written += len(chunk)

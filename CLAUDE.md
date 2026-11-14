@@ -452,6 +452,19 @@ the scheduled workflows set the same flag.
   workflow that writes objects sets `dual` whenever the `R2_BUCKET` secret exists. `tools/copy_objects_to_r2.py` is the
   one-off copy (dry run unless `--apply`); `tools.storage_peek` reads R2 with
   `OBJECT_STORE_BACKEND=r2`.
+- **Tables go through `table_session()`, which `TABLE_BACKEND` steers** (the D1
+  move, `docs/d1_migration_plan.md`). Both repositories send every call through
+  `self.session`; `supabase` (also unset or "") is a plain session, `dual` writes
+  Supabase then D1 (a D1 error is logged, never fails the run) and reads Supabase,
+  and `d1` is D1 alone. `storage/d1_backend.py` turns the PostgREST subset the
+  repositories use into one SQLite statement per call, with a bulk upsert as one
+  `json_each` parameter, and runs it through D1's REST API (`D1_ACCOUNT_ID`,
+  `D1_API_TOKEN`, `D1_DATABASE_ID`, `D1_TABLE_DATABASES`). An upsert that changes
+  nothing but `updated_at` writes nothing, in D1 and, through
+  `storage/skip_unchanged_writes.sql` (applied by hand), in Supabase's
+  `concall_feed` and `valuation_basis`. An embedded resource, a JSON path and the
+  two RPCs have no D1 form yet and are refused, never guessed. Writes stop at
+  `D1_MAX_ROWS_WRITTEN` per run (default 90k): the Free plan allows 100k a day.
 - **A snapshot row's payload is a Storage object, not a column.** The complete
   source record is `market-data/snapshot-payload/{MARKET}/{run_date}/{symbol}.json.gz`,
   written before the run is published and swept with the run when it is

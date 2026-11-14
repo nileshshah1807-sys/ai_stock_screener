@@ -11,6 +11,7 @@ import requests
 
 from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
+from storage.d1_backend import table_session
 from storage.object_backend import open_object_store
 
 READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -51,7 +52,7 @@ class SupabaseRepository:
         # comparable ranking, but must not be able to alter shared state. This
         # enforces that at the transport instead of trusting every call site.
         self.read_only = bool(read_only)
-        self.session = requests.Session()
+        self.session = table_session()
         self.headers = {
             "apikey": service_role_key,
             "Authorization": f"Bearer {service_role_key}",
