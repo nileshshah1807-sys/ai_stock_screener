@@ -18,5 +18,11 @@
     // Chart series and snapshot payloads (lib/market-data.ts), copied from Supabase Storage by workers; Storage stays the fallback.
     { "binding": "MARKET_DATA", "bucket_name": "market-data" }
   ],
+  // Market data tables (lib/db/market-repository.ts), read only when TABLE_BACKEND names them.
+  "d1_databases": [
+    { "binding": "D1_CORE", "database_name": "cupel-core", "database_id": "48893af3-d137-4320-bea3-450ae9908d7f" },
+    { "binding": "D1_EVIDENCE", "database_name": "cupel-evidence", "database_id": "40bd952e-00dd-4377-87c5-f336c1032ef2" },
+    { "binding": "D1_HISTORY", "database_name": "cupel-history", "database_id": "4ba446d5-d2c0-4c0d-b0a8-603cb6a0351e" }
+  ],
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "cupel-preview" }]
 }

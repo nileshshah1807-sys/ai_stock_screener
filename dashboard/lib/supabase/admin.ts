@@ -2,6 +2,8 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { withMarketTables } from "@/lib/db/market-repository";
+
 /**
  * Service-role client, for the billing routes (app/api/billing/*), the trial guard (lib/trial-guard.ts)
  * and the Home page's cached market reads (lib/home-cache.ts: the same rows for every viewer, explicit
@@ -14,5 +16,7 @@ export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+  // A moved market table is read with the service role's reach and no ratings (shared caches carry none).
+  return withMarketTables(client, async () => ({ admin: false }));
 }

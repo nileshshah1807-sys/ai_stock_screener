@@ -1,6 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
+import { withMarketTables } from "@/lib/db/market-repository";
+
 /**
  * Server-side Supabase client bound to the caller's session cookies.
  *
@@ -13,7 +15,7 @@ import { cookies } from "next/headers";
 export async function createClient() {
   const cookieStore = await cookies();
 
-  return createServerClient(
+  const client = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -35,4 +37,12 @@ export async function createClient() {
       },
     },
   );
+
+  // Market tables moved to Cloudflare (TABLE_BACKEND) are read as this viewer: none
+  // without access, ratings only for an admin, as the *_visible views decide.
+  return withMarketTables(client, async () => {
+    const { getViewer } = await import("@/lib/auth");
+    const viewer = await getViewer();
+    return viewer ? { admin: viewer.role === "admin" } : null;
+  });
 }

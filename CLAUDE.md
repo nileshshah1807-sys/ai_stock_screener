@@ -471,6 +471,15 @@ the scheduled workflows set the same flag.
   `concall_feed` and `valuation_basis`. An embedded resource, a JSON path and the
   two RPCs have no D1 form yet and are refused, never guessed. Writes stop at
   `D1_MAX_ROWS_WRITTEN` per run (default 90k): the Free plan allows 100k a day.
+- **The dashboard reads moved tables through one seam, steered by its own `TABLE_BACKEND`**
+  (a Worker variable: unset/`supabase`, `d1`, or a comma list of tables). `dashboard/lib/db/market-repository.ts`
+  replaces the Supabase clients' `from` (`createClient`, `createAdminClient`), so readers keep their code:
+  a moved table is answered from the D1 bindings (`D1_CORE`, `D1_EVIDENCE`, `D1_HISTORY`) by
+  `lib/db/table-query.mjs` (the PostgREST subset as SQLite; anything else is refused), and
+  `index_members` / `market_calendar` from the R2 live objects. With no RLS in D1 it checks access itself
+  and nulls rating fields for a non-admin in the SQL (the `*_visible` views' rule). `live_quotes` in the
+  setting moves the browser's live reads to `/api/live` (`lib/live-compute.mjs` ports `live_valuation`,
+  `live_market`, `live_breadth`; no rating). `screener_snapshot` stays on Supabase until its D1 layout is decided.
 - **Live data, the search index and full history also go to R2 as objects** (R2 only,
   when the run has the R2 secrets; the tables are still written and still read).
   The method that replaces `live_quotes`, `index_members`, `market_calendar` or a

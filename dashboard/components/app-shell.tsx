@@ -12,6 +12,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { NavLink } from "@/components/nav-link";
 import { SiteFooter } from "@/components/site-footer";
 import { MarketProvider } from "@/components/market-provider";
+import { readsFromCloudflare } from "@/lib/db/market-repository";
 import { MarketSwitch } from "@/components/market-switch";
 import { GlassTrack } from "@/components/glass-track";
 import { GlobalSearch, GlobalSearchButton } from "@/components/global-search";
@@ -276,6 +277,7 @@ export function AppShell({
             runDate={run?.run_date ?? null}
             marketDay={marketDay}
             showRatings={viewer.role === "admin"}
+            liveFromR2={readsFromCloudflare("live_quotes")}
           >
             {children}
             {/* The header's search dialog: it reads the market, so it lives
