@@ -83,11 +83,11 @@ test("a mover carries no rank or score to the browser", async () => {
   const { liveMover } = await import("./live-quotes.mjs");
   const verdict = { investment_rank: 3, final_score: 71 };
   const [row] = monthlyMovers(new Map([["Nifty 50", ["A"]]]), [{ symbol: "A", company: "A Ltd", pct_change_1m: 5, ...verdict }], 5).get("Nifty 50").gainers;
-  const live = liveMover({ symbol: "A", company: "A Ltd", price: "10", change_pct: "1", rating: "BUY", ...verdict }, false);
+  const live = liveMover({ symbol: "A", company: "A Ltd", price: "10", change_pct: "1", rated: true, rating: "BUY", ...verdict }, false);
   for (const out of [row, live]) {
     assert.equal("investment_rank" in out, false);
     assert.equal("final_score" in out, false);
   }
   assert.deepEqual([live.price, live.rated, live.rating], [10, true, null]);
-  assert.equal(liveMover({ symbol: "B", rated: false, investment_rank: null }, true).rated, false);
+  assert.equal(liveMover({ symbol: "B", investment_rank: 3 }, true).rated, false);
 });
