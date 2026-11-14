@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { PageTitle } from "@/components/page-title";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { AnalysisChart } from "@/components/results/analysis-chart";
+import { AutoRefresh } from "@/components/results/auto-refresh";
 import { QuarterPicker } from "@/components/results/quarter-picker";
 import { SpanControl } from "@/components/results/span-control";
 import { intersectSymbols } from "@/lib/event-filters.mjs";
@@ -119,6 +120,9 @@ export default async function ResultsAnalysisPage({
       </div>
 
       <EventFilterBar {...feed.bar} />
+      {/* As on the card list: re-read while results arrive. The whole-market read is a 10-minute
+          stale-while-revalidate cache, so a new filing shows by the second refresh, no reload. */}
+      {inProgress ? <AutoRefresh /> : null}
 
       {reported && newest ? (
         <div className="space-y-3">
