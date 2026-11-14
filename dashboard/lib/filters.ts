@@ -50,7 +50,7 @@ export function parseFilters(params: RawParams): ScreenerFilters {
     minRs: num(params.minRs),
     minCapCr: num(params.minCapCr),
     // A mix the viewer built orders the grid by it until they pick another sort.
-    sort: str(params.sort) ?? (str(params.w) ? "custom_score" : "investment_rank"),
+    sort: str(params.sort) ?? (str(params.w) ? "custom_score" : "market_cap"),
     weights: str(params.w),
     dir: dir === "asc" || dir === "desc" ? dir : undefined,
     page: Math.max(1, num(params.page) ?? 1),

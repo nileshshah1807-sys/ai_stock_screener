@@ -4,7 +4,7 @@ import { cache } from "react";
 
 import { isAdmin } from "@/lib/auth";
 import { gridProjection } from "@/lib/columns";
-import { isVerdictField, withoutRatings } from "@/lib/ratings.mjs";
+import { SHOW_VERDICT, isVerdictField, withoutRatings, withoutVerdict } from "@/lib/ratings.mjs";
 import { RUN_COLUMNS as SCORE_RUN_COLUMNS, parseWeights, rankScores, scoreRun } from "@/lib/custom-score.mjs";
 import {
   priceCalendarPath,
@@ -281,9 +281,10 @@ const RUN_COLUMNS = [
  * Module scope, so it lives as long as the server instance and is simply empty
  * on a cold one.
  */
-/** `rows` as this viewer may see them: ratings are admin-only (lib/ratings.mjs). */
+/** `rows` as this viewer may see them: ratings are admin-only, the verdict nobody's (lib/ratings.mjs). */
 async function forViewer<T>(rows: T[]): Promise<T[]> {
-  return (await isAdmin()) ? rows : (rows.map(withoutRatings) as T[]);
+  if (!(await isAdmin())) return rows.map((row) => withoutRatings(row) as T);
+  return SHOW_VERDICT ? rows : rows.map((row) => withoutVerdict(row) as T);
 }
 
 const RUN_MEMO_MS = 120_000;
@@ -395,7 +396,9 @@ export async function getSnapshotPage(
   if (!admin) {
     filters = { ...filters, rating: [], buyEligibleOnly: false, excludeCapped: false, eligibility: [], actionableOnly: false };
     if (filters.sort && RATING_DERIVED_SORTS.has(filters.sort)) filters.sort = undefined;
-    // The model's score and rank are admin-only too: neither sort nor filter on them.
+  }
+  // The model's score and rank are nobody's, admins' included: neither sort nor filter on them.
+  if (!(admin && SHOW_VERDICT)) {
     if (filters.sort && isVerdictField(filters.sort)) filters = { ...filters, sort: "market_cap", dir: undefined };
     filters = { ...filters, minScore: undefined };
   }
@@ -565,11 +568,7 @@ export async function getSnapshotPage(
   const query = build(projection, true);
 
   const sortColumn =
-    filters.sort && SORTABLE.has(filters.sort)
-      ? filters.sort
-      : admin
-        ? "investment_rank"
-        : "market_cap";
+    filters.sort && SORTABLE.has(filters.sort) ? filters.sort : "market_cap";
   const ascending = filters.dir
     ? filters.dir === "asc"
     : sortColumn.endsWith("rank") || ASCENDING_BY_DEFAULT.has(sortColumn);
@@ -611,15 +610,15 @@ export const getSearchIndex = cache(
     rowCount?: number,
   ): Promise<SearchEntry[]> => {
     const supabase = await createClient();
-    const select = "symbol, company, investment_rank, rating, final_score, logo_domain";
+    const select = "symbol, company, rating, logo_domain";
     // The index is built here and shipped to the browser, so a viewer's copy carries no rating.
     const admin = await isAdmin();
     const toEntry = (row: Record<string, unknown>): SearchEntry => ({
       s: row.symbol as string,
       c: (row.company as string) ?? "",
-      r: admin ? (row.investment_rank as number | null) : null,
+      r: null,
       g: admin ? (row.rating as string | null) : null,
-      d: admin ? ((row.final_score as number | null | undefined) ?? null) : null,
+      d: null,
       l: (row.logo_domain as string | null) ?? null,
     });
 
@@ -629,12 +628,13 @@ export const getSearchIndex = cache(
         .select(select)
         .eq("market", market)
         .eq("run_date", runDate)
-        .order("investment_rank", { ascending: true, nullsFirst: false })
+        .order("market_cap", { ascending: false, nullsFirst: false })
+        .order("symbol", { ascending: true })
         .range(offset, offset + FETCH_CHUNK - 1);
 
     // Everyone but an admin gets the same index, so it is read once for all of them (not once per viewer,
     // 5 requests and ~4,700 rows each time) and kept in R2 and, for a minute, in the instance's memory.
-    // No rating, rank or score is read on the shared path: all three are admin-only (lib/ratings.mjs).
+    // No rating, rank or score is read on the shared path (lib/ratings.mjs).
     if (!admin && rowCount && rowCount > 0) {
       const shared = (offset: number) =>
         searchIndexMemo(`${market}:${runDate}:${offset}`, () =>
@@ -723,12 +723,9 @@ export const getCompanyFacts = cache(
   async (market: MarketCode): Promise<CompanyFacts[] | null> => {
     const run = await getLatestRun(market);
     if (!run) return null;
-    // Score is a rating: only an admin reads it, per request. Everyone else
-    // shares one cross-instance read of the other columns.
-    const admin = await isAdmin();
+    // The score is nobody's (lib/ratings.mjs), so every viewer shares one cross-instance read.
     const supabase = await createClient();
     try {
-      if (admin) return await readAllFacts(supabase, market, run, "screener_snapshot_visible", true);
       return await factsMemo(`${market}:${run.run_date}`, () =>
         cachedOr(
           "facts",

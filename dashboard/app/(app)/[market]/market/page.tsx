@@ -142,7 +142,7 @@ async function breadthList(
     breadth: metric,
     industry: selected.scope === "industry" ? selected.name : undefined,
   });
-  const sort = filters.sort ?? "investment_rank";
+  const sort = filters.sort ?? "market_cap";
 
   return {
     metric,

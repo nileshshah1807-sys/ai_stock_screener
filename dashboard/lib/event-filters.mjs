@@ -28,7 +28,6 @@ export const RULE_METRICS = [
   { value: "mcap", label: "Market cap", field: "market_cap", size: true },
   { value: "turnover", label: "Median daily turnover", field: "turnover", size: true },
   { value: "pe", label: "P/E", field: "pe_ratio", size: false },
-  { value: "score", label: "Score", field: "final_score", size: false },
 ];
 
 /**

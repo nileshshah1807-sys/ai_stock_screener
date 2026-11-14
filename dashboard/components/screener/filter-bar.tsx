@@ -368,33 +368,6 @@ export function FilterBar({
               ))}
             </fieldset>
 
-            {/* The score is admin-only (lib/ratings.mjs). */}
-            {showRatings ? (
-            <fieldset className="space-y-1.5">
-              <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Minimum decision score
-              </legend>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                step={1}
-                inputMode="numeric"
-                defaultValue={searchParams.get("minScore") ?? ""}
-                placeholder="e.g. 60"
-                aria-label="Minimum decision score"
-                className="tabular h-9"
-                onBlur={(event) => {
-                  const value = event.target.value.trim();
-                  push((params) => {
-                    if (value) params.set("minScore", value);
-                    else params.delete("minScore");
-                  });
-                }}
-              />
-            </fieldset>
-            ) : null}
-
             {factorModel ? (
               <>
                 <fieldset className="space-y-1.5">

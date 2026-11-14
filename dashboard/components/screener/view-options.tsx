@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/popover";
 import {
   ADMIN_ONLY_COLUMNS,
+  VERDICT_COLUMNS,
   HIDEABLE_COLUMNS,
   parseDensity,
   parseHiddenColumns,
@@ -59,7 +60,7 @@ export function ViewOptions({ factorModel = false }: { factorModel?: boolean }) 
   // the columns that did not run would list toggles with nothing behind them.
   const showRatings = useShowRatings();
   const columns = HIDEABLE_COLUMNS.filter((column) => {
-    if (!showRatings && ADMIN_ONLY_COLUMNS.includes(column.id)) return false;
+    if ((showRatings ? VERDICT_COLUMNS : ADMIN_ONLY_COLUMNS).includes(column.id)) return false;
     const availability = column.availability ?? "always";
     if (availability === "factor") return factorModel;
     if (availability === "legacy") return !factorModel;

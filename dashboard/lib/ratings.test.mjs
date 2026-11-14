@@ -151,3 +151,17 @@ test("publicText drops the market-regime sentence that names a rating", () => {
   const shown = publicText(false, "Index inside the band, or level and trend disagree. STRONG BUY needs exceptional momentum.");
   assert.equal(shown, "Index inside the band, or level and trend disagree.");
 });
+
+test("an admin keeps the rating but not the verdict, and no preset sorts by it", async () => {
+  const { SHOW_VERDICT, usesVerdict, withoutVerdict } = await import("./ratings.mjs");
+  assert.equal(SHOW_VERDICT, false);
+  const row = withoutVerdict({ rating: "BUY", investment_rank: 3, final_score: 71, decision_score: 70, payload: { Final_Score: 71, Rating: "BUY" } });
+  assert.equal(row.rating, "BUY");
+  assert.equal(row.investment_rank, null);
+  assert.equal(row.final_score, null);
+  assert.equal(row.decision_score, null);
+  assert.deepEqual(row.payload, { Rating: "BUY" });
+  assert.ok(usesVerdict("sort=research_score&dir=desc"));
+  assert.ok(usesVerdict("minScore=60"));
+  assert.ok(!usesVerdict("minQuality=70&sort=market_cap"));
+});

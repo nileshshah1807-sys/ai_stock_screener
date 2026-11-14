@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getViewer } from "@/lib/auth";
 import { csvCell } from "@/lib/csv.mjs";
 import { parseFilters } from "@/lib/filters";
-import { isAdminOnlyField } from "@/lib/ratings.mjs";
+import { SHOW_VERDICT, isAdminOnlyField, isVerdictField } from "@/lib/ratings.mjs";
 import { DEFAULT_MARKET, marketFromSlug } from "@/lib/markets";
 import { getExportRows, getLatestRun } from "@/lib/queries";
 import type { SnapshotRow } from "@/lib/types";
@@ -84,9 +84,9 @@ export async function GET(request: NextRequest) {
 
   const rows = await getExportRows(market.code, run.run_date, filters);
 
-  // Ratings, rank and score are admin-only (lib/ratings.mjs): their columns are left out, not left empty.
-  const columns =
-    viewer.role === "admin" ? COLUMNS : COLUMNS.filter(([key]) => !isAdminOnlyField(key));
+  // Ratings are admin-only, rank and score nobody's (lib/ratings.mjs): their columns are left out, not left empty.
+  const hide = viewer.role !== "admin" ? isAdminOnlyField : SHOW_VERDICT ? () => false : isVerdictField;
+  const columns = COLUMNS.filter(([key]) => !hide(key));
   const header = columns.map(([, label]) => label).join(",");
   const body = rows
     .map((row) => columns.map(([key]) => csvCell(row[key])).join(","))

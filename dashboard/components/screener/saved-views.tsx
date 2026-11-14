@@ -41,7 +41,7 @@ import {
 import { PendingMarker } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
 import { useMarket, useShowRatings } from "@/components/market-provider";
-import { usesRatingFilter } from "@/lib/ratings.mjs";
+import { usesRatingFilter, usesVerdict } from "@/lib/ratings.mjs";
 
 const CHIP =
   "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium " +
@@ -91,6 +91,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
         (preset) =>
           (factorModel || !preset.factorOnly) &&
           (!preset.market || preset.market === market.code) &&
+          !usesVerdict(preset.query) &&
           (showRatings || !usesRatingFilter(preset.query)),
       ),
     [factorModel, market.code, showRatings],

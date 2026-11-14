@@ -24,20 +24,25 @@ export function isRatingField(key) {
 }
 
 // The model's verdict as a number or a position -- the blended score, the rank
-// ordered by it, and the weights that rebuild it -- is admin-only too: a paid
-// ranking is research under SEBI's rules whatever its label. Hidden here, on
-// the server; the database views do not null these yet (rating_access_schema.sql).
+// ordered by it, and the weights that rebuild it -- is shown to nobody, admins
+// included: a published ranking is research under SEBI's rules whatever its
+// label. Each viewer builds their own score instead (lib/custom-score.mjs).
+// Hidden here, on the server; the database views do not null these yet
+// (rating_access_schema.sql).
 // Factor scores and percentiles (quality_score, momentum_percentile, ...) stay:
 // each describes the stock on one measure, not the model's overall view.
+/** Whether an admin sees the verdict. Off: no viewer is shown a ranking until the service is registered. */
+export const SHOW_VERDICT = false;
+
 export const VERDICT_KEY =
-  /^(prev_)?(investment_rank|score_rank|action_rank|final_score|evidence_score|research_score(_raw)?|combined_score|score_after_dcf|fundamental_score|technical_score|action_score|timing_score)$|^(rank|score)_change$|_weight$/;
+  /^(prev_)?(investment_rank|score_rank|action_rank|final_score|decision_score(_ceiling)?|evidence_score|research_score(_raw)?|combined_score|score_after_dcf|fundamental_score|technical_score|action_score|timing_score)$|^(rank|score)_change$|_weight$/;
 
 /** Column or payload key that carries the model's overall score, rank or a blend weight. */
 export function isVerdictField(key) {
   return VERDICT_KEY.test(String(key).toLowerCase());
 }
 
-/** Hidden from a non-admin: a rating field or a verdict field. */
+/** Hidden from a non-admin: a rating field or a verdict field (the latter from an admin too). */
 export function isAdminOnlyField(key) {
   return isRatingField(key) || isVerdictField(key);
 }
@@ -45,29 +50,43 @@ export function isAdminOnlyField(key) {
 /** Screener query keys that filter on a rating or the score, so filtering cannot reveal either. */
 export const RATING_FILTER_KEYS = ["rating", "buyEligible", "excludeCapped", "minScore"];
 
+/** True when a query string sorts by the model's verdict or filters on its score: no viewer's. */
+export function usesVerdict(query) {
+  const params = new URLSearchParams(query);
+  return params.has("minScore") || isVerdictField(params.get("sort") ?? "");
+}
+
 /** True when a preset's query string filters on a rating. */
 export function usesRatingFilter(query) {
   const params = new URLSearchParams(query);
   return RATING_FILTER_KEYS.some((key) => params.has(key));
 }
 
-/**
- * A copy of `row` with every admin-only field (ratings and the verdict) nulled,
- * its `payload` included. Nulled rather than deleted, so the row keeps the shape
- * its type promises.
- */
-export function withoutRatings(row) {
+/** A copy of `row` with every field `hide` names nulled, its `payload`'s dropped. */
+function redact(row, hide) {
   if (!row || typeof row !== "object") return row;
   const out = {};
   for (const [key, value] of Object.entries(row)) {
-    if (isAdminOnlyField(key)) out[key] = null;
+    if (hide(key)) out[key] = null;
     else if (key === "payload" && value && typeof value === "object") {
-      out[key] = Object.fromEntries(
-        Object.entries(value).filter(([field]) => !isAdminOnlyField(field)),
-      );
+      out[key] = Object.fromEntries(Object.entries(value).filter(([field]) => !hide(field)));
     } else out[key] = value;
   }
   return out;
+}
+
+/**
+ * A copy of `row` for a non-admin: ratings and the verdict nulled, its
+ * `payload` included. Nulled rather than deleted, so the row keeps the shape
+ * its type promises.
+ */
+export function withoutRatings(row) {
+  return redact(row, isAdminOnlyField);
+}
+
+/** A copy of `row` for an admin: the verdict nulled, the ratings kept. */
+export function withoutVerdict(row) {
+  return redact(row, isVerdictField);
 }
 
 const RATING_WORD = /\b(STRONG BUY|BUY|HOLD|REDUCE|SELL)\b/;

@@ -15,7 +15,7 @@ import { decodeSeries, tailFromHistory, withTail } from "@/lib/price-series.mjs"
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { isAdmin } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import { PUBLISHED_SCORE_INFO, publicText } from "@/lib/ratings.mjs";
+import { PUBLISHED_SCORE_INFO, SHOW_VERDICT, publicText } from "@/lib/ratings.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
@@ -335,6 +335,8 @@ export default async function StockPage({
   const gateWarning = text(payload, "Gate_Warning");
   // Ratings are admin-only (lib/ratings.mjs); the row arrives without them.
   const admin = await isAdmin();
+  // The model's score and rank: shown to nobody while SHOW_VERDICT is off (lib/ratings.mjs).
+  const verdict = admin && SHOW_VERDICT;
 
   // Display-only diagnostics from screener/expectations.py. Read through the
   // payload rather than a promoted column: they change nothing that scores, so
@@ -399,8 +401,8 @@ export default async function StockPage({
           },
         ] satisfies Field[])
       : []),
-    // The model's scores, its ceiling and what the gates took off are admin-only (lib/ratings.mjs).
-    ...(admin
+    // The model's scores, its ceiling and what the gates took off (lib/ratings.mjs).
+    ...(verdict
       ? ([
         {
           label: "Evidence score",
@@ -882,9 +884,9 @@ export default async function StockPage({
             every panel below is evidence for them. Six tiles also fill the 2-
             and 3-column phone and tablet grids exactly; five left a hole.
           */}
-          <dl className={cn("mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border", admin ? "sm:grid-cols-3 lg:grid-cols-6" : "lg:grid-cols-4")}>
+          <dl className={cn("mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border", verdict ? "sm:grid-cols-3 lg:grid-cols-6" : "lg:grid-cols-4")}>
             {[
-              ...(admin ? [{
+              ...(verdict ? [{
                 label: "Rank",
                 value: (
                   <>
@@ -1000,9 +1002,9 @@ export default async function StockPage({
                     it is the only breakdown there is.
                   */}
                   <Panel
-                    title={admin ? "Published score" : "Factor profile"}
+                    title={verdict ? "Published score" : "Factor profile"}
                     info={
-                      !admin ? (
+                      !verdict ? (
                         <p>
                           Where this stock stands on each measure against every
                           stock in the {market.label} universe on the last run:
@@ -1033,12 +1035,12 @@ export default async function StockPage({
                       )
                     }
                   >
-                    <div className={cn("grid items-start gap-6 md:gap-8", admin && "md:grid-cols-[13rem_minmax(0,1fr)]")}>
+                    <div className={cn("grid items-start gap-6 md:gap-8", verdict && "md:grid-cols-[13rem_minmax(0,1fr)]")}>
                       {/* One line under the score: what the gates do to the
                           rating. Since Model 5.1 they hold the rating down and
                           leave this score alone, so "capped" under an
                           unchanged number read as a contradiction. */}
-                      {admin ? (
+                      {verdict ? (
                       <DecisionScore
                         score={row.final_score ?? row.evidence_score}
                         rating={row.rating}
@@ -1053,14 +1055,14 @@ export default async function StockPage({
                       />
                       ) : null}
                       {factorModel ? (
-                        <FactorBlocks row={row} admin={admin} />
-                      ) : admin ? (
+                        <FactorBlocks row={row} admin={verdict} />
+                      ) : verdict ? (
                         <ScoreWaterfall row={row} />
                       ) : null}
                     </div>
                   </Panel>
 
-                  {admin ? (
+                  {verdict ? (
                     <Panel
                       title="Rank history"
                       info={`Position in the ${market.label} universe on each run, #1 at the top.`}
