@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -309,7 +310,7 @@ def _columns(table: str, definition: dict[str, Any]) -> list[str] | None:
 def write_cost(table: str) -> int:
     """Rows D1 counts as written for one new row: the row and one per index."""
     hand = HAND_LAID.get(table)
-    laid = hand.read_text().upper().count("CREATE INDEX") if hand else 0
+    laid = len(re.findall(r"CREATE\s+(?:UNIQUE\s+)?INDEX", hand.read_text(), re.I)) if hand else 0
     return 1 + len(INDEXES.get(table, ())) + laid
 
 
