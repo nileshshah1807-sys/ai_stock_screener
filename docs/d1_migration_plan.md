@@ -168,11 +168,19 @@ and RLS, which is not worth it.
 
 The first two need no decision about data and buy about a month of growth.
 
+**Done 14 Nov 2026 (the human's yes):** red_flag_snapshot_history archived to
+`market-data/archive/supabase/red_flag_snapshot_history_2026-11-14.csv.gz` (26,445 rows,
+sha256 `80c1cb59...`, checked by reading it back) and dropped. VACUUM FULL of bulk_block_deals
+(52 to 22 MB) and simulated_rankings / simulated_states (18 to 11 MB). Database **494 to 419 MB**.
+The human said **keep all screener_history**; how it fits D1's 500 MB is with god (slim columns
+in D1 plus a full archive per run in R2, or one history database per year).
+
 ## 6. Table by table
 
 | table | target | write route | read route | budget (rows written a day) | order |
 |---|---|---|---|---:|---|
 | live_quotes | R2 `live/{MARKET}/quotes.json` | object store (r2) | Worker via MARKET_DATA | 0 | 1 |
+| market_calendar | R2 `live/{MARKET}/calendar.json` (1 row per market, read on every page) | live quotes worker | Worker, 5 min shared cache | 0 | 1 |
 | market_breadth_members, _levels, index_members | R2 objects per market | object store | Worker | 0 | 1 |
 | bulk_block_deals | D1 `cupel-evidence` | REST, new deals only | Worker | < 500 | 2 |
 | concall_feed | D1 `cupel-core` | REST, changed rows | Worker | < 500 | 2 |
