@@ -165,3 +165,16 @@ test("an admin keeps the rating but not the verdict, and no preset sorts by it",
   assert.ok(usesVerdict("minScore=60"));
   assert.ok(!usesVerdict("minQuality=70&sort=market_cap"));
 });
+
+test("D1's extra column is redacted in both forms, for viewers and admins", async () => {
+  const { withoutVerdict } = await import("./ratings.mjs");
+  const extra = { investment_rating: "BUY", score_rank: 3, adx_14: 22 };
+  for (const form of [extra, JSON.stringify(extra)]) {
+    const read = (value) => (typeof value === "string" ? JSON.parse(value) : value);
+    const viewer = withoutRatings({ symbol: "TCS", extra: form }).extra;
+    assert.equal(typeof viewer, typeof form);
+    assert.deepEqual(read(viewer), { adx_14: 22 });
+    assert.deepEqual(read(withoutVerdict({ extra: form }).extra), { investment_rating: "BUY", adx_14: 22 });
+  }
+  assert.equal(withoutRatings({ extra: "{not json" }).extra, null);
+});
