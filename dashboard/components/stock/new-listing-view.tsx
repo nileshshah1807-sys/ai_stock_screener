@@ -33,8 +33,7 @@ function changeTone(value: number | null | undefined): string {
 
 /**
  * The stock page for a company the run has not rated: the scored page's
- * header, stat tiles, chart and tabs, with "Not rated" in the slots a rating
- * or 60 sessions of history would fill.
+ * header, stat tiles, chart and tabs; no rank or score tile, as on every page.
  */
 export function NewListingView({
   listing,
@@ -73,12 +72,7 @@ export function NewListingView({
   const firstSession = listing.sessions === 1;
   const firstSessionNote = <span className="text-muted-foreground">First session</span>;
   const live = { symbol: listing.symbol, barDate: listing.last_session };
-  // Rank, score and anything else that needs a rating or 60 sessions of
-  // history read "Not rated" -- never a zero or a dash that looks like a score.
-  const notRated = <span className="text-muted-foreground">Not rated</span>;
   const stats = [
-    { label: "Rank", value: notRated, tone: "" },
-    { label: "Score", value: notRated, tone: "" },
     {
       label: "Price",
       value: <LivePrice {...live} close={listing.last_close} />,
@@ -135,7 +129,7 @@ export function NewListingView({
           {formatDate(listing.last_session ?? asOf)}
         </p>
 
-        <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border sm:grid-cols-3 lg:grid-cols-6">
+        <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border sm:grid-cols-4">
           {stats.map((stat) => (
             <div key={stat.label} className="bg-muted/40 px-4 py-3">
               <dt className="text-[11px] uppercase tracking-wider text-muted-foreground">

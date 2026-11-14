@@ -64,6 +64,9 @@ export function profitMovers(cards, limit) {
  * @param {{symbol: string, pct_change_1m: number | null}[]} rows the run's stocks
  * @returns {Map<string, {gainers: object[], losers: object[]}>}
  */
+/** What a mover row may carry to the browser: no rank or score. */
+const shown = ({ symbol, company, pct_change_1m }) => ({ symbol, company, pct_change_1m });
+
 export function monthlyMovers(members, rows, limit) {
   const bySymbol = new Map(rows.filter((row) => Number.isFinite(row.pct_change_1m)).map((row) => [row.symbol, row]));
   const out = new Map();
@@ -71,8 +74,8 @@ export function monthlyMovers(members, rows, limit) {
     const priced = symbols.map((symbol) => bySymbol.get(symbol)).filter(Boolean);
     priced.sort((a, b) => b.pct_change_1m - a.pct_change_1m);
     out.set(name, {
-      gainers: priced.filter((row) => row.pct_change_1m > 0).slice(0, limit),
-      losers: priced.filter((row) => row.pct_change_1m < 0).slice(-limit).reverse(),
+      gainers: priced.filter((row) => row.pct_change_1m > 0).slice(0, limit).map(shown),
+      losers: priced.filter((row) => row.pct_change_1m < 0).slice(-limit).reverse().map(shown),
     });
   }
   return out;

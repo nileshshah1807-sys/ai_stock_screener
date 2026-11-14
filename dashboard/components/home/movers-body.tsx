@@ -14,7 +14,7 @@ import type { Market } from "@/lib/markets";
 import { cn } from "@/lib/utils";
 
 type Window = "1D" | "1M";
-type Row = { symbol: string; company: string | null; investment_rank: number | null; change: number };
+type Row = { symbol: string; company: string | null; rated: boolean; change: number };
 
 const SHOWN = 5;
 
@@ -30,7 +30,7 @@ function List({ title, rows, empty }: { title: string; rows: Row[]; empty: strin
                 symbol={row.symbol}
                 company={row.company}
                 // An index member the screener does not rate has no stock page.
-                linked={row.investment_rank !== null}
+                linked={row.rated}
               >
                 <span
                   className={cn(
@@ -73,11 +73,11 @@ export function MoversBody({
   const names = data?.indices.map((entry) => entry.name) ?? Object.keys(monthly);
   const name = chosen && names.includes(chosen) ? chosen : names[0];
   const live = data?.indices.find((entry) => entry.name === name);
-  const toRows = (rows: { symbol: string; company: string | null; investment_rank: number | null; change_pct: number }[]) =>
+  const toRows = (rows: { symbol: string; company: string | null; rated: boolean; change_pct: number }[]) =>
     rows.slice(0, SHOWN).map((row) => ({ ...row, change: row.change_pct }));
   const month = monthly[name];
-  const gainers = window === "1D" ? toRows(live?.gainers ?? []) : (month?.gainers ?? []).map((row) => ({ ...row, change: row.pct_change_1m }));
-  const losers = window === "1D" ? toRows(live?.losers ?? []) : (month?.losers ?? []).map((row) => ({ ...row, change: row.pct_change_1m }));
+  const gainers = window === "1D" ? toRows(live?.gainers ?? []) : (month?.gainers ?? []).map((row) => ({ ...row, rated: true, change: row.pct_change_1m }));
+  const losers = window === "1D" ? toRows(live?.losers ?? []) : (month?.losers ?? []).map((row) => ({ ...row, rated: true, change: row.pct_change_1m }));
 
   if (!name) {
     return <p className="py-6 text-center text-sm text-muted-foreground">No live prices yet today.</p>;

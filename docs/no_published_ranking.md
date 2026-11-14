@@ -105,15 +105,24 @@ Tests: `custom-score.test.mjs` (new), plus additions to `ratings.test.mjs` and
   changed.
 - **Buy/sell ratings** stay admin-only, as before.
 - **The database views** (`*_visible`) still return the rank and score to a signed-in user
-  who queries them directly. Only the app hides them. Closing that needs a change to
-  `storage/rating_access_schema.sql`, applied by hand against the shared database.
+  who queries them directly with their own token. Only the app hides them, so this is
+  accepted **for the preview only and blocks production**. Two ways to close it: add the
+  verdict fields to `is_rating_field` in `storage/rating_access_schema.sql` and re-apply it
+  by hand (this changes the shared database, so the live site at once, and every read that
+  tells rated from unrated by `investment_rank is not null` must first move to another
+  test), or ship after the D1 move, where the browser cannot query the database at all and
+  the server picks the verdict columns for no one.
 
 ## Known limits and follow-ups
 
 - **Admin view not checked on the preview:** the browser used for testing was signed in as
   a viewer.
-- **The `live_market` RPC** still sends `investment_rank` to the browser. The UI no longer
-  shows it.
+- **The `live_market` RPC** sends `rated` instead of `investment_rank` in
+  `storage/live_quotes_schema.sql`, which must be re-applied by hand **after** this branch
+  is live: the code on `main` still reads the rank from it. Until then the browser falls
+  back to the rank (`liveMover` in `lib/live-quotes.mjs`) and drops it before any component
+  sees it, but the rank is still in the network response. The Home monthly movers and a new
+  listing's page no longer carry or show a rank or score.
 - **The daily email report** lists ranks. That is fine if it reaches only the owner, but
   not if it reaches any customer.
 - **Speed:** a page sorted by "Your score" reads the whole run on each request. This has not
