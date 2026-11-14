@@ -145,7 +145,7 @@ export async function proxy(request: NextRequest) {
 
   // No session: the static copy of the pricing page (app/pricing-static), not a render.
   if (!signedIn && pathname === "/pricing") {
-    const rewrite = NextResponse.rewrite(new URL(`/pricing-static${search}`, request.url), { request });
+    const rewrite = NextResponse.rewrite(new URL(`/pricing-static`, request.url), { request });
     response.cookies.getAll().forEach((cookie) => rewrite.cookies.set(cookie));
     response = rewrite;
   }
