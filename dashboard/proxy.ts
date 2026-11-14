@@ -143,6 +143,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // No session: the static copy of the pricing page (app/pricing-static), not a render.
+  if (!signedIn && pathname === "/pricing") {
+    const rewrite = NextResponse.rewrite(new URL(`/pricing-static${search}`, request.url), { request });
+    response.cookies.getAll().forEach((cookie) => rewrite.cookies.set(cookie));
+    response = rewrite;
+  }
+
   if (newDeviceId) {
     response.cookies.set(DEVICE_COOKIE, newDeviceId, {
       httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 400 * 86_400,

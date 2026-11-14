@@ -17,4 +17,7 @@ import memoryQueue from "@opennextjs/cloudflare/overrides/queue/memory-queue";
 export default defineCloudflareConfig({
   incrementalCache: withRegionalCache(r2IncrementalCache, { mode: "long-lived", shouldLazilyUpdateOnCacheHit: true }),
   queue: memoryQueue,
+  // A static or ISR page (/, /login, /refunds) is served from the cache before the Next server
+  // loads: most of a request's CPU is Next itself, and the Free plan allows 10 ms.
+  enableCacheInterception: true,
 });
