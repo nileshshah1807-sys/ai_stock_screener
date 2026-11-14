@@ -152,7 +152,7 @@ def pdf_links(path: Path) -> list[str]:
 
 
 def download_notice(attachment_url: str, folder: Path) -> Path:
-    from nse import NSE
+    from screener.nse_client import NSE
 
     with NSE(download_folder=folder, server=False, timeout=60) as nse:
         path = Path(nse.download_document(attachment_url))

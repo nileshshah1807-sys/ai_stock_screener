@@ -55,7 +55,7 @@ def discover_nse_announcements(
     retry_delay_seconds: float = 5.0,
 ) -> list[dict[str, Any]]:
     """The announcements of a bounded NSE window that ``matches`` accepts, newest first."""
-    from nse import NSE
+    from screener.nse_client import NSE
 
     end_date = date.today()
     start_date = end_date - timedelta(days=max(1, lookback_days))

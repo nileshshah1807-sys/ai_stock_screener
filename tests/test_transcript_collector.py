@@ -32,7 +32,7 @@ class TranscriptCollectorTests(unittest.TestCase):
             def announcements(self, **kwargs):
                 return [{"desc": "Earnings call transcript", "attchmntText": ""}]
 
-        with patch.dict(sys.modules, {"nse": SimpleNamespace(NSE=FakeNSE)}):
+        with patch.dict(sys.modules, {"screener.nse_client": SimpleNamespace(NSE=FakeNSE)}):
             records = discover_nse_transcripts(7)
 
         self.assertEqual(len(records), 1)
@@ -58,7 +58,7 @@ class TranscriptCollectorTests(unittest.TestCase):
                     raise TimeoutError("temporary NSE timeout")
                 return [{"desc": "Earnings call transcript", "attchmntText": ""}]
 
-        with patch.dict(sys.modules, {"nse": SimpleNamespace(NSE=FlakyNSE)}):
+        with patch.dict(sys.modules, {"screener.nse_client": SimpleNamespace(NSE=FlakyNSE)}):
             records = discover_nse_transcripts(120, attempts=2, retry_delay_seconds=0)
 
         self.assertEqual(len(records), 1)
