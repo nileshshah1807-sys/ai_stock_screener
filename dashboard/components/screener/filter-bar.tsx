@@ -15,6 +15,7 @@ import { useShowRatings } from "@/components/market-provider";
 import { PendingMarker } from "@/components/nav-pending";
 import { RATING_FILTER_KEYS, publicText } from "@/lib/ratings.mjs";
 import { RANGE_GROUPS, formatRange, readRanges, type RangeFilter } from "@/lib/screener-ranges.mjs";
+import { asText, trimmed } from "@/lib/url-draft.mjs";
 import { useUrlDraft } from "@/lib/use-url-draft";
 import { cn } from "@/lib/utils";
 
@@ -310,7 +311,7 @@ export function FilterBar({
 
   // A saved view or a removed chip that changes `q` shows here, and the debounce
   // below does not write the old text back over it.
-  const [query, setQuery] = useUrlDraft(searchParams.get("q") ?? "", (url) => url, (text) => text.trim());
+  const [query, setQuery, pushedQuery] = useUrlDraft(searchParams.get("q") ?? "", asText, trimmed);
   const [find, setFind] = useState("");
   const [industryFind, setIndustryFind] = useState("");
   const [opened, setOpened] = useState<Record<string, boolean>>({});
@@ -354,9 +355,10 @@ export function FilterBar({
   // because the instant pass above already answered what is on screen.
   useEffect(() => {
     const current = searchParams.get("q") ?? "";
-    if (query === current) return;
+    if (query.trim() === current) return;
 
     const timer = setTimeout(() => {
+      pushedQuery(query.trim());
       push((params) => {
         if (query.trim()) params.set("q", query.trim());
         else params.delete("q");
@@ -364,7 +366,7 @@ export function FilterBar({
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [query, push, searchParams]);
+  }, [query, push, searchParams, pushedQuery]);
 
   const toggleValue = (key: string, value: string) => {
     push((params) => {

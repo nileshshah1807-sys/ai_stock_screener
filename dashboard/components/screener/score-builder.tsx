@@ -30,7 +30,7 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const factors = SCORE_FACTORS.filter(offered);
   const points = POINT_FACTORS.filter(offered);
   // A saved view that sets a mix moves the sliders to it.
-  const [weights, setWeights] = useUrlDraft<Record<string, number>>(
+  const [weights, setWeights, pushedMix] = useUrlDraft<Record<string, number>>(
     urlMix,
     (url) => Object.fromEntries(Object.entries({ ...EQUAL_START, ...(parseWeights(url) ?? {}) }).filter(([key]) => offered(byKey(key)))),
     formatWeights,
@@ -54,6 +54,7 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const apply = () =>
     push((params) => {
       const mix = formatWeights(weights);
+      pushedMix(mix);
       if (mix) params.set("w", mix);
       else params.delete("w");
       // Rank by the new mix: an earlier column sort would hide it.
@@ -63,6 +64,7 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
 
   const clear = () => {
     setWeights({ ...EQUAL_START });
+    pushedMix("");
     push((params) => {
       params.delete("w");
       if (params.get("sort") === "custom_score") params.delete("sort");

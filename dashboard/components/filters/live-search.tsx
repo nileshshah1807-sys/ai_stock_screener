@@ -5,11 +5,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Search } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { asText, trimmed } from "@/lib/url-draft.mjs";
 import { useUrlDraft } from "@/lib/use-url-draft";
 import { cn } from "@/lib/utils";
-
-const asText = (url: string) => url;
-const trimmed = (text: string) => text.trim();
 
 /**
  * The search field every list in the dashboard filters by: a magnifier, the
@@ -95,7 +93,7 @@ export function LiveSearch({
   const [pending, startTransition] = useTransition();
   const current = searchParams.get(param) ?? "";
   // The URL changed from elsewhere -- "Clear search and filters", Back: take its text.
-  const [query, setQuery] = useUrlDraft(current, asText, trimmed);
+  const [query, setQuery, pushed] = useUrlDraft(current, asText, trimmed);
 
   useEffect(() => {
     const text = query.trim();
@@ -106,12 +104,13 @@ export function LiveSearch({
       else params.delete(param);
       for (const key of resets) params.delete(key);
       const search = params.toString();
+      pushed(text);
       startTransition(() => {
         router.replace(search ? `${pathname}?${search}` : pathname, { scroll: false });
       });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [query, current, param, resets, pathname, router, searchParams]);
+  }, [query, current, param, resets, pathname, router, searchParams, pushed]);
 
   return (
     <SearchInput
