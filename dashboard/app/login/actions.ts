@@ -61,11 +61,6 @@ export async function requestLoginCode(
   };
 }
 
-export async function signOut() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
-}
-
 export type CodeState = { status: "idle" | "error"; message?: string };
 
 /**

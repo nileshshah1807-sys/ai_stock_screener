@@ -5,7 +5,7 @@ import { SiteFooter } from "@/components/site-footer";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 
-import { signOut } from "../login/actions";
+import { SignOutForm } from "@/components/sign-out-form";
 
 export const metadata: Metadata = { title: "No access" };
 
@@ -42,11 +42,11 @@ export default async function NoAccessPage() {
             <code className="font-mono">dashboard_allowlist</code>.
           </p>
 
-          <form action={signOut} className="mt-6">
-            <Button type="submit" variant="outline" formAction={signOut}>
+          <SignOutForm className="mt-6">
+            <Button type="submit" variant="outline">
               Sign out
             </Button>
-          </form>
+          </SignOutForm>
         </div>
       </main>
       <SiteFooter />

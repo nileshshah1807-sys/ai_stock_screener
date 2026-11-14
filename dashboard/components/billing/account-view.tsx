@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { CancelPlan, DeleteAccount } from "@/components/billing/account-actions";
+import { SignOutForm } from "@/components/sign-out-form";
 import { AccountMotion } from "@/components/billing/account-motion";
 import { ProfileForm } from "@/components/billing/profile-form";
 import { buttonVariants } from "@/components/ui/button";
@@ -9,7 +10,6 @@ import { initialsOf, shownName } from "@/lib/display-name.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
 import type { Plan, Subscription } from "@/lib/plans";
-import { signOut } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 
 /** The account page's content, from data its caller has already read. */
@@ -149,11 +149,11 @@ export function AccountView({
       </section>
 
       <div data-arrive className="mt-6 flex flex-wrap gap-3">
-        <form action={signOut}>
+        <SignOutForm>
           <button type="submit" className={cn(buttonVariants({ variant: "outline" }), "h-10")}>
             Sign out
           </button>
-        </form>
+        </SignOutForm>
         {kind === "admin" ? (
           <Link href="/admin" className={cn(buttonVariants({ variant: "outline" }), "h-10")}>
             Admin: users

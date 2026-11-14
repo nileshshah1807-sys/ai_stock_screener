@@ -430,6 +430,52 @@ the scheduled workflows set the same flag.
 
 ## Boundaries that matter
 
+- **The dashboard Worker is on Cloudflare Workers Free: 10 ms of CPU per
+  request, and a server-rendered page costs 60-600 ms.** This is the cause of
+  every Error 1102 ("Worker exceeded resource limits"). Each signed-in page is a
+  dynamic Next.js render inside the Worker -- the proxy's `getClaims()`, the
+  React server render, parsing Supabase's JSON -- measured at P50 169 ms, P90
+  343 ms, P99 444 ms, peaks near 2 s (Cloudflare metrics, 14 Nov 2026).
+  Cloudflare lets a Worker overrun for a while, then refuses every request,
+  even a 10 ms one: a burst of ~13-20 page loads, or one open tab that
+  re-renders on a timer, locks the whole site, signing out included. No tuning
+  brings a Next server render under 10 ms. Signed-out pages overrun too
+  (`wrangler tail` on `cupel-preview`, 14 Nov 2026, CPU ms per load):
+  - the first request an isolate serves loads the Next server, whatever the
+    page: 260-430 ms (`/privacy` 340, `/robots.txt` 263);
+  - the request that finds an ISR page stale (`revalidate = 300`: `/`,
+    `/login`, `/refunds`, `/pricing-static`) regenerates it: 390-430 ms;
+  - `/help` renders per request (it reads the session): 36-175 ms;
+  - warm cached pages (legal, `/login`, `/pricing`, sitemap): 5-17 ms, at the
+    limit; a signed-out redirect from a private page: 1-4 ms.
+  So:
+  - Add no server work per request. No auto-refresh, `router.refresh()` on a
+    timer or polling of a server route (the Results AutoRefresh was reverted for
+    this). No server action for something the browser can do: an action that
+    sets cookies or revalidates re-renders the current page in the same
+    request, which is why sign-out is `components/sign-out-form.tsx` (Supabase
+    called from the browser) and not a server action.
+  - Anything live is read in the browser, from Supabase through the `*_visible`
+    views (RLS decides access) or from R2 -- as live quotes already are.
+  - A page that does not depend on the viewer is static or ISR and is served
+    from the cache before Next loads (`enableCacheInterception` in
+    `dashboard/open-next.config.ts`): `/`, `/login`, signed-out `/pricing`.
+  - **Direction (14 Nov 2026): every page becomes a static shell that reads its
+    data in the browser.** The HTML is a file in the assets directory, which
+    Cloudflare serves without running the Worker (zero CPU, any scale); the
+    Worker keeps only what needs a secret (billing, webhook, cron, admin).
+    What a page reads moves with it, and nothing may rely on being hidden on
+    the server: the verdict strip (`withoutVerdict`) and the rating rule must
+    hold in the `*_visible` views themselves; reads that use the service role
+    today (`lib/queries.ts`, `lib/home-cache.ts`) become views or objects the
+    workers publish to R2; the proxy's token refresh and session lifetime move
+    to the browser client. Until then, 1102 under a burst is expected. The
+    dashboard stays on the Free plan: there is no budget for Workers Paid
+    (owner, 11 Nov 2026), so do not propose it.
+  - Before a production deploy, burst ~30 signed-in loads at `cupel-preview`
+    with `npx wrangler tail --format json` and count `exceededCpu` against
+    `main`. Rollback: `npx wrangler rollback <version> -y`.
+
 - **Buy/sell ratings and the Returns page are admin-only.** Signed-in viewers
   read `screener_snapshot`, `screener_history` and `screener_runs` only
   through their `*_visible` views (`storage/rating_access_schema.sql`), which

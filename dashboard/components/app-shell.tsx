@@ -25,7 +25,7 @@ import type { MarketDay } from "@/lib/market-calendar.mjs";
 import type { ScreenerRun } from "@/lib/types";
 import type { Viewer } from "@/lib/auth";
 
-import { signOut } from "@/app/login/actions";
+import { SignOutForm } from "@/components/sign-out-form";
 
 /*
  * Five destinations. That is also the most a phone's bottom tab bar holds; the
@@ -139,7 +139,7 @@ function Avatar({ viewer }: { viewer: Viewer }) {
 
 function SignOut({ viewer }: { viewer: Viewer }) {
   return (
-    <form action={signOut} className="hidden sm:block">
+    <SignOutForm className="hidden sm:block">
       <Button
         type="submit"
         variant="ghost"
@@ -150,7 +150,7 @@ function SignOut({ viewer }: { viewer: Viewer }) {
       >
         <LogOut className="size-4" aria-hidden />
       </Button>
-    </form>
+    </SignOutForm>
   );
 }
 
