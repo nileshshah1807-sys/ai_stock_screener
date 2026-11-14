@@ -212,6 +212,7 @@ screener toolbar; `lib/custom-score.mjs`, URL key `w`):
 The builder starts from equal weights and ships no other preset, so the order is
 always the viewer's method. It is computed on each request from columns every
 viewer can already read (`runScores` in `lib/queries.ts`).
+The full change log and its reasons: [`docs/no_published_ranking.md`](../docs/no_published_ranking.md).
 
 ## Setup
 
