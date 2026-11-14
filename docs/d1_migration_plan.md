@@ -214,3 +214,20 @@ plus about 1 MB a day slimmed. That is three of the ten databases, each well und
 - The egress split (human, Supabase usage page).
 - Which `screener_history` columns the pages read, so it can be slimmed (Pam).
 - D1 query latency from Mumbai for the grid's first uncached load: to measure in phase 4.
+
+## Backfill (tools/d1_tables.py)
+
+- Schema generated from Supabase's own table description into `storage/d1/{core,evidence,history}.sql`,
+  one `WITHOUT ROWID` table per Supabase table (so a row written costs one D1 row, not two), applied
+  14 Nov 2026. `screener_history` carries the 12 read columns plus `market`.
+- **D1 allows 100 columns a table.** `screener_snapshot` has 156, so it is not created yet: it needs a
+  layout agreed with the reader (the grid's filter and sort columns as columns, the rest as one JSON
+  column). Every other table fits.
+- Day 1 (14 Nov): concall_feed 3,193/3,193, valuation_basis 8,543/8,543, bulk_block_deals 63,500 of
+  102,142; 75,236 rows written. Resumed each UTC day from `reports_advanced/d1_backfill.json`.
+- Copied rows go stale until that table is mirrored (`dual`). `TABLE_BACKEND=dual` mirrors every table
+  a repository writes, so it needs a per-table list first, or the mirror errors on the tables D1 does
+  not have yet and switches itself off.
+- For `dual`, a writer's `on_conflict` columns must be the D1 primary key (no unique indexes are
+  copied). True for the phase-2 tables; `market_events` and the transcript tables upsert on a natural
+  key behind an id key and need a unique index first.
