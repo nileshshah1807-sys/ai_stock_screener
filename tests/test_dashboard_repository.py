@@ -16,6 +16,7 @@ class RecordingDashboardRepository(DashboardRepository):
         # The market scope is what the queries below read, so it is set
         # explicitly rather than inherited.
         self.market = market
+        self._r2 = None  # no R2 in unit tests, whatever the env holds
 
     def _request(self, method, path, **kwargs):
         self.calls.append((method, path, kwargs))

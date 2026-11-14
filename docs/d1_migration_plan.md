@@ -181,7 +181,8 @@ in D1 plus a full archive per run in R2, or one history database per year).
 |---|---|---|---|---:|---|
 | live_quotes | R2 `live/{MARKET}/quotes.json` | object store (r2) | Worker via MARKET_DATA | 0 | 1 |
 | market_calendar | R2 `live/{MARKET}/calendar.json` (1 row per market, read on every page) | live quotes worker | Worker, 5 min shared cache | 0 | 1 |
-| market_breadth_members, _levels, index_members | R2 objects per market | object store | Worker | 0 | 1 |
+| market_breadth_members, _levels, index_members | R2 `live/{MARKET}/breadth-members.json`, `breadth-levels.json`, `index-members.json` | the table's writer, beside the table | Worker | 0 | 1 |
+| search index (new) | R2 `search-index/{MARKET}/{run_date}.json`: symbol, company, logo_domain, sector, largest first, no rating | dashboard publisher | Worker, per run | 0 | 1 |
 | bulk_block_deals | D1 `cupel-evidence` | REST, new deals only | Worker | < 500 | 2 |
 | concall_feed | D1 `cupel-core` | REST, changed rows | Worker | < 500 | 2 |
 | valuation_basis | D1 `cupel-core` | REST, changed rows | Worker | < 2,000 | 2 |
@@ -189,7 +190,7 @@ in D1 plus a full archive per run in R2, or one history database per year).
 | financial_statements, upcoming_events, market_events, new_listings, universe_index, market_breadth | D1 `cupel-core` | REST | Worker | < 3,000 | 3 |
 | shareholding_patterns, company_documents, transcripts*, estimate_history, red_flag_snapshots | D1 `cupel-evidence` | REST | Worker | < 3,000 | 3 |
 | screener_snapshot, screener_runs | D1 `cupel-core` | REST, upsert in place | Worker, select list by viewer | ~20,000 | 4 |
-| screener_history | D1 `cupel-history` | REST | Worker | ~17,000 | 5 |
+| screener_history | D1 `cupel-history`: the 12 columns the pages read (observed_on, symbol, company, current_price, volume, stage, investment_rank, rating, decision_score, final_score, fundamental_score, technical_score); every full run kept whole in R2 `archive/screener-history/{MARKET}/{run_date}.json.gz`, checked by reading it back (human, 14 Nov: option a) | REST | Worker | ~17,000 | 5 |
 | red_flag_snapshot_history, simulated_* | dropped / R2 archive | — | — | 0 | stopgap |
 | auth, billing, watchlists, notification_reads | stay on Supabase | as today | as today | — | — |
 
@@ -209,8 +210,35 @@ plus about 1 MB a day slimmed. That is three of the ten databases, each well und
 6. **Dashboard reads switch per table** (Pam, behind a flag), server-side select-list rule first.
 7. **Cutover to `d1`**, then a week of Supabase read-only, then prune its data tables.
 
+## Live objects (phase 3, written beside the tables)
+
+Each object is plain JSON `{"market", "written_at", "rows": [...]}`, rows shaped as the
+table's rows, written by the same method that replaces the table, to R2 only, when the
+run has the R2 secrets. An R2 failure is logged and never fails the table write.
+`quotes.json` is merged with the previous object by symbol and drops a quote no run
+refreshed in 7 days, as `prune_live_quotes` does for the table.
+
+**Access rule for the reader (Angela, review of #342).** These objects bypass Postgres
+row-level security: the tables behind them are readable only under `dashboard_has_access()`,
+an R2 object has no such rule. So: the Worker route that reads `live/*` or `search-index/*`
+checks the viewer's access before returning anything; the bucket has no public access and no
+r2.dev URL; `archive/*` holds full history rows, ratings and ranks included, and has no route
+at all. The reader PR is reviewed against this.
+
+## D1 databases
+
+Created 14 Nov 2026 on the Workers Free plan, account `32fab729dc9211a0da0708de846a23af`,
+location hint APAC:
+
+| database | id |
+|---|---|
+| cupel-core | `48893af3-d137-4320-bea3-450ae9908d7f` |
+| cupel-evidence | `40bd952e-00dd-4377-87c5-f336c1032ef2` |
+| cupel-history | `4ba446d5-d2c0-4c0d-b0a8-603cb6a0351e` |
+
+`CLOUDFLARE_API_TOKEN` (the user token, with D1 Edit added 14 Nov) reaches them.
+
 ## Open
 
 - The egress split (human, Supabase usage page).
-- Which `screener_history` columns the pages read, so it can be slimmed (Pam).
 - D1 query latency from Mumbai for the grid's first uncached load: to measure in phase 4.

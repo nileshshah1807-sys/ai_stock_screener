@@ -471,6 +471,13 @@ the scheduled workflows set the same flag.
   `concall_feed` and `valuation_basis`. An embedded resource, a JSON path and the
   two RPCs have no D1 form yet and are refused, never guessed. Writes stop at
   `D1_MAX_ROWS_WRITTEN` per run (default 90k): the Free plan allows 100k a day.
+- **Live data, the search index and full history also go to R2 as objects** (R2 only,
+  when the run has the R2 secrets; the tables are still written and still read).
+  The method that replaces `live_quotes`, `index_members`, `market_calendar` or a
+  breadth table writes `live/{MARKET}/<name>.json` beside it; the publisher writes
+  `search-index/{MARKET}/{run_date}.json` (no rating) and archives the run's
+  history rows to `archive/screener-history/{MARKET}/{run_date}.json.gz`, read
+  back before it counts. None fails a run. Layout: `docs/d1_migration_plan.md`.
 - **A snapshot row's payload is a Storage object, not a column.** The complete
   source record is `market-data/snapshot-payload/{MARKET}/{run_date}/{symbol}.json.gz`,
   written before the run is published and swept with the run when it is

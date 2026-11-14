@@ -74,6 +74,9 @@ class FakeRepo:
         self.quotes = rows
         return len(rows)
 
+    def put_live_quotes_object(self, rows, before):
+        self.quote_objects = getattr(self, "quote_objects", 0) + 1
+
     def prune_live_quotes(self, before):
         self.pruned = before
 
