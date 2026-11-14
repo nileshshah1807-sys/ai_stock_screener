@@ -1889,10 +1889,12 @@ async function runScores(
 ): Promise<Map<string, number | null> | null> {
   try {
     const scores = await sharedRead(
-      "run-scores",
+      "run-scores-v2", // v1 cached empty results read through the view
       market,
       3600,
-      (db) => readRunScores((db ?? supabase) as typeof supabase, market, runDate, weights),
+      // The shared read runs as the service role, which the `*_visible` view returns no rows to; the
+      // base table holds the same columns, and none read here is a rating field.
+      (db) => readRunScores((db ?? supabase) as typeof supabase, db ? "screener_snapshot" : "screener_snapshot_visible", market, runDate, weights),
       [runDate, formatWeights(weights)],
     );
     return new Map(Object.entries(scores));
@@ -1904,6 +1906,7 @@ async function runScores(
 
 async function readRunScores(
   supabase: Awaited<ReturnType<typeof createClient>>,
+  table: "screener_snapshot" | "screener_snapshot_visible",
   market: MarketCode,
   runDate: string,
   weights: Record<string, number>,
@@ -1923,7 +1926,7 @@ async function readRunScores(
   const [run, calls] = await Promise.all([
     readAll((from, to) =>
       supabase
-        .from("screener_snapshot_visible")
+        .from(table)
         .select(SCORE_RUN_COLUMNS.join(","))
         .eq("market", market)
         .eq("run_date", runDate)
@@ -1945,6 +1948,8 @@ async function readRunScores(
         )
       : Promise.resolve([]),
   ]);
+  // An empty run is a failed read, never a result: thrown, so it is not cached.
+  if (!run.length) throw new Error(`no ${table} rows for ${market} ${runDate}`);
   // Newest call first, so the first outlook seen for a company is its latest.
   const outlooks = new Map<string, number>();
   for (const call of calls) {

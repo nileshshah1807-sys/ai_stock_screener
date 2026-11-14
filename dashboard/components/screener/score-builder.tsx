@@ -7,6 +7,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PendingMarker } from "@/components/nav-pending";
+import { cn } from "@/lib/utils";
 import { EQUAL_START, POINT_FACTORS, SCORE_FACTORS, formatWeights, parseWeights } from "@/lib/custom-score.mjs";
 
 /**
@@ -82,7 +83,6 @@ export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
             <div className="space-y-3">
               {SCORE_FACTORS.map((factor) => {
                 const value = weights[factor.key] ?? 0;
-                const share = total ? Math.round((value / total) * 100) : 0;
                 const id = `weight-${factor.key}`;
                 return (
                   <div key={factor.key} className="space-y-1">
@@ -90,7 +90,7 @@ export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
                       <label htmlFor={id} className="font-medium">
                         {factor.label}
                       </label>
-                      <span className="tabular font-mono text-muted-foreground">{share}%</span>
+                      <span className="tabular font-mono text-muted-foreground">{value}%</span>
                     </div>
                     <input
                       id={id}
@@ -105,6 +105,14 @@ export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
                   </div>
                 );
               })}
+              {/* Each slider shows the weight as set; the score uses each weight's share of the
+                  total, so a total other than 100 is scaled, never an error. */}
+              <p className="flex items-baseline justify-between text-xs" aria-live="polite">
+                <span className="font-medium">Total</span>
+                <span className={cn("tabular font-mono", total === 100 ? "text-muted-foreground" : "text-foreground")}>
+                  {total}%{total && total !== 100 ? " · scaled to 100" : ""}
+                </span>
+              </p>
             </div>
             <div className="space-y-3 border-t pt-3">
               {POINT_FACTORS.map((factor) => {
@@ -133,7 +141,7 @@ export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
               })}
             </div>
             <p className="text-[11px] leading-snug text-muted-foreground">
-              Shares are each weight over the total. A measure a stock lacks counts as 50, never as zero.
+              A total other than 100% is scaled, so each weight counts as its share of the total. A measure a stock lacks counts as 50, never as zero.
               Valuation points: the multiple times the valuation score&rsquo;s distance from 50. Concall points:
               the multiple times how far a call in the last 180 days sits from the market&rsquo;s median call
               (85% outlook, 15% tone), fading by half every 90 days.
