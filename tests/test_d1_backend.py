@@ -6,7 +6,14 @@ from unittest import mock
 
 import requests
 
-from storage.d1_backend import D1Session, DualSession, UnsupportedQuery, table_session, translate
+from storage.d1_backend import (
+    D1Session,
+    DualSession,
+    UnsupportedQuery,
+    WriteCeilingReached,
+    table_session,
+    translate,
+)
 from storage.dashboard_repository import DashboardRepository
 
 SCHEMA = """
@@ -82,7 +89,7 @@ class WriteTests(unittest.TestCase):
     def test_the_ceiling_stops_writes_loudly(self):
         self.session.max_rows_written = 1
         self.repo.upsert_valuation_basis([{"symbol": "A", "profit": 1.0}, {"symbol": "B", "profit": 2.0}])
-        with self.assertRaisesRegex(RuntimeError, "ceiling"):
+        with self.assertRaises(WriteCeilingReached):
             self.repo.upsert_valuation_basis([{"symbol": "C", "profit": 3.0}])
 
     def test_reads_filter_order_and_page_as_postgrest(self):
@@ -96,6 +103,25 @@ class WriteTests(unittest.TestCase):
             "GET", "valuation_basis", params={"symbol": 'in.(A,"C")', "profit": "not.is.null", "select": "symbol"}
         )
         self.assertEqual(sorted(r["symbol"] for r in picked), ["A", "C"])
+
+
+    def test_an_unchanged_merge_still_returns_its_row(self):
+        # upsert_filing, the transcript writers and save_sentiment read rows[0].
+        prefer = {"Prefer": "resolution=merge-duplicates,return=representation"}
+        row = [{"market": "NSE", "symbol": "A", "profit": 1.0}]
+        for _ in range(2):
+            got = self.repo._request("POST", "valuation_basis?on_conflict=market,symbol", json=row, headers=prefer)
+            self.assertEqual(got[0]["symbol"], "A")
+
+    def test_boolean_filters_match_stored_zero_and_one(self):
+        self.db.execute("alter table valuation_basis add column eligible integer")
+        self.repo.upsert_valuation_basis([{"symbol": "A", "eligible": True}, {"symbol": "B", "eligible": False}])
+        got = self.repo._request("GET", "valuation_basis", params={"eligible": "eq.true", "select": "symbol"})
+        self.assertEqual([r["symbol"] for r in got], ["A"])
+
+    def test_a_long_in_list_binds_one_parameter(self):
+        sql, args = translate("GET", "https://x/rest/v1/t", {"symbol": "in.(" + ",".join(f"S{i}" for i in range(500)) + ")"}, None)
+        self.assertEqual(len(args), 1)
 
 
 class TranslateTests(unittest.TestCase):
@@ -121,6 +147,27 @@ class DualTests(unittest.TestCase):
         session = DualSession(primary, mirror)
         self.assertTrue(session.request("POST", "https://x/rest/v1/live_quotes", json=[{}]).ok)
         mirror.request.assert_called_once()
+
+    def test_the_mirror_is_switched_off_after_three_failures(self):
+        primary = mock.Mock()
+        primary.request.return_value = mock.Mock(ok=True)
+        mirror = mock.Mock()
+        mirror.request.side_effect = RuntimeError("D1 down")
+        session = DualSession(primary, mirror)
+        for _ in range(5):
+            session.request("POST", "https://x/rest/v1/live_quotes", json=[{}])
+        self.assertEqual(mirror.request.call_count, 3)
+        self.assertEqual(primary.request.call_count, 5)
+
+    def test_the_ceiling_switches_the_mirror_off_at_once(self):
+        primary = mock.Mock()
+        primary.request.return_value = mock.Mock(ok=True)
+        mirror = mock.Mock()
+        mirror.request.side_effect = WriteCeilingReached("ceiling")
+        session = DualSession(primary, mirror)
+        session.request("POST", "https://x/rest/v1/a", json=[{}])
+        session.request("POST", "https://x/rest/v1/a", json=[{}])
+        self.assertEqual(mirror.request.call_count, 1)
 
     def test_reads_stay_on_supabase(self):
         primary, mirror = mock.Mock(), mock.Mock()

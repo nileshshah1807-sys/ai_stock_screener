@@ -8,8 +8,9 @@
 -- everything but updated_at, which the writer stamps on every run. A row that did
 -- change is written as before, with its new updated_at.
 --
--- Fires before concall_feed_updated_at (triggers run in name order), so a skipped
--- row keeps the updated_at of its last real change. Apply by hand; re-applying is safe.
+-- updated_at on both tables now means "last changed", not "last written": never
+-- read it as the freshness of a run. concall_feed's own stamp trigger runs after
+-- this one (name order), so a skipped row keeps its stamp. Apply by hand; re-applying is safe.
 
 create or replace function skip_unchanged_update()
 returns trigger

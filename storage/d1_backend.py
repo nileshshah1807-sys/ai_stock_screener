@@ -39,6 +39,8 @@ D1_API = "https://api.cloudflare.com/client/v4/accounts/{account}/d1/database/{d
 MAX_PAYLOAD_BYTES = 1_500_000
 DEFAULT_MAX_ROWS_WRITTEN = 90_000
 WRITE_METHODS = {"POST", "PATCH", "DELETE"}
+MIRROR_TIMEOUT_SECONDS = 15
+MIRROR_FAILURES_BEFORE_OFF = 3
 # A column the writer stamps on every run; a row equal in all else is unchanged.
 STAMP_COLUMN = "updated_at"
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
@@ -50,6 +52,10 @@ Executor = Callable[[str, str, list[Any]], tuple[list[dict[str, Any]], int]]
 
 class UnsupportedQuery(ValueError):
     """A PostgREST feature with no D1 form yet (an embedded resource, an RPC)."""
+
+
+class WriteCeilingReached(RuntimeError):
+    """This run has written ``D1_MAX_ROWS_WRITTEN`` rows; further writes are refused."""
 
 
 def backend_name(env: Mapping[str, str] | None = None) -> str:
@@ -65,7 +71,12 @@ def table_session(env: Mapping[str, str] | None = None) -> requests.Session:
     name = backend_name(env)
     if name == "supabase":
         return requests.Session()
-    d1 = D1Session(rest_executor(env), max_rows_written=int(env.get("D1_MAX_ROWS_WRITTEN") or DEFAULT_MAX_ROWS_WRITTEN))
+    # A mirror must never hold a run up: a short timeout, as the R2 mirror has.
+    timeout = int(env.get("D1_TIMEOUT_SECONDS") or (MIRROR_TIMEOUT_SECONDS if name == "dual" else 60))
+    d1 = D1Session(
+        rest_executor(env, timeout),
+        max_rows_written=int(env.get("D1_MAX_ROWS_WRITTEN") or DEFAULT_MAX_ROWS_WRITTEN),
+    )
     return DualSession(requests.Session(), d1) if name == "dual" else d1
 
 
@@ -92,14 +103,14 @@ def _condition(column: str, expression: str) -> Statement:
     op, _, value = expression.partition(".")
     target = _name(column)
     if op in _COMPARISONS:
-        sql, args = f"{target} {_COMPARISONS[op]} ?", [value]
+        # D1 stores a boolean as 0/1; PostgREST spells it true/false.
+        bound = {"true": 1, "false": 0}.get(value, value) if op in ("eq", "neq") else value
+        sql, args = f"{target} {_COMPARISONS[op]} ?", [bound]
     elif op == "like":
         sql, args = f"{target} LIKE ?", [value.replace("*", "%")]
     elif op == "in":
-        items = _in_list(value)
-        sql, args = f"{target} IN ({', '.join('?' * len(items))})", items
-        if not items:
-            sql = "0"
+        # One parameter whatever the list's length: D1 allows 100 per statement.
+        sql, args = f"{target} IN (SELECT value FROM json_each(?))", [json.dumps(_in_list(value))]
     elif op == "is":
         literal = {"null": "NULL", "true": "1", "false": "0"}.get(value.lower())
         if literal is None:
@@ -145,7 +156,9 @@ def _rows_body(body: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def _insert(table: str, rows: list[dict[str, Any]], resolution: str | None, conflict: str | None) -> Statement:
+def _insert(
+    table: str, rows: list[dict[str, Any]], resolution: str | None, conflict: str | None, *, returning: bool = False
+) -> Statement:
     columns = list(dict.fromkeys(key for row in rows for key in row))
     names = ", ".join(_name(column) for column in columns)
     values = ", ".join(f"json_extract(value, '$.\"{column}\"')" for column in columns)
@@ -158,7 +171,11 @@ def _insert(table: str, rows: list[dict[str, Any]], resolution: str | None, conf
         keys = [key.strip() for key in conflict.split(",")]
         rest = [column for column in columns if column not in keys]
         target = f"{_name(table)}."
-        if rest:
+        if rest and returning:
+            # PostgREST returns the row even when nothing changed, and callers read it.
+            sets = ", ".join(f"{_name(column)} = excluded.{_name(column)}" for column in rest)
+            sql += f" ON CONFLICT ({', '.join(_name(key) for key in keys)}) DO UPDATE SET {sets}"
+        elif rest:
             changes = " OR ".join(
                 f"{target}{_name(column)} IS NOT excluded.{_name(column)}" for column in rest if column != STAMP_COLUMN
             ) or "0"
@@ -191,7 +208,9 @@ def translate(method: str, url: str, params: Mapping[str, Any] | None, body: Any
         return sql, args
     if method == "POST":
         resolution = next((part.split("=", 1)[1] for part in prefer.split(",") if part.strip().startswith("resolution=")), None)
-        sql, args = _insert(path, _rows_body(body), resolution and resolution.strip(), controls.get("on_conflict"))
+        sql, args = _insert(
+            path, _rows_body(body), resolution and resolution.strip(), controls.get("on_conflict"), returning=bool(returning)
+        )
         return sql + returning, args
     if method == "PATCH":
         if not isinstance(body, dict) or not body:
@@ -260,7 +279,7 @@ class D1Session:
         table = urlsplit(url).path.rsplit("/", 1)[-1]
         try:
             if method in WRITE_METHODS and self.rows_written >= self.max_rows_written:
-                raise RuntimeError(
+                raise WriteCeilingReached(
                     f"D1 write ceiling reached: {self.rows_written} rows written by this run "
                     f"(D1_MAX_ROWS_WRITTEN={self.max_rows_written})"
                 )
@@ -284,20 +303,38 @@ class DualSession:
     def __init__(self, primary: requests.Session, mirror: D1Session):
         self.primary = primary
         self.mirror = mirror
+        self.failures = 0
+        self.mirroring = True
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         response = self.primary.request(method, url, **kwargs)
-        if method.upper() in WRITE_METHODS and response.ok:
-            try:
-                copy = self.mirror.request(method, url, **kwargs)
-                if not copy.ok:
-                    logger.warning("D1 copy of %s %s refused: %s", method, urlsplit(url).path, copy.text[:300])
-            except Exception as exc:  # noqa: BLE001 - the copy never fails the run
-                logger.warning("D1 copy of %s %s failed: %s", method, urlsplit(url).path, exc)
+        if self.mirroring and method.upper() in WRITE_METHODS and response.ok:
+            self._copy(method, url, kwargs)
         return response
 
+    def _copy(self, method: str, url: str, kwargs: dict[str, Any]) -> None:
+        """Copy one write to D1; a slow or failing D1 is switched off for the run."""
+        path = urlsplit(url).path
+        try:
+            copy = self.mirror.request(method, url, **kwargs)
+            failure = None if copy.ok else f"refused: {copy.text[:300]}"
+        except WriteCeilingReached as exc:
+            logger.warning("D1 copy switched off for this run: %s", exc)
+            self.mirroring = False
+            return
+        except Exception as exc:  # noqa: BLE001 - the copy never fails the run
+            failure = f"failed: {exc}"
+        if failure is None:
+            self.failures = 0
+            return
+        self.failures += 1
+        logger.warning("D1 copy of %s %s %s", method, path, failure)
+        if self.failures >= MIRROR_FAILURES_BEFORE_OFF:
+            logger.warning("D1 copy switched off for this run after %d failures in a row", self.failures)
+            self.mirroring = False
 
-def rest_executor(env: Mapping[str, str]) -> Executor:
+
+def rest_executor(env: Mapping[str, str], timeout: int = 60) -> Executor:
     """Run one statement through D1's REST API, in the table's database."""
     account, token = env.get("D1_ACCOUNT_ID", ""), env.get("D1_API_TOKEN", "")
     default = env.get("D1_DATABASE_ID", "")
@@ -309,7 +346,6 @@ def rest_executor(env: Mapping[str, str]) -> Executor:
     )
     http = requests.Session()
     http.headers.update({"Authorization": f"Bearer {token}"})
-    timeout = int(env.get("D1_TIMEOUT_SECONDS") or 60)
 
     def execute(table: str, sql: str, args: list[Any]) -> tuple[list[dict[str, Any]], int]:
         url = D1_API.format(account=account, database=per_table.get(table, default))
