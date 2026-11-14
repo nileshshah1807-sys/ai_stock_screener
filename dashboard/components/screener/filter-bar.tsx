@@ -430,7 +430,7 @@ export function FilterBar({
     sectors.length > 0 && matches(needle, "sector", "industry", ...sectors, ...industries.flatMap((entry) => entry.industries));
   const groups = RANGE_GROUPS.map((group) => ({
     ...group,
-    ranges: group.ranges.filter((range) => (factorModel || !range.factor) && matches(needle, range.label, group.label)),
+    ranges: group.ranges.filter((range) => (factorModel || !range.factor) && matches(needle, range.label, range.key, group.label)),
   })).filter((group) => group.ranges.length);
   const showStage = factorModel && matches(needle, "stage", "trend", "200-day average", ...STAGES.map((item) => item.value));
   const shownChoices = CHOICES.filter((choice) => matches(needle, choice.label, ...choice.options.map((option) => option.label)));
@@ -560,7 +560,7 @@ export function FilterBar({
                             aria-label="Search industries"
                             className="h-8 text-sm"
                           />
-                          <div className="max-h-64 space-y-3 overflow-y-auto overscroll-contain rounded-md bg-(--control) p-2.5">
+                          <div className="max-h-64 space-y-3 overflow-y-auto overscroll-contain rounded-md border border-border/70 p-2.5">
                             {sectorIndustries.length ? (
                               sectorIndustries.map((entry) => (
                                 <div key={entry.sector} className="space-y-1.5" role="group" aria-label={`${entry.sector} industries`}>

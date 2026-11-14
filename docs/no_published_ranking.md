@@ -37,6 +37,7 @@ See also [`commercialisation_readiness.md`](commercialisation_readiness.md).
 | CSV export | Rank and score columns | Removed (an admin keeps the rating columns) |
 | Screener intro | "ranked daily on ..." | "measured daily on ... Rank them by your own score." |
 | Saved views | A view with only a score mix said "Nothing to save" | The mix (`w=`) is saved with the view |
+| Filters | A popover: sector, stage, two factor floors; market cap only as a view, and picking a view dropped the others | A side panel with a "find a filter" box: sector and industry, market cap, turnover, P/E, P/B, yield, ROE, ROIC, debt to equity, growth, returns, RSI, volatility, drawdown, factor percentiles, board, liquidity, reverse DCF and concall guidance. Each is a `key=min~max` URL pair, so views and links carry them, and views now combine |
 
 ## "Your score": how it is calculated
 
@@ -87,7 +88,8 @@ from the run's for a few names.
 | `app/api/export/route.ts` | The CSV drops the verdict columns, for admins too. |
 | `lib/filters.ts`, the screener/watchlists/indices/market pages | Default sort is market cap (`custom_score` when `w` is set). |
 | `lib/screener-intro.mjs` | "measured", not "ranked". |
-| `lib/view-match.mjs` | `w` is part of a saved view. |
+| `lib/view-match.mjs` | `w` and every filter key are part of a saved view; `applyView` merges a view in and `removeView` takes it off. |
+| `lib/screener-ranges.mjs` (new), `filter-bar.tsx`, `active-filters.tsx` | Every numeric filter as data (column, unit, presets), read by the panel, the chips and the query. Old keys (`minCapCr`, `minQuality`, `minMomentum`, `minRs`) still work as a minimum. |
 | `dashboard/wrangler.preview.jsonc` | `keep_vars` and `keep_names: false`, so a deploy does not wipe the preview Worker's settings. |
 | `scripts/smoke-check.mjs` | No longer visits `/movers`. |
 | `README.md`, `dashboard/README.md`, `CLAUDE.md` | Document the rule and how "Your score" works, and tell future work not to bring the verdict back. |
