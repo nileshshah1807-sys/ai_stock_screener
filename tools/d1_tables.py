@@ -306,6 +306,13 @@ def _columns(table: str, definition: dict[str, Any]) -> list[str] | None:
     return None
 
 
+def write_cost(table: str) -> int:
+    """Rows D1 counts as written for one new row: the row and one per index."""
+    hand = HAND_LAID.get(table)
+    laid = hand.read_text().upper().count("CREATE INDEX") if hand else 0
+    return 1 + len(INDEXES.get(table, ())) + laid
+
+
 def backfill(
     tables: list[str], session: D1Session, store, definitions: dict[str, Any], fetch=_page, counts=None
 ) -> int:
@@ -339,7 +346,7 @@ def backfill(
                 progress["sent"] = progress.get("sent", 0) + len(rows)
                 progress["written"] = progress.get("written", 0) + session.rows_written - before
                 progress["done"] = len(rows) < PAGE
-                allowed = progress.get("missing", 0) + REPASS_MAX_WRITTEN_SHARE * progress["sent"]
+                allowed = progress.get("missing", 0) * write_cost(table) + REPASS_MAX_WRITTEN_SHARE * progress["sent"]
                 if progress.get("pass", 1) > 1 and progress["written"] > allowed:
                     # A re-read should write only the missing rows; more means a column
                     # re-serializes differently, and every reread would spend the day on it.
