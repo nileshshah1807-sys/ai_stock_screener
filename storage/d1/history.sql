@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS "screener_history" (
     "current_price" REAL,
     "volume" INTEGER,
     "stage" TEXT,
+    "advance_age_days" INTEGER,
+    "market_cap" REAL,
     "market" TEXT NOT NULL DEFAULT 'NSE',
     PRIMARY KEY ("market", "observed_on", "symbol")
 ) WITHOUT ROWID;

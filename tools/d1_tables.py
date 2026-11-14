@@ -107,7 +107,7 @@ SKIPPED_COLUMNS = {"screener_snapshot": {"payload"}}
 HISTORY_COLUMNS = (
     "market", "observed_on", "symbol", "company", "current_price", "volume", "stage",
     "investment_rank", "rating", "decision_score", "final_score", "fundamental_score",
-    "technical_score",
+    "technical_score", "advance_age_days", "market_cap",  # the Returns page's pick filters
 )
 COLUMNS: dict[str, tuple[str, ...]] = {"screener_history": HISTORY_COLUMNS}
 
