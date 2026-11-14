@@ -34,24 +34,31 @@ const RunDateContext = createContext<string | null>(null);
 /** The exchange calendar's row for today on the market's clock, or null. */
 const MarketDayContext = createContext<MarketDay | null>(null);
 
+/** Whether live reads go to /api/live (the R2 live objects) rather than Supabase. */
+const LiveFromR2Context = createContext(false);
+
 export function MarketProvider({
   market,
   runDate,
   marketDay,
   showRatings,
+  liveFromR2,
   children,
 }: {
   market: Market;
   runDate: string | null;
   marketDay: MarketDay | null;
   showRatings: boolean;
+  liveFromR2: boolean;
   children: React.ReactNode;
 }) {
   return (
     <MarketContext.Provider value={market}>
       <RunDateContext.Provider value={runDate}>
         <MarketDayContext.Provider value={marketDay}>
-          <ShowRatingsContext.Provider value={showRatings}>{children}</ShowRatingsContext.Provider>
+          <ShowRatingsContext.Provider value={showRatings}>
+            <LiveFromR2Context.Provider value={liveFromR2}>{children}</LiveFromR2Context.Provider>
+          </ShowRatingsContext.Provider>
         </MarketDayContext.Provider>
       </RunDateContext.Provider>
     </MarketContext.Provider>
@@ -72,6 +79,10 @@ export function useMarketDay(): MarketDay | null {
 
 export function useShowRatings(): boolean {
   return useContext(ShowRatingsContext);
+}
+
+export function useLiveFromR2(): boolean {
+  return useContext(LiveFromR2Context);
 }
 
 /** Build a link inside the current market: `useMarketPath()("/movers")`. */

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { importFailed, lazyClient } from "@/lib/supabase/lazy-client";
+import { useLiveFromR2 } from "@/components/market-provider";
+import { importFailed, lazyClient, liveApi } from "@/lib/supabase/lazy-client";
 import { nextPollDelay, tickDirection } from "@/lib/live-quotes.mjs";
 import type { MarketCode } from "@/lib/markets";
 import type { Tick } from "@/lib/use-live-quotes";
@@ -50,6 +51,7 @@ function share(counts: Record<string, number> | null | undefined, key: string) {
 export function useLiveBreadth(market: MarketCode, group: Group): LiveBreadth | null {
   const [data, setData] = useState<LiveBreadth | null>(null);
   const latest = useRef<LiveBreadth | null>(null);
+  const fromR2 = useLiveFromR2();
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -58,15 +60,17 @@ export function useLiveBreadth(market: MarketCode, group: Group): LiveBreadth | 
     const tick = async () => {
       clearTimeout(timer);
       if (document.visibilityState !== "visible") return;
-      const { data: fresh, error } = await lazyClient()
-        .then((client) =>
-          client.rpc("live_breadth", {
-            p_market: market,
-            p_scope: group.scope,
-            p_name: group.name,
-          }),
-        )
-        .catch(importFailed);
+      const { data: fresh, error } = fromR2
+        ? await liveApi({ market, kind: "breadth", scope: group.scope, name: group.name })
+        : await lazyClient()
+            .then((client) =>
+              client.rpc("live_breadth", {
+                p_market: market,
+                p_scope: group.scope,
+                p_name: group.name,
+              }),
+            )
+            .catch(importFailed);
       if (stopped) return;
       // A failed read keeps the last counts; the next poll tries again.
       if (!error && fresh) {
@@ -95,7 +99,7 @@ export function useLiveBreadth(market: MarketCode, group: Group): LiveBreadth | 
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [market, group.scope, group.name]);
+  }, [market, group.scope, group.name, fromR2]);
 
   return data;
 }

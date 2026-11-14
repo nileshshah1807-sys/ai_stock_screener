@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 
-import { useMarketDay, useShowRatings } from "@/components/market-provider";
+import { useLiveFromR2, useMarketDay, useShowRatings } from "@/components/market-provider";
 import { Expand } from "@/components/motion";
 import { RatingBadge } from "@/components/rating-badge";
 import { ScrollFade } from "@/components/scroll-fade";
@@ -24,7 +24,7 @@ import {
 } from "@/lib/live-market";
 import { indexSlug } from "@/lib/indices.mjs";
 import { marketPath, type Market } from "@/lib/markets";
-import { importFailed, lazyClient } from "@/lib/supabase/lazy-client";
+import { importFailed, lazyClient, liveApi } from "@/lib/supabase/lazy-client";
 import { useNow } from "@/lib/use-live-quotes";
 import { cn } from "@/lib/utils";
 
@@ -246,6 +246,7 @@ export function useLiveMarket(
     fetchedAt.current = data?.fetched_at ?? null;
   }, [data]);
   const showRatings = useShowRatings();
+  const fromR2 = useLiveFromR2();
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -258,9 +259,11 @@ export function useLiveMarket(
     const tick = async () => {
       clearTimeout(timer);
       if (document.visibilityState !== "visible") return;
-      const { data: fresh, error } = await lazyClient()
-        .then((client) => client.rpc("live_market", { p_market: market.code, p_limit: limit }))
-        .catch(importFailed);
+      const { data: fresh, error } = fromR2
+        ? await liveApi({ market: market.code, kind: "market", limit: String(limit) })
+        : await lazyClient()
+            .then((client) => client.rpc("live_market", { p_market: market.code, p_limit: limit }))
+            .catch(importFailed);
       if (stopped) return;
       const next = error ? null : normalizeLiveMarket(fresh, showRatings);
       // A longer list is news even from the same worker run.
@@ -290,7 +293,7 @@ export function useLiveMarket(
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [market.code, limit, showRatings]);
+  }, [market.code, limit, showRatings, fromR2]);
 
   return { data, limit: loaded };
 }

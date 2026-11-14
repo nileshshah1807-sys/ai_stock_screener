@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 
-import { importFailed, lazyClient } from "@/lib/supabase/lazy-client";
+import { useLiveFromR2 } from "@/components/market-provider";
+import { importFailed, lazyClient, liveApi } from "@/lib/supabase/lazy-client";
 import { MIN_POLL_MS, nextPollDelay, tickDirection } from "@/lib/live-quotes.mjs";
 import type { MarketCode } from "@/lib/markets";
 
@@ -78,9 +79,9 @@ function publish() {
 type Batch = { symbols: Set<string>; done: Promise<void> };
 const batches = new Map<string, Batch>();
 
-async function read(market: MarketCode, kind: QuoteKind, symbols: string[]): Promise<void> {
+function readSupabase(market: MarketCode, kind: QuoteKind, symbols: string[]) {
   const source = SOURCES[kind];
-  const { data, error } = await lazyClient()
+  return lazyClient()
     .then((client) => {
       const request = client
         .from(source.table)
@@ -90,6 +91,12 @@ async function read(market: MarketCode, kind: QuoteKind, symbols: string[]): Pro
       return kind === "index" ? request.eq("kind", kind) : request;
     })
     .catch(importFailed);
+}
+
+async function read(market: MarketCode, kind: QuoteKind, symbols: string[], fromR2: boolean): Promise<void> {
+  const { data, error } = fromR2
+    ? await liveApi({ market, kind, s: symbols })
+    : await readSupabase(market, kind, symbols);
   // A failed read leaves the close on screen; the next poll tries again.
   if (error || !data) return;
   const readAt = Date.now();
@@ -117,6 +124,7 @@ function load(
   market: MarketCode,
   symbols: readonly string[],
   kind: QuoteKind,
+  fromR2: boolean,
 ): Promise<void> {
   const now = Date.now();
   const due = symbols.filter(
@@ -134,7 +142,7 @@ function load(
   const batch: Batch = { symbols: new Set(due), done: Promise.resolve() };
   batch.done = Promise.resolve().then(() => {
     batches.delete(batchKey);
-    return read(market, kind, [...batch.symbols]);
+    return read(market, kind, [...batch.symbols], fromR2);
   });
   batches.set(batchKey, batch);
   return batch.done;
@@ -174,6 +182,7 @@ export function useLiveQuotes(
   kind: QuoteKind = "stock",
 ): (symbol: string) => LiveQuote | null {
   useSyncExternalStore(subscribe, () => version, () => 0);
+  const fromR2 = useLiveFromR2();
   // Index names have spaces and ampersands but no newline.
   const key = symbols.join("\n");
 
@@ -186,7 +195,7 @@ export function useLiveQuotes(
     const tick = async () => {
       clearTimeout(timer);
       if (document.visibilityState !== "visible") return;
-      await load(market, list, kind);
+      await load(market, list, kind, fromR2);
       if (stopped) return;
       // A visibility tick and a timer tick can both reach here; keep one loop.
       clearTimeout(timer);
@@ -203,7 +212,7 @@ export function useLiveQuotes(
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [market, key, kind]);
+  }, [market, key, kind, fromR2]);
 
   return (symbol) => (market ? (quotes.get(keyOf(market, symbol, kind)) ?? null) : null);
 }

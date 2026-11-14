@@ -35,7 +35,7 @@ export function isRatingField(key) {
 export const SHOW_VERDICT = false;
 
 export const VERDICT_KEY =
-  /^(prev_)?(investment_rank|score_rank|action_rank|final_score|decision_score(_ceiling)?|evidence_score|research_score(_raw)?|combined_score|score_after_dcf|fundamental_score|technical_score|action_score|timing_score)$|^(rank|score)_change$|_weight$/;
+  /^(prev_)?(investment_rank|score_rank|action_rank|final_score|decision_score(_ceiling)?|evidence_score|research_score(_raw|_basis)?|value_quality_cap_applied|combined_score|score_after_dcf|fundamental_score|technical_score|action_score|timing_score)$|^(rank|score)_change$|_weight$/;
 
 /** Column or payload key that carries the model's overall score, rank or a blend weight. */
 export function isVerdictField(key) {

@@ -19,6 +19,7 @@ import {
   normalizeLiveMarket,
   type LiveMarket,
 } from "@/lib/live-market";
+import { readsFromCloudflare } from "@/lib/db/market-repository";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { indexSlug } from "@/lib/indices.mjs";
@@ -1519,6 +1520,14 @@ export const getLiveMarket = cache(async (
   const { data, error } = await liveMarketMemo(
     `${market}:${admin ? "admin" : "viewer"}`,
     async () => {
+      if (readsFromCloudflare("live_quotes")) {
+        // Imported here: lib/live-data reads the latest run from this module.
+        const { liveMarketData, withMoverRatings } = await import("@/lib/live-data");
+        return liveMarketData(market, LIVE_MOVERS_LIMIT).then(
+          async (data) => ({ data: (admin ? await withMoverRatings(market, data) : data) as unknown, error: null }),
+          (cause: unknown) => ({ data: null, error: { message: cause instanceof Error ? cause.message : String(cause) } }),
+        );
+      }
       const supabase = await createClient();
       return supabase.rpc("live_market", { p_market: market, p_limit: LIVE_MOVERS_LIMIT });
     },

@@ -161,6 +161,9 @@ test("an admin keeps the rating but not the verdict, and no preset sorts by it",
   assert.equal(row.final_score, null);
   assert.equal(row.decision_score, null);
   assert.deepEqual(row.payload, { Rating: "BUY" });
+  // How the score was built and whether its value leg was capped: the verdict, read back (human, 14 Nov 2026).
+  const built = withoutVerdict({ research_score_basis: "q+g", value_quality_cap_applied: true, Research_Score_Basis: "q", value_score: 60 });
+  assert.deepEqual(built, { research_score_basis: null, value_quality_cap_applied: null, Research_Score_Basis: null, value_score: 60 });
   assert.ok(usesVerdict("sort=research_score&dir=desc"));
   assert.ok(usesVerdict("minScore=60"));
   assert.ok(!usesVerdict("minQuality=70&sort=market_cap"));
