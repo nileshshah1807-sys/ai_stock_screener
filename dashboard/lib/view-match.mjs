@@ -36,6 +36,8 @@ export const VIEW_KEYS = [
   "minCapCr",
   "sort",
   "dir",
+  // The viewer's own score mix (lib/custom-score.mjs): a view can be just that.
+  "w",
   "cols",
   "density",
 ];

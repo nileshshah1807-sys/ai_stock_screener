@@ -74,3 +74,9 @@ test("a size floor is part of the view it belongs to", () => {
   assert.equal(viewIsActive(url("minCapCr=1000&rating=BUY"), "minCapCr=1000"), true);
   assert.equal(viewIsActive(url("minCapCr=500"), "minCapCr=1000"), false);
 });
+
+test("a view can be just a score mix, and lights only for that mix", () => {
+  const view = "w=q25.g25.m30.v15.r5.d10.c100";
+  assert.ok(viewIsActive(new URLSearchParams(`${view}&page=2`), view));
+  assert.ok(!viewIsActive(new URLSearchParams("w=q20.g20.m20.v20.r20"), view));
+});
