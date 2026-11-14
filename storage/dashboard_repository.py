@@ -23,9 +23,12 @@ import requests
 from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
 from storage.d1_backend import table_session
-from storage.object_backend import open_object_store
+from storage.object_backend import MIRROR_TIMEOUT_SECONDS, open_object_store, r2_from_env
 
 logger = logging.getLogger(__name__)
+
+#: The search object's fields: never a rating, rank or score (lib/ratings.mjs).
+SEARCH_FIELDS = ("symbol", "company", "logo_domain", "sector")
 
 # A snapshot row is ~150 typed columns, so a batch of rows is large in bytes
 # even though the row count is modest. Chunks are sized for request-body
@@ -799,6 +802,7 @@ class DashboardRepository:
             params=self._scoped({"published_at": f"lt.{stamp}"}),
             headers={"Prefer": "return=minimal"},
         )
+        self._cloudflare_put("breadth-members", rows)
         return written
 
     def replace_breadth_levels(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
@@ -827,6 +831,7 @@ class DashboardRepository:
             params=self._scoped({"published_at": f"lt.{stamp}"}),
             headers={"Prefer": "return=minimal"},
         )
+        self._cloudflare_put("breadth-levels", [{**row, "published_at": stamp} for row in rows])
         return written
 
     # -- new listings -----------------------------------------------------
@@ -932,6 +937,7 @@ class DashboardRepository:
             params=self._scoped({"refreshed_at": f"lt.{stamp}"}),
             headers={"Prefer": "return=minimal"},
         )
+        self._cloudflare_put("calendar", [{**row, "refreshed_at": stamp} for row in rows])
         return len(rows)
 
     def index_members_refreshed_at(self) -> str | None:
@@ -975,7 +981,96 @@ class DashboardRepository:
             params=self._scoped({"refreshed_at": f"lt.{stamp}"}),
             headers={"Prefer": "return=minimal"},
         )
+        self._cloudflare_put("index-members", stamped)
         return written
+
+    # -- Cloudflare objects -----------------------------------------------
+    # What the Cloudflare dashboard reads in place of a table
+    # (docs/d1_migration_plan.md): R2 only, never the Supabase bucket, written
+    # beside the table while the dashboard still reads Supabase. Live objects
+    # are plain JSON, so the Worker parses them without a gunzip.
+
+    def _cloudflare(self):
+        """The R2 store, or None when the run has no R2 secrets."""
+        if not hasattr(self, "_r2"):
+            self._r2 = None
+            if os.getenv("R2_BUCKET"):
+                try:
+                    self._r2 = r2_from_env(timeout_seconds=MIRROR_TIMEOUT_SECONDS, retries=0)
+                except ValueError as exc:  # a half-set secret must not stop live quotes
+                    logger.warning("R2 objects off: %s", exc)
+        return self._r2
+
+    def _live_path(self, name: str) -> str:
+        return f"live/{self.market}/{name}.json"
+
+    def _cloudflare_put(self, name: str, rows: list[dict[str, Any]]) -> bool:
+        """Replace one live object with ``rows``. An R2 failure is logged, never raised."""
+        store = self._cloudflare()
+        if store is None:
+            return False
+        body = {
+            "market": self.market,
+            "written_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            "rows": rows,
+        }
+        try:
+            store.put(self._live_path(name), json.dumps(body, separators=(",", ":"), default=str).encode(), "application/json")
+        except Exception as exc:  # noqa: BLE001 -- the table is still what the dashboard reads
+            logger.warning("R2 object %s not written: %s", self._live_path(name), exc)
+            return False
+        return True
+
+    def put_live_quotes_object(self, rows: list[dict[str, Any]], before: str) -> bool:
+        """The market's quotes object: last object's rows, overlaid by ``rows``.
+
+        As the table: a symbol this run did not quote keeps its last quote, and
+        one no run has refreshed since ``before`` is dropped.
+        """
+        store = self._cloudflare()
+        if store is None:
+            return False
+        try:
+            body = store.get(self._live_path("quotes"))
+            previous = json.loads(body)["rows"] if body else []
+        except Exception as exc:  # noqa: BLE001 -- rebuild from this run alone
+            logger.warning("R2 quotes object unreadable, rewritten from this run: %s", exc)
+            previous = []
+        merged = {row["symbol"]: row for row in previous if (row.get("fetched_at") or "") >= before}
+        merged.update({row["symbol"]: row for row in rows})
+        return self._cloudflare_put("quotes", [merged[symbol] for symbol in sorted(merged)])
+
+    def put_search_index(self, run_date: str, rows: list[dict[str, Any]]) -> bool:
+        """``search-index/{market}/{run_date}.json``: what search needs of a run, no rating.
+
+        Largest company first, as ``getSearchIndex`` orders it, so the Worker
+        parses ~0.5 MB instead of the run.
+        """
+        store = self._cloudflare()
+        if store is None:
+            return False
+        ordered = sorted(rows, key=lambda row: (row.get("market_cap") is None, -(row.get("market_cap") or 0), row["symbol"]))
+        entries = [{key: row.get(key) for key in SEARCH_FIELDS} for row in ordered]
+        path = f"search-index/{self.market}/{run_date}.json"
+        store.put(path, json.dumps({"market": self.market, "run_date": run_date, "rows": entries}, separators=(",", ":")).encode(), "application/json")
+        return True
+
+    def archive_history(self, run_date: str, rows: list[dict[str, Any]]) -> str | None:
+        """Keep the run's whole history rows in R2, checked by reading them back.
+
+        ``archive/screener-history/{market}/{run_date}.json.gz``. D1 keeps only
+        the columns the pages read, so this is the full history. Returns the
+        path, or None without R2; raises if the read-back differs.
+        """
+        store = self._cloudflare()
+        if store is None:
+            return None
+        path = f"archive/screener-history/{self.market}/{run_date}.json.gz"
+        body = gzip.compress(json.dumps(rows, separators=(",", ":"), default=str).encode(), mtime=0)
+        store.put(path, body)
+        if store.get(path) != body:
+            raise RuntimeError(f"R2 archive {path} did not read back as written")
+        return path
 
     # -- notifications ----------------------------------------------------
 

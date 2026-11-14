@@ -324,7 +324,9 @@ def run(
         summary["status"] = "dry_run"
     else:
         repo.upsert_live_quotes(rows)
-        repo.prune_live_quotes((now - PRUNE_AFTER).astimezone(UTC).isoformat(timespec="seconds"))
+        cutoff = (now - PRUNE_AFTER).astimezone(UTC).isoformat(timespec="seconds")
+        repo.prune_live_quotes(cutoff)
+        repo.put_live_quotes_object(rows, cutoff)
     logger.info("Live quotes for %s: %s", profile.code, summary)
     if stock_tickers and len(stocks) < MIN_COVERAGE * len(stock_tickers):
         summary["status"] = "low_coverage"

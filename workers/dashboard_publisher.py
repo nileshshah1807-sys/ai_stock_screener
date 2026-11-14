@@ -1020,8 +1020,22 @@ def publish(
             exc,
         )
 
+    # The Cloudflare dashboard's copies (docs/d1_migration_plan.md): the run's
+    # search object and the full history archive. Neither is read yet, so
+    # neither fails a publish; the archive is checked by reading it back.
+    cloudflare_error = None
+    history_archive = None
+    try:
+        repository.put_search_index(run_date, snapshot_rows)
+        history_archive = repository.archive_history(run_date, history_rows)
+    except Exception as exc:  # noqa: BLE001 - not yet read; must not invalidate a publish
+        cloudflare_error = str(exc)
+        logger.warning("Cloudflare search object or history archive failed after publish: %s", exc)
+
     summary.update(
         {
+            "history_archive": history_archive,
+            "cloudflare_error": cloudflare_error,
             "snapshot_rows_written": written,
             "payload_objects_written": payloads_written,
             "history_rows_written": history_written,

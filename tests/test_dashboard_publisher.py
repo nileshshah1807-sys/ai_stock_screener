@@ -114,6 +114,13 @@ class RecordingDashboardRepository:
             raise RuntimeError("payload write failed")
         return len(payloads)
 
+    def put_search_index(self, run_date, rows):
+        self.cloudflare = [*getattr(self, "cloudflare", []), ("search", run_date)]
+
+    def archive_history(self, run_date, rows):
+        self.cloudflare = [*getattr(self, "cloudflare", []), ("archive", run_date)]
+        return f"archive/{run_date}"
+
     def upsert_history_rows(self, rows):
         self.calls.append(("history", {"rows": rows}))
         if self.fail_at == "history":
