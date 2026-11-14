@@ -7,7 +7,7 @@ import { SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PendingMarker } from "@/components/nav-pending";
-import { EQUAL_START, SCORE_FACTORS, formatWeights, parseWeights } from "@/lib/custom-score.mjs";
+import { EQUAL_START, POINT_FACTORS, SCORE_FACTORS, formatWeights, parseWeights } from "@/lib/custom-score.mjs";
 
 /**
  * "Build your score": the viewer weights the measures they can see and the
@@ -74,8 +74,9 @@ export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
             <div className="space-y-1">
               <p className="text-sm font-semibold">Build your score</p>
               <p className="text-xs text-muted-foreground">
-                Choose how much each measure counts. The grid ranks by your mix. This score uses only the
-                weights you chose; it is not Cupel&rsquo;s rating or rank.
+                Choose how much each measure counts. Your mix is ranked across the market on 0&ndash;100, then
+                any points you add are applied. This score uses only the settings you chose; it is not
+                Cupel&rsquo;s rating or rank.
               </p>
             </div>
             <div className="space-y-3">
@@ -105,9 +106,37 @@ export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
                 );
               })}
             </div>
+            <div className="space-y-3 border-t pt-3">
+              {POINT_FACTORS.map((factor) => {
+                const value = weights[factor.key] ?? 0;
+                const id = `points-${factor.key}`;
+                return (
+                  <div key={factor.key} className="space-y-1">
+                    <div className="flex items-baseline justify-between text-xs">
+                      <label htmlFor={id} className="font-medium">
+                        {factor.label}
+                      </label>
+                      <span className="tabular font-mono text-muted-foreground">{value ? `×${(value / 100).toFixed(2)}` : "off"}</span>
+                    </div>
+                    <input
+                      id={id}
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={value}
+                      onChange={(event) => setWeights((current) => ({ ...current, [factor.key]: Number(event.target.value) }))}
+                      className="w-full accent-primary"
+                    />
+                  </div>
+                );
+              })}
+            </div>
             <p className="text-[11px] leading-snug text-muted-foreground">
-              Shares are each weight over the total. A measure a stock lacks is left out and its score is pulled
-              toward 50, never counted as zero. Concall outlook is the latest call&rsquo;s 0&ndash;100 score.
+              Shares are each weight over the total. A measure a stock lacks counts as 50, never as zero.
+              Valuation points: the multiple times the valuation score&rsquo;s distance from 50. Concall points:
+              the multiple times how far a call in the last 180 days sits from the market&rsquo;s median call
+              (85% outlook, 15% tone), fading by half every 90 days.
             </p>
             <div className="flex items-center justify-between gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={clear} disabled={!active}>

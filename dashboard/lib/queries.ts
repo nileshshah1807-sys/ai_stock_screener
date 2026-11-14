@@ -5,7 +5,7 @@ import { cache } from "react";
 import { isAdmin } from "@/lib/auth";
 import { gridProjection } from "@/lib/columns";
 import { isVerdictField, withoutRatings } from "@/lib/ratings.mjs";
-import { SCORE_FACTORS, parseWeights, rankByWeights, weightedScore } from "@/lib/custom-score.mjs";
+import { RUN_COLUMNS as SCORE_RUN_COLUMNS, parseWeights, rankScores, scoreRun } from "@/lib/custom-score.mjs";
 import {
   priceCalendarPath,
   priceSeriesPath,
@@ -527,28 +527,26 @@ export async function getSnapshotPage(
   const page = Math.max(1, filters.page ?? 1);
   const from = (page - 1) * PAGE_SIZE;
 
-  // A score the viewer built from their own weights (lib/custom-score.mjs). Postgres cannot order by
-  // it, so the filtered run's factor columns are read whole, ranked here, and the page read by symbol.
+  // A score the viewer built from their own weights (lib/custom-score.mjs), worked out over
+  // the whole run (its percentile and medians are the run's, whatever the filters) and
+  // ordered here, since Postgres cannot sort by it; the page is then read by symbol.
   const weights = parseWeights(filters.weights);
-  if (weights && filters.sort === "custom_score") {
-    const fields = ["symbol", ...SCORE_FACTORS.map((factor) => factor.column)].join(",");
+  const scores = weights ? await runScores(supabase, market, runDate, weights) : null;
+  if (weights && !scores) return { rows: [], total: 0 };
+  if (scores && filters.sort === "custom_score") {
     const chunk = (at: number, withCount: boolean) =>
-      build(fields, withCount).order("symbol", { ascending: true }).range(at, at + FETCH_CHUNK - 1);
+      build("symbol", withCount).order("symbol", { ascending: true }).range(at, at + FETCH_CHUNK - 1);
     const first = await chunk(0, true);
-    if (first.error) {
-      console.error("getSnapshotPage (weighted) failed", first.error.message);
-      return { rows: [], total: 0 };
-    }
     const offsets: number[] = [];
     for (let at = FETCH_CHUNK; at < (first.count ?? 0); at += FETCH_CHUNK) offsets.push(at);
-    const rest = await Promise.all(offsets.map((at) => chunk(at, false)));
-    const failed = rest.find((result) => result.error);
+    const results = [first, ...(await Promise.all(offsets.map((at) => chunk(at, false))))];
+    const failed = results.find((result) => result.error);
     if (failed?.error) {
       console.error("getSnapshotPage (weighted) failed", failed.error.message);
       return { rows: [], total: 0 };
     }
-    const all = [first, ...rest].flatMap((result) => (result.data ?? []) as unknown as Record<string, unknown>[]);
-    const ranked = rankByWeights(all, weights);
+    const symbols = results.flatMap((result) => ((result.data ?? []) as unknown as { symbol: string }[]).map((row) => row.symbol));
+    const ranked = rankScores(scores, symbols);
     const slice = ranked.slice(from, from + PAGE_SIZE);
     if (!slice.length) return { rows: [], total: ranked.length };
     const { data, error } = await build(projection, false).in("symbol", slice.map((entry) => entry.symbol));
@@ -591,7 +589,7 @@ export async function getSnapshotPage(
   const rows = (data ?? []) as unknown as SnapshotRow[];
   return {
     rows: await forViewer(
-      weights ? rows.map((row) => ({ ...row, custom_score: weightedScore(row as unknown as Record<string, unknown>, weights) })) : rows,
+      scores ? rows.map((row) => ({ ...row, custom_score: scores.get(row.symbol) ?? null })) : rows,
     ),
     total: count ?? 0,
   };
@@ -1832,3 +1830,61 @@ export const getMarketDay = cache(
     });
   },
 );
+
+/**
+ * The viewer's score (lib/custom-score.mjs) for every rated row of a run; null on a failed read.
+ * Reads only columns every viewer sees, plus each company's latest call outlook from `concall_feed`.
+ */
+async function runScores(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  market: MarketCode,
+  runDate: string,
+  weights: Record<string, number>,
+): Promise<Map<string, number | null> | null> {
+  const readAll = async (read: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>) => {
+    const rows: Record<string, unknown>[] = [];
+    for (let offset = 0; ; offset += FETCH_CHUNK) {
+      const { data, error } = await read(offset, offset + FETCH_CHUNK - 1);
+      if (error) throw new Error(error.message);
+      const page = (data ?? []) as Record<string, unknown>[];
+      rows.push(...page);
+      if (page.length < FETCH_CHUNK) return rows;
+    }
+  };
+  try {
+    const [run, calls] = await Promise.all([
+      readAll((from, to) =>
+        supabase
+          .from("screener_snapshot_visible")
+          .select(SCORE_RUN_COLUMNS.join(","))
+          .eq("market", market)
+          .eq("run_date", runDate)
+          .is("unrated_reason", null)
+          .order("symbol", { ascending: true })
+          .range(from, to),
+      ),
+      weights.c
+        ? readAll((from, to) =>
+            supabase
+              .from("concall_feed")
+              .select("symbol, call_date, outlook_score")
+              .eq("market", market)
+              .not("outlook_score", "is", null)
+              .order("call_date", { ascending: false })
+              .order("symbol", { ascending: true })
+              .range(from, to),
+          )
+        : Promise.resolve([]),
+    ]);
+    // Newest call first, so the first outlook seen for a company is its latest.
+    const outlooks = new Map<string, number>();
+    for (const call of calls) {
+      const symbol = String(call.symbol);
+      if (!outlooks.has(symbol)) outlooks.set(symbol, Number(call.outlook_score));
+    }
+    return scoreRun(run, weights, outlooks);
+  } catch (error) {
+    console.error("runScores failed", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
