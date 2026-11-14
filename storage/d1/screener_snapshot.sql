@@ -14,9 +14,10 @@
 --
 -- Rating, rank and score columns are stored here as in Supabase but are
 -- admin-only (rank and score: nobody, while SHOW_VERDICT is off). D1 has no
--- views, so the repository passes every row, "extra" included after it is
--- parsed, through dashboard/lib/ratings.mjs (RATING_KEY, VERDICT_KEY), which
--- already strips one level of nested object.
+-- views, so the repository passes every row through dashboard/lib/ratings.mjs
+-- (withoutRatings / withoutVerdict), which drops hidden fields inside "extra"
+-- (string or object) as it does inside "payload". Redact first, then merge
+-- "extra" into the row; a real column always wins over a key in "extra".
 --
 -- Indexes: D1 counts each index a row touches as a row written, and a run is
 -- ~6.5k rows across both markets, so only the default sort gets one. The key

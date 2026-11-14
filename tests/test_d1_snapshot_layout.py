@@ -36,6 +36,22 @@ class SnapshotLayoutTest(unittest.TestCase):
         )
         self.assertEqual(wanted - _snapshot_columns(), set())
 
+    def test_other_readers_selects_are_real_columns(self):
+        # Every literal select on the snapshot (search, facts, Not rated, stage breaks, movers, Returns)
+        # and the "Your score" run read; the stock page and CSV export read `extra` and are not here.
+        wanted: set[str] = set()
+        for name in ("queries.ts", "home-market.ts", "returns-data.ts"):
+            text = (LIB / name).read_text()
+            selects = re.findall(r'screener_snapshot(?:_visible)?"\)\s*\.select\(\s*"([^"]*)', text)
+            selects += re.findall(r"\.select\(`(symbol, industry[^`]*)", text)  # company facts: from(table)
+            for select in selects:
+                wanted |= {field.strip() for field in re.sub(r"\$\{.*", "", select).split(",") if field.strip() != "*"}
+        score = (LIB / "custom-score.mjs").read_text()
+        wanted |= set(re.findall(r'column:\s*"([a-z0-9_]+)"', score))
+        wanted |= _quoted(re.search(r"export const RUN_COLUMNS = \[(.*?)\];", score, re.S).group(1))
+        self.assertGreater(len(wanted), 20)
+        self.assertEqual(wanted - _snapshot_columns(), set())
+
     def test_default_sort_is_indexed(self):
         self.assertIn('("market", "run_date", "market_cap" DESC)', DDL)
 
