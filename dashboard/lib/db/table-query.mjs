@@ -318,3 +318,66 @@ export function evaluate(plan, rows) {
     : page;
   return { rows: plan.head ? [] : data, count: plan.count ? kept.length : null };
 }
+
+// -- a table whose other columns are one JSON object (screener_snapshot's "extra") --
+
+const EXTRA = "extra";
+
+function filterColumns(node) {
+  if (node.op === "and" || node.op === "or") return node.nodes.flatMap(filterColumns);
+  if (node.op === "not") return filterColumns(node.node);
+  return [node.column];
+}
+
+/**
+ * The plan as SQL on `real` columns: a selected field that is not one is read
+ * from "extra" instead (`picks`: its name -> its key; null = every key, for
+ * `select *`). Filters and sorts name real columns only, as D1 has no JSON paths here.
+ *
+ * @param {object} plan
+ * @param {string[]} real
+ */
+export function splitExtra(plan, real) {
+  const isReal = new Set(real);
+  const loose = [...plan.filters.flatMap(filterColumns), ...plan.orders.map((o) => o.column)].filter((c) => !isReal.has(c));
+  if (loose.length) throw new UnsupportedQuery(`filter or sort on ${loose.join(", ")}: not a column in D1, only a key of "${EXTRA}"`);
+  if (plan.columns.trim() === "*") return { plan: { ...plan, columns: [...real, EXTRA].join(",") }, picks: null };
+  const items = parseSelect(plan.columns);
+  const picks = new Map(items.filter((item) => !isReal.has(item.column)).map((item) => [item.name, item.column]));
+  const kept = items
+    .filter((item) => isReal.has(item.column))
+    .map(({ name: as, column, path }) => (as === column && !path.length ? column : `${as}:${[column, ...path].join("->")}`));
+  return { plan: { ...plan, columns: [...kept, ...(picks.size ? [EXTRA] : [])].join(",") }, picks };
+}
+
+/** A row with the keys `picks` asked for (null: all) read out of its "extra", which is dropped; a real column wins. */
+export function mergeExtra(row, picks) {
+  const { [EXTRA]: raw, ...out } = row;
+  let extra = raw ?? {};
+  if (typeof extra === "string") {
+    try {
+      extra = JSON.parse(extra);
+    } catch {
+      extra = {}; // an unreadable blob is read as no extra fields
+    }
+  }
+  if (!picks) return { ...extra, ...out };
+  for (const [as, key] of picks) out[as] = extra[key] ?? null;
+  return out;
+}
+
+/**
+ * A D1 row as the reader asked for it: values decoded, "extra" merged in when
+ * the plan was split (`picks` defined), then `redact` (withoutRatings, for a
+ * non-admin of a gated table), which reaches extra's fields the SQL cannot see.
+ *
+ * @param {Record<string, unknown>} row
+ * @param {Set<string>} booleans
+ * @param {Map<string, string> | null | undefined} picks
+ * @param {((row: object) => object) | null} redact
+ */
+export function readRow(row, booleans, picks, redact) {
+  const decoded = decode(row, booleans);
+  const merged = picks === undefined ? decoded : mergeExtra(decoded, picks);
+  return redact ? redact(merged) : merged;
+}

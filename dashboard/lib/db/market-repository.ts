@@ -2,10 +2,10 @@ import "server-only";
 
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 
-import { RESULT_FEED } from "@/lib/db/d1-views.mjs";
-import { compile, decode, evaluate, TableQuery, UnsupportedQuery } from "@/lib/db/table-query.mjs";
+import { RESULT_FEED, SNAPSHOT_COLUMNS } from "@/lib/db/d1-views.mjs";
+import { compile, evaluate, readRow, splitExtra, TableQuery, UnsupportedQuery } from "@/lib/db/table-query.mjs";
 import { readLiveObject } from "@/lib/live-objects";
-import { isRatingField } from "@/lib/ratings.mjs";
+import { isRatingField, withoutRatings } from "@/lib/ratings.mjs";
 
 /**
  * Where the market data tables are read from: Supabase, Cloudflare D1, or an
@@ -25,7 +25,7 @@ import { isRatingField } from "@/lib/ratings.mjs";
 
 type Database = "core" | "evidence" | "history";
 type Source =
-  | { kind: "d1"; database: Database; table: string; from: string; gated?: boolean }
+  | { kind: "d1"; database: Database; table: string; from: string; gated?: boolean; real?: string[] }
   | { kind: "object"; table: string; object: string };
 
 const D1_BINDINGS: Record<Database, string> = { core: "D1_CORE", evidence: "D1_EVIDENCE", history: "D1_HISTORY" };
@@ -48,6 +48,9 @@ const SOURCES: Record<string, Source> = {
   market_breadth: d1("core", "market_breadth"),
   // The *_visible views null ratings for a non-admin; D1 has no views, so `gated` does it here.
   screener_runs_visible: d1("core", "screener_runs", { gated: true }),
+  // 91 real columns and one JSON "extra" for the rest (storage/d1/screener_snapshot.sql).
+  screener_snapshot: d1("core", "screener_snapshot", { real: SNAPSHOT_COLUMNS }),
+  screener_snapshot_visible: d1("core", "screener_snapshot", { gated: true, real: SNAPSHOT_COLUMNS }),
   bulk_block_deals: d1("evidence", "bulk_block_deals"),
   shareholding_patterns: d1("evidence", "shareholding_patterns"),
   company_documents: d1("evidence", "company_documents"),
@@ -57,7 +60,9 @@ const SOURCES: Record<string, Source> = {
 };
 
 /** Boolean columns, which D1 holds as 0/1 (from the Supabase schema files). */
-const BOOLEANS = new Set(["has_data", "is_consolidated", "baseline", "has_consolidated", "has_standalone", "git_dirty", "factor_model_applied"]);
+const BOOLEANS = new Set(["has_data", "is_consolidated", "baseline", "has_consolidated", "has_standalone", "git_dirty", "factor_model_applied",
+  "buy_eligible", "rating_capped", "dcf_blend_eligible", "transcript_scoring_eligible", "shadow_red_flag_would_change",
+  "portfolio_actionable", "stage2_entry_censored", "advance_age_censored", "is_sme"]);
 
 function setting(): string {
   try {
@@ -146,14 +151,16 @@ function executor(source: Source, reading: Reading) {
       if (!market) throw new UnsupportedQuery(`${source.table}: a live object is read for one market`);
       return evaluate(plan, (await readLiveObject(String(market.value), source.object)) ?? []);
     }
-    const hide = source.gated && !reader.admin ? (column: string) => column === "*" || isRatingField(column) : () => false;
+    const redacts = source.gated && !reader.admin;
+    const hide = redacts ? (column: string) => column === "*" || isRatingField(column) : () => false;
     const db = binding(source.database);
-    const { data, count } = compile(plan, source.from, hide);
+    const split = source.real ? splitExtra(plan, source.real) : null;
+    const { data, count } = compile(split?.plan ?? plan, source.from, hide);
     const [rows, counted] = await Promise.all([
       data ? query(db, data.sql, data.args) : Promise.resolve([]),
       count ? query(db, count.sql, count.args) : Promise.resolve(null),
     ]);
-    return { rows: rows.map((row) => decode(row, BOOLEANS)), count: counted ? Number(counted[0]?.n ?? 0) : null };
+    return { rows: rows.map((row) => readRow(row, BOOLEANS, split?.picks, redacts ? withoutRatings : null)), count: counted ? Number(counted[0]?.n ?? 0) : null };
   };
 }
 
