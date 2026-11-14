@@ -72,15 +72,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "No run published" }, { status: 404 });
   }
 
-  const filters = parseFilters(
-    Object.fromEntries(request.nextUrl.searchParams.entries()),
-  );
-  // Multi-valued filters need every occurrence, which Object.fromEntries drops.
-  filters.rating = request.nextUrl.searchParams.getAll("rating");
-  filters.sector = request.nextUrl.searchParams.getAll("sector");
-  filters.eligibility = request.nextUrl.searchParams.getAll("eligibility");
-  filters.stage = request.nextUrl.searchParams.getAll("stage");
-  filters.listing = request.nextUrl.searchParams.getAll("listing");
+  // Every occurrence of each key, so a multi-valued filter (sector, industry, ...) keeps all its values.
+  const search = request.nextUrl.searchParams;
+  const filters = parseFilters(Object.fromEntries([...new Set(search.keys())].map((key) => [key, search.getAll(key)])));
 
   const rows = await getExportRows(market.code, run.run_date, filters);
 

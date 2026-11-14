@@ -5,6 +5,8 @@ import { cache } from "react";
 import { isAdmin } from "@/lib/auth";
 import { gridProjection } from "@/lib/columns";
 import { SHOW_VERDICT, isVerdictField, withoutRatings, withoutVerdict } from "@/lib/ratings.mjs";
+import { RANGES, columnBounds } from "@/lib/screener-ranges.mjs";
+import { SIZE_UNITS } from "@/lib/event-filters.mjs";
 import { RUN_COLUMNS as SCORE_RUN_COLUMNS, parseWeights, rankScores, scoreRun } from "@/lib/custom-score.mjs";
 import {
   priceCalendarPath,
@@ -42,8 +44,6 @@ export const PAGE_SIZE = 100;
 
 /** PostgREST caps a single response; anything universe-wide must be paged. */
 const FETCH_CHUNK = 1000;
-/** `market_cap` is stored in currency units; a size floor is stated in crore. */
-const RUPEES_PER_CRORE = 1e7;
 
 /**
  * Chunk offsets for a universe-wide read, given a known row count.
@@ -487,12 +487,6 @@ export async function getSnapshotPage(
     // rather than be ignored. That is the correct behaviour -- the filter asks
     // for evidence the run does not have -- and the filter bar hides these
     // controls entirely unless the run used the factor model.
-    if (typeof filters.minQuality === "number") {
-      query = query.gte("quality_percentile", filters.minQuality);
-    }
-    if (typeof filters.minMomentum === "number") {
-      query = query.gte("momentum_percentile", filters.minMomentum);
-    }
     if (filters.eligibility?.length) {
       const classes = filters.eligibility
         .map((value) => Number(value))
@@ -516,14 +510,22 @@ export async function getSnapshotPage(
         ? query.like("symbol", `%${BSE_SUFFIX}`)
         : query.not("symbol", "like", `%${BSE_SUFFIX}`);
     }
-    if (typeof filters.minRs === "number") {
-      query = query.gte("rs_rating", filters.minRs);
+    // Every numeric range (lib/screener-ranges.mjs). A row with no value is
+    // excluded, as PostgREST drops nulls from a comparison: a bound cannot vouch
+    // for a figure that was never reported.
+    for (const range of RANGES) {
+      const value = filters.ranges?.[range.key];
+      if (!value) continue;
+      const { min, max } = columnBounds(range, value, SIZE_UNITS[market].factor);
+      if (min !== undefined) query = query.gte(range.column, min);
+      if (max !== undefined) query = query.lte(range.column, max);
     }
-    // An unreported market cap is excluded, as PostgREST drops nulls from a
-    // comparison: a size floor cannot vouch for a size it was never told.
-    if (typeof filters.minCapCr === "number") {
-      query = query.gte("market_cap", filters.minCapCr * RUPEES_PER_CRORE);
-    }
+    if (filters.industry?.length) query = query.in("industry", filters.industry);
+    const board = new Set(filters.board ?? []);
+    if (board.has("main") !== board.has("sme")) query = query.eq("is_sme", board.has("sme"));
+    if (filters.liquidity?.length) query = query.in("liquidity_grade", filters.liquidity);
+    if (filters.dcf?.length) query = query.in("dcf_assessment", filters.dcf);
+    if (filters.guidance?.length) query = query.in("transcript_guidance", filters.guidance);
     return query;
   };
 
@@ -1328,6 +1330,48 @@ export const getSectors = cache(
     }
 
     return [...sectors].sort();
+  },
+);
+
+/**
+ * Each sector's industries in one run, for the filter panel: the same for every
+ * viewer and every request of the run, so it is one cross-instance read a run.
+ */
+export const getIndustries = cache(
+  async (market: MarketCode, runDate: string, rowCount?: number): Promise<{ sector: string; industries: string[] }[]> => {
+    const supabase = await createClient();
+    const read = async (db?: Reader) => {
+      const pairs = new Map<string, Set<string>>();
+      const offsets = rowCount && rowCount > 0 ? chunkOffsets(rowCount) : [0];
+      const results = await Promise.all(
+        offsets.map((offset) =>
+          (db ?? supabase)
+            .from(db ? "screener_snapshot" : "screener_snapshot_visible")
+            .select("sector, industry")
+            .eq("market", market)
+            .eq("run_date", runDate)
+            .order("symbol", { ascending: true })
+            .range(offset, offset + FETCH_CHUNK - 1),
+        ),
+      );
+      for (const { data, error } of results) {
+        if (error) throw new Error(error.message);
+        for (const row of (data ?? []) as { sector: string | null; industry: string | null }[]) {
+          if (!row.sector || !row.industry) continue;
+          if (!pairs.has(row.sector)) pairs.set(row.sector, new Set());
+          pairs.get(row.sector)!.add(row.industry);
+        }
+      }
+      return [...pairs]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([sector, industries]) => ({ sector, industries: [...industries].sort() }));
+    };
+    try {
+      return await cachedOr("industries", market, 3600, read, [runDate]);
+    } catch (error) {
+      console.error("getIndustries failed", error instanceof Error ? error.message : error);
+      return [];
+    }
   },
 );
 

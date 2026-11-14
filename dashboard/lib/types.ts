@@ -427,18 +427,22 @@ export type ScreenerFilters = {
   excludeCapped?: boolean;
   hasTranscript?: boolean;
   redFlagsOnly?: boolean;
-  /** Model 5.0 filters. Ignored by a 4.x run, whose factor columns are null. */
-  minQuality?: number;
-  minMomentum?: number;
+  /** Numeric ranges by filter key (lib/screener-ranges.mjs), in the units a viewer types. */
+  ranges?: Record<string, { min?: number; max?: number }>;
+  /** Industries, any of; within the chosen sectors when both are set. */
+  industry?: string[];
+  /** "main" or "sme": one board; neither or both is every row. */
+  board?: string[];
+  /** Liquidity grades, DCF assessments and concall guidance, any of each. */
+  liquidity?: string[];
+  dcf?: string[];
+  guidance?: string[];
   eligibility?: string[];
   aboveMa200?: boolean;
   /** Entry timing. Stage labels as published; RS rating on 1-99. */
   stage?: string[];
-  minRs?: number;
   /** "nse" (listed on NSE, alone or with BSE) and/or "bse" (BSE alone); both or neither is every row. */
   listing?: string[];
-  /** Market-cap floor in crore of the market's currency. NSE views only. */
-  minCapCr?: number;
   sort?: string;
   dir?: "asc" | "desc";
   page?: number;

@@ -1,4 +1,5 @@
 import { parseDensity, parseHiddenColumns } from "@/lib/columns";
+import { readRanges } from "@/lib/screener-ranges.mjs";
 import type { ScreenerFilters } from "@/lib/types";
 
 type RawParams = Record<string, string | string[] | undefined>;
@@ -41,14 +42,16 @@ export function parseFilters(params: RawParams): ScreenerFilters {
     excludeCapped: str(params.excludeCapped) === "1",
     hasTranscript: str(params.transcript) === "1",
     redFlagsOnly: str(params.redFlags) === "1",
-    minQuality: num(params.minQuality),
-    minMomentum: num(params.minMomentum),
+    ranges: readRanges((key) => str(params[key])),
+    industry: list(params.industry),
+    board: list(params.board),
+    liquidity: list(params.liq),
+    dcf: list(params.dcf),
+    guidance: list(params.guide),
     eligibility: list(params.eligibility),
     aboveMa200: str(params.aboveMa200) === "1",
     stage: list(params.stage),
     listing: list(params.listing),
-    minRs: num(params.minRs),
-    minCapCr: num(params.minCapCr),
     // A mix the viewer built orders the grid by it until they pick another sort.
     sort: str(params.sort) ?? (str(params.w) ? "custom_score" : "market_cap"),
     weights: str(params.w),
