@@ -135,15 +135,17 @@ export function scoreRun(rows, weights, outlooks = new Map()) {
   });
   const sorted = /** @type {number[]} */ (blends.filter((b) => b !== null)).sort((a, b) => a - b);
   const n = sorted.length;
-  /** @param {number} value */
-  const percentile = (value) => {
-    if (n < 2) return 50;
-    let lo = 0;
-    while (sorted[lo] < value) lo++;
+  // Each value's percentile once, ties averaged: one pass over the sorted blends.
+  /** @type {Map<number, number>} */
+  const ranks = new Map();
+  for (let lo = 0; lo < n; ) {
     let hi = lo;
-    while (hi + 1 < n && sorted[hi + 1] === value) hi++;
-    return ((lo + hi) / 2 / (n - 1)) * 100;
-  };
+    while (hi + 1 < n && sorted[hi + 1] === sorted[lo]) hi++;
+    ranks.set(sorted[lo], n < 2 ? 50 : ((lo + hi) / 2 / (n - 1)) * 100);
+    lo = hi + 1;
+  }
+  /** @param {number} value */
+  const percentile = (value) => /** @type {number} */ (ranks.get(value));
 
   const dcfPoints = (weights.d ?? 0) / 100;
   const callPoints = (weights.c ?? 0) / 100;

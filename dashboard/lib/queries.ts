@@ -7,7 +7,7 @@ import { gridProjection } from "@/lib/columns";
 import { SHOW_VERDICT, isVerdictField, withoutRatings, withoutVerdict } from "@/lib/ratings.mjs";
 import { RANGES, columnBounds } from "@/lib/screener-ranges.mjs";
 import { SIZE_UNITS } from "@/lib/event-filters.mjs";
-import { RUN_COLUMNS as SCORE_RUN_COLUMNS, parseWeights, rankScores, scoreRun } from "@/lib/custom-score.mjs";
+import { RUN_COLUMNS as SCORE_RUN_COLUMNS, formatWeights, parseWeights, rankScores, scoreRun } from "@/lib/custom-score.mjs";
 import {
   priceCalendarPath,
   priceSeriesPath,
@@ -23,7 +23,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { indexSlug } from "@/lib/indices.mjs";
 import { BSE_SUFFIX } from "@/lib/listing.mjs";
-import { cachedOr } from "@/lib/home-cache";
+import { cachedOr, sharedRead } from "@/lib/home-cache";
 import type { Reader } from "@/lib/results";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { createDayMemo, localDay, type MarketDay } from "@/lib/market-calendar.mjs";
@@ -1876,12 +1876,38 @@ export const getMarketDay = cache(
  * The viewer's score (lib/custom-score.mjs) for every rated row of a run; null on a failed read.
  * Reads only columns every viewer sees, plus each company's latest call outlook from `concall_feed`.
  */
+/**
+ * "Your score" for every company in a run, by symbol. One mix is worked out once per run and
+ * shared by every viewer and instance: reading the run and its calls is the costly part, and a
+ * Worker request has a small CPU allowance.
+ */
 async function runScores(
   supabase: Awaited<ReturnType<typeof createClient>>,
   market: MarketCode,
   runDate: string,
   weights: Record<string, number>,
 ): Promise<Map<string, number | null> | null> {
+  try {
+    const scores = await sharedRead(
+      "run-scores",
+      market,
+      3600,
+      (db) => readRunScores((db ?? supabase) as typeof supabase, market, runDate, weights),
+      [runDate, formatWeights(weights)],
+    );
+    return new Map(Object.entries(scores));
+  } catch (error) {
+    console.error("runScores failed", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+async function readRunScores(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  market: MarketCode,
+  runDate: string,
+  weights: Record<string, number>,
+): Promise<Record<string, number | null>> {
   const readAll = async (read: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>) => {
     const rows: Record<string, unknown>[] = [];
     for (let offset = 0; ; offset += FETCH_CHUNK) {
@@ -1892,40 +1918,38 @@ async function runScores(
       if (page.length < FETCH_CHUNK) return rows;
     }
   };
-  try {
-    const [run, calls] = await Promise.all([
-      readAll((from, to) =>
-        supabase
-          .from("screener_snapshot_visible")
-          .select(SCORE_RUN_COLUMNS.join(","))
-          .eq("market", market)
-          .eq("run_date", runDate)
-          .is("unrated_reason", null)
-          .order("symbol", { ascending: true })
-          .range(from, to),
-      ),
-      weights.c
-        ? readAll((from, to) =>
-            supabase
-              .from("concall_feed")
-              .select("symbol, call_date, outlook_score")
-              .eq("market", market)
-              .not("outlook_score", "is", null)
-              .order("call_date", { ascending: false })
-              .order("symbol", { ascending: true })
-              .range(from, to),
-          )
-        : Promise.resolve([]),
-    ]);
-    // Newest call first, so the first outlook seen for a company is its latest.
-    const outlooks = new Map<string, number>();
-    for (const call of calls) {
-      const symbol = String(call.symbol);
-      if (!outlooks.has(symbol)) outlooks.set(symbol, Number(call.outlook_score));
-    }
-    return scoreRun(run, weights, outlooks);
-  } catch (error) {
-    console.error("runScores failed", error instanceof Error ? error.message : error);
-    return null;
+  // A call older than 180 days adds nothing (concallRecency), so older outlooks are not read.
+  const since = new Date(Date.parse(runDate) - 190 * 86_400_000).toISOString().slice(0, 10);
+  const [run, calls] = await Promise.all([
+    readAll((from, to) =>
+      supabase
+        .from("screener_snapshot_visible")
+        .select(SCORE_RUN_COLUMNS.join(","))
+        .eq("market", market)
+        .eq("run_date", runDate)
+        .is("unrated_reason", null)
+        .order("symbol", { ascending: true })
+        .range(from, to),
+    ),
+    weights.c
+      ? readAll((from, to) =>
+          supabase
+            .from("concall_feed")
+            .select("symbol, call_date, outlook_score")
+            .eq("market", market)
+            .gte("call_date", since)
+            .not("outlook_score", "is", null)
+            .order("call_date", { ascending: false })
+            .order("symbol", { ascending: true })
+            .range(from, to),
+        )
+      : Promise.resolve([]),
+  ]);
+  // Newest call first, so the first outlook seen for a company is its latest.
+  const outlooks = new Map<string, number>();
+  for (const call of calls) {
+    const symbol = String(call.symbol);
+    if (!outlooks.has(symbol)) outlooks.set(symbol, Number(call.outlook_score));
   }
+  return Object.fromEntries(scoreRun(run, weights, outlooks));
 }
