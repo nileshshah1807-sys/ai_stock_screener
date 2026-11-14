@@ -79,10 +79,10 @@ export default async function ScreenerPage({
       <ScreenerTable
         rows={rows}
         params={urlParams}
-        sort={filters.sort ?? "investment_rank"}
+        sort={filters.sort ?? "market_cap"}
         dir={
           filters.dir ??
-          ((filters.sort ?? "investment_rank").endsWith("rank")
+          ((filters.sort ?? "market_cap").endsWith("rank")
             ? "asc"
             : "desc")
         }

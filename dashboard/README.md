@@ -176,6 +176,44 @@ today" print as `WARN` and do not fail the run.
 token and does an optimistic redirect for sessionless requests. Per the Next.js
 guidance it is *not* the authorization solution — `requireAccess()` and RLS are.
 
+## Rank, score and "Your score"
+
+The pipeline still computes `Investment_Rank`, `Final_Score` and the blend
+weights, and the Returns backtest still reads them, but **no viewer is shown
+them, admins included**. A paid ranking is research under SEBI's Research
+Analyst rules whatever it is called, so until the service is registered the
+dashboard publishes evidence, not a verdict. `lib/ratings.mjs` holds the rule:
+
+- `isVerdictField` names the verdict columns (rank, published/evidence/decision
+  score, block blends, `*_weight`, rank and score changes). `withoutRatings`
+  strips ratings and verdict for a viewer; `withoutVerdict` strips the verdict
+  for an admin, who keeps the buy/sell ratings. Both run on the server, so the
+  numbers never reach the browser. The database views do not null the verdict
+  yet (`storage/rating_access_schema.sql`).
+- `SHOW_VERDICT` (off) is the one switch that gives an admin the rank, score
+  ring, waterfall, rank history and score columns back.
+- Gone for everyone: the rank and score columns, the Movers page (rank
+  changes), rank chips, the minimum-score filter, presets sorted by a verdict,
+  and the feed filters' Score rule. Grids sort by market cap by default.
+
+Instead each viewer ranks the grid by a score they build (`Your score`, the
+screener toolbar; `lib/custom-score.mjs`, URL key `w`):
+
+1. Weights over the five factor block scores (Quality, Growth, Momentum, Value,
+   Risk), plus RS rating and concall tone; a missing block counts as 50.
+2. That blend is ranked across the whole run onto 0-100, as the model ranks its
+   research score; filters narrow the list but never change a score.
+3. Optional points: `d` (valuation) adds `d/100` per point the DCF valuation
+   score sits from 50, where the run marked the DCF eligible; `c` (concall)
+   adds `c/100` per point a call of the last 180 days sits from the run's
+   median call (85% outlook from `concall_feed`, 15% tone), halving every 90
+   days. Below 30 calls the reference is 50.
+
+The builder starts from equal weights and ships no other preset, so the order is
+always the viewer's method. It is computed on each request from columns every
+viewer can already read (`runScores` in `lib/queries.ts`).
+The full change log and its reasons: [`docs/no_published_ranking.md`](../docs/no_published_ranking.md).
+
 ## Setup
 
 ### 1. Database

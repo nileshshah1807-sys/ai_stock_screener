@@ -5,15 +5,17 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { X } from "lucide-react";
 
 import { PendingMarker } from "@/components/nav-pending";
-import { LISTINGS } from "@/components/screener/filter-bar";
+import { useMarket } from "@/components/market-provider";
+import { CHOICES, LISTINGS } from "@/components/screener/filter-bar";
+import { RANGES, readRanges, rangeLabel } from "@/lib/screener-ranges.mjs";
 import { ELIGIBILITY_CLASSES } from "@/lib/types";
 
 /**
  * One chip per active filter, each individually removable.
  *
- * The filter popover reports how many filters are on and offers to clear all of
+ * The filter panel reports how many filters are on and offers to clear all of
  * them. Neither tells you *which* are on, so undoing one meant reopening the
- * popover and remembering what you had set -- and a shared link arrived with no
+ * panel and remembering what you had set -- and a shared link arrived with no
  * indication of what it was filtering at all. These chips are that missing
  * readout, and removing one is the same gesture as reading it.
  *
@@ -30,16 +32,8 @@ const TOGGLE_LABELS: Record<string, string> = {
   aboveMa200: "Above 200-day average",
 };
 
-const NUMERIC_LABELS: Record<string, (value: string) => string> = {
-  minScore: (value) => `Score ≥ ${value}`,
-  maxScore: (value) => `Score ≤ ${value}`,
-  minQuality: (value) => `Quality ≥ P${value}`,
-  minMomentum: (value) => `Momentum ≥ P${value}`,
-  minRs: (value) => `RS ≥ ${value}`,
-  minCapCr: (value) => `Market cap ≥ ₹${Number(value).toLocaleString("en-IN")} Cr`,
-};
-
-type Chip = { key: string; value?: string; label: string };
+/** `keys` are every URL key the chip stands for: a range also answers to its old single-bound key. */
+type Chip = { keys: string[]; value?: string; label: string };
 
 function eligibilityLabel(value: string): string {
   const match = ELIGIBILITY_CLASSES.find(
@@ -53,14 +47,13 @@ export function ActiveFilters() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
+  const sizeSuffix = useMarket().code === "US" ? "M" : "Cr";
 
   const remove = useCallback(
-    (key: string, value?: string) => {
+    (keys: string[], value?: string) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (value === undefined) {
-        params.delete(key);
-      } else {
-        const kept = params.getAll(key).filter((item) => item !== value);
+      for (const key of keys) {
+        const kept = value === undefined ? [] : params.getAll(key).filter((item) => item !== value);
         params.delete(key);
         kept.forEach((item) => params.append(key, item));
       }
@@ -80,34 +73,49 @@ export function ActiveFilters() {
   const chips: Chip[] = [];
 
   const text = searchParams.get("q");
-  if (text) chips.push({ key: "q", label: `“${text}”` });
+  if (text) chips.push({ keys: ["q"], label: `“${text}”` });
 
   for (const rating of searchParams.getAll("rating")) {
-    chips.push({ key: "rating", value: rating, label: rating });
+    chips.push({ keys: ["rating"], value: rating, label: rating });
   }
   for (const sector of searchParams.getAll("sector")) {
-    chips.push({ key: "sector", value: sector, label: sector });
+    chips.push({ keys: ["sector"], value: sector, label: sector });
   }
   for (const value of searchParams.getAll("eligibility")) {
     chips.push({
-      key: "eligibility",
+      keys: ["eligibility"],
       value,
       label: eligibilityLabel(value),
     });
   }
   for (const stage of searchParams.getAll("stage")) {
-    chips.push({ key: "stage", value: stage, label: stage });
+    chips.push({ keys: ["stage"], value: stage, label: stage });
   }
   for (const value of searchParams.getAll("listing")) {
     const option = LISTINGS.find((item) => item.value === value);
-    if (option) chips.push({ key: "listing", value, label: option.label });
+    if (option) chips.push({ keys: ["listing"], value, label: option.label });
+  }
+  for (const industry of searchParams.getAll("industry")) {
+    chips.push({ keys: ["industry"], value: industry, label: industry });
+  }
+  for (const choice of CHOICES) {
+    for (const value of searchParams.getAll(choice.key)) {
+      const option = choice.options.find((item) => item.value === value);
+      chips.push({ keys: [choice.key], value, label: `${choice.label}: ${option?.label ?? value}` });
+    }
   }
   for (const [key, label] of Object.entries(TOGGLE_LABELS)) {
-    if (searchParams.get(key) === "1") chips.push({ key, label });
+    if (searchParams.get(key) === "1") chips.push({ keys: [key], label });
   }
-  for (const [key, format] of Object.entries(NUMERIC_LABELS)) {
-    const value = searchParams.get(key);
-    if (value) chips.push({ key, label: format(value) });
+  const ranges = readRanges((key) => searchParams.get(key));
+  for (const range of RANGES) {
+    const value = ranges[range.key];
+    if (value) {
+      chips.push({
+        keys: range.legacyMin ? [range.key, range.legacyMin] : [range.key],
+        label: rangeLabel(range, value, sizeSuffix),
+      });
+    }
   }
 
   if (!chips.length) return null;
@@ -120,13 +128,13 @@ export function ActiveFilters() {
       <PendingMarker pending={pending} />
       {chips.map((chip) => (
         <span
-          key={`${chip.key}:${chip.value ?? ""}`}
+          key={`${chip.keys[0]}:${chip.value ?? ""}`}
           className="inline-flex h-7 items-center gap-1 rounded-md border bg-muted pl-2.5 pr-1 text-[11px] font-medium"
         >
           {chip.label}
           <button
             type="button"
-            onClick={() => remove(chip.key, chip.value)}
+            onClick={() => remove(chip.keys, chip.value)}
             aria-label={`Remove filter ${chip.label}`}
             className="rounded-md p-0.5 text-muted-foreground transition-colors duration-(--duration-fast) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >

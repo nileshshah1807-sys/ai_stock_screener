@@ -195,3 +195,20 @@ export function tickDirection(before, after) {
   if (!Number.isFinite(before) || !Number.isFinite(after) || before === after) return null;
   return after > before ? "up" : "down";
 }
+
+/**
+ * One live mover as the browser may hold it: numbers as numbers, the rating
+ * only for an admin, and whether the screener rates it -- never its rank
+ * (lib/ratings.mjs: the verdict is shown to no one).
+ */
+export function liveMover(row, showRatings) {
+  return {
+    symbol: row.symbol,
+    company: row.company,
+    price: Number(row.price),
+    change_pct: Number(row.change_pct),
+    // shortcut: reads the rank until live_market (storage/live_quotes_schema.sql) is re-applied with `rated`; drop the fallback then.
+    rated: row.rated ?? (row.investment_rank !== null && row.investment_rank !== undefined),
+    rating: showRatings ? row.rating : null,
+  };
+}

@@ -15,6 +15,8 @@
  * you are looking at".
  */
 
+import { RANGE_KEYS } from "./screener-ranges.mjs";
+
 /** Keys a view owns. Anything else in the URL is left alone when one is applied. */
 export const VIEW_KEYS = [
   "q",
@@ -27,15 +29,20 @@ export const VIEW_KEYS = [
   "excludeCapped",
   "transcript",
   "redFlags",
-  "minQuality",
-  "minMomentum",
   "eligibility",
+  "industry",
+  "board",
+  "liq",
+  "dcf",
+  "guide",
+  "listing",
+  ...RANGE_KEYS,
   "aboveMa200",
   "stage",
-  "minRs",
-  "minCapCr",
   "sort",
   "dir",
+  // The viewer's own score mix (lib/custom-score.mjs): a view can be just that.
+  "w",
   "cols",
   "density",
 ];
@@ -71,4 +78,40 @@ export function viewIsActive(current, query) {
     remaining.splice(at, 1);
   }
   return true;
+}
+
+/**
+ * `current` with a view added on top: each key the view sets takes the view's
+ * values, and every other filter stays. Views combine, so a size floor and a
+ * saved mix can be on at once.
+ * @param {URLSearchParams} current
+ * @param {string} query
+ */
+export function applyView(current, query) {
+  const next = new URLSearchParams(current.toString());
+  const view = new URLSearchParams(query);
+  for (const key of new Set(view.keys())) {
+    next.delete(key);
+    for (const value of view.getAll(key)) next.append(key, value);
+  }
+  next.delete("page");
+  return next;
+}
+
+/**
+ * `current` without the pairs a view set: the other way of tapping its chip.
+ * @param {URLSearchParams} current
+ * @param {string} query
+ */
+export function removeView(current, query) {
+  const next = new URLSearchParams(current.toString());
+  const view = new URLSearchParams(query);
+  for (const key of new Set(view.keys())) {
+    const drop = view.getAll(key);
+    const kept = next.getAll(key).filter((value) => !drop.includes(value));
+    next.delete(key);
+    for (const value of kept) next.append(key, value);
+  }
+  next.delete("page");
+  return next;
 }

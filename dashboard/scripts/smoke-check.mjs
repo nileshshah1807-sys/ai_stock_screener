@@ -38,7 +38,7 @@ const MARKETS = {
   us: { code: "US", zone: "America/New_York", open: [9 * 60 + 30, 16 * 60] },
 };
 // Results analysis is NSE-only; the US shows a note, still a 200.
-const PAGES = ["", "/screener", "/market", "/movers", "/indices", "/watchlists", "/notifications", "/health",
+const PAGES = ["", "/screener", "/market", "/indices", "/watchlists", "/notifications", "/health",
   "/concalls", "/results", "/results/analysis", "/returns"];
 const SAMPLE_SIZE = 10;
 const SLOW_MS = 10_000;

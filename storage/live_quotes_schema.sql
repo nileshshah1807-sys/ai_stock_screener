@@ -162,7 +162,7 @@ as $$
                             jsonb_build_object(
                                 'symbol', p.symbol, 'company', p.company,
                                 'price', p.price, 'change_pct', p.change_pct,
-                                'investment_rank', p.investment_rank, 'rating', p.rating
+                                'rated', p.investment_rank is not null, 'rating', p.rating
                             ) order by p.up
                         )
                         from picked p
@@ -173,7 +173,7 @@ as $$
                             jsonb_build_object(
                                 'symbol', p.symbol, 'company', p.company,
                                 'price', p.price, 'change_pct', p.change_pct,
-                                'investment_rank', p.investment_rank, 'rating', p.rating
+                                'rated', p.investment_rank is not null, 'rating', p.rating
                             ) order by p.down
                         )
                         from picked p

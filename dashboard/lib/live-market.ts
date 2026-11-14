@@ -4,7 +4,7 @@
  * (components/market/live-movers.tsx). No directive: both sides import it.
  */
 
-import { tickDirection } from "@/lib/live-quotes.mjs";
+import { liveMover, tickDirection } from "@/lib/live-quotes.mjs";
 import type { Tick } from "@/lib/use-live-quotes";
 
 /** One stock in a live movers list (storage/live_quotes_schema.sql). */
@@ -13,8 +13,8 @@ export type LiveMover = {
   company: string | null;
   price: number;
   change_pct: number;
-  /** Null for an index member the screener does not rate. */
-  investment_rank: number | null;
+  /** False for an index member the screener does not rate: it has no stock page. */
+  rated: boolean;
   rating: string | null;
   /** The last move the browser saw; the server never sets one. */
   tick?: Tick | null;
@@ -50,13 +50,7 @@ export function normalizeLiveMarket(data: unknown, showRatings: boolean): LiveMa
   const raw = data as LiveMarket | null;
   if (!raw?.session || !raw.indices?.length) return null;
   const num = (value: unknown) => (value === null || value === undefined ? null : Number(value));
-  const mover = (row: LiveMover): LiveMover => ({
-    ...row,
-    price: Number(row.price),
-    change_pct: Number(row.change_pct),
-    // Ratings are admin-only (lib/ratings.mjs).
-    rating: showRatings ? row.rating : null,
-  });
+  const mover = (row: LiveMover): LiveMover => liveMover(row, showRatings);
   return {
     ...raw,
     indices: raw.indices.map((index) => ({

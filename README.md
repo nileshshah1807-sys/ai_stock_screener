@@ -6,6 +6,11 @@ the Model 5.1 factor architecture; local runs and manual dispatches of the
 daily workflow retain the isolated 4.x path unless a factor run is selected
 explicitly.
 
+The dashboard shows the evidence, not the verdict: `Investment_Rank` and the
+published score are computed and stored but shown to no viewer, admins included;
+each viewer ranks by a score they build. See
+[`dashboard/README.md`](dashboard/README.md#rank-score-and-your-score).
+
 ## Markets
 
 Cupel screens two markets from one pipeline. `MARKET=NSE` (the default) runs

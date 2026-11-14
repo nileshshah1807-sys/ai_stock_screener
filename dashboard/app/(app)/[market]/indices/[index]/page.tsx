@@ -75,7 +75,7 @@ export default async function IndexPage({ params, searchParams }: PageProps<"/[m
         ])
       : [{ rows: [], total: 0 }, new Set<string>()];
   const unrated = members.filter((member) => !rated.has(member.symbol));
-  const sort = filters.sort ?? "investment_rank";
+  const sort = filters.sort ?? "market_cap";
 
   return (
     <div className="space-y-6 px-4 py-5 sm:px-6">

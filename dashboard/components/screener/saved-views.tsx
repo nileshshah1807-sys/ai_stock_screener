@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   applyView,
+  removeView,
   currentViewQuery,
   PRESETS,
   savedViewsServerSnapshot,
@@ -41,7 +42,7 @@ import {
 import { PendingMarker } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
 import { useMarket, useShowRatings } from "@/components/market-provider";
-import { usesRatingFilter } from "@/lib/ratings.mjs";
+import { usesRatingFilter, usesVerdict } from "@/lib/ratings.mjs";
 
 const CHIP =
   "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium " +
@@ -91,6 +92,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
         (preset) =>
           (factorModel || !preset.factorOnly) &&
           (!preset.market || preset.market === market.code) &&
+          !usesVerdict(preset.query) &&
           (showRatings || !usesRatingFilter(preset.query)),
       ),
     [factorModel, market.code, showRatings],
@@ -98,7 +100,9 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
 
   const apply = useCallback(
     (query: string) => {
-      const next = applyView(query);
+      // A lit view's chip takes it off again; any other adds it to what is on.
+      const current = new URLSearchParams(searchParams.toString());
+      const next = viewIsActive(searchParams, query) ? removeView(current, query) : applyView(current, query);
       startTransition(() => {
         router.push(
           next.toString() ? `${pathname}?${next.toString()}` : pathname,
@@ -106,7 +110,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
         );
       });
     },
-    [pathname, router],
+    [pathname, router, searchParams],
   );
 
   // No local copy to update: the store notifies its subscribers, and this

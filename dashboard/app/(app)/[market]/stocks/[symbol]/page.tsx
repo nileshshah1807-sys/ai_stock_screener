@@ -14,7 +14,8 @@ import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, tailFromHistory, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { isAdmin } from "@/lib/auth";
-import { PUBLISHED_SCORE_INFO, publicText } from "@/lib/ratings.mjs";
+import { cn } from "@/lib/utils";
+import { PUBLISHED_SCORE_INFO, SHOW_VERDICT, publicText } from "@/lib/ratings.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
@@ -334,6 +335,8 @@ export default async function StockPage({
   const gateWarning = text(payload, "Gate_Warning");
   // Ratings are admin-only (lib/ratings.mjs); the row arrives without them.
   const admin = await isAdmin();
+  // The model's score and rank: shown to nobody while SHOW_VERDICT is off (lib/ratings.mjs).
+  const verdict = admin && SHOW_VERDICT;
 
   // Display-only diagnostics from screener/expectations.py. Read through the
   // payload rather than a promoted column: they change nothing that scores, so
@@ -398,35 +401,40 @@ export default async function StockPage({
           },
         ] satisfies Field[])
       : []),
-    {
-      label: "Evidence score",
-      value: formatScore(evidenceScore),
-      hint: "Score entering the policy stage.",
-    },
-    {
-      label: "Decision ceiling",
-      value: formatScore(row.decision_score_ceiling),
-      tone: capFlagged ? "caution" : "muted",
-      hint: !admin
-        ? undefined
-        : capFlagged && !capEnforced
-          ? "The ceiling this row's gates imply. Not applied: Model 5.1 publishes research merit for policy gates and reports them instead."
-          : "Maximum score permitted by the active gate combination.",
-    },
-    {
-      label: "Published score",
-      value: formatScore(row.final_score ?? evidenceScore),
-      hint: admin ? "Uncapped. Policy gates limit the rating, not this number." : "Uncapped.",
-    },
-    {
-      label: "Points removed",
-      value: capEnforced ? `-${formatNumber(pointsRemoved as number, 2)}` : "None",
-      tone: capEnforced ? "negative" : "muted",
-      hint:
-        admin && capFlagged && !capEnforced
-          ? "A policy gate fired but did not reduce the score. Only evidence-quality gates still cap."
-          : undefined,
-    },
+    // The model's scores, its ceiling and what the gates took off (lib/ratings.mjs).
+    ...(verdict
+      ? ([
+        {
+          label: "Evidence score",
+          value: formatScore(evidenceScore),
+          hint: "Score entering the policy stage.",
+        },
+        {
+          label: "Decision ceiling",
+          value: formatScore(row.decision_score_ceiling),
+          tone: capFlagged ? "caution" : "muted",
+          hint: !admin
+            ? undefined
+            : capFlagged && !capEnforced
+              ? "The ceiling this row's gates imply. Not applied: Model 5.1 publishes research merit for policy gates and reports them instead."
+              : "Maximum score permitted by the active gate combination.",
+        },
+        {
+          label: "Published score",
+          value: formatScore(row.final_score ?? evidenceScore),
+          hint: admin ? "Uncapped. Policy gates limit the rating, not this number." : "Uncapped.",
+        },
+        {
+          label: "Points removed",
+          value: capEnforced ? `-${formatNumber(pointsRemoved as number, 2)}` : "None",
+          tone: capEnforced ? "negative" : "muted",
+          hint:
+            admin && capFlagged && !capEnforced
+              ? "A policy gate fired but did not reduce the score. Only evidence-quality gates still cap."
+              : undefined,
+        },
+        ] satisfies Field[])
+      : []),
     // The constraint and eligibility class are how the rating is decided.
     ...(admin
       ? ([
@@ -876,9 +884,9 @@ export default async function StockPage({
             every panel below is evidence for them. Six tiles also fill the 2-
             and 3-column phone and tablet grids exactly; five left a hole.
           */}
-          <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border sm:grid-cols-3 lg:grid-cols-6">
+          <dl className={cn("mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-row bg-border", verdict ? "sm:grid-cols-3 lg:grid-cols-6" : "lg:grid-cols-4")}>
             {[
-              {
+              ...(verdict ? [{
                 label: "Rank",
                 value: (
                   <>
@@ -894,7 +902,7 @@ export default async function StockPage({
                 label: "Score",
                 value: formatScore(row.final_score ?? row.evidence_score),
                 tone: "",
-              },
+              }] : []),
               {
                 label: "Price",
                 value: (
@@ -994,8 +1002,16 @@ export default async function StockPage({
                     it is the only breakdown there is.
                   */}
                   <Panel
-                    title="Published score"
+                    title={verdict ? "Published score" : "Factor profile"}
                     info={
+                      !verdict ? (
+                        <p>
+                          Where this stock stands on each measure against every
+                          stock in the {market.label} universe on the last run:
+                          P90 means it scores higher than 90% of them. Each
+                          measure is shown on its own; none is a recommendation.
+                        </p>
+                      ) : (
                       <>
                         <p>{publicText(admin, PUBLISHED_SCORE_INFO)}</p>
                         {factorModel ? (
@@ -1016,13 +1032,15 @@ export default async function StockPage({
                           </p>
                         ) : null}
                       </>
+                      )
                     }
                   >
-                    <div className="grid items-start gap-6 md:grid-cols-[13rem_minmax(0,1fr)] md:gap-8">
+                    <div className={cn("grid items-start gap-6 md:gap-8", verdict && "md:grid-cols-[13rem_minmax(0,1fr)]")}>
                       {/* One line under the score: what the gates do to the
                           rating. Since Model 5.1 they hold the rating down and
                           leave this score alone, so "capped" under an
                           unchanged number read as a contradiction. */}
+                      {verdict ? (
                       <DecisionScore
                         score={row.final_score ?? row.evidence_score}
                         rating={row.rating}
@@ -1035,20 +1053,23 @@ export default async function StockPage({
                               : `Rating held at ${row.rating ?? row.policy_eligible_rating ?? MISSING} by ${gate.label.toLowerCase()}`
                         }
                       />
+                      ) : null}
                       {factorModel ? (
-                        <FactorBlocks row={row} admin={admin} />
-                      ) : (
+                        <FactorBlocks row={row} admin={verdict} />
+                      ) : verdict ? (
                         <ScoreWaterfall row={row} />
-                      )}
+                      ) : null}
                     </div>
                   </Panel>
 
-                  <Panel
-                    title="Rank history"
-                    info={`Position in the ${market.label} universe on each run, #1 at the top.`}
-                  >
-                    <RankHistoryChart history={history} />
-                  </Panel>
+                  {verdict ? (
+                    <Panel
+                      title="Rank history"
+                      info={`Position in the ${market.label} universe on each run, #1 at the top.`}
+                    >
+                      <RankHistoryChart history={history} />
+                    </Panel>
+                  ) : null}
 
                   <ExpectationsGap data={expectations} market={market} />
 

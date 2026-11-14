@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { ArrowLeftRight, Bookmark, ChartArea, House, LayoutGrid, LogOut, Shapes, Users } from "lucide-react";
+import { Bookmark, ChartArea, House, LayoutGrid, LogOut, Shapes, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { BrandMark } from "@/components/brand-mark";
@@ -60,7 +60,6 @@ const NAV: readonly { path: string; label: string; icon: typeof LayoutGrid; also
   { path: "/market", label: "Market", icon: ChartArea },
   { path: TOOL_PATHS[0], label: "Tools", icon: Shapes, also: TOOL_PATHS },
   { path: "/watchlists", label: "Watchlists", icon: Bookmark },
-  { path: "/movers", label: "Movers", icon: ArrowLeftRight, desktopOnly: true },
 ];
 
 function PrimaryNav({ market, className, phone = false }: { market: Market; className: string; phone?: boolean }) {

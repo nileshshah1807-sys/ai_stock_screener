@@ -452,9 +452,8 @@ function MoverRow({ market, row }: { market: Market; row: LiveMover }) {
     <StockListRow
       symbol={row.symbol}
       company={row.company}
-      rank={row.investment_rank}
       // An index member the screener does not rate has no stock page to open.
-      linked={row.investment_rank !== null}
+      linked={row.rated}
     >
       <TickFlash
         tick={row.tick}

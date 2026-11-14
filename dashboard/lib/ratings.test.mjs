@@ -10,6 +10,7 @@ import {
   publicText,
   usesRatingFilter,
   withoutRatings,
+  isVerdictField,
 } from "./ratings.mjs";
 
 test("the database redacts exactly the fields the dashboard does", () => {
@@ -93,18 +94,35 @@ test("relative strength and the evidence are not rating fields", () => {
   }
 });
 
+test("the model's verdict is admin-only; factor scores and percentiles are not", () => {
+  for (const key of ["final_score", "Investment_Rank", "prev_investment_rank", "rank_change", "score_change", "research_score", "Research_Score_Raw", "evidence_score", "Momentum_Weight"]) {
+    assert.ok(isVerdictField(key), key);
+  }
+  for (const key of ["quality_score", "momentum_percentile", "rs_rating", "transcript_score", "market_cap", "value_score_uncapped"]) {
+    assert.ok(!isVerdictField(key), key);
+  }
+});
+
 test("withoutRatings nulls columns and drops payload keys", () => {
   const row = {
     symbol: "TCS",
     rating: "BUY",
     rs_rating: 91,
-    payload: { Rating: "BUY", Buy_Eligible: true, RS_Rating: 91, Final_Score: 72 },
+    final_score: 72,
+    investment_rank: 4,
+    quality_score: 69.4,
+    momentum_percentile: 97,
+    payload: { Rating: "BUY", Buy_Eligible: true, RS_Rating: 91, Final_Score: 72, Quality_Weight: 0.25, ROE: 0.21 },
   };
   assert.deepEqual(withoutRatings(row), {
     symbol: "TCS",
     rating: null,
     rs_rating: 91,
-    payload: { RS_Rating: 91, Final_Score: 72 },
+    final_score: null,
+    investment_rank: null,
+    quality_score: 69.4,
+    momentum_percentile: 97,
+    payload: { RS_Rating: 91, ROE: 0.21 },
   });
   assert.equal(row.rating, "BUY", "the input is not mutated");
   assert.equal(withoutRatings(null), null);
@@ -114,6 +132,7 @@ test("a preset filtering on a rating is recognised", () => {
   assert.ok(usesRatingFilter("rating=BUY&actionable=1"));
   assert.ok(usesRatingFilter("minScore=60&excludeCapped=1"));
   assert.ok(!usesRatingFilter("minQuality=70&sort=research_score"));
+  assert.ok(usesRatingFilter("minScore=70&stage=Stage+2"), "the score is admin-only too");
 });
 
 test("publicText leaves an admin's copy alone and drops rating sentences for anyone else", () => {
@@ -131,4 +150,18 @@ test("publicText leaves an admin's copy alone and drops rating sentences for any
 test("publicText drops the market-regime sentence that names a rating", () => {
   const shown = publicText(false, "Index inside the band, or level and trend disagree. STRONG BUY needs exceptional momentum.");
   assert.equal(shown, "Index inside the band, or level and trend disagree.");
+});
+
+test("an admin keeps the rating but not the verdict, and no preset sorts by it", async () => {
+  const { SHOW_VERDICT, usesVerdict, withoutVerdict } = await import("./ratings.mjs");
+  assert.equal(SHOW_VERDICT, false);
+  const row = withoutVerdict({ rating: "BUY", investment_rank: 3, final_score: 71, decision_score: 70, payload: { Final_Score: 71, Rating: "BUY" } });
+  assert.equal(row.rating, "BUY");
+  assert.equal(row.investment_rank, null);
+  assert.equal(row.final_score, null);
+  assert.equal(row.decision_score, null);
+  assert.deepEqual(row.payload, { Rating: "BUY" });
+  assert.ok(usesVerdict("sort=research_score&dir=desc"));
+  assert.ok(usesVerdict("minScore=60"));
+  assert.ok(!usesVerdict("minQuality=70&sort=market_cap"));
 });

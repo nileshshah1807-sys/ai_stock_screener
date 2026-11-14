@@ -4,7 +4,10 @@ import { cache } from "react";
 
 import { isAdmin } from "@/lib/auth";
 import { gridProjection } from "@/lib/columns";
-import { withoutRatings } from "@/lib/ratings.mjs";
+import { SHOW_VERDICT, isVerdictField, withoutRatings, withoutVerdict } from "@/lib/ratings.mjs";
+import { RANGES, columnBounds } from "@/lib/screener-ranges.mjs";
+import { SIZE_UNITS } from "@/lib/event-filters.mjs";
+import { RUN_COLUMNS as SCORE_RUN_COLUMNS, formatWeights, parseWeights, rankScores, scoreRun } from "@/lib/custom-score.mjs";
 import {
   priceCalendarPath,
   priceSeriesPath,
@@ -20,7 +23,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { indexSlug } from "@/lib/indices.mjs";
 import { BSE_SUFFIX } from "@/lib/listing.mjs";
-import { cachedOr } from "@/lib/home-cache";
+import { cachedOr, sharedRead } from "@/lib/home-cache";
 import type { Reader } from "@/lib/results";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { createDayMemo, localDay, type MarketDay } from "@/lib/market-calendar.mjs";
@@ -41,8 +44,6 @@ export const PAGE_SIZE = 100;
 
 /** PostgREST caps a single response; anything universe-wide must be paged. */
 const FETCH_CHUNK = 1000;
-/** `market_cap` is stored in currency units; a size floor is stated in crore. */
-const RUPEES_PER_CRORE = 1e7;
 
 /**
  * Chunk offsets for a universe-wide read, given a known row count.
@@ -280,9 +281,10 @@ const RUN_COLUMNS = [
  * Module scope, so it lives as long as the server instance and is simply empty
  * on a cold one.
  */
-/** `rows` as this viewer may see them: ratings are admin-only (lib/ratings.mjs). */
+/** `rows` as this viewer may see them: ratings are admin-only, the verdict nobody's (lib/ratings.mjs). */
 async function forViewer<T>(rows: T[]): Promise<T[]> {
-  return (await isAdmin()) ? rows : (rows.map(withoutRatings) as T[]);
+  if (!(await isAdmin())) return rows.map((row) => withoutRatings(row) as T);
+  return SHOW_VERDICT ? rows : rows.map((row) => withoutVerdict(row) as T);
 }
 
 const RUN_MEMO_MS = 120_000;
@@ -389,10 +391,16 @@ export async function getSnapshotPage(
   } = {},
 ): Promise<{ rows: SnapshotRow[]; total: number }> {
   const supabase = await createClient();
+  const admin = await isAdmin();
   // A rating filter or sort would reveal the rating it filters on.
-  if (!(await isAdmin())) {
+  if (!admin) {
     filters = { ...filters, rating: [], buyEligibleOnly: false, excludeCapped: false, eligibility: [], actionableOnly: false };
     if (filters.sort && RATING_DERIVED_SORTS.has(filters.sort)) filters.sort = undefined;
+  }
+  // The model's score and rank are nobody's, admins' included: neither sort nor filter on them.
+  if (!(admin && SHOW_VERDICT)) {
+    if (filters.sort && isVerdictField(filters.sort)) filters = { ...filters, sort: "market_cap", dir: undefined };
+    filters = { ...filters, minScore: undefined };
   }
   const projection =
     options.columns ??
@@ -400,129 +408,172 @@ export async function getSnapshotPage(
       ? gridProjection(filters.hiddenColumns)
       : GRID_COLUMNS);
 
-  // PostgREST applies the same select, filters, order and range to a
-  // set-returning function as to the table, so everything below is shared.
-  const source = options.breadth
-    ? supabase
-        .rpc(
-          "breadth_snapshot",
-          { p_market: market, p_metric: options.breadth },
-          { count: "exact" },
-        )
-        .select(projection)
-    : supabase.from("screener_snapshot_visible").select(projection, { count: "exact" });
+  // An empty restriction means "nothing", never "everything" (see the symbols filter below).
+  if (options.symbols && !options.symbols.length) return { rows: [], total: 0 };
 
-  let query = source.eq("market", market).eq("run_date", runDate);
+  /** The run's rows under these filters, reading `select`; the grid and the weighted ranking share it. */
+  const build = (select: string, withCount: boolean) => {
+    // PostgREST applies the same select, filters, order and range to a
+    // set-returning function as to the table, so everything below is shared.
+    const source = options.breadth
+      ? supabase
+          .rpc(
+            "breadth_snapshot",
+            { p_market: market, p_metric: options.breadth },
+            withCount ? { count: "exact" } : undefined,
+          )
+          .select(select)
+      : supabase.from("screener_snapshot_visible").select(select, withCount ? { count: "exact" } : undefined);
 
-  // A company the run could not rate has a page and a row, but no score or
-  // rank to sort, total or export: it is listed apart (getUnratedRows). A
-  // watchlist still shows the ones it holds.
-  if (!options.symbols && !options.breadth) query = query.is("unrated_reason", null);
+    let query = source.eq("market", market).eq("run_date", runDate);
 
-  if (options.industry) {
-    query = query.eq("industry", options.industry);
-  }
+    // A company the run could not rate has a page and a row, but no score or
+    // rank to sort, total or export: it is listed apart (getUnratedRows). A
+    // watchlist still shows the ones it holds.
+    if (!options.symbols && !options.breadth) query = query.is("unrated_reason", null);
 
-  if (options.symbols) {
-    // An empty restriction means "nothing", never "everything". Falling through
-    // to an unrestricted read would show an empty watchlist the entire
-    // universe, which is the worst possible failure for this feature.
-    if (!options.symbols.length) return { rows: [], total: 0 };
-    // PostgREST expresses this as `symbol=in.(A,B,C)` in the query string, so
-    // the set size is bounded by URL length. WATCHLIST_MAX_SYMBOLS keeps it
-    // inside a couple of kilobytes.
-    query = query.in("symbol", [...options.symbols]);
-  }
-
-  if (filters.q?.trim()) {
-    const term = filters.q.trim().replace(/[%,()]/g, "");
-    if (term) {
-      query = query.or(`symbol.ilike.%${term}%,company.ilike.%${term}%`);
+    if (options.industry) {
+      query = query.eq("industry", options.industry);
     }
-  }
-  if (filters.rating?.length) {
-    query = query.in("rating", filters.rating);
-  }
-  if (filters.sector?.length) {
-    query = query.in("sector", filters.sector);
-  }
-  // Filter on the number the table displays. Since Model 5.1 that is the
-  // uncapped published score; filtering on the capped decision_score would
-  // silently exclude rows whose visible score is inside the requested range.
-  if (typeof filters.minScore === "number") {
-    query = query.gte("final_score", filters.minScore);
-  }
-  if (typeof filters.maxScore === "number") {
-    query = query.lte("final_score", filters.maxScore);
-  }
-  if (filters.actionableOnly) {
-    query = query.eq("portfolio_actionable", true);
-  }
-  if (filters.buyEligibleOnly) {
-    query = query.eq("buy_eligible", true);
-  }
-  if (filters.excludeCapped) {
-    query = query.or("rating_capped.is.null,rating_capped.eq.false");
-  }
-  if (filters.hasTranscript) {
-    query = query.eq("transcript_scoring_eligible", true);
-  }
-  if (filters.redFlagsOnly) {
-    query = query.gt("red_flag_severity", 0);
-  }
-  // Model 5.0 filters. On a 4.x run these columns are null, and PostgREST
-  // comparison operators exclude nulls, so applying one would empty the grid
-  // rather than be ignored. That is the correct behaviour -- the filter asks
-  // for evidence the run does not have -- and the filter bar hides these
-  // controls entirely unless the run used the factor model.
-  if (typeof filters.minQuality === "number") {
-    query = query.gte("quality_percentile", filters.minQuality);
-  }
-  if (typeof filters.minMomentum === "number") {
-    query = query.gte("momentum_percentile", filters.minMomentum);
-  }
-  if (filters.eligibility?.length) {
-    const classes = filters.eligibility
-      .map((value) => Number(value))
-      .filter((value) => Number.isInteger(value));
-    if (classes.length) {
-      query = query.in("eligibility_class", classes);
-    }
-  }
-  if (filters.aboveMa200) {
-    query = query.gte("price_to_ma200_pct", 0);
-  }
-  // Entry timing. Null on runs without stages, so these empty the grid there
-  // for the same reason the factor filters do; the filter bar hides them.
-  if (filters.stage?.length) {
-    query = query.in("stage", filters.stage);
-  }
-  // One exchange, not both: a row is either NSE-listed or BSE-only.
-  const listing = new Set(filters.listing ?? []);
-  if (listing.has("nse") !== listing.has("bse")) {
-    query = listing.has("bse")
-      ? query.like("symbol", `%${BSE_SUFFIX}`)
-      : query.not("symbol", "like", `%${BSE_SUFFIX}`);
-  }
-  if (typeof filters.minRs === "number") {
-    query = query.gte("rs_rating", filters.minRs);
-  }
-  // An unreported market cap is excluded, as PostgREST drops nulls from a
-  // comparison: a size floor cannot vouch for a size it was never told.
-  if (typeof filters.minCapCr === "number") {
-    query = query.gte("market_cap", filters.minCapCr * RUPEES_PER_CRORE);
-  }
 
-  const sortColumn =
-    filters.sort && SORTABLE.has(filters.sort)
-      ? filters.sort
-      : "investment_rank";
-  const ascending = filters.dir
-    ? filters.dir === "asc"
-    : sortColumn.endsWith("rank") || ASCENDING_BY_DEFAULT.has(sortColumn);
+    if (options.symbols) {
+      // An empty restriction means "nothing", never "everything". Falling through
+      // to an unrestricted read would show an empty watchlist the entire
+      // universe, which is the worst possible failure for this feature.
+      // PostgREST expresses this as `symbol=in.(A,B,C)` in the query string, so
+      // the set size is bounded by URL length. WATCHLIST_MAX_SYMBOLS keeps it
+      // inside a couple of kilobytes.
+      query = query.in("symbol", [...options.symbols]);
+    }
+
+    if (filters.q?.trim()) {
+      const term = filters.q.trim().replace(/[%,()]/g, "");
+      if (term) {
+        query = query.or(`symbol.ilike.%${term}%,company.ilike.%${term}%`);
+      }
+    }
+    if (filters.rating?.length) {
+      query = query.in("rating", filters.rating);
+    }
+    if (filters.sector?.length) {
+      query = query.in("sector", filters.sector);
+    }
+    // Filter on the number the table displays. Since Model 5.1 that is the
+    // uncapped published score; filtering on the capped decision_score would
+    // silently exclude rows whose visible score is inside the requested range.
+    if (typeof filters.minScore === "number") {
+      query = query.gte("final_score", filters.minScore);
+    }
+    if (typeof filters.maxScore === "number") {
+      query = query.lte("final_score", filters.maxScore);
+    }
+    if (filters.actionableOnly) {
+      query = query.eq("portfolio_actionable", true);
+    }
+    if (filters.buyEligibleOnly) {
+      query = query.eq("buy_eligible", true);
+    }
+    if (filters.excludeCapped) {
+      query = query.or("rating_capped.is.null,rating_capped.eq.false");
+    }
+    if (filters.hasTranscript) {
+      query = query.eq("transcript_scoring_eligible", true);
+    }
+    if (filters.redFlagsOnly) {
+      query = query.gt("red_flag_severity", 0);
+    }
+    // Model 5.0 filters. On a 4.x run these columns are null, and PostgREST
+    // comparison operators exclude nulls, so applying one would empty the grid
+    // rather than be ignored. That is the correct behaviour -- the filter asks
+    // for evidence the run does not have -- and the filter bar hides these
+    // controls entirely unless the run used the factor model.
+    if (filters.eligibility?.length) {
+      const classes = filters.eligibility
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value));
+      if (classes.length) {
+        query = query.in("eligibility_class", classes);
+      }
+    }
+    if (filters.aboveMa200) {
+      query = query.gte("price_to_ma200_pct", 0);
+    }
+    // Entry timing. Null on runs without stages, so these empty the grid there
+    // for the same reason the factor filters do; the filter bar hides them.
+    if (filters.stage?.length) {
+      query = query.in("stage", filters.stage);
+    }
+    // One exchange, not both: a row is either NSE-listed or BSE-only.
+    const listing = new Set(filters.listing ?? []);
+    if (listing.has("nse") !== listing.has("bse")) {
+      query = listing.has("bse")
+        ? query.like("symbol", `%${BSE_SUFFIX}`)
+        : query.not("symbol", "like", `%${BSE_SUFFIX}`);
+    }
+    // Every numeric range (lib/screener-ranges.mjs). A row with no value is
+    // excluded, as PostgREST drops nulls from a comparison: a bound cannot vouch
+    // for a figure that was never reported.
+    for (const range of RANGES) {
+      const value = filters.ranges?.[range.key];
+      if (!value) continue;
+      const { min, max } = columnBounds(range, value, SIZE_UNITS[market].factor);
+      if (min !== undefined) query = query.gte(range.column, min);
+      if (max !== undefined) query = query.lte(range.column, max);
+    }
+    if (filters.industry?.length) query = query.in("industry", filters.industry);
+    const board = new Set(filters.board ?? []);
+    if (board.has("main") !== board.has("sme")) query = query.eq("is_sme", board.has("sme"));
+    if (filters.liquidity?.length) query = query.in("liquidity_grade", filters.liquidity);
+    if (filters.dcf?.length) query = query.in("dcf_assessment", filters.dcf);
+    if (filters.guidance?.length) query = query.in("transcript_guidance", filters.guidance);
+    return query;
+  };
 
   const page = Math.max(1, filters.page ?? 1);
   const from = (page - 1) * PAGE_SIZE;
+
+  // A score the viewer built from their own weights (lib/custom-score.mjs), worked out over
+  // the whole run (its percentile and medians are the run's, whatever the filters) and
+  // ordered here, since Postgres cannot sort by it; the page is then read by symbol.
+  const weights = parseWeights(filters.weights);
+  const scores = weights ? await runScores(supabase, market, runDate, weights) : null;
+  if (weights && !scores) return { rows: [], total: 0 };
+  if (scores && filters.sort === "custom_score") {
+    const chunk = (at: number, withCount: boolean) =>
+      build("symbol", withCount).order("symbol", { ascending: true }).range(at, at + FETCH_CHUNK - 1);
+    const first = await chunk(0, true);
+    const offsets: number[] = [];
+    for (let at = FETCH_CHUNK; at < (first.count ?? 0); at += FETCH_CHUNK) offsets.push(at);
+    const results = [first, ...(await Promise.all(offsets.map((at) => chunk(at, false))))];
+    const failed = results.find((result) => result.error);
+    if (failed?.error) {
+      console.error("getSnapshotPage (weighted) failed", failed.error.message);
+      return { rows: [], total: 0 };
+    }
+    const symbols = results.flatMap((result) => ((result.data ?? []) as unknown as { symbol: string }[]).map((row) => row.symbol));
+    const ranked = rankScores(scores, symbols);
+    const slice = ranked.slice(from, from + PAGE_SIZE);
+    if (!slice.length) return { rows: [], total: ranked.length };
+    const { data, error } = await build(projection, false).in("symbol", slice.map((entry) => entry.symbol));
+    if (error) {
+      console.error("getSnapshotPage (weighted) failed", error.message);
+      return { rows: [], total: 0 };
+    }
+    const bySymbol = new Map(((data ?? []) as unknown as SnapshotRow[]).map((row) => [row.symbol, row]));
+    const rows = slice.flatMap(({ symbol, score }) => {
+      const row = bySymbol.get(symbol);
+      return row ? [{ ...row, custom_score: score }] : [];
+    });
+    return { rows: await forViewer(rows), total: ranked.length };
+  }
+
+  const query = build(projection, true);
+
+  const sortColumn =
+    filters.sort && SORTABLE.has(filters.sort) ? filters.sort : "market_cap";
+  const ascending = filters.dir
+    ? filters.dir === "asc"
+    : sortColumn.endsWith("rank") || ASCENDING_BY_DEFAULT.has(sortColumn);
 
   // nullsFirst:false keeps rows with no value for the sort key at the bottom,
   // so an unranked or uncovered stock never displaces a scored one at the top.
@@ -536,8 +587,11 @@ export async function getSnapshotPage(
     return { rows: [], total: 0 };
   }
 
+  const rows = (data ?? []) as unknown as SnapshotRow[];
   return {
-    rows: await forViewer((data ?? []) as unknown as SnapshotRow[]),
+    rows: await forViewer(
+      scores ? rows.map((row) => ({ ...row, custom_score: scores.get(row.symbol) ?? null })) : rows,
+    ),
     total: count ?? 0,
   };
 }
@@ -558,15 +612,15 @@ export const getSearchIndex = cache(
     rowCount?: number,
   ): Promise<SearchEntry[]> => {
     const supabase = await createClient();
-    const select = "symbol, company, investment_rank, rating, final_score, logo_domain";
+    const select = "symbol, company, rating, logo_domain";
     // The index is built here and shipped to the browser, so a viewer's copy carries no rating.
     const admin = await isAdmin();
     const toEntry = (row: Record<string, unknown>): SearchEntry => ({
       s: row.symbol as string,
       c: (row.company as string) ?? "",
-      r: row.investment_rank as number | null,
+      r: null,
       g: admin ? (row.rating as string | null) : null,
-      d: (row.final_score as number | null | undefined) ?? null,
+      d: null,
       l: (row.logo_domain as string | null) ?? null,
     });
 
@@ -576,28 +630,29 @@ export const getSearchIndex = cache(
         .select(select)
         .eq("market", market)
         .eq("run_date", runDate)
-        .order("investment_rank", { ascending: true, nullsFirst: false })
+        .order("market_cap", { ascending: false, nullsFirst: false })
+        .order("symbol", { ascending: true })
         .range(offset, offset + FETCH_CHUNK - 1);
 
     // Everyone but an admin gets the same index, so it is read once for all of them (not once per viewer,
     // 5 requests and ~4,700 rows each time) and kept in R2 and, for a minute, in the instance's memory.
-    // No rating column is read on the shared path (`rating` is null in a viewer's copy). `final_score` is: the
-    // snapshot view shows it to every viewer, so this copy carries what theirs does.
+    // No rating, rank or score is read on the shared path (lib/ratings.mjs).
     if (!admin && rowCount && rowCount > 0) {
       const shared = (offset: number) =>
         searchIndexMemo(`${market}:${runDate}:${offset}`, () =>
           cachedOr(
-            "search-index",
+            // v2: a viewer's copy carries no rank or score and is ordered by size, not by rank.
+            "search-index-v2",
             market,
             3600,
             async (db) => {
               const { data, error } = await (db ?? supabase)
                 .from(db ? "screener_snapshot" : "screener_snapshot_visible")
-                .select("symbol, company, investment_rank, final_score, logo_domain")
+                .select("symbol, company, logo_domain")
                 .eq("market", market)
                 .eq("run_date", runDate)
-                .order("investment_rank", { ascending: true, nullsFirst: false })
-                // A tie-break: rows with equal rank must not move between chunks.
+                .order("market_cap", { ascending: false, nullsFirst: false })
+                // A tie-break: rows of equal size must not move between chunks.
                 .order("symbol", { ascending: true })
                 .range(offset, offset + FETCH_CHUNK - 1);
               if (error) throw new Error(error.message);
@@ -670,12 +725,9 @@ export const getCompanyFacts = cache(
   async (market: MarketCode): Promise<CompanyFacts[] | null> => {
     const run = await getLatestRun(market);
     if (!run) return null;
-    // Score is a rating: only an admin reads it, per request. Everyone else
-    // shares one cross-instance read of the other columns.
-    const admin = await isAdmin();
+    // The score is nobody's (lib/ratings.mjs), so every viewer shares one cross-instance read.
     const supabase = await createClient();
     try {
-      if (admin) return await readAllFacts(supabase, market, run, "screener_snapshot_visible", true);
       return await factsMemo(`${market}:${run.run_date}`, () =>
         cachedOr(
           "facts",
@@ -1281,6 +1333,48 @@ export const getSectors = cache(
   },
 );
 
+/**
+ * Each sector's industries in one run, for the filter panel: the same for every
+ * viewer and every request of the run, so it is one cross-instance read a run.
+ */
+export const getIndustries = cache(
+  async (market: MarketCode, runDate: string, rowCount?: number): Promise<{ sector: string; industries: string[] }[]> => {
+    const supabase = await createClient();
+    const read = async (db?: Reader) => {
+      const pairs = new Map<string, Set<string>>();
+      const offsets = rowCount && rowCount > 0 ? chunkOffsets(rowCount) : [0];
+      const results = await Promise.all(
+        offsets.map((offset) =>
+          (db ?? supabase)
+            .from(db ? "screener_snapshot" : "screener_snapshot_visible")
+            .select("sector, industry")
+            .eq("market", market)
+            .eq("run_date", runDate)
+            .order("symbol", { ascending: true })
+            .range(offset, offset + FETCH_CHUNK - 1),
+        ),
+      );
+      for (const { data, error } of results) {
+        if (error) throw new Error(error.message);
+        for (const row of (data ?? []) as { sector: string | null; industry: string | null }[]) {
+          if (!row.sector || !row.industry) continue;
+          if (!pairs.has(row.sector)) pairs.set(row.sector, new Set());
+          pairs.get(row.sector)!.add(row.industry);
+        }
+      }
+      return [...pairs]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([sector, industries]) => ({ sector, industries: [...industries].sort() }));
+    };
+    try {
+      return await cachedOr("industries", market, 3600, read, [runDate]);
+    } catch (error) {
+      console.error("getIndustries failed", error instanceof Error ? error.message : error);
+      return [];
+    }
+  },
+);
+
 export type MoverBuckets = {
   /** The read failed: the buckets are empty because nothing was read, not because nothing moved. */
   failed: boolean;
@@ -1777,3 +1871,90 @@ export const getMarketDay = cache(
     });
   },
 );
+
+/**
+ * The viewer's score (lib/custom-score.mjs) for every rated row of a run; null on a failed read.
+ * Reads only columns every viewer sees, plus each company's latest call outlook from `concall_feed`.
+ */
+/**
+ * "Your score" for every company in a run, by symbol. One mix is worked out once per run and
+ * shared by every viewer and instance: reading the run and its calls is the costly part, and a
+ * Worker request has a small CPU allowance.
+ */
+async function runScores(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  market: MarketCode,
+  runDate: string,
+  weights: Record<string, number>,
+): Promise<Map<string, number | null> | null> {
+  try {
+    const scores = await sharedRead(
+      "run-scores-v2", // v1 cached empty results read through the view
+      market,
+      3600,
+      // The shared read runs as the service role, which the `*_visible` view returns no rows to; the
+      // base table holds the same columns, and none read here is a rating field.
+      (db) => readRunScores((db ?? supabase) as typeof supabase, db ? "screener_snapshot" : "screener_snapshot_visible", market, runDate, weights),
+      [runDate, formatWeights(weights)],
+    );
+    return new Map(Object.entries(scores));
+  } catch (error) {
+    console.error("runScores failed", error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+async function readRunScores(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  table: "screener_snapshot" | "screener_snapshot_visible",
+  market: MarketCode,
+  runDate: string,
+  weights: Record<string, number>,
+): Promise<Record<string, number | null>> {
+  const readAll = async (read: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>) => {
+    const rows: Record<string, unknown>[] = [];
+    for (let offset = 0; ; offset += FETCH_CHUNK) {
+      const { data, error } = await read(offset, offset + FETCH_CHUNK - 1);
+      if (error) throw new Error(error.message);
+      const page = (data ?? []) as Record<string, unknown>[];
+      rows.push(...page);
+      if (page.length < FETCH_CHUNK) return rows;
+    }
+  };
+  // A call older than 180 days adds nothing (concallRecency), so older outlooks are not read.
+  const since = new Date(Date.parse(runDate) - 190 * 86_400_000).toISOString().slice(0, 10);
+  const [run, calls] = await Promise.all([
+    readAll((from, to) =>
+      supabase
+        .from(table)
+        .select(SCORE_RUN_COLUMNS.join(","))
+        .eq("market", market)
+        .eq("run_date", runDate)
+        .is("unrated_reason", null)
+        .order("symbol", { ascending: true })
+        .range(from, to),
+    ),
+    weights.c
+      ? readAll((from, to) =>
+          supabase
+            .from("concall_feed")
+            .select("symbol, call_date, outlook_score")
+            .eq("market", market)
+            .gte("call_date", since)
+            .not("outlook_score", "is", null)
+            .order("call_date", { ascending: false })
+            .order("symbol", { ascending: true })
+            .range(from, to),
+        )
+      : Promise.resolve([]),
+  ]);
+  // An empty run is a failed read, never a result: thrown, so it is not cached.
+  if (!run.length) throw new Error(`no ${table} rows for ${market} ${runDate}`);
+  // Newest call first, so the first outlook seen for a company is its latest.
+  const outlooks = new Map<string, number>();
+  for (const call of calls) {
+    const symbol = String(call.symbol);
+    if (!outlooks.has(symbol)) outlooks.set(symbol, Number(call.outlook_score));
+  }
+  return Object.fromEntries(scoreRun(run, weights, outlooks));
+}

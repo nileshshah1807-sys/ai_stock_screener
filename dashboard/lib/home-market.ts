@@ -81,7 +81,8 @@ async function readAll<T>(read: (from: number, to: number) => PromiseLike<{ data
   }
 }
 
-export type MonthlyMover = { symbol: string; company: string | null; investment_rank: number | null; pct_change_1m: number };
+/** Only rated stocks are read, so each has a page; the rank itself never leaves the server. */
+export type MonthlyMover = { symbol: string; company: string | null; pct_change_1m: number };
 export type MonthlyMovers = Record<string, { gainers: MonthlyMover[]; losers: MonthlyMover[] }>;
 
 /**
@@ -97,7 +98,7 @@ export async function getMonthlyMovers(market: MarketCode, indices: string[]): P
   const hit = monthlyMemo.get(key);
   if (hit && Date.now() - hit.at < MONTHLY_MEMO_MS) return hit.value;
   const value =
-    (await homeCached("movers-1m", market, 3600, (db) => readMonthlyMovers(market, indices, run.run_date, db), [run.run_date, indices.join("|")])) ??
+    (await homeCached("movers-1m-v2", market, 3600, (db) => readMonthlyMovers(market, indices, run.run_date, db), [run.run_date, indices.join("|")])) ??
     (await readMonthlyMovers(market, indices, run.run_date));
   // An empty result may be a failed read: not kept, so it is retried.
   if (Object.keys(value).length) {
@@ -131,7 +132,7 @@ async function readMonthlyMovers(market: MarketCode, indices: string[], runDate:
         ...(await readAll<MonthlyMover>((from, to) =>
           supabase
             .from(db ? "screener_snapshot" : "screener_snapshot_visible")
-            .select("symbol, company, investment_rank, pct_change_1m")
+            .select("symbol, company, pct_change_1m")
             .eq("market", market)
             .eq("run_date", runDate)
             .not("investment_rank", "is", null)

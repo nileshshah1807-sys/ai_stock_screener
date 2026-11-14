@@ -36,7 +36,7 @@ function loadPayload(market: MarketSlug, runDate: string | null): Promise<Payloa
   // run changes (BSE-only listings were missing from search for a day after
   // they joined it), and `v` the payload's shape.
   const run = runDate ? `&run=${runDate}` : "";
-  const promise = fetch(`/api/search-index?market=${market}${run}&v=2`)
+  const promise = fetch(`/api/search-index?market=${market}${run}&v=3`)
     .then((response) => {
       // Thrown, so the catch below forgets this attempt and the next call retries.
       if (!response.ok) throw new Error(`search-index ${response.status}`);
