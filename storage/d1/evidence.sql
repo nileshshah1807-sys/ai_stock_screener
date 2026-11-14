@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS "estimate_history" (
     "target_mean_price" REAL,
     "recommendation_mean" REAL,
     "price" REAL,
-    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     PRIMARY KEY ("market", "symbol", "fetched_at")
 ) WITHOUT ROWID;
 
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS "red_flag_snapshots" (
     "source_status" TEXT NOT NULL,
     "source_as_of" TEXT NOT NULL,
     "snapshot" TEXT NOT NULL,
-    "fetched_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "fetched_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     PRIMARY KEY ("source", "symbol")
 ) WITHOUT ROWID;
 
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS "shareholding_patterns" (
     "shares" REAL,
     "holders" TEXT NOT NULL,
     "parser_version" INTEGER NOT NULL,
-    "parsed_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "parsed_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     PRIMARY KEY ("market", "symbol", "period_end")
 ) WITHOUT ROWID;
 
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS "transcript_documents" (
     "sha256" TEXT NOT NULL,
     "size_bytes" INTEGER NOT NULL,
     "extraction_method" TEXT NOT NULL,
-    "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     PRIMARY KEY ("id")
 ) WITHOUT ROWID;
 
@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS "transcript_outlooks" (
     "prompt_tokens" INTEGER NOT NULL DEFAULT 0,
     "completion_tokens" INTEGER NOT NULL DEFAULT 0,
     "cost_usd" REAL NOT NULL DEFAULT 0,
-    "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     PRIMARY KEY ("id")
 ) WITHOUT ROWID;
 
@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS "transcript_sentiments" (
     "model_name" TEXT NOT NULL,
     "analysis_version" TEXT NOT NULL,
     "estimated_cost_usd" REAL NOT NULL DEFAULT 0,
-    "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     PRIMARY KEY ("id")
 ) WITHOUT ROWID;
 
@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS "transcripts" (
     "cleaned_text" TEXT NOT NULL,
     "token_count" INTEGER NOT NULL,
     "text_hash" TEXT NOT NULL,
-    "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "created_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     "market" TEXT NOT NULL DEFAULT 'NSE',
     PRIMARY KEY ("id")
 ) WITHOUT ROWID;

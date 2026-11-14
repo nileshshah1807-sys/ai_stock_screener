@@ -90,6 +90,7 @@ jobs:
       fail-fast: false
       matrix:
         workflow:
+          - d1_backfill
           - daily-stock-screener
           - daily-us-screener
           - red-flag-shadow

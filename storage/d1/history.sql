@@ -14,5 +14,6 @@ CREATE TABLE IF NOT EXISTS "screener_history" (
     "volume" INTEGER,
     "stage" TEXT,
     "market" TEXT NOT NULL DEFAULT 'NSE',
-    PRIMARY KEY ("observed_on", "symbol", "market")
+    PRIMARY KEY ("market", "observed_on", "symbol")
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS "screener_history_symbol_idx" ON "screener_history" ("market", "symbol", "observed_on");

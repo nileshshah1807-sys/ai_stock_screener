@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS "concall_feed" (
     "guidance_direction" TEXT,
     "outlook_score" REAL,
     "highlights" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     "management_stance" TEXT,
     "management_stance_quote" TEXT,
     "outlook_detail" TEXT,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS "financial_statements" (
     "source" TEXT NOT NULL,
     "latest_annual" TEXT,
     "latest_quarter" TEXT,
-    "fetched_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "fetched_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     PRIMARY KEY ("market", "symbol")
 ) WITHOUT ROWID;
 
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS "market_breadth" (
     "last_session" TEXT NOT NULL,
     "sessions" TEXT NOT NULL,
     "series" TEXT NOT NULL,
-    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     PRIMARY KEY ("market", "scope", "name")
 ) WITHOUT ROWID;
 
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS "market_events" (
     "kind" TEXT NOT NULL,
     "event_key" TEXT NOT NULL,
     "occurred_at" TEXT NOT NULL,
-    "detected_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "detected_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     "detail" TEXT NOT NULL,
     "baseline" INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY ("id")
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS "new_listings" (
     "median_turnover_20d" REAL,
     "turnover_floor" REAL NOT NULL,
     "market_cap" REAL,
-    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     "logo_domain" TEXT,
     PRIMARY KEY ("market", "symbol")
 ) WITHOUT ROWID;
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS "quarterly_filings" (
     "document_url" TEXT NOT NULL,
     "lines" TEXT NOT NULL,
     "parser_version" INTEGER NOT NULL,
-    "parsed_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "parsed_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     "viewer_url" TEXT,
     "company" TEXT,
     PRIMARY KEY ("market", "symbol", "period_end", "is_consolidated")
@@ -130,11 +130,11 @@ CREATE TABLE IF NOT EXISTS "screener_runs" (
     "reduce_count" INTEGER NOT NULL DEFAULT 0,
     "sell_count" INTEGER NOT NULL DEFAULT 0,
     "manifest" TEXT,
-    "ingested_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "ingested_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     "sectors" TEXT,
     "factor_model_applied" INTEGER,
     "market" TEXT NOT NULL DEFAULT 'NSE',
-    PRIMARY KEY ("run_date", "market")
+    PRIMARY KEY ("market", "run_date")
 ) WITHOUT ROWID;
 
 CREATE TABLE IF NOT EXISTS "universe_index" (
@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS "upcoming_events" (
     "next_call_at" TEXT,
     "next_call_date" TEXT,
     "call_source_url" TEXT,
-    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     PRIMARY KEY ("market", "symbol")
 ) WITHOUT ROWID;
 
@@ -174,6 +174,6 @@ CREATE TABLE IF NOT EXISTS "valuation_basis" (
     "statement_basis" TEXT,
     "source" TEXT,
     "run_date" TEXT,
-    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    "updated_at" TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')),
     PRIMARY KEY ("market", "symbol")
 ) WITHOUT ROWID;

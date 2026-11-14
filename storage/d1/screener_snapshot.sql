@@ -123,8 +123,3 @@ CREATE TABLE IF NOT EXISTS "screener_snapshot" (
 
 CREATE INDEX IF NOT EXISTS "screener_snapshot_market_cap_idx"
     ON "screener_snapshot" ("market", "run_date", "market_cap" DESC);
-
--- screener_history (storage/d1/history.sql, generated) is keyed (observed_on,
--- symbol, market); the stock page reads one symbol's days, which that key cannot seek.
-CREATE INDEX IF NOT EXISTS "screener_history_symbol_idx"
-    ON "screener_history" ("market", "symbol", "observed_on");

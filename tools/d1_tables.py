@@ -41,7 +41,7 @@ TABLES: dict[str, str] = {
         (
             "concall_feed", "valuation_basis", "quarterly_filings", "financial_statements",
             "upcoming_events", "market_events", "new_listings", "universe_index",
-            "market_breadth", "screener_runs",
+            "market_breadth", "screener_runs", "screener_snapshot",
         ),
         "core",
     ),
@@ -56,10 +56,51 @@ TABLES: dict[str, str] = {
     "screener_history": "history",
 }
 
-#: screener_snapshot is not here yet: its 156 columns pass D1's 100 a table, so it
-#: needs a layout first (the grid's filter and sort columns, the rest as one JSON
-#: column), agreed with the reader.
 D1_MAX_COLUMNS = 100
+
+#: Each table's primary key in Postgres's own order (pg_index, 14 Nov 2026), which
+#: PostgREST's description does not keep. A WITHOUT ROWID table is stored in key
+#: order, so this decides which reads are a range and which a scan. ``schema``
+#: refuses a table whose key columns differ from Supabase's.
+KEY_ORDER: dict[str, tuple[str, ...]] = {
+    "bulk_block_deals": ("market", "kind", "deal_date", "symbol", "client_name", "side", "quantity", "price"),
+    "company_documents": ("market", "symbol", "kind", "url"),
+    "concall_feed": ("market", "symbol", "quarter"),
+    "estimate_history": ("market", "symbol", "fetched_at"),
+    "financial_statements": ("market", "symbol"),
+    "market_breadth": ("market", "scope", "name"),
+    "market_events": ("id",),
+    "new_listings": ("market", "symbol"),
+    "quarterly_filings": ("market", "symbol", "period_end", "is_consolidated"),
+    "red_flag_snapshots": ("source", "symbol"),
+    "screener_history": ("market", "observed_on", "symbol"),
+    "screener_runs": ("market", "run_date"),
+    "screener_snapshot": ("market", "run_date", "symbol"),
+    "shareholding_patterns": ("market", "symbol", "period_end"),
+    "transcript_documents": ("id",),
+    "transcript_outlooks": ("id",),
+    "transcript_sentiments": ("id",),
+    "transcripts": ("id",),
+    "universe_index": ("market", "observed_on"),
+    "upcoming_events": ("market", "symbol"),
+    "valuation_basis": ("market", "symbol"),
+}
+
+#: Secondary indexes, each one more row written per row: only where a reader
+#: needs a range the key cannot give. One stock's history, newest first.
+INDEXES: dict[str, tuple[str, ...]] = {
+    "screener_history": (
+        'CREATE INDEX IF NOT EXISTS "screener_history_symbol_idx" '
+        'ON "screener_history" ("market", "symbol", "observed_on");',
+    ),
+}
+
+#: Laid out by hand (Dwight, 14 Nov 2026): 156 columns pass D1's 100. Its real
+#: columns are the file's; every other column goes into the "extra" JSON object,
+#: and "payload" (in Storage since Oct 2026) is not carried.
+HAND_LAID = {"screener_snapshot": Path("storage/d1/screener_snapshot.sql")}
+EXTRA_COLUMN = "extra"
+SKIPPED_COLUMNS = {"screener_snapshot": {"payload"}}
 
 #: D1 keeps only what the pages read of history; the full rows are archived in R2
 #: (human, 14 Nov 2026: option a).
@@ -78,7 +119,7 @@ _AFFINITY = {
     "integer": "INTEGER", "bigint": "INTEGER", "smallint": "INTEGER", "boolean": "INTEGER",
     "numeric": "REAL", "double precision": "REAL", "real": "REAL",
 }
-_NOW = "(strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))"
+_NOW = "(strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'))"  # Supabase's own form
 
 
 def _supabase() -> tuple[str, dict[str, str]]:
@@ -109,16 +150,34 @@ def _default(value: Any) -> str | None:
     return "'" + text.replace("'", "''") + "'"
 
 
-def primary_key(definition: dict[str, Any]) -> list[str]:
-    return [c for c, spec in definition["properties"].items() if "<pk/>" in str(spec.get("description") or "")]
+def primary_key(table: str, definition: dict[str, Any]) -> list[str]:
+    described = {c for c, spec in definition["properties"].items() if "<pk/>" in str(spec.get("description") or "")}
+    keys = list(KEY_ORDER.get(table, ()))
+    if not described or set(keys) != described:
+        raise ValueError(f"{table}: key {sorted(described)} in Supabase, {keys} in KEY_ORDER")
+    return keys
+
+
+def real_columns(table: str) -> list[str]:
+    """A hand-laid table's real columns, read from its CREATE TABLE."""
+    body = HAND_LAID[table].read_text().split("CREATE TABLE", 1)[1].split(") WITHOUT ROWID", 1)[0]
+    return [line.split('"')[1] for line in body.splitlines() if line.startswith('    "')]
+
+
+def to_d1(table: str, row: dict[str, Any]) -> dict[str, Any]:
+    """A Supabase row as its D1 table holds it."""
+    if table not in HAND_LAID:
+        return row
+    real = set(real_columns(table)) - {EXTRA_COLUMN}
+    skipped = SKIPPED_COLUMNS.get(table, set())
+    extra = {key: value for key, value in row.items() if key not in real and key not in skipped}
+    return {**{key: row[key] for key in real if key in row}, EXTRA_COLUMN: json.dumps(extra, separators=(",", ":"))}
 
 
 def table_ddl(table: str, definition: dict[str, Any]) -> str:
     wanted = COLUMNS.get(table)
     required = set(definition.get("required") or ())
-    keys = primary_key(definition)
-    if not keys:
-        raise ValueError(f"{table} has no primary key in Supabase's description")
+    keys = primary_key(table, definition)
     lines = []
     for column, spec in definition["properties"].items():
         if wanted and column not in wanted:
@@ -132,14 +191,15 @@ def table_ddl(table: str, definition: dict[str, Any]) -> str:
     if len(lines) > D1_MAX_COLUMNS:
         raise ValueError(f"{table} has {len(lines)} columns; D1 allows {D1_MAX_COLUMNS}")
     lines.append("    PRIMARY KEY (" + ", ".join(f'"{key}"' for key in keys) + ")")
-    return f'CREATE TABLE IF NOT EXISTS "{table}" (\n' + ",\n".join(lines) + "\n) WITHOUT ROWID;\n"
+    indexes = "".join(f"{index}\n" for index in INDEXES.get(table, ()))
+    return f'CREATE TABLE IF NOT EXISTS "{table}" (\n' + ",\n".join(lines) + "\n) WITHOUT ROWID;\n" + indexes
 
 
 def write_schema(definitions: dict[str, Any]) -> list[Path]:
     SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
     written = []
     for database in sorted(set(TABLES.values())):
-        tables = [table for table in sorted(TABLES) if TABLES[table] == database]
+        tables = [table for table in sorted(TABLES) if TABLES[table] == database and table not in HAND_LAID]
         body = "\n".join(table_ddl(table, definitions[table]) for table in tables)
         path = SCHEMA_DIR / f"{database}.sql"
         path.write_text(
@@ -168,38 +228,103 @@ def d1_env() -> dict[str, str]:
 def apply_schema(execute) -> None:
     for database in sorted(set(TABLES.values())):
         route = next(table for table, db in TABLES.items() if db == database)  # any table of that database
-        for statement in statements((SCHEMA_DIR / f"{database}.sql").read_text()):
-            execute(route, statement, [])
+        files = [SCHEMA_DIR / f"{database}.sql", *(path for table, path in HAND_LAID.items() if TABLES[table] == database)]
+        for path in files:
+            for statement in statements(path.read_text()):
+                execute(route, statement, [])
 
 
-def _page(table: str, keys: list[str], offset: int) -> list[dict[str, Any]]:
+def _page(table: str, keys: list[str], offset: int, columns: list[str] | None = None) -> list[dict[str, Any]]:
     base, headers = _supabase()
     params = {"order": ",".join(f"{key}.asc" for key in keys), "limit": str(PAGE), "offset": str(offset)}
-    if table in COLUMNS:
-        params["select"] = ",".join(COLUMNS[table])
+    if columns:
+        params["select"] = ",".join(columns)
     reply = requests.get(f"{base}/{table}", params=params, headers=headers, timeout=120)
     reply.raise_for_status()
     return reply.json()
 
 
-def _save(path: Path, state: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, indent=1))
+class FileState:
+    """Progress in a local JSON file (a run by hand)."""
+
+    def __init__(self, path: Path):
+        self.path = path
+
+    def load(self) -> dict[str, Any]:
+        return json.loads(self.path.read_text()) if self.path.exists() else {"tables": {}, "days": {}}
+
+    def save(self, state: dict[str, Any]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(state, indent=1))
 
 
-def backfill(tables: list[str], session: D1Session, state_path: Path, definitions: dict[str, Any], fetch=_page) -> int:
-    """Copy each table on from where the state left it. 0 when done, 2 at the day's ceiling."""
-    state = json.loads(state_path.read_text()) if state_path.exists() else {"tables": {}, "days": {}}
+STATE_TABLE = "d1_backfill_state"
+
+
+class D1State:
+    """Progress in one row of cupel-core, so a fresh runner resumes (the workflow).
+
+    One row written per page, a few hundred a day.
+    """
+
+    def __init__(self, execute):
+        self.execute = execute
+        execute("concall_feed", f'CREATE TABLE IF NOT EXISTS "{STATE_TABLE}" (key TEXT PRIMARY KEY, value TEXT) WITHOUT ROWID;', [])
+
+    def load(self) -> dict[str, Any]:
+        rows, _ = self.execute("concall_feed", f'SELECT value FROM "{STATE_TABLE}" WHERE key = ?', ["state"])
+        return json.loads(rows[0]["value"]) if rows else {"tables": {}, "days": {}}
+
+    def save(self, state: dict[str, Any]) -> None:
+        self.execute(
+            "concall_feed",
+            f'INSERT INTO "{STATE_TABLE}" (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+            ["state", json.dumps(state, separators=(",", ":"))],
+        )
+
+
+#: The order the backfill copies in (docs/d1_migration_plan.md section 6), history last.
+ORDER = (
+    "concall_feed", "valuation_basis", "bulk_block_deals",
+    "quarterly_filings", "financial_statements", "upcoming_events", "market_events",
+    "new_listings", "universe_index", "market_breadth",
+    "shareholding_patterns", "company_documents", "transcripts", "transcript_documents",
+    "transcript_sentiments", "transcript_outlooks", "estimate_history", "red_flag_snapshots",
+    "screener_runs", "screener_snapshot", "screener_history",
+)
+#: A table re-read from the start when D1 ends up short of Supabase (a row deleted
+#: before the offset between two days of paging), at most this many times.
+MAX_PASSES = 3
+
+
+def _columns(table: str, definition: dict[str, Any]) -> list[str] | None:
+    if table in COLUMNS:
+        return list(COLUMNS[table])
+    if table in SKIPPED_COLUMNS:
+        return [c for c in definition["properties"] if c not in SKIPPED_COLUMNS[table]]
+    return None
+
+
+def backfill(
+    tables: list[str], session: D1Session, store, definitions: dict[str, Any], fetch=_page, counts=None
+) -> int:
+    """Copy each table on from where the state left it. 0 when done, 2 at the day's ceiling.
+
+    ``counts(table) -> (supabase, d1)``, when given, checks a finished table: D1
+    short of Supabase means a row was skipped, so the table is read again.
+    """
+    state = store.load()
     day = datetime.now(UTC).date().isoformat()
     already = int(state["days"].get(day, 0))
     session.max_rows_written = max(0, session.max_rows_written - already)
     status = 0
     try:
         for table in tables:
-            keys = primary_key(definitions[table])
+            keys = primary_key(table, definitions[table])
+            columns = _columns(table, definitions[table])
             progress = state["tables"].setdefault(table, {"offset": 0, "done": False})
             while not progress["done"]:
-                rows = fetch(table, keys, progress["offset"])
+                rows = [to_d1(table, row) for row in fetch(table, keys, progress["offset"], columns)]
                 if rows:
                     session.request(
                         "POST",
@@ -209,15 +334,22 @@ def backfill(tables: list[str], session: D1Session, state_path: Path, definition
                     ).raise_for_status()
                 progress["offset"] += len(rows)
                 progress["done"] = len(rows) < PAGE
+                if progress["done"] and counts is not None:
+                    source, copied = counts(table)
+                    progress["counts"] = [source, copied]
+                    if copied < source and progress.get("pass", 1) < MAX_PASSES:
+                        progress.update({"offset": 0, "done": False, "pass": progress.get("pass", 1) + 1})
                 state["days"][day] = already + session.rows_written
-                _save(state_path, state)
+                store.save(state)
             print(f"{table}: {progress['offset']} rows read")
     except WriteCeilingReached as exc:
         print(f"Stopped at the day's write budget ({exc}); resume after 00:00 UTC", file=sys.stderr)
         status = 2
     state["days"][day] = already + session.rows_written
-    _save(state_path, state)
+    store.save(state)
     print(f"rows written today: {state['days'][day]}")
+    if status == 0 and all(state["tables"].get(table, {}).get("done") for table in tables):
+        print("backfill complete, nothing left")
     return status
 
 
@@ -232,10 +364,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("command", choices=("schema", "apply", "backfill", "verify"))
     parser.add_argument("tables", nargs="*")
-    parser.add_argument("--state", type=Path, default=Path("reports_advanced/d1_backfill.json"))
+    parser.add_argument(
+        "--state", default="reports_advanced/d1_backfill.json", help='a JSON file, or "d1" for the state table in cupel-core'
+    )
     parser.add_argument("--max-rows-written", type=int, default=DEFAULT_MAX_ROWS_WRITTEN)
     args = parser.parse_args(argv)
-    unknown = sorted(set(args.tables) - set(TABLES))
+    unknown = sorted(set(args.tables) - set(TABLES) - {"all"})
     if unknown:
         raise SystemExit(f"not a D1 table: {', '.join(unknown)}")
 
@@ -250,11 +384,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "backfill":
         if not args.tables:
             raise SystemExit("name the tables to backfill, in order")
-        return backfill(args.tables, D1Session(execute, max_rows_written=args.max_rows_written), args.state, describe())
-    for table in args.tables or sorted(TABLES):
-        rows, _ = execute(table, f'SELECT count(*) AS n FROM "{table}"', [])
-        print(f"{table}: supabase {count_supabase(table)}, d1 {rows[0]['n']}")
+        tables = list(ORDER) if args.tables == ["all"] else args.tables
+
+        def counts(table: str) -> tuple[int, int]:
+            return count_supabase(table), count_d1(execute, table)
+
+        session = D1Session(execute, max_rows_written=args.max_rows_written)
+        store = D1State(execute) if args.state == "d1" else FileState(Path(args.state))
+        return backfill(tables, session, store, describe(), counts=counts)
+    for table in args.tables or list(ORDER):
+        source, copied = count_supabase(table), count_d1(execute, table)
+        print(f"{table}: supabase {source}, d1 {copied}, remaining {max(0, source - copied)}")
     return 0
+
+
+def count_d1(execute, table: str) -> int:
+    rows, _ = execute(table, f'SELECT count(*) AS n FROM "{table}"', [])
+    return int(rows[0]["n"])
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -50,6 +50,23 @@ def sqlite_execute():
 
 
 class SchemaTests(unittest.TestCase):
+    def test_the_key_is_in_postgres_order_and_a_drifted_key_is_refused(self):
+        ddl = d1_tables.table_ddl("screener_history", DEFINITIONS["screener_history"])
+        self.assertIn('PRIMARY KEY ("market", "observed_on", "symbol")', ddl)
+        self.assertIn("screener_history_symbol_idx", ddl)
+        drifted = {"properties": {**DEFINITIONS["valuation_basis"]["properties"], "id": {"description": PK}}}
+        with self.assertRaises(ValueError):
+            d1_tables.table_ddl("valuation_basis", drifted)
+
+    def test_a_snapshot_row_packs_its_other_columns_into_extra_and_drops_payload(self):
+        real = d1_tables.real_columns("screener_snapshot")
+        self.assertLessEqual(len(real), d1_tables.D1_MAX_COLUMNS)
+        row = {"market": "NSE", "run_date": "2026-11-13", "symbol": "A", "adx_14": 21.5, "payload": {"big": 1}}
+        packed = d1_tables.to_d1("screener_snapshot", row)
+        self.assertEqual(set(packed) - set(real), set())
+        self.assertEqual(json.loads(packed["extra"]), {"adx_14": 21.5})
+
+
     def test_ddl_keys_types_defaults_and_history_columns(self):
         ddl = d1_tables.table_ddl("valuation_basis", DEFINITIONS["valuation_basis"])
         self.assertIn('PRIMARY KEY ("market", "symbol")', ddl)
@@ -82,13 +99,26 @@ class BackfillTests(unittest.TestCase):
         self.source = [{"market": "NSE", "symbol": f"S{i:04d}", "profit": float(i), "detail": {"q": i},
                         "updated_at": "2026-11-14"} for i in range(1200)]
         self.state = Path(tempfile.mkdtemp()) / "state.json"
+        self.store = d1_tables.FileState(self.state)
 
-    def fetch(self, table, keys, offset):
+    def fetch(self, table, keys, offset, columns=None):
         return self.source[offset:offset + d1_tables.PAGE]
 
-    def run_once(self, ceiling):
+    def run_once(self, ceiling, counts=None):
         session = D1Session(self.execute, max_rows_written=ceiling)
-        return d1_tables.backfill(["valuation_basis"], session, self.state, DEFINITIONS, fetch=self.fetch)
+        return d1_tables.backfill(["valuation_basis"], session, self.store, DEFINITIONS, fetch=self.fetch, counts=counts)
+
+    def test_a_short_copy_is_read_again_from_the_start(self):
+        del self.source[3]  # deleted in Supabase behind the offset: D1 still has it
+        calls = []
+
+        def counts(table):
+            calls.append(table)
+            return (1199, 1199) if len(calls) > 1 else (1199, 1198)
+
+        self.assertEqual(self.run_once(10_000, counts), 0)
+        progress = json.loads(self.state.read_text())["tables"]["valuation_basis"]
+        self.assertEqual((progress["pass"], progress["counts"]), (2, [1199, 1199]))
 
     def test_it_stops_loudly_at_the_ceiling_and_the_day_budget_holds_across_runs(self):
         self.assertEqual(self.run_once(600), 2)
@@ -97,6 +127,13 @@ class BackfillTests(unittest.TestCase):
         self.assertGreaterEqual(written, 600)
         self.assertEqual(self.run_once(600), 2)  # same UTC day: nothing left of the budget
         self.assertEqual(next(iter(json.loads(self.state.read_text())["days"].values())), written)
+
+    def test_progress_kept_in_d1_resumes_on_a_fresh_runner(self):
+        self.store = d1_tables.D1State(self.execute)
+        self.assertEqual(self.run_once(600), 2)
+        self.store = d1_tables.D1State(self.execute)  # the next day's runner: nothing local
+        offset = self.store.load()["tables"]["valuation_basis"]["offset"]
+        self.assertGreater(offset, 0)
 
     def test_it_resumes_and_finishes_and_a_rerun_writes_nothing(self):
         self.assertEqual(self.run_once(10_000), 0)
