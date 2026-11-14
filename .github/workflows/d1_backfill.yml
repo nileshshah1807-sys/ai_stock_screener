@@ -6,8 +6,9 @@ run-name: D1 backfill
 # in cupel-core, so a fresh runner picks it up). See tools/d1_tables.py and
 # docs/d1_migration_plan.md.
 #
-# Dispatch-only: cron-job.org calls it once a day just after 00:00 UTC, when D1's
-# 100,000 rows written a day (per account) resets. Do not add a `schedule:`, it
+# Dispatch-only: meant to be called by a cron-job.org job once a day just after
+# 00:00 UTC, when D1's 100,000 rows written a day (per account) resets; until a
+# human creates that job it is run by hand. Do not add a `schedule:`, it
 # would double every run. A run that reaches the budget stops loudly in its log
 # and summary but stays green; one with nothing left says so and stays green.
 
@@ -38,8 +39,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       D1_ACCOUNT_ID: ${{ vars.D1_ACCOUNT_ID }}
       D1_CORE_ID: ${{ vars.D1_CORE_ID }}
       D1_EVIDENCE_ID: ${{ vars.D1_EVIDENCE_ID }}
@@ -69,6 +68,8 @@ jobs:
       - name: Copy within the day's budget
         env:
           D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TABLES: ${{ inputs.tables || 'all' }}
           ROWS: ${{ inputs.rows_per_day || vars.D1_BACKFILL_ROWS_PER_DAY || '75000' }}
         run: |
@@ -80,7 +81,7 @@ jobs:
             echo "## D1 backfill"
             if [ "$status" = 2 ]; then echo "**Stopped at the day's budget (${ROWS} rows); the next run resumes.**"; fi
             echo '```'
-            grep -E "rows read|rows written today|backfill complete|Stopped at" backfill.log || true
+            grep -E "rows read|: pass |rows written today|backfill complete|Stopped at" backfill.log || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "$status" = 2 ]; then echo "::warning::Stopped at the day's D1 write budget (${ROWS}); resumes next run"; exit 0; fi
@@ -90,6 +91,8 @@ jobs:
         if: always()
         env:
           D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           {
             echo "## Copied / remaining"

@@ -374,15 +374,16 @@ the scheduled workflows set the same flag.
   admin-only whatever the plan. The `cupel-staging` Worker (workers.dev, deployed from the `staging` branch) uses Razorpay TEST keys on the live database: `RAZORPAY_TEST_PLANS` (`lib/plan-overrides.mjs`; ignored when `APP_ENV=production`) swaps in test plan and offer ids at checkout and in the admin view, and every admin action that writes plans or settings is refused outside production (`APP_ENV=production` is set on the production Worker only, never on staging or a preview Worker; unset fails closed). Checkout outside production is refused unless the email is in `PREVIEW_CHECKOUT_EMAILS` (unset = nobody), since staging purchases write to the shared `subscriptions` table. Applied by hand; `billing_schema.sql` revokes and re-grants every column on `subscriptions`, so it grants all of them itself (a test checks) and re-applying it alone is safe.
 - **cron-job.org dispatches workflows with a GitHub token.** Every
   dispatch-only workflow (live quotes, quarterly filings, financial statements,
-  call recordings, Muhurat trading) is started by a cron-job.org job calling
+  call recordings, Muhurat trading, and the D1 backfill once its job is
+  created: daily 00:10 UTC, body `{"ref":"main","inputs":{"tables":"all"}}`) is started by a cron-job.org job calling
   GitHub's `workflow_dispatch` API with a fine-grained token, set as the
-  `Authorization` header of each of the seven jobs. It needs **Actions: Read and
+  `Authorization` header of each job (seven, eight with the D1 backfill). It needs **Actions: Read and
   write** on this repository (Workflows: write is a different permission and
   gives 403), and it has no expiration. A bad or revoked token makes every call
   fail and nothing starts: on 11 Nov 2026 live quotes stopped at 16:20 UTC (401),
   and after the first replacement they stayed down on 403 until the permission
   was fixed. cron-job.org keeps the status code, not the response body; read the
-  history of a job for it. A new token goes into all seven jobs.
+  history of a job for it. A new token goes into every job.
 - **Live prices are display-only, every five minutes during the session.**
   `workers/live_quotes.py` (the Live quotes workflow, dispatch-only:
   cron-job.org calls it every 5 minutes on weekdays; do not add a

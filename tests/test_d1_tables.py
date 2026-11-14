@@ -120,6 +120,21 @@ class BackfillTests(unittest.TestCase):
         progress = json.loads(self.state.read_text())["tables"]["valuation_basis"]
         self.assertEqual((progress["pass"], progress["counts"]), (2, [1199, 1199]))
 
+    def test_a_reread_that_rewrites_unchanged_rows_stops_the_table_not_the_day(self):
+        passes = []
+
+        def counts(table):
+            passes.append(table)
+            for row in self.source:  # as if a column re-serialized differently on the second read
+                row["profit"] += 0.5
+            return (1200, 1190)
+
+        self.assertEqual(self.run_once(10_000, counts), 1)
+        progress = json.loads(self.state.read_text())["tables"]["valuation_basis"]
+        self.assertTrue(progress["stalled"])
+        self.assertEqual((progress["pass"], progress["sent"], progress["written"]), (2, 500, 500))
+        self.assertEqual(len(passes), 1)
+
     def test_it_stops_loudly_at_the_ceiling_and_the_day_budget_holds_across_runs(self):
         self.assertEqual(self.run_once(600), 2)
         state = json.loads(self.state.read_text())

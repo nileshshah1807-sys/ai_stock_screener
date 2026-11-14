@@ -295,6 +295,7 @@ ORDER = (
 #: A table re-read from the start when D1 ends up short of Supabase (a row deleted
 #: before the offset between two days of paging), at most this many times.
 MAX_PASSES = 3
+REPASS_MAX_WRITTEN_SHARE = 0.05  # of the rows a pass 2 or 3 sends
 
 
 def _columns(table: str, definition: dict[str, Any]) -> list[str] | None:
@@ -308,7 +309,8 @@ def _columns(table: str, definition: dict[str, Any]) -> list[str] | None:
 def backfill(
     tables: list[str], session: D1Session, store, definitions: dict[str, Any], fetch=_page, counts=None
 ) -> int:
-    """Copy each table on from where the state left it. 0 when done, 2 at the day's ceiling.
+    """Copy each table on from where the state left it. 0 when done, 2 at the day's ceiling,
+    1 when a re-read rewrote unchanged rows (the table is stopped, not the run).
 
     ``counts(table) -> (supabase, d1)``, when given, checks a finished table: D1
     short of Supabase means a row was skipped, so the table is read again.
@@ -325,6 +327,7 @@ def backfill(
             progress = state["tables"].setdefault(table, {"offset": 0, "done": False})
             while not progress["done"]:
                 rows = [to_d1(table, row) for row in fetch(table, keys, progress["offset"], columns)]
+                before = session.rows_written
                 if rows:
                     session.request(
                         "POST",
@@ -333,18 +336,31 @@ def backfill(
                         headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
                     ).raise_for_status()
                 progress["offset"] += len(rows)
+                progress["sent"] = progress.get("sent", 0) + len(rows)
+                progress["written"] = progress.get("written", 0) + session.rows_written - before
                 progress["done"] = len(rows) < PAGE
-                if progress["done"] and counts is not None:
+                allowed = progress.get("missing", 0) + REPASS_MAX_WRITTEN_SHARE * progress["sent"]
+                if progress.get("pass", 1) > 1 and progress["written"] > allowed:
+                    # A re-read should write only the missing rows; more means a column
+                    # re-serializes differently, and every reread would spend the day on it.
+                    print(f"{table}: pass {progress['pass']} wrote {progress['written']} of {progress['sent']} rows "
+                          "sent, so unchanged rows are being rewritten; stopped, find the column", file=sys.stderr)
+                    progress.update({"done": True, "stalled": True})
+                    status = 1
+                if progress["done"]:
+                    print(f"{table}: pass {progress.get('pass', 1)} sent {progress['sent']}, wrote {progress['written']}")
+                if progress["done"] and counts is not None and not progress.get("stalled"):
                     source, copied = counts(table)
                     progress["counts"] = [source, copied]
                     if copied < source and progress.get("pass", 1) < MAX_PASSES:
-                        progress.update({"offset": 0, "done": False, "pass": progress.get("pass", 1) + 1})
+                        progress.update({"offset": 0, "done": False, "pass": progress.get("pass", 1) + 1,
+                                         "sent": 0, "written": 0, "missing": source - copied})
                 state["days"][day] = already + session.rows_written
                 store.save(state)
             print(f"{table}: {progress['offset']} rows read")
     except WriteCeilingReached as exc:
         print(f"Stopped at the day's write budget ({exc}); resume after 00:00 UTC", file=sys.stderr)
-        status = 2
+        status = status or 2  # a stalled table (1) stays red
     state["days"][day] = already + session.rows_written
     store.save(state)
     print(f"rows written today: {state['days'][day]}")
