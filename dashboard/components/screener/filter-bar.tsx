@@ -2,22 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { SlidersHorizontal, X } from "lucide-react";
+import { ChevronDown, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { SearchInput } from "@/components/filters/live-search";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ELIGIBILITY_CLASSES, RATINGS, STAGES } from "@/lib/types";
 import { useShowRatings } from "@/components/market-provider";
 import { PendingMarker } from "@/components/nav-pending";
 import { RATING_FILTER_KEYS, publicText } from "@/lib/ratings.mjs";
+import { RANGE_GROUPS, formatRange, readRanges, type RangeFilter } from "@/lib/screener-ranges.mjs";
 import { cn } from "@/lib/utils";
 
 const TOGGLES = [
@@ -57,7 +54,7 @@ const FACTOR_TOGGLES = [
   {
     key: "aboveMa200",
     label: "Above 200-day average",
-    hint: "Price at or above its 200-day average. The BUY gate itself allows a 2% tolerance band below it.",
+    hint: "Price at or above its 200-day average.",
   },
 ] as const;
 
@@ -75,15 +72,230 @@ export const LISTINGS = [
   },
 ] as const;
 
+/** Pick-any choices on columns every viewer reads; the server matches any picked value. */
+export const CHOICES = [
+  {
+    key: "board",
+    label: "Board",
+    options: [
+      { value: "main", label: "Mainboard" },
+      { value: "sme", label: "SME" },
+    ],
+  },
+  {
+    key: "liq",
+    label: "Liquidity grade",
+    options: [
+      { value: "Group I - liquid", label: "Liquid" },
+      { value: "Group II - less liquid", label: "Less liquid" },
+      { value: "Group III - illiquid", label: "Illiquid" },
+      { value: "Proxy only", label: "Not graded" },
+    ],
+  },
+  {
+    key: "dcf",
+    label: "Reverse DCF",
+    options: [
+      { value: "Favorable", label: "Favourable" },
+      { value: "Neutral", label: "Neutral" },
+      { value: "Adverse", label: "Adverse" },
+    ],
+  },
+  {
+    key: "guide",
+    label: "Concall guidance",
+    options: [
+      { value: "raised", label: "Raised" },
+      { value: "maintained", label: "Maintained" },
+      { value: "lowered", label: "Lowered" },
+    ],
+  },
+] as const;
+
+type Industries = { sector: string; industries: string[] }[];
+
+const FOCUS = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+/** A pill that toggles one value. Same silhouette everywhere in the panel. */
+function Pill({ active, onClick, children, small = false }: { active: boolean; onClick: () => void; children: React.ReactNode; small?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "tabular inline-flex items-center rounded-full font-medium",
+        small ? "h-6 px-2 text-[11px]" : "h-8 px-3 text-xs",
+        "transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard)",
+        FOCUS,
+        active
+          ? "bg-primary text-primary-foreground"
+          : "bg-(--control) text-muted-foreground hover:bg-(--control-hover) hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** A numeric bound that applies on Enter or when focus leaves; Escape restores it. */
+function BoundInput({
+  value,
+  placeholder,
+  label,
+  onCommit,
+}: {
+  value: number | undefined;
+  placeholder: string;
+  label: string;
+  onCommit: (value: number | undefined) => void;
+}) {
+  const commit = (text: string) => {
+    const trimmed = text.trim();
+    const next = trimmed === "" ? undefined : Number(trimmed);
+    if (next !== undefined && !Number.isFinite(next)) return;
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <Input
+      // Keyed on the URL's value, so a preset or a chip removal shows here at once.
+      key={String(value ?? "")}
+      type="number"
+      inputMode="decimal"
+      step="any"
+      defaultValue={value ?? ""}
+      placeholder={placeholder}
+      aria-label={label}
+      className="tabular h-8 min-w-0 px-2.5 text-sm"
+      onBlur={(event) => commit(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") commit(event.currentTarget.value);
+        if (event.key === "Escape") event.currentTarget.value = String(value ?? "");
+      }}
+    />
+  );
+}
+
+function RangeRow({
+  range,
+  value,
+  unit,
+  onChange,
+}: {
+  range: RangeFilter;
+  value: { min?: number; max?: number } | undefined;
+  unit: string;
+  onChange: (next: { min?: number; max?: number }) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className={cn("text-sm", value ? "font-medium" : "text-foreground/85")}>{range.label}</span>
+        {value ? (
+          <button
+            type="button"
+            onClick={() => onChange({})}
+            className={cn("rounded text-[11px] text-muted-foreground hover:text-foreground", FOCUS)}
+            aria-label={`Reset ${range.label}`}
+          >
+            Reset
+          </button>
+        ) : null}
+      </div>
+      <div className="grid grid-cols-[1fr_auto_1fr_2.75rem] items-center gap-1.5">
+        <BoundInput value={value?.min} placeholder="Min" label={`${range.label}, minimum`} onCommit={(min) => onChange({ ...value, min })} />
+        <span className="text-xs text-muted-foreground" aria-hidden>
+          to
+        </span>
+        <BoundInput value={value?.max} placeholder="Max" label={`${range.label}, maximum`} onCommit={(max) => onChange({ ...value, max })} />
+        <span className="truncate text-xs text-muted-foreground">{unit}</span>
+      </div>
+      {range.presets?.length ? (
+        <div className="flex flex-wrap gap-1">
+          {range.presets.map((preset) => {
+            const on = value?.min === preset.min && value?.max === preset.max;
+            return (
+              <Pill key={preset.label} small active={on} onClick={() => onChange(on ? {} : { min: preset.min, max: preset.max })}>
+                {preset.label}
+              </Pill>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A collapsible group of filters, with how many of them are on. */
+function Section({
+  title,
+  count,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="border-b border-border/70 last:border-b-0">
+      <h3>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className={cn("flex w-full items-center gap-2 rounded py-3 text-left text-sm font-semibold", FOCUS)}
+        >
+          <span className="flex-1">{title}</span>
+          {count ? (
+            <span className="tabular rounded-full bg-primary/15 px-1.5 text-[11px] font-semibold text-primary">{count}</span>
+          ) : null}
+          <ChevronDown
+            className={cn("size-4 text-muted-foreground transition-transform duration-(--duration-fast)", open && "rotate-180")}
+            aria-hidden
+          />
+        </button>
+      </h3>
+      {open ? <div className="space-y-4 pb-4">{children}</div> : null}
+    </section>
+  );
+}
+
+function FlagRow({ id, label, hint, checked, onChange }: { id: string; label: string; hint: string; checked: boolean; onChange: () => void }) {
+  return (
+    <div className="flex items-start gap-2">
+      <Checkbox id={id} checked={checked} onCheckedChange={onChange} className="mt-0.5" />
+      <div className="min-w-0">
+        <Label htmlFor={id} className="cursor-pointer text-sm font-normal">
+          {label}
+        </Label>
+        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{hint}</p>
+      </div>
+    </div>
+  );
+}
+
+const matches = (needle: string, ...haystack: string[]) =>
+  !needle || haystack.some((text) => text.toLowerCase().includes(needle));
+
 export function FilterBar({
   sectors,
+  industries = [],
   factorModel = false,
   exchanges = false,
+  sizeSuffix = "Cr",
 }: {
   sectors: string[];
+  /** Each sector's industries in this run. */
+  industries?: Industries;
   factorModel?: boolean;
   /** Show the exchange choice: the run carries companies listed on BSE alone. */
   exchanges?: boolean;
+  /** The market's size unit: "Cr" in India, "M" in the US. */
+  sizeSuffix?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -96,15 +308,14 @@ export function FilterBar({
   );
 
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
+  const [find, setFind] = useState("");
+  const [industryFind, setIndustryFind] = useState("");
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
 
-  const activeRatings = useMemo(
-    () => searchParams.getAll("rating"),
-    [searchParams],
-  );
-  const activeSectors = useMemo(
-    () => searchParams.getAll("sector"),
-    [searchParams],
-  );
+  const activeRatings = useMemo(() => searchParams.getAll("rating"), [searchParams]);
+  const activeSectors = useMemo(() => searchParams.getAll("sector"), [searchParams]);
+  const activeIndustries = useMemo(() => searchParams.getAll("industry"), [searchParams]);
+  const ranges = useMemo(() => readRanges((key) => searchParams.get(key)), [searchParams]);
 
   const push = useCallback(
     (mutate: (params: URLSearchParams) => void) => {
@@ -156,9 +367,7 @@ export function FilterBar({
     push((params) => {
       const existing = params.getAll(key);
       params.delete(key);
-      const next = existing.includes(value)
-        ? existing.filter((item) => item !== value)
-        : [...existing, value];
+      const next = existing.includes(value) ? existing.filter((item) => item !== value) : [...existing, value];
       next.forEach((item) => params.append(key, item));
     });
   };
@@ -170,27 +379,66 @@ export function FilterBar({
     });
   };
 
+  const setRange = (range: RangeFilter, next: { min?: number; max?: number }) => {
+    push((params) => {
+      // The old single-bound key gives way to the range key on any edit.
+      if (range.legacyMin) params.delete(range.legacyMin);
+      const text = formatRange(next);
+      if (text) params.set(range.key, text);
+      else params.delete(range.key);
+    });
+  };
+
+  const on = (key: string) => searchParams.get(key) === "1";
+  const choiceCount = CHOICES.reduce((sum, choice) => sum + searchParams.getAll(choice.key).length, 0);
+  const stageCount = searchParams.getAll("stage").length + FACTOR_TOGGLES.filter((toggle) => on(toggle.key)).length;
+  const evidenceCount =
+    choiceCount +
+    searchParams.getAll("listing").length +
+    searchParams.getAll("eligibility").length +
+    toggles.filter((toggle) => on(toggle.key)).length;
+  // Counted whether or not this run offers the control, so a shared URL
+  // carrying one still shows an accurate badge.
   const activeFilterCount =
     activeRatings.length +
     activeSectors.length +
-    toggles.filter((toggle) => searchParams.get(toggle.key) === "1").length +
-    (searchParams.get("minScore") ? 1 : 0) +
-    // Factor filters are only reachable when the run used the factor model,
-    // but count them unconditionally so a shared URL carrying one still shows
-    // an accurate badge.
-    FACTOR_TOGGLES.filter((toggle) => searchParams.get(toggle.key) === "1")
-      .length +
-    searchParams.getAll("eligibility").length +
-    (searchParams.get("minQuality") ? 1 : 0) +
-    (searchParams.get("minMomentum") ? 1 : 0) +
-    searchParams.getAll("stage").length +
-    searchParams.getAll("listing").length +
-    (searchParams.get("minRs") ? 1 : 0);
+    activeIndustries.length +
+    Object.keys(ranges).length +
+    stageCount +
+    evidenceCount;
 
   const clearAll = () => {
     setQuery("");
     startTransition(() => router.push(pathname, { scroll: false }));
   };
+
+  // While finding a filter every group with a match is open; otherwise a group
+  // is open when the viewer opened it, or when it holds an active filter.
+  const needle = find.trim().toLowerCase();
+  const isOpen = (id: string, active: number, byDefault = false) =>
+    needle ? true : (opened[id] ?? (active > 0 || byDefault));
+  const flip = (id: string, current: boolean) => setOpened((state) => ({ ...state, [id]: !current }));
+
+  const industryNeedle = industryFind.trim().toLowerCase();
+  const sectorIndustries = (activeSectors.length ? industries.filter((entry) => activeSectors.includes(entry.sector)) : industries)
+    .map((entry) => ({ ...entry, industries: entry.industries.filter((industry) => matches(industryNeedle, industry)) }))
+    .filter((entry) => entry.industries.length);
+
+  // What each section shows for the current "find a filter" text.
+  const showRatingSection = showRatings && matches(needle, "rating", ...RATINGS);
+  const showSectorSection =
+    sectors.length > 0 && matches(needle, "sector", "industry", ...sectors, ...industries.flatMap((entry) => entry.industries));
+  const groups = RANGE_GROUPS.map((group) => ({
+    ...group,
+    ranges: group.ranges.filter((range) => (factorModel || !range.factor) && matches(needle, range.label, group.label)),
+  })).filter((group) => group.ranges.length);
+  const showStage = factorModel && matches(needle, "stage", "trend", "200-day average", ...STAGES.map((item) => item.value));
+  const shownChoices = CHOICES.filter((choice) => matches(needle, choice.label, ...choice.options.map((option) => option.label)));
+  const shownToggles = toggles.filter((toggle) => matches(needle, toggle.label));
+  const showListing = exchanges && matches(needle, "exchange", "listed", "nse", "bse");
+  const showEligibility = showRatings && factorModel && matches(needle, "eligibility");
+  const showEvidence = shownChoices.length > 0 || shownToggles.length > 0 || showListing || showEligibility;
+  const nothingShown = !showRatingSection && !showSectorSection && !groups.length && !showStage && !showEvidence;
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -207,52 +455,24 @@ export function FilterBar({
       />
       <PendingMarker pending={pending} />
 
-      {/* Rating is the highest-traffic filter, so it stays visible rather than
-          hiding behind the popover -- from `sm` up. On a phone five chips cost
-          two full rows above the grid, so they move to the top of the Filters
-          panel instead, and the trigger's badge still counts them. */}
-      {showRatings ? <div
-        className="hidden flex-wrap items-center gap-1 sm:flex"
-        role="group"
-        aria-label="Filter by rating"
-      >
-        {RATINGS.map((rating) => {
-          const active = activeRatings.includes(rating);
-          return (
-            <button
-              key={rating}
-              type="button"
-              onClick={() => toggleValue("rating", rating)}
-              aria-pressed={active}
-              // h-9 and rounded-full so these sit on the same baseline and
-              // share the same silhouette as every other control in the row.
-              // Previously they had no height at all and a rounded-md corner,
-              // which left them visibly shorter and squarer than the search
-              // field and buttons either side of them.
-              className={cn(
-                "inline-flex h-9 items-center rounded-full border px-3.5 text-[11px] font-semibold uppercase tracking-wide",
-                "transition-colors duration-(--duration-fast) ease-(--ease-standard)",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                active
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground",
-              )}
-            >
+      {/* Rating is admin-only (lib/ratings.mjs); from `sm` up its chips sit in the bar. */}
+      {showRatings ? (
+        <div className="hidden flex-wrap items-center gap-1 sm:flex" role="group" aria-label="Filter by rating">
+          {RATINGS.map((rating) => (
+            <Pill key={rating} active={activeRatings.includes(rating)} onClick={() => toggleValue("rating", rating)}>
               {rating}
-            </button>
-          );
-        })}
-      </div> : null}
+            </Pill>
+          ))}
+        </div>
+      ) : null}
 
-      <Popover>
-        <PopoverTrigger
+      <Sheet>
+        <SheetTrigger
           render={
             <Button
               variant="outline"
               className="relative gap-1.5 max-sm:size-9 max-sm:px-0"
-              aria-label={
-                activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"
-              }
+              aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"}
             />
           }
         >
@@ -263,291 +483,239 @@ export function FilterBar({
               {activeFilterCount}
             </span>
           ) : null}
-        </PopoverTrigger>
+        </SheetTrigger>
 
-        {/* Full width on a phone and scrollable within the viewport, so every
-            filter is reachable without the panel running off screen. */}
-        <PopoverContent
-          align="end"
-          className="max-h-(--available-height) w-[min(20rem,calc(100vw-2rem))] overflow-y-auto"
+        <SheetContent
+          side="right"
+          className="gap-0 p-0 data-[side=right]:w-[calc(100%-1rem)] data-[side=right]:sm:max-w-md"
         >
-          <div className="space-y-4">
-            <div className="flex items-center justify-between sm:hidden">
-              <p className="text-sm font-semibold">Filters</p>
+          <header className="space-y-3 border-b border-border/70 px-5 pt-4 pb-3">
+            <div className="flex min-h-8 items-center gap-2 pr-9">
+              <SheetTitle className="text-base font-semibold">Filters</SheetTitle>
+              {activeFilterCount ? (
+                <span className="tabular rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">
+                  {activeFilterCount}
+                </span>
+              ) : null}
+              <span className="flex-1" />
               {activeFilterCount || query ? (
-                <Button variant="ghost" size="sm" className="-mr-1.5 gap-1" onClick={clearAll}>
+                <Button variant="ghost" size="sm" className="gap-1" onClick={clearAll}>
                   <X className="size-3.5" aria-hidden />
                   Clear all
                 </Button>
               ) : null}
             </div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <Input
+                type="search"
+                value={find}
+                onChange={(event) => setFind(event.target.value)}
+                placeholder="Find a filter: P/E, ROE, industry…"
+                aria-label="Find a filter"
+                className="h-9 pl-8 text-sm"
+              />
+            </div>
+          </header>
 
-            {showRatings ? <fieldset className="space-y-2 sm:hidden">
-              <legend className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Rating
-              </legend>
-              <div className="flex flex-wrap gap-1.5">
-                {RATINGS.map((rating) => {
-                  const active = activeRatings.includes(rating);
-                  return (
-                    <button
-                      key={rating}
-                      type="button"
-                      onClick={() => toggleValue("rating", rating)}
-                      aria-pressed={active}
-                      className={cn(
-                        "inline-flex h-9 items-center rounded-full px-3.5 text-[11px] font-semibold uppercase tracking-wide",
-                        "transition-[background-color,color,transform] duration-(--duration-spring-bouncy) ease-(--ease-spring)",
-                        "active:scale-[0.95] active:duration-(--duration-press) active:ease-out",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        active
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-(--control) text-muted-foreground hover:bg-(--control-hover) hover:text-foreground",
-                      )}
-                    >
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5">
+            {showRatingSection ? (
+              <Section title="Rating" count={activeRatings.length} open={isOpen("rating", activeRatings.length)} onToggle={() => flip("rating", isOpen("rating", activeRatings.length))}>
+                <div className="flex flex-wrap gap-1.5">
+                  {RATINGS.map((rating) => (
+                    <Pill key={rating} active={activeRatings.includes(rating)} onClick={() => toggleValue("rating", rating)}>
                       {rating}
-                    </button>
+                    </Pill>
+                  ))}
+                </div>
+              </Section>
+            ) : null}
+
+            {showSectorSection
+              ? (() => {
+                  const count = activeSectors.length + activeIndustries.length;
+                  const open = isOpen("sector", count, true);
+                  return (
+                    <Section title="Sector and industry" count={count} open={open} onToggle={() => flip("sector", open)}>
+                      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Sector">
+                        {sectors.map((sector) => (
+                          <Pill key={sector} active={activeSectors.includes(sector)} onClick={() => toggleValue("sector", sector)}>
+                            {sector}
+                          </Pill>
+                        ))}
+                      </div>
+                      {industries.length ? (
+                        <div className="space-y-2">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-sm">Industry</span>
+                            <span className="text-[11px] text-muted-foreground">
+                              {activeSectors.length ? "Within the sectors picked" : "Every sector"}
+                            </span>
+                          </div>
+                          <Input
+                            type="search"
+                            value={industryFind}
+                            onChange={(event) => setIndustryFind(event.target.value)}
+                            placeholder="Search industries…"
+                            aria-label="Search industries"
+                            className="h-8 text-sm"
+                          />
+                          <div className="max-h-64 space-y-3 overflow-y-auto overscroll-contain rounded-md bg-(--control) p-2.5">
+                            {sectorIndustries.length ? (
+                              sectorIndustries.map((entry) => (
+                                <div key={entry.sector} className="space-y-1.5" role="group" aria-label={`${entry.sector} industries`}>
+                                  <p className="text-[11px] font-medium text-muted-foreground">{entry.sector}</p>
+                                  {entry.industries.map((industry) => {
+                                    const id = `industry-${entry.sector}-${industry}`;
+                                    return (
+                                      <div key={industry} className="flex items-center gap-2">
+                                        <Checkbox
+                                          id={id}
+                                          checked={activeIndustries.includes(industry)}
+                                          onCheckedChange={() => toggleValue("industry", industry)}
+                                        />
+                                        <Label htmlFor={id} className="cursor-pointer text-sm font-normal">
+                                          {industry}
+                                        </Label>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ))
+                            ) : (
+                              <p className="py-2 text-center text-xs text-muted-foreground">No industry matches “{industryFind}”.</p>
+                            )}
+                          </div>
+                        </div>
+                      ) : null}
+                    </Section>
                   );
-                })}
-              </div>
-            </fieldset> : null}
+                })()
+              : null}
 
-            {exchanges ? (
-              <fieldset className="space-y-2">
-                <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Exchange
-                </legend>
-                {LISTINGS.map((item) => (
-                  <div key={item.value} className="flex items-start gap-2">
-                    <Checkbox
-                      id={`listing-${item.value}`}
-                      checked={searchParams.getAll("listing").includes(item.value)}
-                      onCheckedChange={() => toggleValue("listing", item.value)}
-                      className="mt-0.5"
+            {groups.map((group) => {
+              const count = group.ranges.filter((range) => ranges[range.key]).length;
+              const open = isOpen(group.id, count, group.id === "size");
+              return (
+                <Section key={group.id} title={group.label} count={count} open={open} onToggle={() => flip(group.id, open)}>
+                  {group.ranges.map((range) => (
+                    <RangeRow
+                      key={range.key}
+                      range={range}
+                      value={ranges[range.key]}
+                      unit={range.size ? sizeSuffix : range.unit === "P" ? "pctl" : range.unit}
+                      onChange={(next) => setRange(range, next)}
                     />
-                    <div className="min-w-0">
-                      <Label
-                        htmlFor={`listing-${item.value}`}
-                        className="cursor-pointer text-sm font-normal"
-                      >
-                        {item.label}
-                      </Label>
-                      <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                        {item.hint}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </fieldset>
-            ) : null}
-
-            <fieldset className="space-y-2">
-              <legend className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Evidence and execution
-              </legend>
-              {toggles.map((toggle) => (
-                <div key={toggle.key} className="flex items-start gap-2">
-                  <Checkbox
-                    id={toggle.key}
-                    checked={searchParams.get(toggle.key) === "1"}
-                    onCheckedChange={() => toggleFlag(toggle.key)}
-                    className="mt-0.5"
-                  />
-                  <div className="min-w-0">
-                    <Label
-                      htmlFor={toggle.key}
-                      className="cursor-pointer text-sm font-normal"
-                    >
-                      {toggle.label}
-                    </Label>
-                    <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                      {publicText(showRatings, toggle.hint)}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </fieldset>
-
-            {factorModel ? (
-              <>
-                <fieldset className="space-y-1.5">
-                  <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Factor percentiles
-                  </legend>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={1}
-                      inputMode="numeric"
-                      defaultValue={searchParams.get("minQuality") ?? ""}
-                      placeholder="Quality ≥"
-                      aria-label="Minimum quality percentile"
-                      className="tabular h-9"
-                      onBlur={(event) => {
-                        const value = event.target.value.trim();
-                        push((params) => {
-                          if (value) params.set("minQuality", value);
-                          else params.delete("minQuality");
-                        });
-                      }}
-                    />
-                    <Input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step={1}
-                      inputMode="numeric"
-                      defaultValue={searchParams.get("minMomentum") ?? ""}
-                      placeholder="Momentum ≥"
-                      aria-label="Minimum momentum percentile"
-                      className="tabular h-9"
-                      onBlur={(event) => {
-                        const value = event.target.value.trim();
-                        push((params) => {
-                          if (value) params.set("minMomentum", value);
-                          else params.delete("minMomentum");
-                        });
-                      }}
-                    />
-                  </div>
-                  <p className="text-[11px] leading-snug text-muted-foreground">
-                    {publicText(
-                      showRatings,
-                      "Rank within the cross-section. BUY needs quality 40; STRONG BUY needs quality 70, growth 60 and momentum 70.",
-                    )}
-                  </p>
-                </fieldset>
-
-                {showRatings ? <fieldset className="space-y-1.5">
-                  <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Eligibility
-                  </legend>
-                  {ELIGIBILITY_CLASSES.map((item) => (
-                    <div key={item.value} className="flex items-start gap-2">
-                      <Checkbox
-                        id={`eligibility-${item.value}`}
-                        checked={searchParams
-                          .getAll("eligibility")
-                          .includes(String(item.value))}
-                        onCheckedChange={() =>
-                          toggleValue("eligibility", String(item.value))
-                        }
-                      />
-                      <Label
-                        htmlFor={`eligibility-${item.value}`}
-                        className="cursor-pointer text-xs font-normal leading-snug"
-                      >
-                        {item.label}
-                      </Label>
-                    </div>
                   ))}
-                </fieldset> : null}
+                </Section>
+              );
+            })}
 
-                <fieldset className="space-y-1.5">
-                  <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Stage and relative strength
-                  </legend>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                    {STAGES.map((item) => (
-                      <div key={item.value} className="flex items-center gap-2">
-                        <Checkbox
-                          id={`stage-${item.value}`}
-                          checked={searchParams
-                            .getAll("stage")
-                            .includes(item.value)}
-                          onCheckedChange={() =>
-                            toggleValue("stage", item.value)
-                          }
+            {showStage
+              ? (() => {
+                  const open = isOpen("stage", stageCount);
+                  return (
+                    <Section title="Stage and trend" count={stageCount} open={open} onToggle={() => flip("stage", open)}>
+                      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Stage">
+                        {STAGES.map((item) => (
+                          <Pill key={item.value} active={searchParams.getAll("stage").includes(item.value)} onClick={() => toggleValue("stage", item.value)}>
+                            <span title={item.meaning}>{item.value}</span>
+                          </Pill>
+                        ))}
+                      </div>
+                      {FACTOR_TOGGLES.map((toggle) => (
+                        <FlagRow
+                          key={toggle.key}
+                          id={toggle.key}
+                          label={toggle.label}
+                          hint={publicText(showRatings, toggle.hint)}
+                          checked={on(toggle.key)}
+                          onChange={() => toggleFlag(toggle.key)}
                         />
-                        <Label
-                          htmlFor={`stage-${item.value}`}
-                          className="cursor-pointer text-xs font-normal"
-                          title={item.meaning}
-                        >
-                          {item.value}
-                        </Label>
-                      </div>
-                    ))}
-                  </div>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={99}
-                    step={1}
-                    inputMode="numeric"
-                    defaultValue={searchParams.get("minRs") ?? ""}
-                    placeholder="RS rating ≥"
-                    aria-label="Minimum RS rating"
-                    className="tabular h-9"
-                    onBlur={(event) => {
-                      const value = event.target.value.trim();
-                      push((params) => {
-                        if (value) params.set("minRs", value);
-                        else params.delete("minRs");
-                      });
-                    }}
-                  />
-                  <p className="text-[11px] leading-snug text-muted-foreground">
-                    Display evidence: stage and RS never change a score or
-                    rating. S2 Candidate is a Stage 2 structure pulled back
-                    under its 50-day average.
-                  </p>
-                </fieldset>
+                      ))}
+                      <p className="text-[11px] leading-snug text-muted-foreground">
+                        Stage and RS are context: they never change a factor score. S2 Candidate is a Stage 2
+                        structure pulled back under its 50-day average.
+                      </p>
+                    </Section>
+                  );
+                })()
+              : null}
 
-                <fieldset className="space-y-1.5">
-                  {FACTOR_TOGGLES.map((toggle) => (
-                    <div key={toggle.key} className="flex items-start gap-2">
-                      <Checkbox
-                        id={toggle.key}
-                        checked={searchParams.get(toggle.key) === "1"}
-                        onCheckedChange={() => toggleFlag(toggle.key)}
-                      />
-                      <div className="space-y-0.5">
-                        <Label
-                          htmlFor={toggle.key}
-                          className="cursor-pointer text-xs font-normal leading-snug"
-                        >
-                          {toggle.label}
-                        </Label>
-                        <p className="text-[11px] leading-snug text-muted-foreground">
-                          {publicText(showRatings, toggle.hint)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </fieldset>
-              </>
-            ) : null}
+            {showEvidence
+              ? (() => {
+                  const open = isOpen("evidence", evidenceCount);
+                  return (
+                    <Section title="Listing and evidence" count={evidenceCount} open={open} onToggle={() => flip("evidence", open)}>
+                      {showListing ? (
+                        <div className="space-y-1.5">
+                          <span className="text-sm">Exchange</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {LISTINGS.map((item) => (
+                              <Pill key={item.value} active={searchParams.getAll("listing").includes(item.value)} onClick={() => toggleValue("listing", item.value)}>
+                                {item.label}
+                              </Pill>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {shownChoices.map((choice) => (
+                        <div key={choice.key} className="space-y-1.5">
+                          <span className="text-sm">{choice.label}</span>
+                          <div className="flex flex-wrap gap-1.5" role="group" aria-label={choice.label}>
+                            {choice.options.map((option) => (
+                              <Pill key={option.value} active={searchParams.getAll(choice.key).includes(option.value)} onClick={() => toggleValue(choice.key, option.value)}>
+                                {option.label}
+                              </Pill>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                      {shownToggles.map((toggle) => (
+                        <FlagRow
+                          key={toggle.key}
+                          id={toggle.key}
+                          label={toggle.label}
+                          hint={publicText(showRatings, toggle.hint)}
+                          checked={on(toggle.key)}
+                          onChange={() => toggleFlag(toggle.key)}
+                        />
+                      ))}
+                      {showEligibility ? (
+                        <div className="space-y-1.5">
+                          <span className="text-sm">Eligibility</span>
+                          {ELIGIBILITY_CLASSES.map((item) => (
+                            <div key={item.value} className="flex items-start gap-2">
+                              <Checkbox
+                                id={`eligibility-${item.value}`}
+                                checked={searchParams.getAll("eligibility").includes(String(item.value))}
+                                onCheckedChange={() => toggleValue("eligibility", String(item.value))}
+                              />
+                              <Label htmlFor={`eligibility-${item.value}`} className="cursor-pointer text-xs leading-snug font-normal">
+                                {item.label}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </Section>
+                  );
+                })()
+              : null}
 
-            {sectors.length ? (
-              <fieldset>
-                <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Sector
-                </legend>
-                <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
-                  {sectors.map((sector) => (
-                    <div key={sector} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`sector-${sector}`}
-                        checked={activeSectors.includes(sector)}
-                        onCheckedChange={() => toggleValue("sector", sector)}
-                      />
-                      <Label
-                        htmlFor={`sector-${sector}`}
-                        className="cursor-pointer text-sm font-normal"
-                      >
-                        {sector}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </fieldset>
+            {nothingShown ? (
+              <p className="py-10 text-center text-sm text-muted-foreground">No filter matches “{find}”.</p>
             ) : null}
           </div>
-        </PopoverContent>
-      </Popover>
+
+          <footer className="flex items-center gap-3 border-t border-border/70 px-5 py-3">
+            <p className="flex-1 text-xs text-muted-foreground" aria-live="polite">
+              {pending ? "Updating the list…" : "Each change applies as you make it."}
+            </p>
+            <SheetClose render={<Button size="sm" />}>Show results</SheetClose>
+          </footer>
+        </SheetContent>
+      </Sheet>
 
       {activeFilterCount || query ? (
         <Button variant="ghost" className="hidden gap-1 sm:inline-flex" onClick={clearAll}>
