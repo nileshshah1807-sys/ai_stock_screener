@@ -10,23 +10,31 @@ import { PendingMarker } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
 import { EQUAL_START, POINT_FACTORS, SCORE_FACTORS, formatWeights, parseWeights } from "@/lib/custom-score.mjs";
 
+const byKey = (key: string) => [...SCORE_FACTORS, ...POINT_FACTORS].find((factor) => factor.key === key);
+
 /**
  * "Build your score": the viewer weights the measures they can see and the
  * grid ranks by their mix (lib/custom-score.mjs). It starts from an equal
  * split and offers no other preset, so the order is always the viewer's.
  */
-export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
+export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; concalls: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const active = parseWeights(searchParams.get("w"));
-  const [weights, setWeights] = useState<Record<string, number>>(() => ({ ...EQUAL_START, ...(active ?? {}) }));
+  // A market with no calls (US) offers no call measure: there is nothing to weight.
+  const offered = (factor?: { concall?: boolean }) => concalls || !factor?.concall;
+  const factors = SCORE_FACTORS.filter(offered);
+  const points = POINT_FACTORS.filter(offered);
+  const [weights, setWeights] = useState<Record<string, number>>(() =>
+    Object.fromEntries(Object.entries({ ...EQUAL_START, ...(active ?? {}) }).filter(([key]) => offered(byKey(key)))),
+  );
 
   // Percentiles exist only on a factor-model run; there is nothing to weight otherwise.
   if (!factorModel) return null;
 
-  const total = SCORE_FACTORS.reduce((sum, factor) => sum + (weights[factor.key] ?? 0), 0);
+  const total = factors.reduce((sum, factor) => sum + (weights[factor.key] ?? 0), 0);
 
   const push = (mutate: (params: URLSearchParams) => void) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -81,7 +89,7 @@ export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
               </p>
             </div>
             <div className="space-y-3">
-              {SCORE_FACTORS.map((factor) => {
+              {factors.map((factor) => {
                 const value = weights[factor.key] ?? 0;
                 const id = `weight-${factor.key}`;
                 return (
@@ -115,7 +123,7 @@ export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
               </p>
             </div>
             <div className="space-y-3 border-t pt-3">
-              {POINT_FACTORS.map((factor) => {
+              {points.map((factor) => {
                 const value = weights[factor.key] ?? 0;
                 const id = `points-${factor.key}`;
                 return (
@@ -142,9 +150,10 @@ export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
             </div>
             <p className="text-[11px] leading-snug text-muted-foreground">
               A total other than 100% is scaled, so each weight counts as its share of the total. A measure a stock lacks counts as 50, never as zero.
-              Valuation points: the multiple times the valuation score&rsquo;s distance from 50. Concall points:
-              the multiple times how far a call in the last 180 days sits from the market&rsquo;s median call
-              (85% outlook, 15% tone), fading by half every 90 days.
+              Valuation points: the multiple times the valuation score&rsquo;s distance from 50.
+              {concalls
+                ? " Concall points: the multiple times how far a call in the last 180 days sits from the market\u2019s median call (85% outlook, 15% tone), fading by half every 90 days."
+                : null}
             </p>
             <div className="flex items-center justify-between gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={clear} disabled={!active}>

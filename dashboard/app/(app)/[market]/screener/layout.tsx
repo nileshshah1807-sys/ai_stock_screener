@@ -93,7 +93,7 @@ export default async function ScreenerLayout({
           <div className="flex-1">
             <FilterBar sectors={sectors} industries={industries} factorModel={factorModel} exchanges={bseOnly > 0} sizeSuffix={market.code === "US" ? "M" : "Cr"} />
           </div>
-          <ScoreBuilder factorModel={factorModel} />
+          <ScoreBuilder factorModel={factorModel} concalls={market.nseEvidence} />
           <ViewOptions factorModel={factorModel} />
           <StockSearch />
           <ExportLink />

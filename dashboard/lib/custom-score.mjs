@@ -12,7 +12,7 @@ export const SCORE_FACTORS = [
   { key: "r", column: "risk_score", label: "Risk" },
   { key: "rs", column: "rs_rating", label: "RS rating" },
   // The call's word-list tone; the outlook enters only as points (CONCALL below).
-  { key: "t", column: "transcript_score", label: "Concall tone" },
+  { key: "t", column: "transcript_score", label: "Concall tone", concall: true },
 ];
 
 /**
@@ -21,7 +21,7 @@ export const SCORE_FACTORS = [
  */
 export const POINT_FACTORS = [
   { key: "d", label: "Valuation points (vs 50)" },
-  { key: "c", label: "Concall points (vs median)" },
+  { key: "c", label: "Concall points (vs median)", concall: true },
 ];
 
 /** Every column scoreRun reads besides the outlook. */
