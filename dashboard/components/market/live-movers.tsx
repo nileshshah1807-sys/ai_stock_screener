@@ -448,12 +448,10 @@ function MoverColumn({
 }
 
 function MoverRow({ market, row }: { market: Market; row: LiveMover }) {
-  // The rank is shown to nobody (lib/ratings.mjs).
   return (
     <StockListRow
       symbol={row.symbol}
       company={row.company}
-      rank={null}
       // An index member the screener does not rate has no stock page to open.
       linked={row.investment_rank !== null}
     >

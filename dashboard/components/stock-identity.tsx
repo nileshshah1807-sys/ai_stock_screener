@@ -127,10 +127,9 @@ export function StockIdentity({
 }
 
 /**
- * A stock as one line of a list: rank, identity, then whatever the list adds
+ * A stock as one line of a list: identity, then whatever the list adds
  * -- price, change, rating. The whole line opens the stock page.
  *
- * `rank` left `undefined` comes from the directory, like the company and logo.
  * `linked={false}` for a stock with no page (an index member the run does not
  * rate).
  */
@@ -138,38 +137,19 @@ export function StockListRow({
   symbol,
   company,
   logoDomain,
-  rank,
   linked = true,
   children,
 }: {
   symbol: string;
   company?: string | null;
   logoDomain?: string | null;
-  rank?: number | null;
   linked?: boolean;
   children?: ReactNode;
 }) {
-  const market = useMarket();
-  const entry = useStockEntry(market.slug, symbol, rank === undefined);
   const href = useStockHref(symbol);
-  const shownRank = rank !== undefined ? rank : (entry?.r ?? null);
 
   const content = (
     <>
-      {/* "#" so the figure reads as the screener's rank, not a code. */}
-      <span
-        className="tabular w-10 shrink-0 font-mono text-xs text-muted-foreground"
-        title={shownRank !== null ? "Screener rank" : "Not rated by the screener"}
-      >
-        {shownRank !== null ? (
-          <>
-            <span aria-hidden>#{shownRank}</span>
-            <span className="sr-only">Rank {shownRank}</span>
-          </>
-        ) : (
-          MISSING
-        )}
-      </span>
       <StockIdentity
         symbol={symbol}
         company={company}
