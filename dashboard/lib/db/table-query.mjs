@@ -286,7 +286,8 @@ const compare = (a, b) => (a === b ? 0 : a < b ? -1 : 1);
 function matches(node, row) {
   if (node.op === "and") return node.nodes.every((child) => matches(child, row));
   if (node.op === "or") return node.nodes.some((child) => matches(child, row));
-  if (node.op === "not") return !matches(node.node, row);
+  // As SQL: NOT of a comparison with a null column is unknown, so the row is dropped.
+  if (node.op === "not") return node.node.column && node.node.op !== "is" && (row[node.node.column] ?? null) === null ? false : !matches(node.node, row);
   const value = row[node.column] ?? null;
   if (node.op === "is") return node.value === null ? value === null : value === node.value;
   if (value === null) return false;
@@ -337,13 +338,14 @@ function filterColumns(node) {
  * @param {object} plan
  * @param {string[]} real
  */
-export function splitExtra(plan, real) {
+export function splitExtra(plan, real, hidden = () => false) {
   const isReal = new Set(real);
   const loose = [...plan.filters.flatMap(filterColumns), ...plan.orders.map((o) => o.column)].filter((c) => !isReal.has(c));
   if (loose.length) throw new UnsupportedQuery(`filter or sort on ${loose.join(", ")}: not a column in D1, only a key of "${EXTRA}"`);
   if (plan.columns.trim() === "*") return { plan: { ...plan, columns: [...real, EXTRA].join(",") }, picks: null };
   const items = parseSelect(plan.columns);
-  const picks = new Map(items.filter((item) => !isReal.has(item.column)).map((item) => [item.name, item.column]));
+  // A hidden key is never picked, under any name: redaction reads output names, so "x:investment_rating" would pass it.
+  const picks = new Map(items.filter((item) => !isReal.has(item.column)).map((item) => [item.name, hidden(item.column) ? null : item.column]));
   const kept = items
     .filter((item) => isReal.has(item.column))
     .map(({ name: as, column, path }) => (as === column && !path.length ? column : `${as}:${[column, ...path].join("->")}`));
@@ -362,7 +364,7 @@ export function mergeExtra(row, picks) {
     }
   }
   if (!picks) return { ...extra, ...out };
-  for (const [as, key] of picks) out[as] = extra[key] ?? null;
+  for (const [as, key] of picks) out[as] = key === null ? null : (extra[key] ?? null);
   return out;
 }
 

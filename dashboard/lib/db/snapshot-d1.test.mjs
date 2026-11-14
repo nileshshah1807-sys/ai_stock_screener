@@ -30,7 +30,7 @@ function database() {
 /** The repository's executor, minus the bindings: split, compile with the gated hide, read rows. */
 const reader = (db, admin) => () =>
   new TableQuery(async (plan) => {
-    const split = splitExtra(plan, SNAPSHOT_COLUMNS);
+    const split = splitExtra(plan, SNAPSHOT_COLUMNS, admin ? undefined : isAdminOnlyField);
     const hide = admin ? () => false : (column) => column === "*" || isRatingField(column);
     const { data } = compile(split.plan, '"screener_snapshot"', hide);
     const rows = db.prepare(data.sql).all(...data.args).map((row) => ({ ...row }));
@@ -51,6 +51,12 @@ test("a non-admin's D1 snapshot row carries no rating or verdict, from real colu
   const all = (await reader(db, false)().select("*").maybeSingle()).data;
   assert.equal(all.quality_score, 80);
   assert.equal(all.is_sme, false);
+});
+
+test("an alias over a hidden key of extra is null for a non-admin, kept for an admin", async () => {
+  const select = "symbol, x:investment_rating, y:score_rank, z:adx_14";
+  assert.deepEqual((await reader(database(), false)().select(select).single()).data, { symbol: "TCS", x: null, y: null, z: 22 });
+  assert.equal((await reader(database(), true)().select(select).single()).data.x, "BUY");
 });
 
 test("an admin reads extra's fields merged into the row, booleans decoded", async () => {

@@ -5,7 +5,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { RESULT_FEED, SNAPSHOT_COLUMNS } from "@/lib/db/d1-views.mjs";
 import { compile, evaluate, readRow, splitExtra, TableQuery, UnsupportedQuery } from "@/lib/db/table-query.mjs";
 import { readLiveObject } from "@/lib/live-objects";
-import { isRatingField, withoutRatings } from "@/lib/ratings.mjs";
+import { isAdminOnlyField, isRatingField, withoutRatings } from "@/lib/ratings.mjs";
 
 /**
  * Where the market data tables are read from: Supabase, Cloudflare D1, or an
@@ -154,7 +154,7 @@ function executor(source: Source, reading: Reading) {
     const redacts = source.gated && !reader.admin;
     const hide = redacts ? (column: string) => column === "*" || isRatingField(column) : () => false;
     const db = binding(source.database);
-    const split = source.real ? splitExtra(plan, source.real) : null;
+    const split = source.real ? splitExtra(plan, source.real, redacts ? isAdminOnlyField : undefined) : null;
     const { data, count } = compile(split?.plan ?? plan, source.from, hide);
     const [rows, counted] = await Promise.all([
       data ? query(db, data.sql, data.args) : Promise.resolve([]),

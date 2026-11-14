@@ -145,3 +145,11 @@ test("in memory, a plan answers as SQLite does", async () => {
       .range(1, 5);
   assert.deepEqual(await build(memory()), await build(fromSql()));
 });
+
+test("in memory, not of a comparison drops a null row, as SQLite does", async () => {
+  const db = database();
+  const rows = db.prepare("SELECT market, symbol, period_end, company FROM quarterly_filings").all().map((row) => ({ ...row }));
+  assert.ok(rows.some((row) => row.company === null), "the fixture has a null company");
+  const build = (query) => query.select("symbol, company").not("company", "eq", "nobody").order("symbol").order("period_end");
+  assert.deepEqual(await build(new TableQuery(async (plan) => evaluate(plan, rows))), await build(sqlite(db, '"quarterly_filings"')()));
+});

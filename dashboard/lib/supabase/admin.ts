@@ -17,6 +17,7 @@ export function createAdminClient() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
   const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-  // A moved market table is read with the service role's reach and no ratings (shared caches carry none).
+  // A moved market table is read with the service role's reach. A *_visible source is gated (no ratings);
+  // base screener_snapshot is not, so a shared-cache caller must name its columns (lib/home-market.ts does).
   return withMarketTables(client, async () => ({ admin: false }));
 }
