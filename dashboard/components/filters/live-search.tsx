@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Search } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { asText, trimmed } from "@/lib/url-draft.mjs";
+import { useUrlDraft } from "@/lib/use-url-draft";
 import { cn } from "@/lib/utils";
 
 /**
@@ -90,16 +92,8 @@ export function LiveSearch({
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const current = searchParams.get(param) ?? "";
-  const [query, setQuery] = useState(current);
-  const [synced, setSynced] = useState(current);
-
-  // The URL changed from elsewhere -- "Clear search and filters", Back. Take
-  // its text, unless it is only what this field already holds, trimmed: the
-  // reader may be mid-word after a space.
-  if (current !== synced) {
-    setSynced(current);
-    if (current !== query.trim()) setQuery(current);
-  }
+  // The URL changed from elsewhere -- "Clear search and filters", Back: take its text.
+  const [query, setQuery, pushed] = useUrlDraft(current, asText, trimmed);
 
   useEffect(() => {
     const text = query.trim();
@@ -110,12 +104,13 @@ export function LiveSearch({
       else params.delete(param);
       for (const key of resets) params.delete(key);
       const search = params.toString();
+      pushed(text);
       startTransition(() => {
         router.replace(search ? `${pathname}?${search}` : pathname, { scroll: false });
       });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [query, current, param, resets, pathname, router, searchParams]);
+  }, [query, current, param, resets, pathname, router, searchParams, pushed]);
 
   return (
     <SearchInput
