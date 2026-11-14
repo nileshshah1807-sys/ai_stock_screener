@@ -57,6 +57,9 @@ export function profitMovers(cards, limit) {
   };
 }
 
+/** What a mover row may carry to the browser: no rank or score. */
+const shown = ({ symbol, company, pct_change_1m }) => ({ symbol, company, pct_change_1m });
+
 /**
  * One-month gainers and losers inside each index.
  *
@@ -64,9 +67,6 @@ export function profitMovers(cards, limit) {
  * @param {{symbol: string, pct_change_1m: number | null}[]} rows the run's stocks
  * @returns {Map<string, {gainers: object[], losers: object[]}>}
  */
-/** What a mover row may carry to the browser: no rank or score. */
-const shown = ({ symbol, company, pct_change_1m }) => ({ symbol, company, pct_change_1m });
-
 export function monthlyMovers(members, rows, limit) {
   const bySymbol = new Map(rows.filter((row) => Number.isFinite(row.pct_change_1m)).map((row) => [row.symbol, row]));
   const out = new Map();
