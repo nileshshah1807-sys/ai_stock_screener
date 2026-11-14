@@ -309,7 +309,7 @@ class TranscriptWorker:
         return summary
 
     def _download_pdf(self, attachment_url: str, download_directory: Path) -> Path:
-        from nse import NSE
+        from screener.nse_client import NSE
 
         with NSE(download_folder=download_directory, server=False, timeout=60) as nse:
             downloaded_path = Path(nse.download_document(attachment_url))

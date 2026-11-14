@@ -77,13 +77,12 @@ def _load_nse_actions(start, end):
     # Imported here so a market without a ledger never loads the NSE client.
     from tempfile import TemporaryDirectory
 
-    from nse import NSE
-
     from backtest.corporate_actions import (
         ACTION_DEMERGER,
         ACTION_RIGHTS,
         normalise_actions,
     )
+    from screener.nse_client import NSE
 
     with TemporaryDirectory(prefix="nse_actions_") as folder, NSE(
         download_folder=folder, timeout=90, server=False

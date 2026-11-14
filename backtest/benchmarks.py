@@ -127,7 +127,7 @@ class IndexStore:
     def _make_nse(self, folder):
         if self._nse_factory is not None:
             return self._nse_factory(folder)
-        from nse import NSE
+        from screener.nse_client import NSE
 
         return NSE(download_folder=folder, timeout=90, server=False)
 

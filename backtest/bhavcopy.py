@@ -249,7 +249,7 @@ class BhavcopyStore:
     def _make_nse(self, download_folder):
         if self._nse_factory is not None:
             return self._nse_factory(download_folder)
-        from nse import NSE
+        from screener.nse_client import NSE
 
         return NSE(download_folder=download_folder, timeout=90, server=False)
 

@@ -364,7 +364,7 @@ def read_notices(
 
 def open_session(folder: str):
     """One exchange session for the run: opening it costs a warm-up request that can take 35 s."""
-    from nse import NSE
+    from screener.nse_client import NSE
 
     return NSE(download_folder=folder, timeout=60, server=False)
 
