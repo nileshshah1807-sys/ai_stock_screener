@@ -62,15 +62,31 @@ export function usesRatingFilter(query) {
   return RATING_FILTER_KEYS.some((key) => params.has(key));
 }
 
-/** A copy of `row` with every field `hide` names nulled, its `payload`'s dropped. */
+/** Columns that hold more columns: `payload` (Storage) and D1's `extra` (storage/d1/screener_snapshot.sql). */
+const NESTED = new Set(["payload", "extra"]);
+
+/** `value` without the fields `hide` names, in the form it came: an object, or a JSON string (null if unreadable). */
+function redactNested(value, hide) {
+  if (typeof value === "string") {
+    let parsed;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return null; // fail closed: an unreadable blob could carry anything
+    }
+    return parsed && typeof parsed === "object" ? JSON.stringify(redactNested(parsed, hide)) : null;
+  }
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).filter(([field]) => !hide(field)));
+}
+
+/** A copy of `row` with every field `hide` names nulled, and dropped inside `payload` and `extra`. */
 function redact(row, hide) {
   if (!row || typeof row !== "object") return row;
   const out = {};
   for (const [key, value] of Object.entries(row)) {
     if (hide(key)) out[key] = null;
-    else if (key === "payload" && value && typeof value === "object") {
-      out[key] = Object.fromEntries(Object.entries(value).filter(([field]) => !hide(field)));
-    } else out[key] = value;
+    else out[key] = NESTED.has(key) ? redactNested(value, hide) : value;
   }
   return out;
 }

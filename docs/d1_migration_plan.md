@@ -242,3 +242,37 @@ location hint APAC:
 
 - The egress split (human, Supabase usage page).
 - D1 query latency from Mumbai for the grid's first uncached load: to measure in phase 4.
+
+## Backfill (tools/d1_tables.py, workflow "D1 backfill")
+
+- Schema generated from Supabase's own table description into `storage/d1/{core,evidence,history}.sql`,
+  one `WITHOUT ROWID` table per Supabase table, keyed in Postgres's key order (`KEY_ORDER`, from
+  `pg_index`; a drifted key is refused). `screener_history` carries the 12 read columns plus `market`,
+  keyed (market, observed_on, symbol) with one index (market, symbol, observed_on) for one stock's days.
+- **D1 allows 100 columns a table.** `screener_snapshot` (156) is laid out by hand
+  (`storage/d1/screener_snapshot.sql`, Dwight): 91 real columns, the rest in one `extra` JSON column,
+  `payload` not carried. The backfill packs `extra`; the dual writer must do the same.
+- Progress is a row in cupel-core (`d1_backfill_state`), so the dispatch-only workflow resumes on a fresh
+  runner. The day's budget is `D1_BACKFILL_ROWS_PER_DAY` (default 75,000); at it the run stops, warns and
+  stays green. **D1's 100k a day is per account**: lower the variable by the dual writes' share as
+  tables are mirrored (plan section 6: about 45k a day once all are).
+- A table that finishes is counted against Supabase; D1 short means a row moved behind the paging offset,
+  so the table is read again (at most 3 passes; unchanged rows write nothing). **Verify every table's
+  counts before cutover.**
+- Day 1 (14 Nov): concall_feed 3,193/3,193, valuation_basis 8,543/8,543, bulk_block_deals 63,500 of
+  102,142; 75,236 rows written. Re-sending 50 unchanged rows wrote 0 in D1 (meta.rows_written); one
+  earlier re-send of 500 wrote 469, cause not found (the rows compared equal afterwards).
+- Length: about 11 daily runs at 75k. Left after day 1 ~530k rows, plus screener_history's index
+  (one more row written per row: 303,160 rows -> ~606k writes, ~8 days alone; copied last). The index
+  stays: without it one stock's history scans all 303k rows, and 5M rows read a day would cover only
+  ~16 uncached stock pages.
+- Copied rows go stale until that table is mirrored (`dual`), which needs a per-table list first.
+- For `dual`, a writer's `on_conflict` columns must be the D1 primary key (no unique indexes are copied).
+  True for the phase-2 tables; `market_events` and the transcript tables upsert on a natural key behind
+  an id key and need a unique index first.
+
+**Access rule for every D1 reader (Angela, review of #344).** D1 has no row-level security and no
+`*_visible` views. The Worker must strip ratings for non-admins (`withoutRatings`) and the verdict fields
+for everyone (`withoutVerdict`), as `lib/queries.ts` `forViewer` does, after merging `extra` into the
+row; and the tables that sit behind `dashboard_has_access()` today (concall_feed, quarterly_filings,
+market_breadth, ...) need the same access check in the Worker. The reader PR is reviewed against this.
