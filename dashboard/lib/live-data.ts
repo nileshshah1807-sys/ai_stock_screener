@@ -53,6 +53,30 @@ async function computeMarket(market: MarketCode, limit: number) {
   return shown;
 }
 
+/**
+ * `data` (shared by every viewer, so never changed) with each mover's rating, for
+ * an admin: live_market() returns it to admins, and the R2 objects carry none.
+ */
+export async function withMoverRatings(market: MarketCode, data: Awaited<ReturnType<typeof liveMarketData>>) {
+  const symbols = [...new Set(data.indices.flatMap((index) => [...index.gainers, ...index.losers].map((row) => row.symbol)))];
+  const run = symbols.length ? await getLatestRun(market) : null;
+  if (!run) return data;
+  const supabase = await createClient();
+  const { data: rows, error } = await supabase
+    .from("screener_snapshot_visible")
+    .select("symbol, rating")
+    .eq("market", market)
+    .eq("run_date", run.run_date)
+    .in("symbol", symbols);
+  if (error) {
+    console.error("withMoverRatings failed", error.message);
+    return data; // the movers without badges, as for a viewer
+  }
+  const rating = new Map(((rows ?? []) as { symbol: string; rating: string | null }[]).map((row) => [row.symbol, row.rating]));
+  const rate = <R extends { symbol: string }>(row: R) => ({ ...row, rating: rating.get(row.symbol) ?? null });
+  return { ...data, indices: data.indices.map((index) => ({ ...index, gainers: index.gainers.map(rate), losers: index.losers.map(rate) })) };
+}
+
 /** The `live_breadth` function's answer for one group. */
 export function liveBreadthData(market: MarketCode, scope: string, name: string) {
   return breadth(`${market}:${scope}:${name}`, () => computeBreadth(market, scope, name));

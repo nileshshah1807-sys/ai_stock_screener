@@ -1522,9 +1522,9 @@ export const getLiveMarket = cache(async (
     async () => {
       if (readsFromCloudflare("live_quotes")) {
         // Imported here: lib/live-data reads the latest run from this module.
-        const { liveMarketData } = await import("@/lib/live-data");
+        const { liveMarketData, withMoverRatings } = await import("@/lib/live-data");
         return liveMarketData(market, LIVE_MOVERS_LIMIT).then(
-          (data) => ({ data: data as unknown, error: null }),
+          async (data) => ({ data: (admin ? await withMoverRatings(market, data) : data) as unknown, error: null }),
           (cause: unknown) => ({ data: null, error: { message: cause instanceof Error ? cause.message : String(cause) } }),
         );
       }

@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { getViewer } from "@/lib/auth";
+import { getViewer, isAdmin } from "@/lib/auth";
 import { readsFromCloudflare } from "@/lib/db/market-repository";
 import { LIVE_MOVERS_LIMIT } from "@/lib/live-market";
-import { liveBreadthData, liveMarketData, liveQuoteRows } from "@/lib/live-data";
+import { liveBreadthData, liveMarketData, liveQuoteRows, withMoverRatings } from "@/lib/live-data";
 import type { MarketCode } from "@/lib/markets";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ const SCOPES = new Set(["market", "sector", "industry"]);
  * index (`live_quotes` levels), market (`live_market`) or breadth
  * (`live_breadth`), answered as `{ data }` in the shapes those returned.
  * Signed-in viewers with access only: the objects bypass row-level security.
- * No rating is ever returned.
+ * A rating is returned only to an admin, on the movers, as live_market() does.
  */
 export async function GET(request: NextRequest) {
   if (!readsFromCloudflare("live_quotes")) return NextResponse.json({ error: "not enabled" }, { status: 404 });
@@ -48,7 +48,8 @@ function answer(market: MarketCode, kind: string | null, params: URLSearchParams
   }
   if (kind === "market") {
     const limit = Number(params.get("limit") ?? LIVE_MOVERS_LIMIT);
-    return Number.isInteger(limit) && limit > 0 && limit <= MAX_LIMIT ? liveMarketData(market, limit) : undefined;
+    if (!(Number.isInteger(limit) && limit > 0 && limit <= MAX_LIMIT)) return undefined;
+    return liveMarketData(market, limit).then(async (data) => ((await isAdmin()) ? withMoverRatings(market, data) : data));
   }
   if (kind === "breadth") {
     const scope = params.get("scope") ?? "market";
