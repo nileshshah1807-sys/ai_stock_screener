@@ -12,10 +12,10 @@
  */
 
 import type { MarketCode } from "@/lib/markets";
-import { VIEW_KEYS, viewIsActive } from "@/lib/view-match.mjs";
+import { VIEW_KEYS, applyView, removeView, viewIsActive } from "@/lib/view-match.mjs";
 
 // Re-exported so callers keep importing view state from one place.
-export { viewIsActive };
+export { applyView, removeView, viewIsActive };
 
 export type Preset = {
   id: string;
@@ -56,7 +56,7 @@ export const PRESETS: readonly Preset[] = [
     description:
       "Quality and momentum both in the top 30% of the cross-section. A relative view: it says nothing about whether the market itself is cheap.",
     query:
-      "minQuality=70&minMomentum=70&sort=research_score&dir=desc",
+      "pq=70~&pm=70~&sort=research_score&dir=desc",
     factorOnly: true,
   },
   {
@@ -71,24 +71,18 @@ export const PRESETS: readonly Preset[] = [
     label: "Fresh Stage 2 leaders",
     description:
       "Score 70+, in Stage 2 with an RS rating of 70+, most recent stage entry first. Context, not a signal: blending stage into the rank lowered returns in every validation window (P3), so this narrows the list without evidence that it improves it.",
-    query: "minScore=70&stage=Stage+2&minRs=70&sort=stage2_entry_date&dir=desc",
+    query: "minScore=70&stage=Stage+2&rs=70~&sort=stage2_entry_date&dir=desc",
     factorOnly: true,
   },
   {
     id: "above-1000-cr",
     label: "≥ ₹1,000 Cr",
     description:
-      "The ranking without companies under ₹1,000 Cr of market cap. The rank numbers are unchanged, so gaps show where a smaller company sits. A narrower list, not a better one: on the backtest the smaller names earned more, with more single-stock blow-ups and higher trading costs.",
-    query: "minCapCr=1000",
+      "Companies of ₹1,000 Cr or more of market cap. A narrower list, not a better one: on the backtest the smaller names earned more, with more single-stock blow-ups and higher trading costs.",
+    query: "cap=1000~",
     market: "NSE",
   },
 ];
-
-export function applyView(query: string): URLSearchParams {
-  const next = new URLSearchParams(query);
-  next.delete("page");
-  return next;
-}
 
 export type SavedView = { id: string; label: string; query: string };
 

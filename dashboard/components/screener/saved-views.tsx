@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   applyView,
+  removeView,
   currentViewQuery,
   PRESETS,
   savedViewsServerSnapshot,
@@ -99,7 +100,9 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
 
   const apply = useCallback(
     (query: string) => {
-      const next = applyView(query);
+      // A lit view's chip takes it off again; any other adds it to what is on.
+      const current = new URLSearchParams(searchParams.toString());
+      const next = viewIsActive(searchParams, query) ? removeView(current, query) : applyView(current, query);
       startTransition(() => {
         router.push(
           next.toString() ? `${pathname}?${next.toString()}` : pathname,
@@ -107,7 +110,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
         );
       });
     },
-    [pathname, router],
+    [pathname, router, searchParams],
   );
 
   // No local copy to update: the store notifies its subscribers, and this
