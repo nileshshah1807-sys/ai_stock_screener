@@ -77,3 +77,11 @@ test("the builder starts equal and reads nothing admin-only", () => {
     assert.ok(!isAdminOnlyField(column), column);
   }
 });
+
+test("a market with no calls: call measures neither score nor move a stock", () => {
+  // A US run: no tone, no outlook, nothing eligible.
+  const rows = [10, 40, 70, 90].map((q, i) => ({ symbol: `S${i}`, quality_score: q, transcript_score: null }));
+  const callsOnly = scoreRun(rows, { t: 100, c: 100 });
+  assert.deepEqual([...callsOnly.values()], [null, null, null, null], "no evidence is no score, never 100");
+  assert.deepEqual(scoreRun(rows, { q: 50, t: 50, c: 100 }), scoreRun(rows, { q: 50 }));
+});
