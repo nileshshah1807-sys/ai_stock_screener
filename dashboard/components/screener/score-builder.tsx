@@ -54,7 +54,7 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const apply = () =>
     push((params) => {
       const mix = formatWeights(weights);
-      pushedMix(mix);
+      if (mix !== urlMix) pushedMix(mix); // a push that changes nothing never lands
       if (mix) params.set("w", mix);
       else params.delete("w");
       // Rank by the new mix: an earlier column sort would hide it.
@@ -64,7 +64,7 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
 
   const clear = () => {
     setWeights({ ...EQUAL_START });
-    pushedMix("");
+    if (urlMix) pushedMix("");
     push((params) => {
       params.delete("w");
       if (params.get("sort") === "custom_score") params.delete("sort");
