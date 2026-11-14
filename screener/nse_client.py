@@ -22,6 +22,8 @@ NSE.base_url = f"{HOST}/api"
 
 
 def _set_cookies(self):
+    # Before the first request, which Transport.__init__ sends inside NSE.__init__.
+    self._session.headers["Referer"] = f"{HOST}/get-quotes/equity?symbol=HDFCBANK"
     cookies = self.request(f"{HOST}/option-chain").cookies
     self.cookie_path.write_text(json.dumps(dict(cookies)))
     return cookies
@@ -29,15 +31,5 @@ def _set_cookies(self):
 
 # The httpx transport only: the requests one (unused here) follows the redirect itself.
 transport.Transport._setCookies = _set_cookies
-
-_init = NSE.__init__
-
-
-def _init_on_host(self, *args, **kwargs):
-    _init(self, *args, **kwargs)
-    self._transport._session.headers["Referer"] = f"{HOST}/get-quotes/equity?symbol=HDFCBANK"
-
-
-NSE.__init__ = _init_on_host
 
 __all__ = ["HOST", "NSE"]

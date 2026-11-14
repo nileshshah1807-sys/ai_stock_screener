@@ -5,7 +5,8 @@ import { revalidatePath } from "next/cache";
 import { changePrice, relinkPlan, saveOffer, setPlanOpen, setTrialDays, type OfferInput, type Result } from "@/lib/admin-plans-server";
 
 const done = (r: Result) => {
-  if (r.ok) revalidatePath("/admin/plans");
+  // The public pages are ISR (5 min); refresh them so they never quote a price or trial checkout won't honour.
+  if (r.ok) for (const path of ["/admin/plans", "/pricing-static", "/login", "/"]) revalidatePath(path);
   return r;
 };
 

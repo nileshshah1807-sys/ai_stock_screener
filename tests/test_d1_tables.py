@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from storage.d1_backend import D1Session
 from tools import d1_tables
@@ -134,6 +135,30 @@ class BackfillTests(unittest.TestCase):
         self.assertTrue(progress["stalled"])
         self.assertEqual((progress["pass"], progress["sent"], progress["written"]), (2, 500, 500))
         self.assertEqual(len(passes), 1)
+
+    def test_a_reread_of_missing_rows_on_an_indexed_table_is_not_stalled(self):
+        def counts(table):  # 400 rows missing from D1, each costing 2 written (row + index)
+            if not counts.calls:
+                self.db.execute("delete from valuation_basis where symbol < 'S0400'")
+            counts.calls += 1
+            return (1200, 800) if counts.calls == 1 else (1200, 1200)
+        counts.calls = 0
+        execute = self.execute
+
+        def doubled(table, sql, args):
+            rows, written = execute(table, sql, args)
+            return rows, written * 2
+        self.execute = doubled
+        with mock.patch.object(d1_tables, "write_cost", return_value=2):
+            self.assertEqual(self.run_once(100_000, counts), 0)
+        progress = json.loads(self.state.read_text())["tables"]["valuation_basis"]
+        self.assertFalse(progress.get("stalled"))
+        self.assertEqual((progress["pass"], progress["written"]), (2, 800))
+
+    def test_write_cost_counts_the_row_and_each_index(self):
+        self.assertEqual(d1_tables.write_cost("screener_history"), 2)
+        self.assertEqual(d1_tables.write_cost("screener_snapshot"), 2)
+        self.assertEqual(d1_tables.write_cost("valuation_basis"), 1)
 
     def test_it_stops_loudly_at_the_ceiling_and_the_day_budget_holds_across_runs(self):
         self.assertEqual(self.run_once(600), 2)

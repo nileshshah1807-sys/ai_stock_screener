@@ -723,7 +723,7 @@ export default async function StockPage({
   const dcfFields: Field[] = [
     { label: "Status", value: dcf.label, hint: publicText(admin, dcf.meaning) || undefined },
     {
-      label: factorModel ? "Value-block eligible" : "Blend eligible",
+      label: factorModel ? "Counted in the Value block" : "Counted in the blend",
       value: row.dcf_blend_eligible ? "Yes" : "No",
       tone: row.dcf_blend_eligible ? "positive" : "muted",
       hint: factorModel
@@ -750,12 +750,12 @@ export default async function StockPage({
     { label: "Tone score", value: formatScore(row.transcript_score) },
     { label: "Outlook score", value: formatScore(numeric(payload, "Transcript_Outlook_Score")) },
     {
-      label: "Scoring eligible",
+      label: "Counted in the score",
       value: row.transcript_scoring_eligible ? "Yes" : "No",
       tone: row.transcript_scoring_eligible ? "positive" : "muted",
       hint: row.transcript_scoring_eligible
         ? "Measured against the median call of the run, so it can add or subtract."
-        : "Visible for context; no score, rating, or rank effect.",
+        : "Shown for context; not counted in any score.",
     },
     { label: "Evidence period", value: text(payload, "Transcript_Evidence_Period") },
     { label: "Expected period", value: text(payload, "Transcript_Expected_Period") },

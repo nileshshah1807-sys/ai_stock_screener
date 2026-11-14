@@ -117,11 +117,8 @@ Tests: `custom-score.test.mjs` (new), plus additions to `ratings.test.mjs` and
 
 - **Admin view not checked on the preview:** the browser used for testing was signed in as
   a viewer.
-- **The `live_market` RPC** sends `rated` instead of `investment_rank` in
-  `storage/live_quotes_schema.sql`, which must be re-applied by hand **after** this branch
-  is live: the code on `main` still reads the rank from it. Until then the browser falls
-  back to the rank (`liveMover` in `lib/live-quotes.mjs`) and drops it before any component
-  sees it, but the rank is still in the network response. The Home monthly movers and a new
+- **The `live_market` RPC** sends `rated` instead of `investment_rank` (re-applied by hand
+  14 Nov 2026), so the rank no longer reaches the browser through it. The Home monthly movers and a new
   listing's page no longer carry or show a rank or score.
 - **The daily email report** lists ranks. That is fine if it reaches only the owner, but
   not if it reaches any customer.
