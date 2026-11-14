@@ -1025,7 +1025,9 @@ class DashboardRepository:
         """The market's quotes object: last object's rows, overlaid by ``rows``.
 
         As the table: a symbol this run did not quote keeps its last quote, and
-        one no run has refreshed since ``before`` is dropped.
+        one no run has refreshed since ``before`` is dropped. Only an absent
+        object is started from this run; an unreadable one is left alone, so
+        an R2 hiccup cannot drop every symbol this run missed.
         """
         store = self._cloudflare()
         if store is None:
@@ -1033,9 +1035,9 @@ class DashboardRepository:
         try:
             body = store.get(self._live_path("quotes"))
             previous = json.loads(body)["rows"] if body else []
-        except Exception as exc:  # noqa: BLE001 -- rebuild from this run alone
-            logger.warning("R2 quotes object unreadable, rewritten from this run: %s", exc)
-            previous = []
+        except Exception as exc:  # noqa: BLE001 -- keep the last object over a shrunken one
+            logger.warning("R2 quotes object unreadable, left as it was: %s", exc)
+            return False
         merged = {row["symbol"]: row for row in previous if (row.get("fetched_at") or "") >= before}
         merged.update({row["symbol"]: row for row in rows})
         return self._cloudflare_put("quotes", [merged[symbol] for symbol in sorted(merged)])

@@ -45,6 +45,12 @@ class LiveObjectTests(unittest.TestCase):
         )
         self.assertEqual([q["symbol"] for q in rows_of(store, "live/NSE/quotes.json")], ["B", "C"])
 
+    def test_an_unreadable_quotes_object_is_left_alone(self):
+        store = MemoryStore()
+        store.objects["live/NSE/quotes.json"] = b"not json"
+        self.assertFalse(repo(store).put_live_quotes_object([{"symbol": "A"}], ""))
+        self.assertEqual(store.objects["live/NSE/quotes.json"], b"not json")
+
     def test_a_replace_writes_its_whole_set(self):
         store = MemoryStore()
         repo(store).replace_index_members([{"index_name": "NIFTY 50", "position": 0, "symbol": "A", "company": "a"}])

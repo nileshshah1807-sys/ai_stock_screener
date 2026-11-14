@@ -218,11 +218,25 @@ run has the R2 secrets. An R2 failure is logged and never fails the table write.
 `quotes.json` is merged with the previous object by symbol and drops a quote no run
 refreshed in 7 days, as `prune_live_quotes` does for the table.
 
+**Access rule for the reader (Angela, review of #342).** These objects bypass Postgres
+row-level security: the tables behind them are readable only under `dashboard_has_access()`,
+an R2 object has no such rule. So: the Worker route that reads `live/*` or `search-index/*`
+checks the viewer's access before returning anything; the bucket has no public access and no
+r2.dev URL; `archive/*` holds full history rows, ratings and ranks included, and has no route
+at all. The reader PR is reviewed against this.
+
 ## D1 databases
 
-Not created: with the saved `CLOUDFLARE_API_TOKEN` (14 Nov 09:05 UTC) `GET /accounts/{id}/d1/database`
-answers 401 `{"code":10000,"message":"Authentication error"}`; R2 calls with it work. Ids go
-here once created.
+Created 14 Nov 2026 on the Workers Free plan, account `32fab729dc9211a0da0708de846a23af`,
+location hint APAC:
+
+| database | id |
+|---|---|
+| cupel-core | `48893af3-d137-4320-bea3-450ae9908d7f` |
+| cupel-evidence | `40bd952e-00dd-4377-87c5-f336c1032ef2` |
+| cupel-history | `4ba446d5-d2c0-4c0d-b0a8-603cb6a0351e` |
+
+`CLOUDFLARE_API_TOKEN` (the user token, with D1 Edit added 14 Nov) reaches them.
 
 ## Open
 
