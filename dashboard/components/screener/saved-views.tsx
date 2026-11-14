@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -43,6 +44,7 @@ import { PendingMarker } from "@/components/nav-pending";
 import { cn } from "@/lib/utils";
 import { useMarket, useShowRatings } from "@/components/market-provider";
 import { usesRatingFilter, usesVerdict } from "@/lib/ratings.mjs";
+import { deleteView, loadSavedViews, saveView } from "@/app/(app)/[market]/screener/actions";
 
 const CHIP =
   "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium " +
@@ -57,10 +59,11 @@ const CHIP_IDLE =
  * Named views: built-in presets, then whatever the reader saved.
  *
  * A view is a query string, so this component stores nothing but a label. The
- * built-ins live in `lib/presets.ts`; user views live in localStorage, which is
- * the right store for them -- they are a per-person habit, not shared data, and
- * putting them in Postgres would mean a table, a migration and an RLS policy to
- * remember four query strings per person.
+ * built-ins live in `lib/presets.ts`; user views live in the viewer's account
+ * (`saved_views`, read after hydration so the page's render pays nothing), so
+ * they follow them to another device. Browser storage is the fallback until
+ * that table exists, and its views move into the account on the first load
+ * after it does.
  *
  * The copy-link button is here rather than beside Export because it is the same
  * idea as a saved view: `lib/filters.ts` says shareability is the point of
@@ -78,11 +81,31 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
   // and React reconciles to the real list after hydration. Going through the
   // store rather than an effect also means a view saved in another tab appears
   // here without a reload.
-  const saved = useSyncExternalStore(
+  const local = useSyncExternalStore(
     subscribeSavedViews,
     savedViewsSnapshot,
     savedViewsServerSnapshot,
   );
+  // null until the account answers, and for good when it cannot (signed out,
+  // table not applied): the browser's list stands in.
+  const [account, setAccount] = useState<SavedView[] | null>(null);
+  const saved = account ?? local;
+
+  useEffect(() => {
+    let live = true;
+    const legacy = savedViewsSnapshot();
+    loadSavedViews(market.code, legacy)
+      .then((result) => {
+        if (!live || !result.ok) return;
+        // Moved into the account (or already there by name): the browser copy goes.
+        if (legacy.length) writeSavedViews([]);
+        setAccount(result.views);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [market.code]);
   const [naming, setNaming] = useState(false);
   const [draftName, setDraftName] = useState("");
 
@@ -113,9 +136,50 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
     [pathname, router, searchParams],
   );
 
-  // No local copy to update: the store notifies its subscribers, and this
-  // component is one of them.
-  const persist = (views: SavedView[]) => writeSavedViews(views);
+  const remove = (view: SavedView) => {
+    if (!account) {
+      writeSavedViews(local.filter((item) => item.id !== view.id));
+      return;
+    }
+    if (view.id.startsWith("pending-")) return; // its save has not answered yet
+    const before = account;
+    setAccount(before.filter((item) => item.id !== view.id));
+    deleteView(market.code, view.id).then((result) => {
+      if (result.ok) return;
+      setAccount(before);
+      toast.error(result.error || "Could not delete the view.");
+    });
+  };
+
+  const store = (label: string, query: string) => {
+    if (!account) {
+      // Same name overwrites rather than accumulating near-duplicates, which is
+      // what "save" means everywhere else.
+      const existing = local.filter((view) => view.label.toLowerCase() !== label.toLowerCase());
+      writeSavedViews([...existing, { id: `${Date.now()}`, label, query }]);
+      return;
+    }
+    const before = account;
+    const pendingId = `pending-${Date.now()}`;
+    const same = before.findIndex((view) => view.label.toLowerCase() === label.toLowerCase());
+    setAccount(
+      same >= 0
+        ? before.map((view, at) => (at === same ? { ...view, label, query } : view))
+        : [...before, { id: pendingId, label, query }],
+    );
+    saveView(market.code, label, query).then((result) => {
+      if (!result.ok) {
+        setAccount(before);
+        toast.error(result.error || "Could not save the view.");
+        return;
+      }
+      setAccount((views) =>
+        views?.map((view) =>
+          view.id === pendingId || view.id === result.view.id ? result.view : view,
+        ) ?? views,
+      );
+    });
+  };
 
   const saveCurrent = () => {
     const label = draftName.trim();
@@ -127,12 +191,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
       });
       return;
     }
-    // Same name overwrites rather than accumulating near-duplicates, which is
-    // what "save" means everywhere else.
-    const existing = saved.filter(
-      (view) => view.label.toLowerCase() !== label.toLowerCase(),
-    );
-    persist([...existing, { id: `${Date.now()}`, label, query }]);
+    store(label, query);
     setDraftName("");
     setNaming(false);
     toast.success(`Saved “${label}”`);
@@ -293,9 +352,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
             <button
               type="button"
               aria-label={`Delete saved view ${view.label}`}
-              onClick={() =>
-                persist(saved.filter((item) => item.id !== view.id))
-              }
+              onClick={() => remove(view)}
               className="rounded-md p-0.5 opacity-60 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Trash2 className="size-3" aria-hidden />
