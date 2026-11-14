@@ -104,7 +104,7 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
         if (legacy.length) writeSavedViews(unsentViews(savedViewsSnapshot(), legacy));
         if (result.notMoved) {
           toast.warning(
-            `${result.notMoved} saved ${result.notMoved === 1 ? "view" : "views"} did not move to your account: ${SAVED_VIEWS_MAX} per market is the limit.`,
+            `${result.notMoved} saved ${result.notMoved === 1 ? "view was" : "views were"} not kept: your account holds ${SAVED_VIEWS_MAX} per market.`,
           );
         }
         setAccount(result.views);

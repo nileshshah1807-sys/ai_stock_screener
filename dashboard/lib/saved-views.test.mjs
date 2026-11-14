@@ -40,13 +40,14 @@ test("the import never takes a market past the cap", () => {
   assert.equal(notMoved, 7);
 });
 
-test("the import reads at most the cap and drops oversized entries unparsed", () => {
+test("the import reads at most the cap, cuts a long name and drops an oversized query", () => {
   const local = Array.from({ length: SAVED_VIEWS_MAX + 5 }, (_, at) => ({ label: `v${at}`, query: `sort=c${at}` }));
   local[0] = { label: "x".repeat(61), query: "sort=pe" };
   local[1] = { label: "Long", query: `sort=${"x".repeat(2000)}` };
   const { rows, notMoved } = legacyImportRows(local, {}, ["NSE"]);
-  assert.equal(rows.length, SAVED_VIEWS_MAX - 2);
+  assert.equal(rows.length, SAVED_VIEWS_MAX - 1);
   assert.equal(notMoved, 0);
+  assert.ok(rows.some((row) => row.name === "x".repeat(60) && row.query === "sort=pe"), "a long-named view is kept, its name cut to 60");
   assert.ok(!rows.some((row) => row.name === `v${SAVED_VIEWS_MAX}`));
 });
 

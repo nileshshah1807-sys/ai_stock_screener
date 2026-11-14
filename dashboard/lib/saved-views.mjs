@@ -37,7 +37,7 @@ export function cleanViewQuery(raw) {
  * market. A name the account already has in that market keeps the account's
  * copy; of two browser views with one name the later wins; nothing beyond the
  * cap is written. `local` comes from the browser, so only the first
- * SAVED_VIEWS_MAX are read and an oversized entry is dropped before parsing.
+ * SAVED_VIEWS_MAX are read, a long name is cut and an oversized query dropped.
  * `notMoved` counts the views the cap kept out of at least one market.
  *
  * @param {Array<{label: unknown, query: unknown}>} local
@@ -47,9 +47,10 @@ export function cleanViewQuery(raw) {
 export function legacyImportRows(local, existingNames, markets) {
   const byName = new Map();
   for (const view of local.slice(0, SAVED_VIEWS_MAX)) {
-    const label = String(view?.label ?? "");
+    // A long name is cut to NAME_MAX, not lost; an oversized query is dropped before parsing.
+    const label = String(view?.label ?? "").slice(0, NAME_MAX * 4);
     const raw = String(view?.query ?? "");
-    if (label.length > NAME_MAX || raw.length > QUERY_MAX) continue;
+    if (raw.length > QUERY_MAX) continue;
     const name = cleanViewName(label);
     const query = cleanViewQuery(raw);
     if (!name || !query) continue;
