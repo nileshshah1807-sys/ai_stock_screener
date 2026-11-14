@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SlidersHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PendingMarker } from "@/components/nav-pending";
+import { useUrlDraft } from "@/lib/use-url-draft";
 import { cn } from "@/lib/utils";
 import { EQUAL_START, POINT_FACTORS, SCORE_FACTORS, formatWeights, parseWeights } from "@/lib/custom-score.mjs";
 
@@ -22,13 +23,17 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
-  const active = parseWeights(searchParams.get("w"));
+  const urlMix = searchParams.get("w") ?? "";
+  const active = parseWeights(urlMix);
   // A market with no calls (US) offers no call measure: there is nothing to weight.
   const offered = (factor?: { concall?: boolean }) => concalls || !factor?.concall;
   const factors = SCORE_FACTORS.filter(offered);
   const points = POINT_FACTORS.filter(offered);
-  const [weights, setWeights] = useState<Record<string, number>>(() =>
-    Object.fromEntries(Object.entries({ ...EQUAL_START, ...(active ?? {}) }).filter(([key]) => offered(byKey(key)))),
+  // A saved view that sets a mix moves the sliders to it.
+  const [weights, setWeights] = useUrlDraft<Record<string, number>>(
+    urlMix,
+    (url) => Object.fromEntries(Object.entries({ ...EQUAL_START, ...(parseWeights(url) ?? {}) }).filter(([key]) => offered(byKey(key)))),
+    formatWeights,
   );
 
   // Percentiles exist only on a factor-model run; there is nothing to weight otherwise.

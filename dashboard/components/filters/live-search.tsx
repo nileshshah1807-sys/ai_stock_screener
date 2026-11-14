@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Search } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import { useUrlDraft } from "@/lib/use-url-draft";
 import { cn } from "@/lib/utils";
+
+const asText = (url: string) => url;
+const trimmed = (text: string) => text.trim();
 
 /**
  * The search field every list in the dashboard filters by: a magnifier, the
@@ -90,16 +94,8 @@ export function LiveSearch({
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const current = searchParams.get(param) ?? "";
-  const [query, setQuery] = useState(current);
-  const [synced, setSynced] = useState(current);
-
-  // The URL changed from elsewhere -- "Clear search and filters", Back. Take
-  // its text, unless it is only what this field already holds, trimmed: the
-  // reader may be mid-word after a space.
-  if (current !== synced) {
-    setSynced(current);
-    if (current !== query.trim()) setQuery(current);
-  }
+  // The URL changed from elsewhere -- "Clear search and filters", Back: take its text.
+  const [query, setQuery] = useUrlDraft(current, asText, trimmed);
 
   useEffect(() => {
     const text = query.trim();

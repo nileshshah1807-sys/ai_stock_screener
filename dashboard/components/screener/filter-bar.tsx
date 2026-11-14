@@ -15,6 +15,7 @@ import { useShowRatings } from "@/components/market-provider";
 import { PendingMarker } from "@/components/nav-pending";
 import { RATING_FILTER_KEYS, publicText } from "@/lib/ratings.mjs";
 import { RANGE_GROUPS, formatRange, readRanges, type RangeFilter } from "@/lib/screener-ranges.mjs";
+import { useUrlDraft } from "@/lib/use-url-draft";
 import { cn } from "@/lib/utils";
 
 const TOGGLES = [
@@ -307,7 +308,9 @@ export function FilterBar({
     (toggle) => showRatings || !(RATING_FILTER_KEYS.includes(toggle.key) || toggle.key === "actionable"),
   );
 
-  const [query, setQuery] = useState(searchParams.get("q") ?? "");
+  // A saved view or a removed chip that changes `q` shows here, and the debounce
+  // below does not write the old text back over it.
+  const [query, setQuery] = useUrlDraft(searchParams.get("q") ?? "", (url) => url, (text) => text.trim());
   const [find, setFind] = useState("");
   const [industryFind, setIndustryFind] = useState("");
   const [opened, setOpened] = useState<Record<string, boolean>>({});
