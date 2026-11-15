@@ -107,7 +107,12 @@ the scheduled workflows set the same flag.
   the run diagnostics. The fourth is the dashboard's Results page
   (`dashboard/lib/results.ts`), which reads the table as the signed-in
   viewer through the `quarterly_result_feed` view and re-renders every few
-  minutes, so a result appears once the worker stores it. The table is in
+  minutes, so a result appears once the worker stores it. Its analysis tab
+  takes medians from `live/{MARKET}/results-analysis.json` in R2 (each
+  company's growth per quarter, written by `workers/results_analysis.py` after
+  the filings worker or `us_results` stores, with the page's own code run under
+  node: `dashboard/scripts/results-analysis.mjs`); a missing object, one without
+  the quarters asked for, or one over two days old is computed from the filings. The table is in
   `storage/quarterly_filings_schema.sql` and must be applied by hand. Measure the two sources with
   `python -m tools.compare_quarter_growth_sources`. The index begins in
   April 2025; the older endpoint `backtest/filings.py` reads ends that
@@ -537,7 +542,8 @@ the scheduled workflows set the same flag.
 - **Live data, the search index and full history also go to R2 as objects** (R2 only,
   when the run has the R2 secrets; the tables are still written and still read).
   The method that replaces `live_quotes`, `index_members`, `market_calendar` or a
-  breadth table writes `live/{MARKET}/<name>.json` beside it; the publisher writes
+  breadth table writes `live/{MARKET}/<name>.json` beside it (and the filings worker
+  `live/{MARKET}/results-analysis.json`, read through `dashboard/lib/live-objects.ts`); the publisher writes
   `search-index/{MARKET}/{run_date}.json` (no rating) and archives the run's
   history rows to `archive/screener-history/{MARKET}/{run_date}.json.gz`, read
   back before it counts. None fails a run. Layout: `docs/d1_migration_plan.md`.

@@ -331,32 +331,79 @@ function latestIn(filings, end) {
  *   companies keep their own fiscal calendars (US), not by the exact quarter end (NSE)
  */
 export function quarterMedians(filings, quarters, symbols = null, windowed = false) {
+  const scoped = symbols ? filings.filter((filing) => symbols.has(filing.symbol)) : filings;
+  return /** @type {NonNullable<ReturnType<typeof mediansFromRates>>} */ (
+    mediansFromRates(quarterRates(scoped, quarters, windowed), quarters, null)
+  );
+}
+
+/**
+ * Each company's result for each quarter, oldest quarter first: the rates a
+ * median is taken over, worked out once (the filings worker stores them as
+ * `live/{MARKET}/results-analysis.json`) so a page only filters and takes medians.
+ * A company that reported with no rate for a line has null there.
+ *
+ * @param {Array<{ symbol: string, period_end: string }>} filings
+ * @param {string[]} quarters  quarter ends, newest first
+ * @param {boolean} [windowed]  as `quarterMedians`
+ * @returns {Array<{ quarter: string, companies: Array<[string, ...(number | null)[]]> }>}
+ */
+export function quarterRates(filings, quarters, windowed = false) {
   const byCompany = new Map();
   for (const filing of filings) {
-    if (symbols && !symbols.has(filing.symbol)) continue;
     const list = byCompany.get(filing.symbol) ?? [];
     list.push(filing);
     byCompany.set(filing.symbol, list);
   }
   return [...quarters].reverse().map((quarter) => {
-    const rates = Object.fromEntries(ANALYSIS_LINES.map((line) => [line.key, []]));
-    let results = 0;
+    /** @type {Array<[string, ...(number | null)[]]>} */
+    const companies = [];
     for (const [symbol, list] of byCompany) {
       const own = windowed ? latestIn(list, quarter) : quarter;
       if (!own) continue;
       const basis = resultCard({ symbol }, list, own).bases[0];
       if (!basis || !reportsResult(basis)) continue;
+      companies.push([
+        symbol,
+        ...ANALYSIS_LINES.map((line) => {
+          const rate = basis.rows.find((row) => row.key === line.key)?.yoy;
+          return typeof rate === "number" && Number.isFinite(rate) ? rate : null;
+        }),
+      ]);
+    }
+    return { quarter, companies };
+  });
+}
+
+/**
+ * `quarterMedians` from stored rates: null when `rates` lacks one of `quarters`
+ * (an object written before the quarter turned), so the caller computes instead.
+ *
+ * @param {Array<{ quarter: string, companies: Array<[string | number, ...(number | null)[]]> }>} rates
+ * @param {string[]} quarters  quarter ends, newest first
+ * @param {Set<string> | null} [symbols]  restrict to these companies; null for all
+ * @param {string[] | null} [names]  when each company is a number: its place in this list
+ */
+export function mediansFromRates(rates, quarters, symbols = null, names = null) {
+  const byQuarter = new Map(rates.map((entry) => [entry.quarter, entry.companies]));
+  if (!quarters.every((quarter) => byQuarter.has(quarter))) return null;
+  // A compact object names each company by its place in `names`; test the places, not the names.
+  const wanted = symbols && names ? new Set(names.flatMap((name, index) => (symbols.has(name) ? [index] : []))) : symbols;
+  return [...quarters].reverse().map((quarter) => {
+    const values = ANALYSIS_LINES.map(() => /** @type {number[]} */ ([]));
+    let results = 0;
+    for (const [symbol, ...lines] of byQuarter.get(quarter) ?? []) {
+      if (wanted && !wanted.has(/** @type {any} */ (symbol))) continue;
       results += 1;
-      for (const line of ANALYSIS_LINES) {
-        const rate = basis.rows.find((row) => row.key === line.key)?.yoy;
-        if (typeof rate === "number" && Number.isFinite(rate)) rates[line.key].push(rate);
-      }
+      lines.forEach((rate, index) => {
+        if (rate !== null) values[index].push(rate);
+      });
     }
     return {
       quarter,
       results,
       series: Object.fromEntries(
-        ANALYSIS_LINES.map((line) => [line.key, { median: median(rates[line.key]), n: rates[line.key].length }]),
+        ANALYSIS_LINES.map((line, index) => [line.key, { median: median(values[index]), n: values[index].length }]),
       ),
     };
   });

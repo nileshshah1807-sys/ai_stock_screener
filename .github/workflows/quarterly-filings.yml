@@ -91,6 +91,12 @@ jobs:
       - name: Store new filings
         env:
           FILING_ATTEMPTS_PATH: ${{ runner.temp }}/filing-attempts.json
+          # The Results analysis object (live/{MARKET}/results-analysis.json, workers/results_analysis.py),
+          # on this step only. Absent secrets mean none is written and the page computes as before.
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           FULL: ${{ inputs.full && '--full' || '' }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         # The budget leaves room for setup and the final writes inside the
@@ -135,6 +141,12 @@ jobs:
       - name: Store BSE-only filings
         if: ${{ !cancelled() }}
         env:
+          # The Results analysis object (live/{MARKET}/results-analysis.json, workers/results_analysis.py),
+          # on this step only. Absent secrets mean none is written and the page computes as before.
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           FULL: ${{ inputs.full && '--full' || '' }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: |

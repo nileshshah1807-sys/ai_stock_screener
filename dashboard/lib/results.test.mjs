@@ -14,11 +14,13 @@ import {
   passesGrowth,
   quarterEnds,
   quarterWindow,
+  mediansFromRates,
   quarterMedians,
   quarterLabel,
   reportsResult,
   resultCard,
 } from "./results.mjs";
+import { resultsAnalysis } from "../scripts/results-analysis.mjs";
 
 const CRORE = 1e7;
 
@@ -206,6 +208,24 @@ test("quarterMedians takes the median rate of those who reported, oldest first",
   assert.equal(newer.results, 4);
   assert.deepEqual(newer.series.revenue, { median: 20, n: 3 });
   assert.deepEqual(newer.series.operating_profit, { median: null, n: 0 });
+});
+
+test("the stored object gives the page's medians, in scope and out, and none for a quarter it lacks", () => {
+  const filings = [
+    filed("A", "2026-09-30", 120), filed("A", "2025-09-30", 100),
+    filed("B", "2026-09-30", 150), filed("B", "2025-09-30", 100),
+    filed("C", "2026-09-30", 90), filed("C", "2025-09-30", 100),
+    filed("D", "2026-09-30", 500),
+    filed("E", "2026-06-30", 110), filed("E", "2025-06-30", 100),
+    filed("E", "2023-09-30", 999), // outside every quarter shown: never read
+  ];
+  const stored = resultsAnalysis({ market: "NSE", today: "2026-11-14", filings });
+  assert.deepEqual(stored.symbols, ["A", "B", "C", "D", "E"]);
+  const quarters = ["2026-09-30", "2026-06-30", "2026-03-31", "2025-12-31"];
+  for (const scope of [null, new Set(["A", "C", "E"])]) {
+    assert.deepEqual(mediansFromRates(stored.rows, quarters, scope, stored.symbols), quarterMedians(filings, quarters, scope));
+  }
+  assert.equal(mediansFromRates(stored.rows, ["2026-12-31"], null, stored.symbols), null);
 });
 
 test("quarterMedians keeps to the companies in scope", () => {

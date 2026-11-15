@@ -60,6 +60,7 @@ import pandas as pd
 from screener import quarterly_results, valuation_basis
 from screener.markets import resolve as resolve_market
 from screener.numeric import safe_float
+from workers import results_analysis
 from workers.financial_statements import recompose_quarters
 
 logger = logging.getLogger(__name__)
@@ -266,7 +267,7 @@ def run(
 ) -> dict[str, int]:
     profile = resolve_market(repo.market)
     counts = {"due": 0, "stored": 0, "failed": 0, "deferred": 0, "redrawn": 0, "basis": 0, "derived": 0,
-              "blocked": 0}
+              "blocked": 0, "analysis": 0}
     if not profile.quarterly_results_provider:
         logger.info("%s has no results filing index; nothing to store", profile.code)
         return counts
@@ -379,6 +380,9 @@ def run(
             counts["redrawn"] = recompose_quarters(repo, touched)
         except Exception as exc:  # stored filings stand; the next run redraws
             logger.warning("Quarterly results not redrawn on the stock page: %s", exc)
+    # The Results analysis page's rates: when a filing was stored, and once a day (the full run), as the quarters turn.
+    if (touched or full) and not dry_run:
+        counts["analysis"] = int(results_analysis.publish(repo, today))
     if not index.empty and not dry_run:
         try:
             counts["basis"] = refresh_valuation_basis(

@@ -29,7 +29,12 @@ import argparse
 import logging
 import math
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from screener.markets import resolve as resolve_market
+from workers import results_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +133,8 @@ def run(repo, *, dry_run: bool = False) -> dict[str, int]:
     counts.update(stocks=len(symbols), rows=len(rows))
     if rows and not dry_run:
         counts["written"] = repo.upsert_quarterly_filings(rows)
+    if counts["written"]:
+        results_analysis.publish(repo, datetime.now(ZoneInfo(resolve_market(repo.market).timezone)).date())
     logger.info("US results: %s%s", counts, " (dry run, nothing written)" if dry_run else "")
     return counts
 
