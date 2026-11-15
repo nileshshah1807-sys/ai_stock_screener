@@ -232,11 +232,14 @@ export function concallRecency(ageDays) {
  * Each recent call's Earnings call value by symbol, 0-100: 85% outlook plus 15%
  * tone, ranked across the run's eligible calls (the outlook's own level sits
  * well above 50, so the rank is what reads as "more upbeat than most"), then
- * faded toward 50 by age (concallRecency). No eligible call within 180 days: no value.
+ * faded toward 50 by age (concallRecency). No eligible call within 180 days, or
+ * fewer than 30 such calls in the run: no value.
  * @param {Record<string, unknown>[]} rows
  * @param {Map<string, number>} outlooks latest outlook score by symbol
  * @returns {Map<string, number>}
  */
+const MIN_CALLS = 30;
+
 export function callSignals(rows, outlooks) {
   const calls = [];
   for (const row of rows) {
@@ -247,6 +250,8 @@ export function callSignals(rows, outlooks) {
     if (tone === null || outlook === undefined || !recency) continue;
     calls.push({ symbol: String(row.symbol), blend: Math.round((0.15 * tone + 0.85 * outlook) * 100) / 100, recency });
   }
+  // Under 30 calls a rank swings from 0 to 100 on a handful: no value, so the measure sits in the middle.
+  if (calls.length < MIN_CALLS) return new Map();
   const percentile = percentiles(calls.map((call) => call.blend));
   return new Map(calls.map((call) => [call.symbol, 50 + call.recency * (percentile(call.blend) - 50)]));
 }

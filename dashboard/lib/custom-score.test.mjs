@@ -55,15 +55,17 @@ test("points: valuation from 50; the Earnings call is a measure in the mix, not 
   assert.equal(dcf.get("A"), 102);
   assert.equal(dcf.get("B"), 0);
 
-  // Three recent calls and one too old: 85% outlook + 15% tone, ranked, faded by age.
+  // 30 recent calls (LOW, MID, HIGH and 27 at the middle) and one too old: 85% outlook + 15% tone, ranked, faded by age.
   const call = (symbol, tone, outlook, age) => ({ symbol, transcript_scoring_eligible: true, transcript_score: tone, transcript_age_days: age, outlook });
-  const calls = [call("LOW", 50, 40, 0), call("MID", 50, 60, 0), call("HIGH", 50, 80, 90), call("OLD", 90, 90, 200), { symbol: "NONE" }];
+  const filler = Array.from({ length: 27 }, (_, i) => call(`F${i}`, 50, 60, 0));
+  const calls = [call("LOW", 50, 40, 0), call("MID", 50, 60, 0), call("HIGH", 50, 80, 90), ...filler, call("OLD", 90, 90, 200), { symbol: "NONE" }];
   const signals = callSignals(calls, new Map(calls.filter((c) => c.outlook).map((c) => [c.symbol, c.outlook])));
   assert.equal(signals.get("LOW"), 0);
-  assert.equal(signals.get("MID"), 50);
+  assert.equal(signals.get("MID"), 50, "tied with the 27 at the middle");
   assert.ok(Math.abs(signals.get("HIGH") - 75) < 1e-9, "first of three, at half weight after 90 days: 50 + 0.5 * 50");
   assert.equal(signals.has("OLD"), false, "past 180 days: no value");
   assert.equal(signals.has("NONE"), false);
+  assert.equal(callSignals(calls.slice(0, 29), new Map(calls.map((c) => [c.symbol, c.outlook]))).size, 0, "under 30 calls: no values");
 
   // In the mix: a stock with no call sits in the middle on that measure, never at zero.
   const rowsWithCalls = calls.map((c) => ({ ...c, quality_score: 50 }));
