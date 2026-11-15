@@ -90,7 +90,8 @@ export default async function ScreenerLayout({
       */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex-1">
+          {/* Its own row on a phone: beside the labelled score button it was squeezed to an icon. */}
+          <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
             <FilterBar sectors={sectors} industries={industries} factorModel={factorModel} exchanges={bseOnly > 0} sizeSuffix={market.code === "US" ? "M" : "Cr"} />
           </div>
           <ScoreBuilder factorModel={factorModel} concalls={market.nseEvidence} />

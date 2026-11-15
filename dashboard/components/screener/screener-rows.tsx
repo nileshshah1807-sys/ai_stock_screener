@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { StockLink } from "@/components/screener/stock-link";
@@ -225,6 +225,7 @@ function PercentileCell({ value }: { value: number | null }) {
       )}
     >
       {Math.round(value)}
+      <span className="sr-only">, {aheadOf(value)}</span>
     </span>
   );
 }
@@ -233,8 +234,7 @@ function PercentileCell({ value }: { value: number | null }) {
  * The viewer's own score, with what made it: a thin bar split by each
  * measure's part of the blend (the mix read off this row), named in the tooltip.
  */
-function CustomScoreCell({ row }: { row: SnapshotRow }) {
-  const weights = parseWeights(useSearchParams().get("w"));
+function CustomScoreCell({ row, weights }: { row: SnapshotRow; weights: Record<string, number> | null }) {
   const score = row.custom_score ?? null;
   if (score === null || !weights) {
     return (
@@ -467,6 +467,8 @@ type LiveContext = {
   ratios: LiveQuote | null;
   market: Market;
   now: number;
+  /** The viewer's mix, read off the URL once for the whole grid rather than per cell. */
+  weights: Record<string, number> | null;
 };
 
 /**
@@ -477,7 +479,7 @@ type LiveContext = {
 const CELLS: Record<ColumnId, (row: SnapshotRow, live: LiveContext) => ReactNode> = {
   rank: (row) => row.investment_rank ?? MISSING,
   stock: (row) => <StockLink row={row} />,
-  custom: (row) => <CustomScoreCell row={row} />,
+  custom: (row, live) => <CustomScoreCell row={row} weights={live.weights} />,
   score: (row) => <ScoreCell row={row} />,
   quality: (row) => <PercentileCell value={row.quality_percentile} />,
   momentum: (row) => <PercentileCell value={row.momentum_percentile} />,
@@ -563,6 +565,8 @@ export function ScreenerRows({
   );
   // Only decides whether a tooltip shows the date, so a coarse clock will do.
   const now = useNow(5 * 60_000);
+  const mix = useSearchParams().get("w");
+  const weights = useMemo(() => parseWeights(mix), [mix]);
 
   return (
     /* data-match feeds the filter box's instant pass (see FilterBar): the
@@ -574,6 +578,7 @@ export function ScreenerRows({
           ratios: ratioOverlay(liveQuote(row.symbol), row.price_bar_as_of),
           market,
           now,
+          weights,
         };
         return (
           <tr

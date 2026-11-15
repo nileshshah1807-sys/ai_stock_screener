@@ -319,7 +319,7 @@ export default function PreviewPage() {
           <Suspense>
             <div data-screener className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex-1">
+                <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
                   <FilterBar sectors={["Financials", "Information Technology", "Industrials"]} factorModel />
                 </div>
                 <ScoreBuilder factorModel concalls />

@@ -126,6 +126,8 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const shares = mixShares(weights, factors);
   const shareOf = (key: string) => shares.find((entry) => entry.key === key)?.share ?? 0;
   const empty = !shares.length;
+  // Reset is live whenever there is something to reset: an applied mix, or a draft moved off the equal start.
+  const resettable = Boolean(active) || formatWeights(weights) !== formatWeights(EQUAL_START);
   const main = factors.filter((factor) => MAIN.has(factor.key));
   const more = factors.filter((factor) => !MAIN.has(factor.key));
 
@@ -227,10 +229,10 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
         ) : null}
       </div>
       {/* Pinned under the scroll, so Apply is always one tap away. */}
-      <div className="space-y-3 border-t px-5 pt-3 pb-4">
+      <div className="space-y-3 border-t px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
         {empty ? <p className="text-xs font-medium">{NOTHING_WEIGHTED}</p> : null}
         <div className="flex items-center justify-between gap-2">
-          <Button type="button" variant="ghost" className="-ml-3 h-11" onClick={reset} disabled={!active}>
+          <Button type="button" variant="ghost" className="-ml-3 h-11" onClick={reset} disabled={!resettable}>
             Reset to equal
           </Button>
           <Button type="submit" className="h-11 px-5" disabled={empty}>
@@ -259,8 +261,9 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
         aria-haspopup="dialog"
         onClick={() => (open ? close() : setOpen(true))}
       >
-        <Scale className="size-3.5" aria-hidden />
-        <span>{active ? "Your score · on" : "Your score"}</span>
+        <Scale className={cn("size-3.5", pending && "animate-pulse motion-reduce:animate-none")} aria-hidden />
+        {/* Until the sorted rows land, the button says so: a slow sort never reads as a no-op. */}
+        <span aria-live="polite">{pending ? "Sorting…" : active ? "Your score · on" : "Your score"}</span>
       </Button>
 
       {wide ? (
@@ -306,8 +309,10 @@ function SidePanel({ onClose, children }: { onClose: () => void; children: React
   });
   useEffect(() => {
     panel.current?.focus();
+    // Only an Escape meant for the panel: not one a menu or the search box elsewhere already used.
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeRef.current();
+      const inside = event.target instanceof Node && panel.current?.contains(event.target);
+      if (event.key === "Escape" && inside && !event.defaultPrevented) closeRef.current();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
