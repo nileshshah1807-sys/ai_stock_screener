@@ -152,7 +152,7 @@ export const FACTORS = [
   { key: "quality", label: "Quality", weight: 25 },
   { key: "growth", label: "Growth", weight: 25 },
   { key: "value", label: "Value", weight: 15 },
-  { key: "risk", label: "Risk", weight: 5 },
+  { key: "risk", label: "Steadiness", weight: 5 },
 ];
 
 /** The evening, in order. Times are an example evening, not a schedule. */
