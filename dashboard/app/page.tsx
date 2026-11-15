@@ -47,7 +47,7 @@ const COVERAGE = [
 
 const NAV = [
   { href: "#how", label: "How it works" },
-  { href: "#ranking", label: "Ranking" },
+  { href: "#ranking", label: "Measures" },
   { href: "#stage", label: "Stage" },
   { href: "#pricing", label: "Pricing" },
   { href: "#faq", label: "FAQ" },
@@ -153,7 +153,7 @@ export default async function LandingPage() {
 
           <section id="ranking" className="scroll-mt-16 border-y bg-card">
             <div className={cn(section, "py-14 sm:py-20")}>
-              <h2 data-reveal className={h2}>What the ranking reads</h2>
+              <h2 data-reveal className={h2}>What you can weigh</h2>
               <div data-reveal className="mt-10 max-w-3xl">
                 <FactorBar />
               </div>

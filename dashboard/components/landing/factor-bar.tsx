@@ -1,7 +1,7 @@
 import { FACTORS } from "@/lib/landing.mjs";
 
 /**
- * What the ranking reads: the five blocks by name and plain meaning, the same
+ * What you can weigh: the five blocks by name and plain meaning, the same
  * words the builder and the stock page use (lib/custom-score.mjs). No weights
  * and nothing sized by one: the model's mix is not published.
  */
@@ -17,7 +17,7 @@ export function FactorBar() {
         ))}
       </ul>
       <figcaption className="mt-5 text-xs text-muted-foreground">
-        The same five in both markets. India: management tone from the latest call adjusts the ranking for companies with a call.
+        The same five in both markets, and in Your score you choose how much each counts. India adds the tone of the latest earnings call.
       </figcaption>
     </figure>
   );
