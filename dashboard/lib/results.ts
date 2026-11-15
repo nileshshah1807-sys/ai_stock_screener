@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { unstable_cache } from "next/cache";
 
 import type { MarketCode } from "@/lib/markets";
+import { readLiveObject } from "@/lib/market-data";
 import { getLatestRun, getSearchIndex } from "@/lib/queries";
 import { cachedOr, digest, sharedRead } from "@/lib/home-cache";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
@@ -453,6 +454,30 @@ export async function getQuarterLines(
   } catch (error) {
     console.error("getQuarterLines failed", error instanceof Error ? error.message : error);
     return [];
+  }
+}
+
+/** The filings worker's per-company rates (workers/results_analysis.py); see `mediansFromRates`. */
+export type ResultsAnalysis = {
+  symbols: string[];
+  rates: Array<{ quarter: string; companies: Array<[number, ...(number | null)[]]> }>;
+};
+
+/**
+ * The market's stored Results analysis rates, or null (no object yet, off
+ * Cloudflare, or a viewer the filings are closed to): the page then computes
+ * from the filings. The object sits outside Postgres, so the invite list's
+ * row-level security is asked first, with one row read as the viewer.
+ */
+export async function getResultsAnalysis(market: MarketCode): Promise<ResultsAnalysis | null> {
+  try {
+    const supabase = await createClient();
+    const { data: access } = await supabase.from("quarterly_filings").select("symbol").eq("market", market).limit(1);
+    if (!access?.length) return null;
+    return await readLiveObject<ResultsAnalysis>(`live/${market}/results-analysis.json`);
+  } catch (error) {
+    console.error("getResultsAnalysis failed", error instanceof Error ? error.message : error);
+    return null;
   }
 }
 

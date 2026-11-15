@@ -12,12 +12,13 @@ import { formatInteger } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { marketFromSlug } from "@/lib/markets";
 import { getIndexDirectory, getIndexMembers } from "@/lib/queries";
-import { getQuarterLines } from "@/lib/results";
+import { getQuarterLines, getResultsAnalysis } from "@/lib/results";
 import {
   ANALYSIS_LINES,
   ANALYSIS_SPANS,
   chosenSpan,
   formatChange,
+  mediansFromRates,
   quarterEnds,
   quarterLabel,
   quarterMedians,
@@ -34,7 +35,7 @@ export const dynamic = "force-dynamic";
  * companies that reported, with how many reported.
  *
  * Every rate is the one the company's Results card prints, from its stored
- * filings (`quarterMedians`), over the same shared filter bar as the card list
+ * filings (`quarterMedians`; stored per company by the filings worker, `mediansFromRates`), over the same shared filter bar as the card list
  * -- industry, watchlist and the rules, including the default market-cap
  * floor -- plus an index. Only the filings of the quarters shown and the
  * year-ago ones are read, and only their three lines.
@@ -54,9 +55,10 @@ export default async function ResultsAnalysisPage({
   const quarters = quarterEnds(today, span);
   const periods = [...new Set(quarters.flatMap((end) => [end, monthsBefore(end, 12)]))];
 
-  const [feed, indices] = await Promise.all([
+  const [feed, indices, analysis] = await Promise.all([
     loadFeedFilters(market.code, query, { defaultScope: "all" }),
     getIndexDirectory(market.code),
+    getResultsAnalysis(market.code),
   ]);
   const indexParam = Array.isArray(query.index) ? query.index[0] : query.index;
   const index = indices.find((item) => item.slug === indexParam && item.members);
@@ -66,9 +68,17 @@ export default async function ResultsAnalysisPage({
     members ? members.map((member) => member.symbol) : null,
   );
 
-  const lines = scope && scope.size === 0 ? [] : await getQuarterLines(market.code, periods, scope ? [...scope] : null);
   const us = market.code === "US";
-  const rows = quarterMedians(lines, quarters, scope, us);
+  // The filings worker's stored rates when they cover these quarters; else worked out from the filings.
+  const stored = analysis ? mediansFromRates(analysis.rates, quarters, scope, analysis.symbols) : null;
+  const rows =
+    stored ??
+    quarterMedians(
+      scope && scope.size === 0 ? [] : await getQuarterLines(market.code, periods, scope ? [...scope] : null),
+      quarters,
+      scope,
+      us,
+    );
   const reported = rows.reduce((sum, row) => sum + row.results, 0);
 
   const newest = rows[rows.length - 1];

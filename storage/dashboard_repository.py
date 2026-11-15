@@ -602,6 +602,35 @@ class DashboardRepository:
             for row in rows
         }
 
+    def quarter_lines_since(self, after: str) -> list[dict[str, Any]]:
+        """Every filing ending after ``after``, as ``lib/results.ts`` reads it: three lines and a half year's ``cumulative``."""
+        rows = self._paged(
+            "quarterly_filings",
+            {
+                "select": "symbol,period_end,is_consolidated,revenue:lines->revenue,operating_profit:lines->operating_profit,"
+                "net_profit:lines->net_profit,period_days:lines->period_days,cumulative:lines->cumulative",
+                "period_end": f"gt.{after}",
+                "order": "symbol.asc,period_end.asc,is_consolidated.asc",
+            },
+        )
+        filings = []
+        for row in rows:
+            lines = {key: row.get(key) for key in ("revenue", "operating_profit", "net_profit")}
+            if row.get("period_days"):
+                lines.update(period_days=row["period_days"], cumulative=row.get("cumulative"))
+            filings.append({"symbol": row["symbol"], "period_end": str(row["period_end"])[:10],
+                            "is_consolidated": bool(row["is_consolidated"]), "lines": lines})
+        return filings
+
+    def put_results_analysis(self, analysis: dict[str, Any]) -> bool:
+        """``live/{market}/results-analysis.json``: the Results analysis page's per-company rates, no rating."""
+        store = self._cloudflare()
+        if store is None:
+            return False
+        body = {**analysis, "written_at": datetime.now(UTC).isoformat(timespec="seconds")}
+        store.put(self._live_path("results-analysis"), json.dumps(body, separators=(",", ":")).encode(), "application/json")
+        return True
+
     def upsert_quarterly_filings(self, rows: list[dict[str, Any]], chunk_size: int = 100) -> int:
         written = 0
         for chunk in chunked(rows, chunk_size):

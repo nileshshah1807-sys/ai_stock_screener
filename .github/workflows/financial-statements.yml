@@ -123,6 +123,12 @@ jobs:
       - name: Store US results for the Results page
         if: ${{ !cancelled() && matrix.market == 'US' }}
         env:
+          # The Results analysis object (live/{MARKET}/results-analysis.json, workers/results_analysis.py),
+          # on this step only. Absent secrets mean none is written and the page computes as before.
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: python -m workers.us_results --market US ${DRY_RUN}
 
