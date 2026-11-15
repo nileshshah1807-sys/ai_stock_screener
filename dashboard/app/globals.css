@@ -851,8 +851,8 @@
 
   /* And a moving line across the top of the grid, where the eye is once a
      panel closes, until the new rows land. Still under reduced motion. */
-  [data-screener]:has([data-nav-pending]) .grid-scroll::before {
-    content: "";
+  .grid-progress { display: none; }
+  [data-screener]:has([data-nav-pending]) .grid-progress {
     position: sticky;
     top: 0;
     left: 0;
@@ -869,7 +869,7 @@
     to { background-position: 140% 0; }
   }
   @media (prefers-reduced-motion: reduce) {
-    [data-screener]:has([data-nav-pending]) .grid-scroll::before {
+    [data-screener]:has([data-nav-pending]) .grid-progress {
       animation: none;
       background: var(--color-primary);
       opacity: 0.5;
