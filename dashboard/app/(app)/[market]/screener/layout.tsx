@@ -90,7 +90,8 @@ export default async function ScreenerLayout({
       */}
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex-1">
+          {/* Its own row on a phone: beside the labelled score button it was squeezed to an icon. */}
+          <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
             <FilterBar sectors={sectors} industries={industries} factorModel={factorModel} exchanges={bseOnly > 0} sizeSuffix={market.code === "US" ? "M" : "Cr"} />
           </div>
           <ScoreBuilder factorModel={factorModel} concalls={market.nseEvidence} />
@@ -120,9 +121,9 @@ export default async function ScreenerLayout({
       */}
       <details className="group/ranks pt-1 text-xs text-muted-foreground">
         <summary className="w-fit cursor-pointer rounded font-medium marker:content-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          Reading the ranks
+          {admin ? "Reading the ranks" : "Reading the numbers"}
           <span className="ml-1 font-normal opacity-70 group-open/ranks:hidden">
-            {admin ? "— how Investment, Score, Recommendation and Actionable Rank differ" : "— how the ranks are ordered"}
+            {admin ? "— how Investment, Score, Recommendation and Actionable Rank differ" : "— what the measures compare"}
           </span>
         </summary>
         <p className="mt-1.5 leading-relaxed">
@@ -134,7 +135,7 @@ export default async function ScreenerLayout({
               that never changes a score or rating.{" "}
             </>
           ) : (
-            "Investment Rank orders on the research score. "
+            "Each measure compares a stock with every other stock in this market on the last run: 72 means ahead of 72% of them. Your score is your own mix of those measures. "
           )}
           Price, indicators, turnover, and aligned valuation ratios all use the same completed daily bar.
         </p>

@@ -7,7 +7,7 @@ import {
   publishedFactorWeight,
   researchScoreMode,
 } from "@/lib/model-display.mjs";
-import { blockFactor } from "@/lib/custom-score.mjs";
+import { aheadOf, blockFactor } from "@/lib/custom-score.mjs";
 import { FACTOR_BLOCKS, type SnapshotRowWithPayload } from "@/lib/types";
 import { buildStages } from "@/components/stock/score-waterfall";
 
@@ -66,28 +66,16 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
                     </span>
                   ) : null}
                 </span>
-                <span className="tabular font-mono text-xs">
-                  {block.score === null ? (
+                {/* The percentile in words, never colour alone; the block score stays an admin's detail. */}
+                <span className="text-xs">
+                  {block.percentile === null ? (
                     <span className="text-muted-foreground">{MISSING}</span>
                   ) : (
-                    <>
-                      {block.score.toFixed(1)}
-                      {block.percentile !== null && (
-                        <span
-                          className={cn(
-                            "ml-2",
-                            block.percentile >= 70
-                              ? "text-positive"
-                              : block.percentile < 30
-                                ? "text-negative"
-                                : "text-muted-foreground",
-                          )}
-                        >
-                          P{Math.round(block.percentile)}
-                        </span>
-                      )}
-                    </>
+                    aheadOf(block.percentile)
                   )}
+                  {admin && block.score !== null ? (
+                    <span className="tabular ml-2 font-mono text-muted-foreground">{block.score.toFixed(1)}</span>
+                  ) : null}
                 </span>
               </div>
 
@@ -97,15 +85,14 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
                 </p>
               ) : null}
 
-              {/* The bar encodes the block score; width alone is never the only
-                  signal, since the number sits directly above it. */}
+              {/* The bar is the percentile in the words above it, so it never stands alone. */}
               <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                 <div
                   className={cn(
                     "h-full rounded-full",
                     thin ? "bg-muted-foreground/40" : "bg-primary",
                   )}
-                  style={{ width: `${Math.max(0, Math.min(100, block.score ?? 0))}%` }}
+                  style={{ width: `${Math.max(0, Math.min(100, block.percentile ?? 0))}%` }}
                 />
               </div>
 
@@ -116,11 +103,10 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
                 {[
                   admin ? (block.contribution === null ? MISSING : `${block.contribution.toFixed(2)} pts`) : null,
                   block.coverage === null
-                    ? "coverage unknown"
+                    ? "Data coverage unknown"
                     : block.coverage < 0.995
-                      ? `${Math.round(block.coverage * 100)}% covered`
+                      ? `Based on part of the data (${Math.round(block.coverage * 100)}%)${thin ? ", so pulled toward the middle" : ""}`
                       : null,
-                  thin ? "too thin to count, shrunk toward 50" : null,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
@@ -207,7 +193,7 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
       </dl>
 
       {row.value_quality_cap_applied ? (
-        <p className="rounded border border-caution/40 bg-caution/10 p-2 text-[11px] leading-snug">
+        <p className="rounded border border-caution/40 bg-caution/10 p-2 text-xs leading-snug">
           The configured low-quality guard capped the Value block to avoid
           promoting a cheap-but-weak company. The uncapped value score was{" "}
           <span className="tabular font-mono">

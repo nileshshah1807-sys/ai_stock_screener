@@ -33,7 +33,9 @@ test("the sieve: gates only lose dots, survivors are ranked 1..n, and the pictur
   assert.equal(s.ma200.length, 220);
   assert.ok(s.ma200.every((v) => v !== null));
   assert.equal(s.bands.at(-1).to, 1);
-  assert.equal(FACTORS.reduce((t, f) => t + f.weight, 0), 100);
+  assert.ok(FACTORS.every((f) => Object.values(f).every((v) => typeof v !== "number")), "no landing factor carries a numeric weight");
+  assert.deepEqual(FACTORS.map((f) => f.label), ["Quality", "Growth", "Momentum", "Value", "Steadiness"]);
+  assert.ok(FACTORS.every((f) => f.caption && !/\d/.test(f.caption)));
   assert.ok(TONE.cuts.every(([cut], i, a) => !i || cut > a[i - 1][0]) && TONE.median > TONE.cuts[1][0]);
 });
 
@@ -45,22 +47,13 @@ test("the evening is drawn to scale and no sampled row sits in a downtrend", asy
   for (const market of Object.keys(SAMPLE_MARKETS)) assert.ok(SAMPLE_MARKETS[market].rows.every((r) => r.stage <= 2));
 });
 
-test("phone labels keep a minimum gap, and the page's factor weights equal the screener's defaults", async () => {
-  const { labelShifts, eveningPosition, EVENING, FACTORS } = await import("./landing.mjs");
+test("phone labels keep a minimum gap", async () => {
+  const { labelShifts, eveningPosition, EVENING } = await import("./landing.mjs");
   const at = EVENING.map(([t]) => eveningPosition(t) * 30);
   const shifts = labelShifts(at, 1.75);
   const placed = at.map((v, i) => v + shifts[i]);
   assert.ok(placed.every((v, i) => !i || v - placed[i - 1] >= 1.75 - 1e-9));
   assert.equal(shifts[0], 0);
-  const { readFileSync } = await import("node:fs");
-  const runtime = new URL("../../screener/runtime.py", import.meta.url);
-  let source;
-  try { source = readFileSync(runtime, "utf8"); } catch { return; } // the dashboard checked out alone
-  for (const f of FACTORS) {
-    const m = source.match(new RegExp(`FACTOR_WEIGHT_${f.key.toUpperCase()} = _env_float\\("FACTOR_WEIGHT_${f.key.toUpperCase()}", ([0-9.]+)\\)`));
-    assert.ok(m, `${f.key} weight not found in runtime.py`);
-    assert.equal(Math.round(Number(m[1]) * 100), f.weight);
-  }
 });
 
 test("a tone score reads as the word whose cut it has reached", async () => {

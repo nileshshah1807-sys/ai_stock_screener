@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
-import { RUN_COLUMNS, rankScores, scoreRun } from "@/lib/custom-score.mjs";
+import { RUN_COLUMNS, topByMix } from "@/lib/custom-score.mjs";
 import { lazyClient } from "@/lib/supabase/lazy-client";
 
 type Row = Record<string, unknown>;
@@ -10,7 +10,18 @@ type Run = { rows: Row[]; outlooks: Map<string, number> };
 
 const PAGE = 1000;
 // One read per market and run per page view: the run does not change under an open builder.
-const runs = new Map<string, Promise<Run>>();
+// Rows and calls are kept apart, so turning the call measure on reads the calls alone.
+const cache = new Map<string, Promise<unknown>>();
+
+function once<T>(key: string, read: () => Promise<T>): Promise<T> {
+  let value = cache.get(key) as Promise<T> | undefined;
+  if (!value) {
+    value = read();
+    value.catch(() => cache.delete(key)); // a failed read is tried again next open
+    cache.set(key, value);
+  }
+  return value;
+}
 
 async function readAll(read: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>) {
   const rows: Row[] = [];
@@ -27,47 +38,45 @@ async function readAll(read: (from: number, to: number) => PromiseLike<{ data: u
  * The run as lib/queries.ts readRunScores reads it, but from the browser
  * straight to Supabase as the viewer (RLS, the *_visible view), so the live
  * preview costs the Worker nothing.
+ * shortcut: reads Supabase even when TABLE_BACKEND moves these tables to D1;
+ * move it to an /api route on the same cache when that lands (docs/d1_migration_plan.md).
  */
-function readRun(market: string, runDate: string, withCalls: boolean): Promise<Run> {
-  const key = `${market}:${runDate}:${withCalls ? "calls" : ""}`;
-  let run = runs.get(key);
-  if (!run) {
-    run = (async () => {
-      const client = await lazyClient();
-      const since = new Date(Date.parse(runDate) - 190 * 86_400_000).toISOString().slice(0, 10);
-      const [rows, calls] = await Promise.all([
-        readAll((from, to) =>
-          client
-            .from("screener_snapshot_visible")
-            .select([...RUN_COLUMNS, "company"].join(","))
-            .eq("market", market)
-            .eq("run_date", runDate)
-            .is("unrated_reason", null)
-            .order("symbol", { ascending: true })
-            .range(from, to),
-        ),
-        withCalls
-          ? readAll((from, to) =>
-              client
-                .from("concall_feed")
-                .select("symbol, call_date, outlook_score")
-                .eq("market", market)
-                .gte("call_date", since)
-                .not("outlook_score", "is", null)
-                .order("call_date", { ascending: false })
-                .order("symbol", { ascending: true })
-                .range(from, to),
-            )
-          : Promise.resolve([]),
-      ]);
-      const outlooks = new Map<string, number>();
-      for (const call of calls) if (!outlooks.has(String(call.symbol))) outlooks.set(String(call.symbol), Number(call.outlook_score));
-      return { rows, outlooks };
-    })();
-    run.catch(() => runs.delete(key)); // a failed read is tried again next open
-    runs.set(key, run);
-  }
-  return run;
+async function readRun(market: string, runDate: string, withCalls: boolean): Promise<Run> {
+  const client = await lazyClient();
+  const since = new Date(Date.parse(runDate) - 190 * 86_400_000).toISOString().slice(0, 10);
+  const [rows, calls] = await Promise.all([
+    once(`rows:${market}:${runDate}`, () =>
+      readAll((from, to) =>
+        client
+          .from("screener_snapshot_visible")
+          .select([...RUN_COLUMNS, "company"].join(","))
+          .eq("market", market)
+          .eq("run_date", runDate)
+          .is("unrated_reason", null)
+          .order("symbol", { ascending: true })
+          .range(from, to),
+      ),
+    ),
+    withCalls
+      ? once(`calls:${market}:${runDate}`, async () => {
+          const feed = await readAll((from, to) =>
+            client
+              .from("concall_feed")
+              .select("symbol, call_date, outlook_score")
+              .eq("market", market)
+              .gte("call_date", since)
+              .not("outlook_score", "is", null)
+              .order("call_date", { ascending: false })
+              .order("symbol", { ascending: true })
+              .range(from, to),
+          );
+          const outlooks = new Map<string, number>();
+          for (const call of feed) if (!outlooks.has(String(call.symbol))) outlooks.set(String(call.symbol), Number(call.outlook_score));
+          return outlooks;
+        })
+      : Promise.resolve(new Map<string, number>()),
+  ]);
+  return { rows, outlooks: calls };
 }
 
 export type PreviewRow = { symbol: string; company: string | null; score: number };
@@ -100,14 +109,7 @@ export function useScorePreview(
   // Dragging stays smooth: the ranking follows the slider a frame behind, never blocks it.
   const deferred = useDeferredValue(weights);
   const ready = run?.key === key ? run.value : null;
-  const top = useMemo(() => {
-    if (!ready) return [];
-    const scores = scoreRun(ready.rows, deferred, ready.outlooks);
-    const companies = new Map(ready.rows.map((row) => [String(row.symbol), (row.company as string | null) ?? null]));
-    return rankScores(scores, companies.keys())
-      .slice(0, size)
-      .flatMap((entry) => (entry.score === null ? [] : [{ symbol: entry.symbol, company: companies.get(entry.symbol) ?? null, score: entry.score }]));
-  }, [ready, deferred, size]);
+  const top = useMemo(() => (ready ? topByMix(ready.rows, deferred, ready.outlooks, size) : []), [ready, deferred, size]);
 
   if (run?.key === key && run.failed) return { state: "failed", top: [] };
   return { state: ready ? "ready" : "loading", top };

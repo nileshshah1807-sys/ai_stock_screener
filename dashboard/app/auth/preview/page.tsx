@@ -30,6 +30,7 @@ import { FilterBar } from "@/components/screener/filter-bar";
 import { SavedViews } from "@/components/screener/saved-views";
 import { StockSearch } from "@/components/screener/stock-search";
 import { ViewOptions } from "@/components/screener/view-options";
+import { ScoreBuilder } from "@/components/screener/score-builder";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { RATINGS } from "@/lib/types";
 
@@ -316,11 +317,12 @@ export default function PreviewPage() {
           {/* Same structure as screener/layout.tsx. Suspense because these
               read the query string, which a static page only has on the client. */}
           <Suspense>
-            <div className="space-y-2">
+            <div data-screener className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex-1">
+                <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
                   <FilterBar sectors={["Financials", "Information Technology", "Industrials"]} factorModel />
                 </div>
+                <ScoreBuilder factorModel concalls />
                 <ViewOptions factorModel />
                 <StockSearch />
                 <ExportLink />

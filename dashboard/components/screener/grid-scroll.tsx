@@ -65,6 +65,8 @@ export function GridScroll({ children }: { children: ReactNode }) {
 
   return (
     <div ref={node} className="grid-scroll">
+      {/* Shown by globals.css while the list re-sorts or re-filters ([data-nav-pending]); indeterminate, so no value. */}
+      <div role="progressbar" aria-label="Updating the list" className="grid-progress" />
       {children}
     </div>
   );

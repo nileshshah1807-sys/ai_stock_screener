@@ -129,12 +129,11 @@ export function CallOutlook({
                   </span>
                 </>
               ) : null}
-              {" · In the score from the next screener run"}
             </>
           ) : outlook.applied ? (
-            "In the score, with the tone of the call"
+            "Read with the tone of the call"
           ) : (
-            "Shown for context; not in the score"
+            "Shown for context"
           )}
         </p>
       </div>

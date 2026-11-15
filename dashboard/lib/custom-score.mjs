@@ -10,6 +10,8 @@
  * `about` from here (words follow screener/factors.py). `block` is the factor
  * block's key where the measure is one (lib/types.ts FACTOR_BLOCKS).
  */
+const CALL_COLUMN = "call_signal";
+
 export const SCORE_FACTORS = [
   {
     key: "q", column: "quality_score", block: "quality", label: "Quality",
@@ -43,27 +45,19 @@ export const SCORE_FACTORS = [
     about: "A 1-99 rating of the share's return over the last 3, 6, 9 and 12 months (the latest three months count double), ranked against every stock on the list. 80 means it did better than about 80% of them.",
   },
   {
-    // The call's word-list tone; the outlook enters only as points (CONCALL below).
-    key: "t", column: "transcript_score", label: "Call tone", concall: true,
-    caption: "How upbeat the last earnings call sounded",
-    about: "How upbeat the words in the company's latest earnings call were, read by counting positive and cautious language. Higher means more upbeat than most calls. It measures tone, not results; a company can sound confident and still miss.",
+    // `derived`: not a snapshot column (never select it); callSignals works it out per run from tone and outlook.
+    key: "c", column: CALL_COLUMN, derived: true, label: "Earnings call", concall: true, toggle: true,
+    caption: "How upbeat and confident the latest earnings call was",
+    about: "How positive management sounded on its latest earnings call: mostly what it said about the outlook, partly the tone of its words, against every other recent call. A call counts half after 90 days and not at all after 180; no recent call counts as middle of the pack. Words, not results.",
   },
 ];
 
-/**
- * Points added on top of the blend's run percentile, each weight / 100 points per
- * point of distance: `d` from a neutral 50 valuation, `c` from the run's median call.
- */
+/** Points added on top of the blend's run percentile: `d` / 100 per point of valuation score away from 50. */
 export const POINT_FACTORS = [
   {
     key: "d", label: "Fair-value nudge",
     caption: "Lifts stocks priced below a fair-value estimate, lowers those above",
     about: "Adds a little to stocks priced below a fair-value estimate (a discounted cash-flow model) and takes a little from those above. Only stocks the model fits get a nudge. It changes the order; it is not a price target.",
-  },
-  {
-    key: "c", label: "Recent call nudge", concall: true,
-    caption: "Lifts companies whose latest call sounded more upbeat than most",
-    about: "Adds a little to companies whose latest earnings call was more positive about the outlook than the typical call this season, and takes a little from those less positive. Mostly outlook, partly tone. A call loses half its pull every 90 days, all of it after 180.",
   },
 ];
 
@@ -91,14 +85,30 @@ export const IMPORTANCE = [
   { label: "Most", value: 50 },
 ];
 
-/** The step nearest `value` (ties go to the lower step). */
-export function importanceStep(value) {
+/** An extra nudge's size, in words; `d` keeps its number in the URL. */
+export const NUDGE = [
+  { label: "Off", value: 0 },
+  { label: "Light", value: 25 },
+  { label: "Strong", value: 50 },
+];
+
+/** The nudge step nearest `value` (ties go to the lower step). */
+export function nudgeStep(value) {
+  return nearest(NUDGE, value);
+}
+
+function nearest(steps, value) {
   const weight = num(value) ?? 0;
   let best = 0;
-  for (let at = 1; at < IMPORTANCE.length; at++) {
-    if (Math.abs(IMPORTANCE[at].value - weight) < Math.abs(IMPORTANCE[best].value - weight)) best = at;
+  for (let at = 1; at < steps.length; at++) {
+    if (Math.abs(steps[at].value - weight) < Math.abs(steps[best].value - weight)) best = at;
   }
   return best;
+}
+
+/** The step nearest `value` (ties go to the lower step). */
+export function importanceStep(value) {
+  return nearest(IMPORTANCE, value);
 }
 
 /**
@@ -132,15 +142,16 @@ export function importanceText(label, weight, share) {
 /** Every column scoreRun reads besides the outlook. */
 export const RUN_COLUMNS = [
   "symbol",
-  ...SCORE_FACTORS.map((f) => f.column),
+  ...SCORE_FACTORS.filter((f) => !("derived" in f)).map((f) => f.column),
   "dcf_valuation_score",
   "dcf_blend_eligible",
+  "transcript_score",
   "transcript_scoring_eligible",
   "transcript_age_days",
 ];
 
 /** Where the builder starts: the five factors equally, nothing else. */
-export const EQUAL_START = { q: 20, g: 20, m: 20, v: 20, r: 20, rs: 0, t: 0 };
+export const EQUAL_START = { q: 20, g: 20, m: 20, v: 20, r: 20, rs: 0, c: 0 };
 
 /**
  * `q20.g20.m30` -> { q: 20, g: 20, m: 30 }; null when no factor has a positive weight.
@@ -154,8 +165,13 @@ export function parseWeights(text) {
   for (const part of String(text).split(".")) {
     const match = /^([a-z]+)(\d{1,3})$/.exec(part);
     if (!match) continue;
-    const factor = [...SCORE_FACTORS, ...POINT_FACTORS].find((f) => f.key === match[1]);
     const value = Math.min(100, Number(match[2]));
+    // Older links: call tone (`t`) and the call nudge (`c`, 25 or 50) are now the one Earnings call measure, at the nearer step.
+    if (match[1] === "t" || match[1] === "c") {
+      if (value > 0) weights.c = Math.max(weights.c ?? 0, IMPORTANCE[importanceStep(value)].value);
+      continue;
+    }
+    const factor = [...SCORE_FACTORS, ...POINT_FACTORS].find((f) => f.key === match[1]);
     if (factor && value > 0) weights[factor.key] = value;
   }
   return Object.keys(weights).length ? weights : null;
@@ -201,13 +217,6 @@ export function weightedScore(row, weights) {
 
 const num = (value) => (value === null || value === undefined || value === "" || !Number.isFinite(Number(value)) ? null : Number(value));
 
-/** @param {number[]} values */
-function median(values) {
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = sorted.length >> 1;
-  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-}
-
 /**
  * A call's weight by age: halves every 90 days, nothing past 180.
  * shortcut: leaves out the taper near a quarter's turn; add it if the lists drift then.
@@ -220,51 +229,54 @@ export function concallRecency(ageDays) {
 }
 
 /**
- * The viewer's score for every row of a run.
+ * Each recent call's Earnings call value by symbol, 0-100: 85% outlook plus 15%
+ * tone, ranked across the run's eligible calls (the outlook's own level sits
+ * well above 50, so the rank is what reads as "more upbeat than most"), then
+ * faded toward 50 by age (concallRecency). No eligible call within 180 days, or
+ * fewer than 30 such calls in the run: no value.
+ * @param {Record<string, unknown>[]} rows
+ * @param {Map<string, number>} outlooks latest outlook score by symbol
+ * @returns {Map<string, number>}
+ */
+const MIN_CALLS = 30;
+
+export function callSignals(rows, outlooks) {
+  const calls = [];
+  for (const row of rows) {
+    if (row.transcript_scoring_eligible !== true) continue;
+    const tone = num(row.transcript_score);
+    const outlook = outlooks.get(String(row.symbol));
+    const recency = concallRecency(row.transcript_age_days);
+    if (tone === null || outlook === undefined || !recency) continue;
+    calls.push({ symbol: String(row.symbol), blend: Math.round((0.15 * tone + 0.85 * outlook) * 100) / 100, recency });
+  }
+  // Under 30 calls a rank swings from 0 to 100 on a handful: no value, so the measure sits in the middle.
+  if (calls.length < MIN_CALLS) return new Map();
+  const percentile = percentiles(calls.map((call) => call.blend));
+  return new Map(calls.map((call) => [call.symbol, 50 + call.recency * (percentile(call.blend) - 50)]));
+}
+
+/**
+ * The arithmetic under the viewer's score, before scoreRun ranks it.
  *
- * The weighted blend is ranked across the run onto 0-100 ((rank - 1) / (n - 1),
- * ties averaged); points are then added: `d` / 100 per point of valuation score
- * away from 50, and `c` / 100 per point a recent call sits from the run's median
- * call (85% outlook, 15% tone; each median taken over the calls applied, 50
- * below 30 calls). Pass the whole run: a percentile or median of a filtered
- * subset is a different number.
+ * The weighted blend (Earnings call included, from callSignals) is ranked
+ * across the run onto 0-100 ((rank - 1) / (n - 1), ties averaged); `d` / 100
+ * points per point of valuation score away from 50 are then added. Pass the
+ * whole run: a percentile of a filtered subset is a different number.
  * @param {Record<string, unknown>[]} rows
  * @param {Record<string, number>} weights
  * @param {Map<string, number>} [outlooks] latest outlook score by symbol
  * @returns {Map<string, number | null>}
  */
-export function scoreRun(rows, weights, outlooks = new Map()) {
+export function rawScores(rows, weights, outlooks = new Map()) {
+  const signals = (weights.c ?? 0) > 0 ? callSignals(rows, outlooks) : null;
   const blends = rows.map((row) => {
-    const blend = weightedScore(row, weights);
+    const blend = weightedScore(signals ? { ...row, [CALL_COLUMN]: signals.get(String(row.symbol)) } : row, weights);
     return blend === null ? null : Math.round(blend * 100) / 100;
   });
-  const sorted = /** @type {number[]} */ (blends.filter((b) => b !== null)).sort((a, b) => a - b);
-  const n = sorted.length;
-  // Each value's percentile once, ties averaged: one pass over the sorted blends.
-  /** @type {Map<number, number>} */
-  const ranks = new Map();
-  for (let lo = 0; lo < n; ) {
-    let hi = lo;
-    while (hi + 1 < n && sorted[hi + 1] === sorted[lo]) hi++;
-    ranks.set(sorted[lo], n < 2 ? 50 : ((lo + hi) / 2 / (n - 1)) * 100);
-    lo = hi + 1;
-  }
-  /** @param {number} value */
-  const percentile = (value) => /** @type {number} */ (ranks.get(value));
+  const percentile = percentiles(blends);
 
   const dcfPoints = (weights.d ?? 0) / 100;
-  const callPoints = (weights.c ?? 0) / 100;
-  const calls = rows.map((row) => {
-    if (!callPoints || row.transcript_scoring_eligible !== true) return null;
-    const tone = num(row.transcript_score);
-    const outlook = outlooks.get(String(row.symbol));
-    const recency = concallRecency(row.transcript_age_days);
-    return tone === null || outlook === undefined || !recency ? null : { tone, outlook, recency };
-  });
-  const applied = /** @type {{ tone: number, outlook: number, recency: number }[]} */ (calls.filter(Boolean));
-  const enough = applied.length >= 30;
-  const toneMedian = enough ? median(applied.map((c) => c.tone)) : 50;
-  const outlookMedian = enough ? median(applied.map((c) => c.outlook)) : 50;
 
   return new Map(
     rows.map((row, index) => {
@@ -273,15 +285,49 @@ export function scoreRun(rows, weights, outlooks = new Map()) {
       let score = percentile(blend);
       const dcf = num(row.dcf_valuation_score);
       if (dcfPoints && dcf !== null && row.dcf_blend_eligible === true) {
-        score = Math.min(100, Math.max(0, score + dcfPoints * (dcf - 50)));
-      }
-      const call = calls[index];
-      if (call) {
-        score += callPoints * call.recency * (0.15 * (call.tone - toneMedian) + 0.85 * (call.outlook - outlookMedian));
+        score += dcfPoints * (dcf - 50);
       }
       return [String(row.symbol), score];
     }),
   );
+}
+
+/**
+ * Each value's percentile across the non-null values, 0 (lowest) to 100
+ * (highest), ties averaged; a lone value is 50.
+ * @param {(number | null)[]} values
+ * @returns {(value: number) => number}
+ */
+function percentiles(values) {
+  const sorted = /** @type {number[]} */ (values.filter((v) => v !== null)).sort((x, y) => x - y);
+  const n = sorted.length;
+  /** @type {Map<number, number>} */
+  const ranks = new Map();
+  for (let lo = 0; lo < n; ) {
+    let hi = lo;
+    while (hi + 1 < n && sorted[hi + 1] === sorted[lo]) hi++;
+    ranks.set(sorted[lo], n < 2 ? 50 : ((lo + hi) / 2 / (n - 1)) * 100);
+    lo = hi + 1;
+  }
+  return (value) => /** @type {number} */ (ranks.get(value));
+}
+
+/**
+ * The viewer's score: where their mix, plus any nudge points, lands among
+ * every scored stock of the run, 0 (last) to 100 (first). Nudges move a
+ * stock along that line; they never push it past either end or tie the top.
+ * Without a nudge this is the blend's percentile, unchanged.
+ * @param {Record<string, unknown>[]} rows
+ * @param {Record<string, number>} weights
+ * @param {Map<string, number>} [outlooks] latest outlook score by symbol
+ * @returns {Map<string, number | null>}
+ */
+export function scoreRun(rows, weights, outlooks = new Map()) {
+  const raw = rawScores(rows, weights, outlooks);
+  if (!(weights.d ?? 0)) return raw;
+  const values = [...raw.values()].map((v) => (v === null ? null : Math.round(v * 100) / 100));
+  const percentile = percentiles(values);
+  return new Map([...raw.keys()].map((symbol, i) => [symbol, values[i] === null ? null : percentile(/** @type {number} */ (values[i]))]));
 }
 
 /**
@@ -300,4 +346,49 @@ export function rankScores(scores, symbols) {
       }
       return b.score - a.score || (a.symbol < b.symbol ? -1 : 1);
     });
+}
+
+/**
+ * The first `size` scored rows of the run by `weights`, as the builder's
+ * preview lists them; recomputed from scratch for every mix.
+ * @param {Record<string, unknown>[]} rows
+ * @param {Record<string, number>} weights
+ * @param {Map<string, number>} [outlooks]
+ * @param {number} [size]
+ * @returns {{ symbol: string, company: string | null, score: number }[]}
+ */
+export function topByMix(rows, weights, outlooks = new Map(), size = 5) {
+  const companies = new Map(rows.map((row) => [String(row.symbol), /** @type {string | null} */ (row.company ?? null)]));
+  return rankScores(scoreRun(rows, weights, outlooks), companies.keys())
+    .slice(0, size)
+    .flatMap((entry) => (entry.score === null ? [] : [{ symbol: entry.symbol, company: companies.get(entry.symbol) ?? null, score: entry.score }]));
+}
+
+/**
+ * What made a row's blend, for the Your score cell: each weighted measure the
+ * row has, with its value and its part of the blend (weight x value over the
+ * sum of those), largest first. Empty when the row has none of them.
+ * @param {Record<string, unknown>} row
+ * @param {Record<string, number>} weights
+ * @returns {{ key: string, label: string, value: number, part: number }[]}
+ */
+export function scoreDrivers(row, weights) {
+  const parts = [];
+  for (const factor of SCORE_FACTORS) {
+    const weight = weights[factor.key] ?? 0;
+    const value = num(row[factor.column]);
+    if (weight > 0 && value !== null) parts.push({ key: factor.key, label: factor.label, value, raw: weight * Math.max(0, value) });
+  }
+  const total = parts.reduce((sum, entry) => sum + entry.raw, 0);
+  return parts
+    .map(({ raw, ...entry }) => ({ ...entry, part: total ? raw / total : 0 }))
+    .sort((a, b) => b.part - a.part);
+}
+
+/** "Mostly Momentum (82) and Quality (74)." for a cell's tooltip; null with no drivers. */
+export function driversText(drivers) {
+  const [first, second] = drivers;
+  if (!first) return null;
+  const named = (entry) => `${entry.label} (${Math.round(entry.value)})`;
+  return second ? `Mostly ${named(first)} and ${named(second)}.` : `All ${named(first)}.`;
 }

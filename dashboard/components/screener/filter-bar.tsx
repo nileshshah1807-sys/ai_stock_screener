@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { SheetClose, SheetTrigger } from "@/components/ui/sheet";
+import { PanelSheet } from "@/components/panel-sheet";
 import { ELIGIBILITY_CLASSES, RATINGS, STAGES } from "@/lib/types";
 import { useShowRatings } from "@/components/market-provider";
 import { PendingMarker } from "@/components/nav-pending";
@@ -471,7 +472,9 @@ export function FilterBar({
         </div>
       ) : null}
 
-      <Sheet>
+      <PanelSheet
+        title="Filters"
+        trigger={
         <SheetTrigger
           render={
             <Button
@@ -490,26 +493,23 @@ export function FilterBar({
           ) : null}
         </SheetTrigger>
 
-        <SheetContent
-          side="right"
-          className="gap-0 p-0 data-[side=right]:w-[calc(100%-1rem)] data-[side=right]:sm:max-w-md"
-        >
-          <header className="space-y-3 border-b border-border/70 px-5 pt-4 pb-3">
-            <div className="flex min-h-8 items-center gap-2 pr-9">
-              <SheetTitle className="text-base font-semibold">Filters</SheetTitle>
+        }
+        aside={
+          <>
               {activeFilterCount ? (
                 <span className="tabular rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">
                   {activeFilterCount}
                 </span>
               ) : null}
-              <span className="flex-1" />
               {activeFilterCount || query ? (
                 <Button variant="ghost" size="sm" className="gap-1" onClick={clearAll}>
                   <X className="size-3.5" aria-hidden />
                   Clear all
                 </Button>
               ) : null}
-            </div>
+          </>
+        }
+        header={
             <div className="relative">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden />
               <Input
@@ -521,9 +521,10 @@ export function FilterBar({
                 className="h-9 pl-8 text-sm"
               />
             </div>
-          </header>
-
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5">
+        }
+        note={pending ? "Updating the list…" : "Each change applies as you make it."}
+        actions={<SheetClose render={<Button className="h-11 px-5" />}>Show results</SheetClose>}
+      >
             {showRatingSection ? (
               <Section title="Rating" count={activeRatings.length} open={isOpen("rating", activeRatings.length)} onToggle={() => flip("rating", isOpen("rating", activeRatings.length))}>
                 <div className="flex flex-wrap gap-1.5">
@@ -711,16 +712,7 @@ export function FilterBar({
             {nothingShown ? (
               <p className="py-10 text-center text-sm text-muted-foreground">No filter matches “{find}”.</p>
             ) : null}
-          </div>
-
-          <footer className="flex items-center gap-3 border-t border-border/70 px-5 py-3">
-            <p className="flex-1 text-xs text-muted-foreground" aria-live="polite">
-              {pending ? "Updating the list…" : "Each change applies as you make it."}
-            </p>
-            <SheetClose render={<Button size="sm" />}>Show results</SheetClose>
-          </footer>
-        </SheetContent>
-      </Sheet>
+      </PanelSheet>
 
       {activeFilterCount || query ? (
         <Button variant="ghost" className="hidden gap-1 sm:inline-flex" onClick={clearAll}>

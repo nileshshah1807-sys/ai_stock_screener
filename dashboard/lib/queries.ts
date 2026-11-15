@@ -199,6 +199,7 @@ const SORTABLE = new Set([
   "quality_percentile",
   "growth_percentile",
   "momentum_percentile",
+  "value_percentile",
   "risk_percentile",
   "eligibility_class",
   "gate_severity",

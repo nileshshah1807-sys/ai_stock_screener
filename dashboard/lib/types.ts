@@ -272,8 +272,8 @@ export const STAGES = [
  */
 export const FACTOR_BLOCKS = [
   { key: "quality", label: "Quality", weightPayloadKey: "Quality_Weight" },
-  { key: "momentum", label: "Momentum", weightPayloadKey: "Momentum_Weight" },
   { key: "growth", label: "Growth", weightPayloadKey: "Growth_Weight" },
+  { key: "momentum", label: "Momentum", weightPayloadKey: "Momentum_Weight" },
   { key: "value", label: "Value", weightPayloadKey: "Value_Weight" },
   { key: "risk", label: "Steadiness", weightPayloadKey: "Risk_Weight" },
 ] as const;
