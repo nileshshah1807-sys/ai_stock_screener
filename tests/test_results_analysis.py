@@ -34,8 +34,8 @@ class ResultsAnalysisTests(unittest.TestCase):
         self.assertTrue(results_analysis.publish(repo, date(2026, 11, 14)))
         stored = repo.written
         self.assertEqual(stored["symbols"], ["A", "B"])
-        self.assertEqual(len(stored["rates"]), 8)
-        newest = stored["rates"][-1]
+        self.assertEqual(len(stored["rows"]), 8)
+        newest = stored["rows"][-1]
         self.assertEqual(newest["quarter"], "2026-09-30")
         # A: +20% revenue, no operating profit, flat PAT; B reported with no year-ago base.
         self.assertEqual(newest["companies"], [[0, 20, None, 0], [1, None, None, None]])

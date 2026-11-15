@@ -34,7 +34,7 @@ export function resultsAnalysis({ market, today, filings }) {
     market,
     today,
     symbols,
-    rates: rates.map(({ quarter, companies }) => ({
+    rows: rates.map(({ quarter, companies }) => ({
       quarter,
       companies: companies.map(([symbol, ...lines]) => [place.get(symbol), ...lines.map(round)]),
     })),

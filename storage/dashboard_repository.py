@@ -623,7 +623,10 @@ class DashboardRepository:
         return filings
 
     def put_results_analysis(self, analysis: dict[str, Any]) -> bool:
-        """``live/{market}/results-analysis.json``: the Results analysis page's per-company rates, no rating."""
+        """``live/{market}/results-analysis.json``: the Results analysis page's per-company rates, no rating.
+
+        The live envelope (``market``, ``written_at``, ``rows``: one per quarter) with ``symbols`` beside it.
+        """
         store = self._cloudflare()
         if store is None:
             return False

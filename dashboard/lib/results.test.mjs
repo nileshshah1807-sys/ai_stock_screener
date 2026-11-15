@@ -223,9 +223,9 @@ test("the stored object gives the page's medians, in scope and out, and none for
   assert.deepEqual(stored.symbols, ["A", "B", "C", "D", "E"]);
   const quarters = ["2026-09-30", "2026-06-30", "2026-03-31", "2025-12-31"];
   for (const scope of [null, new Set(["A", "C", "E"])]) {
-    assert.deepEqual(mediansFromRates(stored.rates, quarters, scope, stored.symbols), quarterMedians(filings, quarters, scope));
+    assert.deepEqual(mediansFromRates(stored.rows, quarters, scope, stored.symbols), quarterMedians(filings, quarters, scope));
   }
-  assert.equal(mediansFromRates(stored.rates, ["2026-12-31"], null, stored.symbols), null);
+  assert.equal(mediansFromRates(stored.rows, ["2026-12-31"], null, stored.symbols), null);
 });
 
 test("quarterMedians keeps to the companies in scope", () => {

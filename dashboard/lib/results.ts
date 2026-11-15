@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { unstable_cache } from "next/cache";
 
 import type { MarketCode } from "@/lib/markets";
-import { readLiveObject } from "@/lib/market-data";
+import { readLiveEnvelope } from "@/lib/live-objects";
 import { getLatestRun, getSearchIndex } from "@/lib/queries";
 import { cachedOr, digest, sharedRead } from "@/lib/home-cache";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
@@ -457,10 +457,13 @@ export async function getQuarterLines(
   }
 }
 
+const STALE_ANALYSIS_MS = 2 * 86_400_000;
+
 /** The filings worker's per-company rates (workers/results_analysis.py); see `mediansFromRates`. */
 export type ResultsAnalysis = {
+  written_at: string;
   symbols: string[];
-  rates: Array<{ quarter: string; companies: Array<[number, ...(number | null)[]]> }>;
+  rows: Array<{ quarter: string; companies: Array<[number, ...(number | null)[]]> }>;
 };
 
 /**
@@ -474,7 +477,14 @@ export async function getResultsAnalysis(market: MarketCode): Promise<ResultsAna
     const supabase = await createClient();
     const { data: access } = await supabase.from("quarterly_filings").select("symbol").eq("market", market).limit(1);
     if (!access?.length) return null;
-    return await readLiveObject<ResultsAnalysis>(`live/${market}/results-analysis.json`);
+    const analysis = await readLiveEnvelope<ResultsAnalysis>(market, "results-analysis");
+    // A worker that keeps failing leaves an old object that may still hold the quarters asked for; past
+    // two days it is not trusted, and the page computes.
+    if (analysis && !(Date.now() - Date.parse(analysis.written_at) < STALE_ANALYSIS_MS)) {
+      console.warn(`results-analysis object for ${market} is stale (${analysis.written_at}); computing`);
+      return null;
+    }
+    return analysis;
   } catch (error) {
     console.error("getResultsAnalysis failed", error instanceof Error ? error.message : error);
     return null;

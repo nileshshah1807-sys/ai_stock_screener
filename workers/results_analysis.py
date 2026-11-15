@@ -42,5 +42,5 @@ def publish(repo, today: date) -> bool:
         logger.warning("Results analysis object not written: %s", exc)
         return False
     if written:
-        logger.info("Results analysis object written: %d quarters", len(analysis["rates"]))
+        logger.info("Results analysis object written: %d quarters", len(analysis["rows"]))
     return written

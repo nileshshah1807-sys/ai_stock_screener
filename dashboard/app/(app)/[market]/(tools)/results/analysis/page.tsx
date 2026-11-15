@@ -70,7 +70,7 @@ export default async function ResultsAnalysisPage({
 
   const us = market.code === "US";
   // The filings worker's stored rates when they cover these quarters; else worked out from the filings.
-  const stored = analysis ? mediansFromRates(analysis.rates, quarters, scope, analysis.symbols) : null;
+  const stored = analysis ? mediansFromRates(analysis.rows, quarters, scope, analysis.symbols) : null;
   const rows =
     stored ??
     quarterMedians(

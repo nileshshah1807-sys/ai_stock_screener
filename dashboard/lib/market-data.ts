@@ -34,12 +34,7 @@ export const snapshotPayloadPath = (market: MarketCode, runDate: string, symbol:
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
 /** The slice of R2's bucket API used here (the worker types are not a dependency). */
-type R2Bucket = {
-  get(
-    key: string,
-    options?: { onlyIf: { etagDoesNotMatch: string } },
-  ): Promise<{ etag: string; body?: unknown; arrayBuffer(): Promise<ArrayBuffer> } | null>;
-};
+type R2Bucket = { get(key: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null> };
 
 /** The MARKET_DATA binding, or null off Cloudflare (local development) or before it is bound. */
 function r2Bucket(): R2Bucket | null {
@@ -123,34 +118,4 @@ export async function readMarketObjects<T>(
   };
   await Promise.all(Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, entries.length) }, worker));
   return found;
-}
-
-/** Live objects this instance holds, by key, with the etag they were read at. */
-const liveObjects = new Map<string, { etag: string; value: unknown }>();
-
-/**
- * A plain JSON object under `live/` in R2, as current as R2 holds it: each call
- * asks R2 whether the object changed since this instance read it (by etag) and
- * parses it again only if so, so a rewritten object shows on the next load.
- * Null off Cloudflare, when it is missing, or when it cannot be read.
- */
-export async function readLiveObject<T>(path: string): Promise<T | null> {
-  const bucket = r2Bucket();
-  if (!bucket) return null;
-  const held = liveObjects.get(path);
-  try {
-    const object = await bucket.get(path, held ? { onlyIf: { etagDoesNotMatch: held.etag } } : undefined);
-    if (!object) {
-      liveObjects.delete(path);
-      return null;
-    }
-    // A failed precondition returns the object's metadata with no body: unchanged.
-    if (held && !("body" in object && object.body)) return held.value as T;
-    const value = JSON.parse(new TextDecoder().decode(await object.arrayBuffer())) as T;
-    liveObjects.set(path, { etag: object.etag, value });
-    return value;
-  } catch (cause) {
-    console.warn(`live object R2 read failed: ${path}`, cause instanceof Error ? cause.message : cause);
-    return null;
-  }
 }
