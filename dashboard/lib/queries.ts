@@ -1895,6 +1895,8 @@ export const getMarketDay = cache(
 type RunInputs = { columns: string[]; rows: unknown[][]; outlooks: [string, number][] };
 
 const mixScores = sharedMemo<Map<string, number | null>>(60_000, 50);
+// The rebuilt rows do not depend on the mix, so a new mix on a warm instance costs scoreRun alone.
+const runRows = sharedMemo<{ rows: Record<string, unknown>[]; outlooks: Map<string, number> }>(60_000, 4);
 
 /**
  * "Your score" for every company in a run, by symbol. Reading the run and its calls is the
@@ -1910,17 +1912,22 @@ async function runScores(
 ): Promise<Map<string, number | null> | null> {
   try {
     return await mixScores(`${market}:${runDate}:${formatWeights(weights)}`, async () => {
-      const inputs = await sharedRead(
-        "run-inputs-v1", // replaces run-scores-v2 (scores per mix, under an older scoring rule)
-        market,
-        3600,
-        // The shared read runs as the service role, which the `*_visible` view returns no rows to; the
-        // base table holds the same columns, and none read here is a rating field.
-        (db) => readRunInputs((db ?? supabase) as typeof supabase, db ? "screener_snapshot" : "screener_snapshot_visible", market, runDate),
-        [runDate],
-      );
-      const rows = inputs.rows.map((values) => Object.fromEntries(inputs.columns.map((column, at) => [column, values[at]])));
-      return scoreRun(rows, weights, new Map(inputs.outlooks));
+      const { rows, outlooks } = await runRows(`${market}:${runDate}`, async () => {
+        const inputs = await sharedRead(
+          "run-inputs-v1", // replaces run-scores-v2 (scores per mix, under an older scoring rule)
+          market,
+          3600,
+          // The shared read runs as the service role, which the `*_visible` view returns no rows to; the
+          // base table holds the same columns, and none read here is a rating field.
+          (db) => readRunInputs((db ?? supabase) as typeof supabase, db ? "screener_snapshot" : "screener_snapshot_visible", market, runDate),
+          [runDate],
+        );
+        return {
+          rows: inputs.rows.map((values) => Object.fromEntries(inputs.columns.map((column, at) => [column, values[at]]))),
+          outlooks: new Map(inputs.outlooks),
+        };
+      });
+      return scoreRun(rows, weights, outlooks);
     });
   } catch (error) {
     console.error("runScores failed", error instanceof Error ? error.message : error);
