@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, Info, Minus, Plus, Scale, X } from "lucide-react";
+import { ChevronRight, Info, Minus, Plus, Scale } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
+import { PanelSheet } from "@/components/panel-sheet";
 import { SegmentedControl } from "@/components/segmented-control";
 import { PendingMarker } from "@/components/nav-pending";
 import { useMarket, useRunDate } from "@/components/market-provider";
@@ -25,6 +25,7 @@ import {
   mixShares,
   nudgeStep,
   parseWeights,
+  shownScore,
 } from "@/lib/custom-score.mjs";
 
 const byKey = (key: string) => [...SCORE_FACTORS, ...POINT_FACTORS].find((factor) => factor.key === key);
@@ -47,8 +48,6 @@ function mediaStore(query: string) {
   };
   return () => useSyncExternalStore(subscribe, () => window.matchMedia(query).matches, () => false);
 }
-// The header is one 3.5rem row from xl up (components/app-shell.tsx); below that the panel is a bottom sheet.
-const useWide = mediaStore("(min-width: 80rem)");
 const useReducedMotion = mediaStore("(prefers-reduced-motion: reduce)");
 
 /** A number that glides to its new value (ease-out, requestAnimationFrame), so a shift in the mix is seen happening. */
@@ -83,8 +82,7 @@ const NOTHING_WEIGHTED = "Give at least one measure some weight to build a score
  * and the grid sorts by their mix (lib/custom-score.mjs). It starts from an
  * equal split and offers no other preset, so the order is always the viewer's.
  * The preview of the first five is worked out in the browser, never on the server.
- * On a wide screen it is a side panel the grid makes room for
- * (globals.css, [data-score-panel]); on a narrow one, a bottom sheet.
+ * It opens in the app's one panel (components/panel-sheet.tsx), as Filters does.
  */
 export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; concalls: boolean }) {
   const router = useRouter();
@@ -92,14 +90,13 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const searchParams = useSearchParams();
   const market = useMarket();
   const runDate = useRunDate();
-  const wide = useWide();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
   const [said, setSaid] = useState("");
   // The measure just changed, lit for a moment so the viewer sees what moved every share.
-  const [changed, setChanged] = useState<{ key: string; at: number } | null>(null);
+  const [changed, setChanged] = useState<{ key: string } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const sheet = useRef<HTMLDivElement>(null);
+  const start = useRef<HTMLElement>(null);
   const urlMix = searchParams.get("w") ?? "";
   const active = parseWeights(urlMix);
   // A market with no calls (US) offers no call measure: there is nothing to weight.
@@ -173,7 +170,7 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const set = (key: string, value: number) => {
     if ((weights[key] ?? 0) === value) return;
     setWeights((current) => ({ ...current, [key]: value }));
-    setChanged({ key, at: Date.now() });
+    setChanged({ key }); // a fresh object restarts the fade even for the same measure
   };
   // A stepper says what it did; the slider already says it through aria-valuetext.
   const stepTo = (factor: Factor, value: number) => {
@@ -195,61 +192,6 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
     </li>
   );
 
-  const form = (title: React.ReactNode, description: React.ReactNode) => (
-    <form
-      className="flex min-h-0 flex-1 flex-col"
-      onSubmit={(event) => {
-        event.preventDefault();
-        apply();
-      }}
-    >
-      <div className="space-y-1 px-5 pt-5 pr-16">
-        {title}
-        {description}
-      </div>
-      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 pt-4 pb-6">
-        <PreviewList preview={preview} empty={empty} />
-        <section aria-labelledby="score-mix-title" className="space-y-3">
-          <MixBar factors={factors} shares={shares} lit={changed?.key ?? null} />
-          <ul className="-mx-2 space-y-1">{main.map(control)}</ul>
-          {more.length ? (
-            <Disclosure title="More measures" on={more.some((factor) => (weights[factor.key] ?? 0) > 0)}>
-              <ul className="-mx-2 space-y-1">{more.map(control)}</ul>
-            </Disclosure>
-          ) : null}
-        </section>
-        {points.length ? (
-          <Disclosure title="Extra nudges" on={points.some((factor) => (weights[factor.key] ?? 0) > 0)}>
-            <div className="space-y-5">
-              {points.map((factor) => (
-                <Nudge key={factor.key} factor={factor} value={weights[factor.key] ?? 0} onChange={(next) => set(factor.key, next)} />
-              ))}
-            </div>
-          </Disclosure>
-        ) : null}
-      </div>
-      {/* Pinned under the scroll, so Apply is always one tap away. */}
-      <div className="space-y-3 border-t px-5 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-        {empty ? <p className="text-xs font-medium">{NOTHING_WEIGHTED}</p> : null}
-        <div className="flex items-center justify-between gap-2">
-          <Button type="button" variant="ghost" className="-ml-3 h-11" onClick={reset} disabled={!resettable}>
-            Reset to equal
-          </Button>
-          <Button type="submit" className="h-11 px-5" disabled={empty}>
-            Sort by my score
-          </Button>
-        </div>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          Your score uses only the weights you choose. Missing data counts as middle of the pack, never as zero. Not advice.
-        </p>
-      </div>
-      {/* The panel's one polite voice: what a stepper or reset just did, or why nothing can apply. */}
-      <p className="sr-only" aria-live="polite">
-        {empty ? NOTHING_WEIGHTED : said}
-      </p>
-    </form>
-  );
-
   return (
     <>
       <PendingMarker pending={pending} />
@@ -266,72 +208,56 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
         <span aria-live="polite">{pending ? "Sorting…" : active ? "Your score · on" : "Your score"}</span>
       </Button>
 
-      {wide ? (
-        open ? (
-          <SidePanel onClose={close}>
-            {form(
-              <h2 id="score-builder-title" className="text-base font-semibold">
-                {TITLE}
-              </h2>,
-              <p className="text-xs leading-relaxed text-muted-foreground">{DESCRIPTION}</p>,
-            )}
-          </SidePanel>
-        ) : null
-      ) : (
-        <Sheet open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
-          <SheetContent
-            ref={sheet}
-            side="bottom"
-            className="max-h-[85dvh] gap-0 p-0 outline-none"
-            // A tap opens on the sheet itself, not a ring on its first button; the keyboard still lands on a control.
-            initialFocus={(how) => (how === "keyboard" ? true : sheet.current)}
-          >
-            {form(
-              <SheetTitle className="text-base">{TITLE}</SheetTitle>,
-              <SheetDescription className="text-xs leading-relaxed">{DESCRIPTION}</SheetDescription>,
-            )}
-          </SheetContent>
-        </Sheet>
-      )}
+      <PanelSheet
+        open={open}
+        onOpenChange={(next) => (next ? setOpen(true) : close())}
+        title={TITLE}
+        description={DESCRIPTION}
+        // A tap opens on the panel's first section, not a ring on its first button; the keyboard still lands on a control.
+        initialFocus={(how) => (how === "keyboard" ? true : start.current)}
+        note={empty ? NOTHING_WEIGHTED : "Only your weights. Not advice."}
+        actions={
+          <>
+            <Button type="button" variant="ghost" className="h-11 px-3" onClick={reset} disabled={!resettable}>
+              Reset to equal
+            </Button>
+            <Button type="button" className="h-11 px-5" onClick={apply} disabled={empty}>
+              Sort by my score
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-6 pt-4 pb-6">
+          <PreviewList preview={preview} empty={empty} start={start} />
+          <section aria-labelledby="score-mix-title" className="space-y-3">
+            <MixBar factors={factors} shares={shares} lit={changed?.key ?? null} />
+            <ul className="-mx-2 space-y-1">{main.map(control)}</ul>
+            {more.length ? (
+              <Disclosure title="More measures" on={more.some((factor) => (weights[factor.key] ?? 0) > 0)}>
+                <ul className="-mx-2 space-y-1">{more.map(control)}</ul>
+              </Disclosure>
+            ) : null}
+          </section>
+          {points.length ? (
+            <Disclosure title="Extra nudges" on={points.some((factor) => (weights[factor.key] ?? 0) > 0)}>
+              <div className="space-y-5">
+                {points.map((factor) => (
+                  <Nudge key={factor.key} factor={factor} value={weights[factor.key] ?? 0} onChange={(next) => set(factor.key, next)} />
+                ))}
+              </div>
+            </Disclosure>
+          ) : null}
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            Your score uses only the weights you choose. Missing data counts as middle of the pack, never as zero. Scores show
+            from 0 to 100; a nudge can lift a stock past 100 in the order, never on screen.
+          </p>
+          {/* What a stepper or reset just did; the footer note speaks for the rest. */}
+          <p className="sr-only" aria-live="polite">
+            {said}
+          </p>
+        </div>
+      </PanelSheet>
     </>
-  );
-}
-
-/**
- * The wide-screen panel: beside the grid rather than over it, so the list it
- * re-sorts stays in view. Not modal: the page stays usable, Escape closes it.
- */
-function SidePanel({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
-  const panel = useRef<HTMLDivElement>(null);
-  const closeRef = useRef(onClose);
-  useEffect(() => {
-    closeRef.current = onClose;
-  });
-  useEffect(() => {
-    panel.current?.focus();
-    // Only an Escape meant for the panel: not one a menu or the search box elsewhere already used.
-    const onKey = (event: KeyboardEvent) => {
-      const inside = event.target instanceof Node && panel.current?.contains(event.target);
-      if (event.key === "Escape" && inside && !event.defaultPrevented) closeRef.current();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-  return (
-    <div
-      ref={panel}
-      data-score-panel
-      role="dialog"
-      aria-modal="false"
-      aria-labelledby="score-builder-title"
-      tabIndex={-1}
-      className="fixed top-14 right-0 bottom-0 z-20 flex w-[25rem] flex-col border-l bg-card text-sm shadow-[-8px_0_24px_-12px_rgb(0_0_0/0.18)] outline-none"
-    >
-      <Button type="button" variant="ghost" size="icon" className="absolute top-3 right-3 size-11" onClick={onClose} aria-label="Close">
-        <X className="size-4" aria-hidden />
-      </Button>
-      {children}
-    </div>
   );
 }
 
@@ -514,10 +440,10 @@ function Nudge({ factor, value, onChange }: { factor: Factor; value: number; onC
 }
 
 /** The first five of the whole market by the draft mix, so a change is seen before it is applied. */
-function PreviewList({ preview, empty }: { preview: Preview; empty: boolean }) {
+function PreviewList({ preview, empty, start }: { preview: Preview; empty: boolean; start: React.RefObject<HTMLElement | null> }) {
   const quiet = "text-xs text-muted-foreground";
   return (
-    <section aria-labelledby="score-preview-title" className="space-y-2 rounded-lg bg-muted/50 px-3 py-3">
+    <section ref={start} tabIndex={-1} aria-labelledby="score-preview-title" className="space-y-2 rounded-lg bg-muted/50 px-3 py-3 outline-none">
       <div className="flex items-baseline justify-between gap-3">
         <h3 id="score-preview-title" className="text-sm font-medium">
           Top 5 on your mix
@@ -543,7 +469,7 @@ function PreviewList({ preview, empty }: { preview: Preview; empty: boolean }) {
                 <span className="tabular mr-2 inline-block w-3 text-xs text-muted-foreground">{at + 1}</span>
                 {row.company ?? row.symbol}
               </span>
-              <span className="tabular shrink-0 font-mono text-xs text-muted-foreground">{formatScore(row.score)}</span>
+              <span className="tabular shrink-0 font-mono text-xs text-muted-foreground">{formatScore(shownScore(row.score))}</span>
             </li>
           ))}
         </ol>

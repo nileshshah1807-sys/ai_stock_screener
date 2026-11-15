@@ -21,7 +21,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { aheadOf, driversText, parseWeights, scoreDrivers } from "@/lib/custom-score.mjs";
+import { aheadOf, driversText, parseWeights, scoreDrivers, shownScore } from "@/lib/custom-score.mjs";
 import { dcfStatus } from "@/lib/labels";
 import { visibleColumns, type ColumnId } from "@/lib/columns";
 import {
@@ -244,10 +244,10 @@ function CustomScoreCell({ row, weights }: { row: SnapshotRow; weights: Record<s
     );
   }
   const drivers = scoreDrivers(row as unknown as Record<string, unknown>, weights);
-  const title = [driversText(drivers), `${Math.round(Math.max(0, Math.min(100, score)))} of 100 on your mix.`].filter(Boolean).join(" ");
+  const title = [driversText(drivers), `${Math.round(shownScore(score))} of 100 on your mix.`].filter(Boolean).join(" ");
   return (
     <span className="inline-flex flex-col items-end gap-1" title={title}>
-      <span>{formatScore(score)}</span>
+      <span>{formatScore(shownScore(score))}</span>
       <span className="flex h-1 w-12 gap-px overflow-hidden rounded-full bg-muted" aria-hidden>
         {drivers.map((entry, at) => (
           <span

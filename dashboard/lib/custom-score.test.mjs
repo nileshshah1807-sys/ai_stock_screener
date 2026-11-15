@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { NUDGE, nudgeStep, driversText, scoreDrivers, EQUAL_START, IMPORTANCE, POINT_FACTORS, RUN_COLUMNS, SCORE_FACTORS, aheadOf, blockFactor, concallRecency, formatWeights, importanceStep, importanceText, mixShares, parseWeights, rankScores, scoreRun, weightedScore } from "./custom-score.mjs";
+import { shownScore, topByMix, NUDGE, nudgeStep, driversText, scoreDrivers, EQUAL_START, IMPORTANCE, POINT_FACTORS, RUN_COLUMNS, SCORE_FACTORS, aheadOf, blockFactor, concallRecency, formatWeights, importanceStep, importanceText, mixShares, parseWeights, rankScores, scoreRun, weightedScore } from "./custom-score.mjs";
 import { isAdminOnlyField } from "./ratings.mjs";
 
 test("weights round-trip through the URL form", () => {
@@ -154,4 +154,36 @@ test("a nudge reads Off, Light or Strong; an older multiple reads as the nearer 
   assert.equal(nudgeStep(45), 2);
   assert.equal(nudgeStep(100), 2);
   assert.equal(nudgeStep(10), 0);
+});
+
+test("the preview's top 5 is recomputed for every mix: a step moves scores, a different emphasis changes the names", () => {
+  // Ten stocks: s0..s4 lead on quality, s5..s9 on momentum.
+  const rows = Array.from({ length: 10 }, (_, i) => ({
+    symbol: `s${i}`,
+    company: `Co ${i}`,
+    quality_score: i < 5 ? 90 - i : 40 - i,
+    momentum_score: i < 5 ? 40 - i : 90 - i,
+    growth_score: 50,
+    value_score: 50,
+    risk_score: 50,
+  }));
+  const names = (weights) => topByMix(rows, weights).map((row) => row.symbol);
+  const equal = { ...EQUAL_START };
+  const oneStep = { ...EQUAL_START, m: 35 };
+  assert.equal(topByMix(rows, equal).length, 5);
+  assert.notDeepEqual(
+    topByMix(rows, equal).map((row) => [row.symbol, row.score]),
+    topByMix(rows, oneStep).map((row) => [row.symbol, row.score]),
+    "one step on Momentum changes the list",
+  );
+  assert.deepEqual(names({ q: 50 }), ["s0", "s1", "s2", "s3", "s4"]);
+  assert.deepEqual(names({ m: 50 }), ["s5", "s6", "s7", "s8", "s9"]);
+  assert.equal(topByMix(rows, equal)[0].company, "Co 0");
+  assert.deepEqual(topByMix([], equal), []);
+});
+
+test("a score is shown between 0 and 100, whatever the call nudge added", () => {
+  assert.equal(shownScore(109.7), 100);
+  assert.equal(shownScore(-3), 0);
+  assert.equal(shownScore(72.4), 72.4);
 });

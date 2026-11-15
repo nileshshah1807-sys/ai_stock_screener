@@ -319,6 +319,31 @@ export function rankScores(scores, symbols) {
 }
 
 /**
+ * The first `size` scored rows of the run by `weights`, as the builder's
+ * preview lists them; recomputed from scratch for every mix.
+ * @param {Record<string, unknown>[]} rows
+ * @param {Record<string, number>} weights
+ * @param {Map<string, number>} [outlooks]
+ * @param {number} [size]
+ * @returns {{ symbol: string, company: string | null, score: number }[]}
+ */
+export function topByMix(rows, weights, outlooks = new Map(), size = 5) {
+  const companies = new Map(rows.map((row) => [String(row.symbol), /** @type {string | null} */ (row.company ?? null)]));
+  return rankScores(scoreRun(rows, weights, outlooks), companies.keys())
+    .slice(0, size)
+    .flatMap((entry) => (entry.score === null ? [] : [{ symbol: entry.symbol, company: companies.get(entry.symbol) ?? null, score: entry.score }]));
+}
+
+/**
+ * A score as shown: 0 to 100. The call nudge can carry a stock past either
+ * end; the order keeps the full value, the number on screen does not.
+ * @param {number} score
+ */
+export function shownScore(score) {
+  return Math.min(100, Math.max(0, score));
+}
+
+/**
  * What made a row's blend, for the Your score cell: each weighted measure the
  * row has, with its value and its part of the blend (weight x value over the
  * sum of those), largest first. Empty when the row has none of them.

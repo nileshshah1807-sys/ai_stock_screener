@@ -2,7 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
-import { RUN_COLUMNS, rankScores, scoreRun } from "@/lib/custom-score.mjs";
+import { RUN_COLUMNS, topByMix } from "@/lib/custom-score.mjs";
 import { lazyClient } from "@/lib/supabase/lazy-client";
 
 type Row = Record<string, unknown>;
@@ -109,14 +109,7 @@ export function useScorePreview(
   // Dragging stays smooth: the ranking follows the slider a frame behind, never blocks it.
   const deferred = useDeferredValue(weights);
   const ready = run?.key === key ? run.value : null;
-  const top = useMemo(() => {
-    if (!ready) return [];
-    const scores = scoreRun(ready.rows, deferred, ready.outlooks);
-    const companies = new Map(ready.rows.map((row) => [String(row.symbol), (row.company as string | null) ?? null]));
-    return rankScores(scores, companies.keys())
-      .slice(0, size)
-      .flatMap((entry) => (entry.score === null ? [] : [{ symbol: entry.symbol, company: companies.get(entry.symbol) ?? null, score: entry.score }]));
-  }, [ready, deferred, size]);
+  const top = useMemo(() => (ready ? topByMix(ready.rows, deferred, ready.outlooks, size) : []), [ready, deferred, size]);
 
   if (run?.key === key && run.failed) return { state: "failed", top: [] };
   return { state: ready ? "ready" : "loading", top };
