@@ -1,3 +1,4 @@
+import { blockFactor } from "./custom-score.mjs";
 /**
  * Sample rows for the landing page's product pictures. Every company here is
  * invented and every figure is a placeholder: the pictures show the layout of
@@ -146,14 +147,14 @@ export function stageSeries({ total = 420, shown = 220 } = {}) {
   };
 }
 
-/** The blocks the ranking weighs and each one's current share (screener/runtime.py), the same in both markets. */
-export const FACTORS = [
-  { key: "momentum", label: "Momentum", weight: 30 },
-  { key: "quality", label: "Quality", weight: 25 },
-  { key: "growth", label: "Growth", weight: 25 },
-  { key: "value", label: "Value", weight: 15 },
-  { key: "risk", label: "Steadiness", weight: 5 },
-];
+/**
+ * The five blocks the ranking reads, by name and meaning only, in the builder's
+ * order. No weights: the model's mix is not published (SEBI).
+ */
+export const FACTORS = ["quality", "growth", "momentum", "value", "risk"].map((block) => {
+  const { label, caption } = blockFactor(block);
+  return { key: block, label, caption };
+});
 
 /** The evening, in order. Times are an example evening, not a schedule. */
 export const EVENING = [

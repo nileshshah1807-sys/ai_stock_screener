@@ -856,6 +856,62 @@
       margin-right: 25rem;
     }
   }
+
+  /* The builder's importance slider: a thin track filled to the step, one
+     calm thumb that answers the press, the focus ring on the thumb alone.
+     --fill is the step as 0..1, set by the component. */
+  .score-range {
+    --thumb: 1.25rem;
+    --stop: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--fill, 0));
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+  .score-range:focus-visible {
+    outline: none;
+  }
+  .score-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(to right, var(--color-primary) var(--stop), color-mix(in oklab, var(--color-foreground) 12%, transparent) var(--stop));
+  }
+  .score-range::-moz-range-track {
+    height: 4px;
+    border-radius: 9999px;
+    background: linear-gradient(to right, var(--color-primary) var(--stop), color-mix(in oklab, var(--color-foreground) 12%, transparent) var(--stop));
+  }
+  .score-range::-webkit-slider-thumb {
+    appearance: none;
+    width: var(--thumb);
+    height: var(--thumb);
+    margin-top: calc(2px - var(--thumb) / 2);
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--color-foreground) 18%, transparent);
+    background: var(--color-background);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+    transition: transform var(--duration-press) ease-out, box-shadow var(--duration-fast) var(--ease-standard);
+  }
+  .score-range::-moz-range-thumb {
+    width: var(--thumb);
+    height: var(--thumb);
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--color-foreground) 18%, transparent);
+    background: var(--color-background);
+    box-shadow: 0 1px 3px rgb(0 0 0 / 0.18);
+    transition: transform var(--duration-press) ease-out, box-shadow var(--duration-fast) var(--ease-standard);
+  }
+  .score-range:active::-webkit-slider-thumb {
+    transform: scale(1.15);
+  }
+  .score-range:active::-moz-range-thumb {
+    transform: scale(1.15);
+  }
+  .score-range:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-ring);
+  }
+  .score-range:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-ring);
+  }
 }
 
 /*

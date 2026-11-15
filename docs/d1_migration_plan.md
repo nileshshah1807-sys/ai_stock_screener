@@ -242,6 +242,7 @@ location hint APAC:
 
 - The egress split (human, Supabase usage page).
 - D1 query latency from Mumbai for the grid's first uncached load: to measure in phase 4.
+- A browser reader to move: the Your score preview (`dashboard/lib/use-score-preview.ts`) reads `screener_snapshot_visible` (about 6.5k rows, 7 pages) and `concall_feed` straight from Supabase each time a viewer opens the builder. With `TABLE_BACKEND` naming those tables it still reads Supabase, so it saves no egress until it moves to an `/api` route on the same cache.
 
 ## Backfill (tools/d1_tables.py, workflow "D1 backfill")
 

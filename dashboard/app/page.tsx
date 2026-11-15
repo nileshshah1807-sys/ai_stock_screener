@@ -153,7 +153,7 @@ export default async function LandingPage() {
 
           <section id="ranking" className="scroll-mt-16 border-y bg-card">
             <div className={cn(section, "py-14 sm:py-20")}>
-              <h2 data-reveal className={h2}>What the ranking weighs</h2>
+              <h2 data-reveal className={h2}>What the ranking reads</h2>
               <div data-reveal className="mt-10 max-w-3xl">
                 <FactorBar />
               </div>

@@ -98,6 +98,22 @@ test("every measure carries a name, a one-line caption and a 'What is this?' tex
   assert.equal(blockFactor("nope"), null);
 });
 
+test("no advice words anywhere the builder speaks: steps, nudges, readouts and its own text", async () => {
+  const advice = /\b(buy|sell|hold|recommend(ed|s)?|best|top picks?)\b/i;
+  const spoken = [
+    ...IMPORTANCE.map((step) => step.label),
+    ...NUDGE.map((step) => step.label),
+    aheadOf(72),
+    importanceText("Momentum", 35, 30),
+    driversText(scoreDrivers({ quality_score: 90, momentum_score: 40 }, { q: 50, m: 50 })),
+  ];
+  for (const text of spoken) assert.doesNotMatch(text, advice, text);
+  const { readFileSync } = await import("node:fs");
+  for (const file of ["../components/screener/score-builder.tsx", "../components/landing/factor-bar.tsx"]) {
+    assert.doesNotMatch(readFileSync(new URL(file, import.meta.url), "utf8"), advice, file);
+  }
+});
+
 test("importance reads in words; an older value reads as the nearer step", () => {
   assert.deepEqual(IMPORTANCE.map((step) => step.label), ["Ignore", "A little", "Some", "A lot", "Most"]);
   assert.equal(IMPORTANCE[importanceStep(EQUAL_START.q)].label, "Some");
