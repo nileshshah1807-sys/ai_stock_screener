@@ -119,7 +119,7 @@ export const COLUMNS: readonly ColumnSpec[] = [
     numeric: true,
     title: "0-100. Where this stock lands on your mix, against every stock on the list. 90 = ahead of 90% of them. Your score uses only the weights you choose.",
     cellClassName: "tabular text-right font-mono text-xs",
-    fields: SCORE_FACTORS.map((factor) => factor.column),
+    fields: SCORE_FACTORS.filter((factor) => !("derived" in factor)).map((factor) => factor.column),
     required: true,
     availability: "custom",
   },

@@ -1,16 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { rawScores, topByMix, NUDGE, nudgeStep, driversText, scoreDrivers, EQUAL_START, IMPORTANCE, POINT_FACTORS, RUN_COLUMNS, SCORE_FACTORS, aheadOf, blockFactor, concallRecency, formatWeights, importanceStep, importanceText, mixShares, parseWeights, rankScores, scoreRun, weightedScore } from "./custom-score.mjs";
+import { callSignals, rawScores, topByMix, NUDGE, nudgeStep, driversText, scoreDrivers, EQUAL_START, IMPORTANCE, POINT_FACTORS, RUN_COLUMNS, SCORE_FACTORS, aheadOf, blockFactor, concallRecency, formatWeights, importanceStep, importanceText, mixShares, parseWeights, rankScores, scoreRun, weightedScore } from "./custom-score.mjs";
 import { isAdminOnlyField } from "./ratings.mjs";
 
 test("weights round-trip through the URL form", () => {
-  assert.deepEqual(parseWeights("q20.m30.t10"), { q: 20, m: 30, t: 10 });
-  assert.equal(formatWeights({ m: 30, q: 20, t: 10, g: 0 }), "q20.m30.t10");
+  assert.deepEqual(parseWeights("q20.m30.c10"), { q: 20, m: 30, c: 10 });
+  assert.equal(formatWeights({ m: 30, q: 20, c: 10, g: 0 }), "q20.m30.c10");
   assert.equal(parseWeights(""), null);
   assert.equal(parseWeights("q0.zz5.bad"), null, "nothing positive, nothing known");
   assert.deepEqual(parseWeights("q500"), { q: 100 }, "a weight is capped at 100");
-  assert.equal(formatWeights(parseWeights("q25.c100.d10")), "q25.d10.c100");
+  assert.equal(formatWeights(parseWeights("q25.c20.d10")), "q25.c20.d10");
+});
+
+test("older links: call tone and the call nudge open as the Earnings call measure, at the nearer step", () => {
+  assert.deepEqual(parseWeights("q20.t35"), { q: 20, c: 35 }, "tone was already a measure");
+  assert.deepEqual(parseWeights("q20.c25"), { q: 20, c: 20 }, "Light nudge -> Some");
+  assert.deepEqual(parseWeights("q20.c100"), { q: 20, c: 50 }, "Strong (or more) -> Most");
+  assert.deepEqual(parseWeights("t10.c50"), { c: 50 }, "both: the larger one");
+  assert.equal(formatWeights(parseWeights("q25.t20.d10")), "q25.c20.d10");
 });
 
 test("the score is the weighted mean of the measures it has", () => {
@@ -37,7 +45,7 @@ test("ranking puts the highest first and unscored rows last", () => {
   assert.equal(scores.get("B"), 0);
 });
 
-test("points: valuation from 50, a recent call from the run's median call", () => {
+test("points: valuation from 50; the Earnings call is a measure in the mix, not points", () => {
   const rows = [
     { symbol: "A", quality_score: 60, dcf_valuation_score: 70, dcf_blend_eligible: true },
     { symbol: "B", quality_score: 50, dcf_valuation_score: 90, dcf_blend_eligible: false },
@@ -47,21 +55,22 @@ test("points: valuation from 50, a recent call from the run's median call", () =
   assert.equal(dcf.get("A"), 102);
   assert.equal(dcf.get("B"), 0);
 
-  const called = Array.from({ length: 30 }, (_, i) => ({
-    symbol: `S${i}`,
-    quality_score: 50,
-    transcript_scoring_eligible: true,
-    transcript_score: 60,
-    transcript_age_days: 0,
-  }));
-  const outlooks = new Map(called.map((row, i) => [row.symbol, i < 15 ? 50 : 70]));
-  outlooks.set("S29", 80);
-  const scores = rawScores(called, { q: 100, c: 100 }, outlooks);
-  // Every blend ties at percentile 50; median outlook 60, so 80 is +0.85 * 20.
-  assert.equal(scores.get("S29"), 50 + 0.85 * 20);
-  assert.equal(scores.get("S0"), 50 - 0.85 * 10);
-  // Fewer than 30 calls: measured from 50, not a median.
-  assert.equal(rawScores(called.slice(0, 2), { q: 100, c: 100 }, outlooks).get("S0"), 50 + 0.15 * 10);
+  // Three recent calls and one too old: 85% outlook + 15% tone, ranked, faded by age.
+  const call = (symbol, tone, outlook, age) => ({ symbol, transcript_scoring_eligible: true, transcript_score: tone, transcript_age_days: age, outlook });
+  const calls = [call("LOW", 50, 40, 0), call("MID", 50, 60, 0), call("HIGH", 50, 80, 90), call("OLD", 90, 90, 200), { symbol: "NONE" }];
+  const signals = callSignals(calls, new Map(calls.filter((c) => c.outlook).map((c) => [c.symbol, c.outlook])));
+  assert.equal(signals.get("LOW"), 0);
+  assert.equal(signals.get("MID"), 50);
+  assert.ok(Math.abs(signals.get("HIGH") - 75) < 1e-9, "first of three, at half weight after 90 days: 50 + 0.5 * 50");
+  assert.equal(signals.has("OLD"), false, "past 180 days: no value");
+  assert.equal(signals.has("NONE"), false);
+
+  // In the mix: a stock with no call sits in the middle on that measure, never at zero.
+  const rowsWithCalls = calls.map((c) => ({ ...c, quality_score: 50 }));
+  const outlooks = new Map(calls.filter((c) => c.outlook).map((c) => [c.symbol, c.outlook]));
+  const scores = scoreRun(rowsWithCalls, { q: 50, c: 50 }, outlooks);
+  assert.ok(scores.get("HIGH") > scores.get("NONE") && scores.get("NONE") > scores.get("LOW"));
+  assert.deepEqual(mixShares({ q: 20, c: 20 }, SCORE_FACTORS), [{ key: "q", share: 50 }, { key: "c", share: 50 }], "it joins the share bar");
 });
 
 test("a call halves in weight every 90 days and is gone after 180", () => {
@@ -73,6 +82,7 @@ test("a call halves in weight every 90 days and is gone after 180", () => {
 
 test("the builder starts equal and reads nothing admin-only", () => {
   assert.deepEqual(Object.values(EQUAL_START).filter((w) => w > 0), [20, 20, 20, 20, 20]);
+  assert.ok(!RUN_COLUMNS.includes("call_signal"), "a derived measure is never selected");
   for (const column of [...RUN_COLUMNS, "custom_score"]) {
     assert.ok(!isAdminOnlyField(column), column);
   }

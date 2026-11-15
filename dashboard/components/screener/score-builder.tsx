@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Info, Minus, Plus, Scale } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { PanelSheet } from "@/components/panel-sheet";
 import { SegmentedControl } from "@/components/segmented-control";
 import { PendingMarker } from "@/components/nav-pending";
@@ -29,13 +30,15 @@ import {
 
 const byKey = (key: string) => [...SCORE_FACTORS, ...POINT_FACTORS].find((factor) => factor.key === key);
 
-type Factor = { key: string; label: string; caption: string; about: string };
+type Factor = { key: string; label: string; caption: string; about: string; toggle?: boolean };
 type Shares = { key: string; share: number }[];
 
 // One hue at falling strength, a hairline between segments and a written legend: colour is never the only cue.
 const SEGMENT = ["bg-primary", "bg-primary/80", "bg-primary/60", "bg-primary/45", "bg-primary/35", "bg-primary/25", "bg-primary/15"];
-// The five measures every viewer starts with; the rest wait behind "More measures".
-const MAIN = new Set(["q", "g", "m", "v", "r"]);
+// The five measures every viewer starts with, and the Earnings call behind its switch; the rest wait behind "More measures".
+const MAIN = new Set(["q", "g", "m", "v", "r", "c"]);
+// Where a switched-on measure starts: the middle step.
+const SWITCH_ON = 20;
 const SHIFT_MS = 220;
 const HIGHLIGHT_MS = 1400;
 
@@ -99,7 +102,7 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const urlMix = searchParams.get("w") ?? "";
   const active = parseWeights(urlMix);
   // A market with no calls (US) offers no call measure: there is nothing to weight.
-  const offered = (factor?: { concall?: boolean }) => concalls || !factor?.concall;
+  const offered = (factor?: object) => concalls || !(factor && "concall" in factor && factor.concall);
   const factors: Factor[] = SCORE_FACTORS.filter(offered);
   const points: Factor[] = POINT_FACTORS.filter(offered);
   // A saved view that sets a mix moves the controls to it.
@@ -109,6 +112,10 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
     formatWeights,
   );
   const preview = useScorePreview(open && factorModel, market.code, runDate, weights);
+  // A switched measure stays on at Ignore; a link that weights it opens with it on.
+  const [switchedOn, setSwitchedOn] = useState<Record<string, boolean>>({});
+  const isOn = (key: string) => switchedOn[key] ?? (weights[key] ?? 0) > 0;
+  const lastOn = useRef<Record<string, number>>({});
 
   useEffect(() => {
     if (!changed) return;
@@ -157,6 +164,7 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
 
   const reset = () => {
     setWeights({ ...EQUAL_START });
+    setSwitchedOn({});
     setChanged(null);
     setSaid("Reset to an equal mix.");
     if (urlMix) pushedMix("");
@@ -178,6 +186,16 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
     setSaid(importanceText(factor.label, value, next.find((entry) => entry.key === factor.key)?.share ?? 0));
   };
 
+  // Off adds nothing and remembers the step; on brings it back (the middle step the first time).
+  const switchTo = (factor: Factor, on: boolean) => {
+    const current = weights[factor.key] ?? 0;
+    if (!on && current > 0) lastOn.current[factor.key] = current;
+    const next = on ? (lastOn.current[factor.key] ?? SWITCH_ON) : 0;
+    setSwitchedOn((state) => ({ ...state, [factor.key]: on }));
+    set(factor.key, next);
+    setSaid(on ? importanceText(factor.label, next, mixShares({ ...weights, [factor.key]: next }, factors).find((entry) => entry.key === factor.key)?.share ?? 0) : `${factor.label}: Off`);
+  };
+
   const control = (factor: Factor) => (
     <li key={factor.key}>
       <ImportanceControl
@@ -185,6 +203,8 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
         value={weights[factor.key] ?? 0}
         share={shareOf(factor.key)}
         lit={changed?.key === factor.key}
+        on={factor.toggle ? isOn(factor.key) : undefined}
+        onSwitch={(on) => switchTo(factor, on)}
         onChange={(next) => set(factor.key, next)}
         onStep={(next) => stepTo(factor, next)}
       />
@@ -329,6 +349,8 @@ function ImportanceControl({
   value,
   share,
   lit,
+  on,
+  onSwitch,
   onChange,
   onStep,
 }: {
@@ -336,6 +358,9 @@ function ImportanceControl({
   value: number;
   share: number;
   lit: boolean;
+  /** Set for a measure behind a switch: off, the slider shows but adds nothing. */
+  on?: boolean;
+  onSwitch?: (on: boolean) => void;
   onChange: (value: number) => void;
   onStep: (value: number) => void;
 }) {
@@ -343,6 +368,7 @@ function ImportanceControl({
   const id = `weight-${factor.key}`;
   const step = importanceStep(value);
   const last = IMPORTANCE.length - 1;
+  const off = on === false;
   return (
     <div
       className={cn(
@@ -366,9 +392,14 @@ function ImportanceControl({
             <Info className="size-3.5" aria-hidden />
           </button>
         </span>
-        <span className="text-xs text-muted-foreground">
-          {IMPORTANCE[step].label}
-          {value > 0 ? <Percent value={share} className="ml-2 inline-block min-w-[3ch] text-right text-foreground" /> : null}
+        <span className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span>
+            {off ? "Off" : IMPORTANCE[step].label}
+            {value > 0 ? <Percent value={share} className="ml-2 inline-block min-w-[3ch] text-right text-foreground" /> : null}
+          </span>
+          {on === undefined ? null : (
+            <Switch checked={on} onCheckedChange={(checked) => onSwitch?.(checked)} aria-label={`Use ${factor.label}`} />
+          )}
         </span>
       </div>
       <p className="-mt-1 text-xs leading-relaxed text-muted-foreground">{factor.caption}</p>
@@ -377,13 +408,16 @@ function ImportanceControl({
           {factor.about}
         </p>
       ) : null}
-      <div className="mt-1 flex items-center gap-1">
+      {/* Off: shown, dimmed and inert, so the viewer sees what the switch turns on. */}
+      <div
+        className={cn("mt-1 flex items-center gap-1 transition-opacity duration-200 ease-out motion-reduce:transition-none", off && "opacity-40")}
+      >
         <Button
           type="button"
           variant="ghost"
           size="icon"
           className="-ml-2 size-11 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
-          disabled={step === 0}
+          disabled={off || step === 0}
           aria-label={`Less ${factor.label}`}
           onClick={() => onStep(IMPORTANCE[step - 1].value)}
         >
@@ -397,9 +431,10 @@ function ImportanceControl({
           max={last}
           step={1}
           value={step}
-          aria-valuetext={importanceText(factor.label, value, share)}
-          onChange={(event) => onChange(IMPORTANCE[Number(event.target.value)].value)}
-          className="score-range h-11 min-w-0 flex-1"
+          aria-valuetext={off ? `${factor.label}: Off` : importanceText(factor.label, value, share)}
+          aria-disabled={off || undefined}
+          onChange={(event) => (off ? undefined : onChange(IMPORTANCE[Number(event.target.value)].value))}
+          className={cn("score-range h-11 min-w-0 flex-1", off && "cursor-not-allowed")}
           style={{ "--fill": step / last } as React.CSSProperties}
         />
         <Button
@@ -407,7 +442,7 @@ function ImportanceControl({
           variant="ghost"
           size="icon"
           className="-mr-2 size-11 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
-          disabled={step === last}
+          disabled={off || step === last}
           aria-label={`More ${factor.label}`}
           onClick={() => onStep(IMPORTANCE[step + 1].value)}
         >
