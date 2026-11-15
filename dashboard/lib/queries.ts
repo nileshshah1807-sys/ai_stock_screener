@@ -27,6 +27,7 @@ import { BSE_SUFFIX } from "@/lib/listing.mjs";
 import { cachedOr, sharedRead } from "@/lib/home-cache";
 import type { Reader } from "@/lib/results";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
+import { narrowsRows } from "@/lib/filter-scope.mjs";
 import { createDayMemo, localDay, type MarketDay } from "@/lib/market-calendar.mjs";
 import type { MarketCode } from "@/lib/markets";
 import type {
@@ -534,13 +535,8 @@ export async function getSnapshotPage(
   const page = Math.max(1, filters.page ?? 1);
   const from = (page - 1) * PAGE_SIZE;
 
-  // A score the viewer built from their own weights (lib/custom-score.mjs), worked out over
-  // the whole run (its percentile and medians are the run's, whatever the filters) and
-  // ordered here, since Postgres cannot sort by it; the page is then read by symbol.
-  const weights = parseWeights(filters.weights);
-  const scores = weights ? await runScores(supabase, market, runDate, weights) : null;
-  if (weights && !scores) return { rows: [], total: 0 };
-  if (scores && filters.sort === "custom_score") {
+  /** Every symbol these filters keep, for placing the page in a weighted order; null on a failed read. */
+  const filteredSymbols = async () => {
     const chunk = (at: number, withCount: boolean) =>
       build("symbol", withCount).order("symbol", { ascending: true }).range(at, at + FETCH_CHUNK - 1);
     const first = await chunk(0, true);
@@ -550,9 +546,22 @@ export async function getSnapshotPage(
     const failed = results.find((result) => result.error);
     if (failed?.error) {
       console.error("getSnapshotPage (weighted) failed", failed.error.message);
-      return { rows: [], total: 0 };
+      return null;
     }
-    const symbols = results.flatMap((result) => ((result.data ?? []) as unknown as { symbol: string }[]).map((row) => row.symbol));
+    return results.flatMap((result) => ((result.data ?? []) as unknown as { symbol: string }[]).map((row) => row.symbol));
+  };
+
+  // A score the viewer built from their own weights (lib/custom-score.mjs), worked out over
+  // the whole run (its percentile and medians are the run's, whatever the filters) and
+  // ordered here, since Postgres cannot sort by it; the page is then read by symbol.
+  const weights = parseWeights(filters.weights);
+  const scores = weights ? await runScores(supabase, market, runDate, weights) : null;
+  if (weights && !scores) return { rows: [], total: 0 };
+  if (scores && filters.sort === "custom_score") {
+    // Nothing filtered: the rows are the scored run itself (same market, run and rated-only rule), so only the page is read.
+    const whole = !narrowsRows(filters) && !options.symbols && !options.breadth && !options.industry;
+    const symbols = whole ? [...scores.keys()] : await filteredSymbols();
+    if (!symbols) return { rows: [], total: 0 };
     const ranked = rankScores(scores, symbols);
     const slice = ranked.slice(from, from + PAGE_SIZE);
     if (!slice.length) return { rows: [], total: ranked.length };
@@ -1882,14 +1891,18 @@ export const getMarketDay = cache(
   },
 );
 
+/** A run's scoring inputs, columnar to keep the cached entry small: RUN_COLUMNS per row, and each company's latest call outlook. */
+type RunInputs = { columns: string[]; rows: unknown[][]; outlooks: [string, number][] };
+
+const mixScores = sharedMemo<Map<string, number | null>>(60_000, 50);
+// The rebuilt rows do not depend on the mix, so a new mix on a warm instance costs scoreRun alone.
+const runRows = sharedMemo<{ rows: Record<string, unknown>[]; outlooks: Map<string, number> }>(60_000, 4);
+
 /**
- * The viewer's score (lib/custom-score.mjs) for every rated row of a run; null on a failed read.
- * Reads only columns every viewer sees, plus each company's latest call outlook from `concall_feed`.
- */
-/**
- * "Your score" for every company in a run, by symbol. One mix is worked out once per run and
- * shared by every viewer and instance: reading the run and its calls is the costly part, and a
- * Worker request has a small CPU allowance.
+ * "Your score" for every company in a run, by symbol. Reading the run and its calls is the
+ * costly part (seconds from a Worker), so it is read once per market and run and shared by
+ * every mix, viewer and instance; a mix is then a few milliseconds of arithmetic, kept per
+ * instance for a minute.
  */
 async function runScores(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -1898,29 +1911,36 @@ async function runScores(
   weights: Record<string, number>,
 ): Promise<Map<string, number | null> | null> {
   try {
-    const scores = await sharedRead(
-      "run-scores-v2", // v1 cached empty results read through the view
-      market,
-      3600,
-      // The shared read runs as the service role, which the `*_visible` view returns no rows to; the
-      // base table holds the same columns, and none read here is a rating field.
-      (db) => readRunScores((db ?? supabase) as typeof supabase, db ? "screener_snapshot" : "screener_snapshot_visible", market, runDate, weights),
-      [runDate, formatWeights(weights)],
-    );
-    return new Map(Object.entries(scores));
+    return await mixScores(`${market}:${runDate}:${formatWeights(weights)}`, async () => {
+      const { rows, outlooks } = await runRows(`${market}:${runDate}`, async () => {
+        const inputs = await sharedRead(
+          "run-inputs-v1", // replaces run-scores-v2 (scores per mix, under an older scoring rule)
+          market,
+          3600,
+          // The shared read runs as the service role, which the `*_visible` view returns no rows to; the
+          // base table holds the same columns, and none read here is a rating field.
+          (db) => readRunInputs((db ?? supabase) as typeof supabase, db ? "screener_snapshot" : "screener_snapshot_visible", market, runDate),
+          [runDate],
+        );
+        return {
+          rows: inputs.rows.map((values) => Object.fromEntries(inputs.columns.map((column, at) => [column, values[at]]))),
+          outlooks: new Map(inputs.outlooks),
+        };
+      });
+      return scoreRun(rows, weights, outlooks);
+    });
   } catch (error) {
     console.error("runScores failed", error instanceof Error ? error.message : error);
     return null;
   }
 }
 
-async function readRunScores(
+async function readRunInputs(
   supabase: Awaited<ReturnType<typeof createClient>>,
   table: "screener_snapshot" | "screener_snapshot_visible",
   market: MarketCode,
   runDate: string,
-  weights: Record<string, number>,
-): Promise<Record<string, number | null>> {
+): Promise<RunInputs> {
   const readAll = async (read: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message: string } | null }>) => {
     const rows: Record<string, unknown>[] = [];
     for (let offset = 0; ; offset += FETCH_CHUNK) {
@@ -1944,19 +1964,17 @@ async function readRunScores(
         .order("symbol", { ascending: true })
         .range(from, to),
     ),
-    weights.c
-      ? readAll((from, to) =>
-          supabase
-            .from("concall_feed")
-            .select("symbol, call_date, outlook_score")
-            .eq("market", market)
-            .gte("call_date", since)
-            .not("outlook_score", "is", null)
-            .order("call_date", { ascending: false })
-            .order("symbol", { ascending: true })
-            .range(from, to),
-        )
-      : Promise.resolve([]),
+    readAll((from, to) =>
+      supabase
+        .from("concall_feed")
+        .select("symbol, call_date, outlook_score")
+        .eq("market", market)
+        .gte("call_date", since)
+        .not("outlook_score", "is", null)
+        .order("call_date", { ascending: false })
+        .order("symbol", { ascending: true })
+        .range(from, to),
+    ),
   ]);
   // An empty run is a failed read, never a result: thrown, so it is not cached.
   if (!run.length) throw new Error(`no ${table} rows for ${market} ${runDate}`);
@@ -1966,5 +1984,6 @@ async function readRunScores(
     const symbol = String(call.symbol);
     if (!outlooks.has(symbol)) outlooks.set(symbol, Number(call.outlook_score));
   }
-  return Object.fromEntries(scoreRun(run, weights, outlooks));
+  const columns = [...SCORE_RUN_COLUMNS];
+  return { columns, rows: run.map((row) => columns.map((column) => row[column] ?? null)), outlooks: [...outlooks] };
 }
