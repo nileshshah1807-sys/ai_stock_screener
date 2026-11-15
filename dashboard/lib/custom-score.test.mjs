@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { EQUAL_START, RUN_COLUMNS, concallRecency, formatWeights, parseWeights, rankScores, scoreRun, weightedScore } from "./custom-score.mjs";
+import { EQUAL_START, IMPORTANCE, POINT_FACTORS, RUN_COLUMNS, SCORE_FACTORS, aheadOf, blockFactor, concallRecency, formatWeights, importanceStep, importanceText, mixShares, parseWeights, rankScores, scoreRun, weightedScore } from "./custom-score.mjs";
 import { isAdminOnlyField } from "./ratings.mjs";
 
 test("weights round-trip through the URL form", () => {
@@ -84,4 +84,40 @@ test("a market with no calls: call measures neither score nor move a stock", () 
   const callsOnly = scoreRun(rows, { t: 100, c: 100 });
   assert.deepEqual([...callsOnly.values()], [null, null, null, null], "no evidence is no score, never 100");
   assert.deepEqual(scoreRun(rows, { q: 50, t: 50, c: 100 }), scoreRun(rows, { q: 50 }));
+});
+
+test("every measure carries a name, a one-line caption and a 'What is this?' text, and Risk reads as Steadiness", () => {
+  for (const factor of [...SCORE_FACTORS, ...POINT_FACTORS]) {
+    assert.ok(factor.label && factor.caption && factor.about, factor.key);
+    assert.ok(factor.caption.length <= 70, `${factor.key} caption fits one line`);
+    assert.ok(factor.about.split(/\s+/).length <= 60, `${factor.key} explainer under 60 words`);
+    assert.doesNotMatch(`${factor.label} ${factor.caption} ${factor.about}`, /\b(buy|sell|hold|recommend|best)\b/i, factor.key);
+  }
+  assert.equal(SCORE_FACTORS.find((f) => f.key === "r").label, "Steadiness");
+  assert.equal(blockFactor("risk").label, "Steadiness");
+  assert.equal(blockFactor("nope"), null);
+});
+
+test("importance reads in words; an older value reads as the nearer step", () => {
+  assert.deepEqual(IMPORTANCE.map((step) => step.label), ["Ignore", "A little", "Some", "A lot", "Most"]);
+  assert.equal(IMPORTANCE[importanceStep(EQUAL_START.q)].label, "Some");
+  assert.equal(importanceStep(30), 3);
+  assert.equal(importanceStep(15), 1, "a tie goes to the lower step");
+  assert.equal(importanceStep(100), 4);
+  assert.equal(importanceStep(undefined), 0);
+});
+
+test("shares are whole percents of the mix that add to 100", () => {
+  const shares = mixShares({ q: 10, g: 10, m: 10, r: 0 }, SCORE_FACTORS);
+  assert.deepEqual(shares.map((entry) => entry.key), ["q", "g", "m"]);
+  assert.equal(shares.reduce((sum, entry) => sum + entry.share, 0), 100);
+  assert.deepEqual(mixShares({ q: 50, m: 50, d: 100 }, SCORE_FACTORS), [{ key: "q", share: 50 }, { key: "m", share: 50 }], "points are not part of the mix");
+  assert.deepEqual(mixShares({}, SCORE_FACTORS), []);
+});
+
+test("a screen reader hears the step and the share", () => {
+  assert.equal(importanceText("Momentum", 35, 30), "Momentum: A lot, 30% of your mix");
+  assert.equal(importanceText("Value", 0, 0), "Value: Ignore");
+  assert.equal(aheadOf(71.6), "Ahead of 72% of stocks");
+  assert.equal(aheadOf(null), null);
 });

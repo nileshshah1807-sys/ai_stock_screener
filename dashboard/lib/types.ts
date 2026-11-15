@@ -275,7 +275,7 @@ export const FACTOR_BLOCKS = [
   { key: "momentum", label: "Momentum", weightPayloadKey: "Momentum_Weight" },
   { key: "growth", label: "Growth", weightPayloadKey: "Growth_Weight" },
   { key: "value", label: "Value", weightPayloadKey: "Value_Weight" },
-  { key: "risk", label: "Risk", weightPayloadKey: "Risk_Weight" },
+  { key: "risk", label: "Steadiness", weightPayloadKey: "Risk_Weight" },
 ] as const;
 
 /** Snapshot row including the complete source record, used by drill-down. */

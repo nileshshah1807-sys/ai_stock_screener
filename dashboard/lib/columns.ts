@@ -11,7 +11,10 @@
  * table in `screener-table.tsx`, keyed by the same `id`.
  */
 
-import { SCORE_FACTORS } from "@/lib/custom-score.mjs";
+import { SCORE_FACTORS, blockFactor } from "@/lib/custom-score.mjs";
+
+/** A factor column's tooltip, from the one source of factor text, with what its number means. */
+const factorTitle = (block: string) => `${blockFactor(block)?.caption ?? ""}. 72 = ahead of 72% of stocks.`;
 export type ColumnId =
   | "rank"
   | "stock"
@@ -112,7 +115,7 @@ export const COLUMNS: readonly ColumnSpec[] = [
     label: "Your score",
     sort: "custom_score",
     numeric: true,
-    title: "Your own score: the weights you chose over the measures shown here. Not Cupel's rating or rank.",
+    title: "0-100. Where this stock lands on your mix, against every stock on the list. 90 = ahead of 90% of them. Not a Cupel rating.",
     cellClassName: "tabular text-right font-mono text-xs",
     fields: SCORE_FACTORS.map((factor) => factor.column),
     required: true,
@@ -198,34 +201,31 @@ export const COLUMNS: readonly ColumnSpec[] = [
   },
   {
     id: "quality",
-    label: "Qual",
+    label: "Quality",
     sort: "quality_percentile",
     numeric: true,
     cellClassName: "text-right",
-    title:
-      "Quality percentile: ROIC, cash generation, accruals, leverage and stability, ranked within sector. BUY needs 40, STRONG BUY 70.",
+    title: factorTitle("quality"),
     fields: ["quality_percentile"],
     availability: "factor",
   },
   {
     id: "momentum",
-    label: "Mom",
+    label: "Momentum",
     sort: "momentum_percentile",
     numeric: true,
     cellClassName: "text-right",
-    title:
-      "Momentum percentile: risk-adjusted 12-1 and 6-1 returns plus relative strength. STRONG BUY needs 70.",
+    title: factorTitle("momentum"),
     fields: ["momentum_percentile"],
     availability: "factor",
   },
   {
     id: "growth",
-    label: "Grow",
+    label: "Growth",
     sort: "growth_percentile",
     numeric: true,
     cellClassName: "text-right",
-    title:
-      "Growth percentile: multi-year CAGR, acceleration, margin direction and cash confirmation. STRONG BUY needs 60.",
+    title: factorTitle("growth"),
     fields: ["growth_percentile"],
     availability: "factor",
   },
@@ -293,12 +293,11 @@ export const COLUMNS: readonly ColumnSpec[] = [
   },
   {
     id: "rs",
-    label: "RS",
+    label: "Strength",
     sort: "rs_rating",
     numeric: true,
     cellClassName: "text-right",
-    title:
-      "Relative-strength rating, 1-99: 3/6/9/12-month returns weighted 40/20/20/20 and ranked across the universe. The arrow is its change over the last month.",
+    title: "Price strength, 1-99: recent returns ranked against every stock on the list. The arrow is its change over the last month.",
     fields: ["rs_rating", "rs_rating_change_1m"],
     availability: "factor",
   },
