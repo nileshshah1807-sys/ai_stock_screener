@@ -7,6 +7,7 @@ import {
   publishedFactorWeight,
   researchScoreMode,
 } from "@/lib/model-display.mjs";
+import { blockFactor } from "@/lib/custom-score.mjs";
 import { FACTOR_BLOCKS, type SnapshotRowWithPayload } from "@/lib/types";
 import { buildStages } from "@/components/stock/score-waterfall";
 
@@ -42,7 +43,8 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
       | null;
     const weight = publishedFactorWeight(payload, block.weightPayloadKey);
     const contribution = factorContribution(score, weight);
-    return { ...block, score, percentile, coverage, weight, contribution };
+    const text = blockFactor(block.key);
+    return { ...block, score, percentile, coverage, weight, contribution, caption: text?.caption ?? null, about: text?.about };
   });
 
   return (
@@ -88,6 +90,12 @@ export function FactorBlocks({ row, admin = false }: { row: SnapshotRowWithPaylo
                   )}
                 </span>
               </div>
+
+              {block.caption ? (
+                <p className="text-xs text-muted-foreground" title={block.about}>
+                  {block.caption}
+                </p>
+              ) : null}
 
               {/* The bar encodes the block score; width alone is never the only
                   signal, since the number sits directly above it. */}

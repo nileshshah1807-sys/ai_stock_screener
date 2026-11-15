@@ -103,7 +103,7 @@ export const RANGE_GROUPS = [
       { key: "pg", column: "growth_percentile", label: "Growth", unit: "P", factor: true, presets: [{ label: "≥ 70", min: 70 }] },
       { key: "pm", column: "momentum_percentile", label: "Momentum", unit: "P", factor: true, legacyMin: "minMomentum", presets: [{ label: "≥ 70", min: 70 }, { label: "≥ 90", min: 90 }] },
       { key: "pv", column: "value_percentile", label: "Value", unit: "P", factor: true, presets: [{ label: "≥ 70", min: 70 }] },
-      { key: "pr", column: "risk_percentile", label: "Risk (higher is calmer)", unit: "P", factor: true, presets: [{ label: "≥ 70", min: 70 }] },
+      { key: "pr", column: "risk_percentile", label: "Steadiness", unit: "P", factor: true, presets: [{ label: "≥ 70", min: 70 }] },
     ],
   },
 ];
