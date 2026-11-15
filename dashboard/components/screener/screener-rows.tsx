@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { StockLink } from "@/components/screener/stock-link";
 import { Money } from "@/components/money";
@@ -20,6 +21,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { aheadOf, driversText, parseWeights, scoreDrivers } from "@/lib/custom-score.mjs";
 import { dcfStatus } from "@/lib/labels";
 import { visibleColumns, type ColumnId } from "@/lib/columns";
 import {
@@ -216,12 +218,45 @@ function PercentileCell({ value }: { value: number | null }) {
   }
   return (
     <span
+      title={aheadOf(value) ?? undefined}
       className={cn(
         "tabular font-mono text-xs",
         value >= 70 ? "text-positive" : value < 30 ? "text-negative" : "",
       )}
     >
-      P{Math.round(value)}
+      {Math.round(value)}
+    </span>
+  );
+}
+
+/**
+ * The viewer's own score, with what made it: a thin bar split by each
+ * measure's part of the blend (the mix read off this row), named in the tooltip.
+ */
+function CustomScoreCell({ row }: { row: SnapshotRow }) {
+  const weights = parseWeights(useSearchParams().get("w"));
+  const score = row.custom_score ?? null;
+  if (score === null || !weights) {
+    return (
+      <span className="text-muted-foreground" title="Not enough data on the measures you chose.">
+        {MISSING}
+      </span>
+    );
+  }
+  const drivers = scoreDrivers(row as unknown as Record<string, unknown>, weights);
+  const title = [driversText(drivers), `${Math.round(Math.max(0, Math.min(100, score)))} of 100 on your mix.`].filter(Boolean).join(" ");
+  return (
+    <span className="inline-flex flex-col items-end gap-1" title={title}>
+      <span>{formatScore(score)}</span>
+      <span className="flex h-1 w-12 gap-px overflow-hidden rounded-full bg-muted" aria-hidden>
+        {drivers.map((entry, at) => (
+          <span
+            key={entry.key}
+            className={cn("h-full", ["bg-primary", "bg-primary/70", "bg-primary/45", "bg-primary/30", "bg-primary/20"][at] ?? "bg-primary/15")}
+            style={{ flexGrow: entry.part, flexBasis: 0 }}
+          />
+        ))}
+      </span>
     </span>
   );
 }
@@ -442,11 +477,13 @@ type LiveContext = {
 const CELLS: Record<ColumnId, (row: SnapshotRow, live: LiveContext) => ReactNode> = {
   rank: (row) => row.investment_rank ?? MISSING,
   stock: (row) => <StockLink row={row} />,
-  custom: (row) => formatScore(row.custom_score ?? null),
+  custom: (row) => <CustomScoreCell row={row} />,
   score: (row) => <ScoreCell row={row} />,
   quality: (row) => <PercentileCell value={row.quality_percentile} />,
   momentum: (row) => <PercentileCell value={row.momentum_percentile} />,
   growth: (row) => <PercentileCell value={row.growth_percentile} />,
+  value: (row) => <PercentileCell value={row.value_percentile} />,
+  steadiness: (row) => <PercentileCell value={row.risk_percentile} />,
   fundamental: (row) => formatScore(row.fundamental_score),
   technical: (row) => formatScore(row.technical_score),
   rating: (row) => <EntryBadge row={row} />,

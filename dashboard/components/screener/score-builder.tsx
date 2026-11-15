@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Info, SlidersHorizontal } from "lucide-react";
+import { Info, Minus, Plus, Scale, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { PendingMarker } from "@/components/nav-pending";
 import { useMarket, useRunDate } from "@/components/market-provider";
 import { useScorePreview, type Preview } from "@/lib/use-score-preview";
@@ -15,12 +15,14 @@ import { cn } from "@/lib/utils";
 import {
   EQUAL_START,
   IMPORTANCE,
+  NUDGE,
   POINT_FACTORS,
   SCORE_FACTORS,
   formatWeights,
   importanceStep,
   importanceText,
   mixShares,
+  nudgeStep,
   parseWeights,
 } from "@/lib/custom-score.mjs";
 
@@ -31,11 +33,26 @@ type Factor = { key: string; label: string; caption: string; about: string };
 // One hue at falling strength, a gap between segments and a written legend: colour is never the only cue.
 const SEGMENT = ["bg-primary", "bg-primary/80", "bg-primary/60", "bg-primary/45", "bg-primary/35", "bg-primary/25", "bg-primary/15"];
 
+// The header is one 3.5rem row from xl up (components/app-shell.tsx); below that the panel is a bottom sheet.
+const WIDE = "(min-width: 80rem)";
+const subscribeWide = (change: () => void) => {
+  const query = window.matchMedia(WIDE);
+  query.addEventListener("change", change);
+  return () => query.removeEventListener("change", change);
+};
+const useWide = () => useSyncExternalStore(subscribeWide, () => window.matchMedia(WIDE).matches, () => false);
+
+const TITLE = "Build your score";
+const DESCRIPTION = "Say how much each measure matters to you. The list re-sorts by your mix.";
+const NOTHING_WEIGHTED = "Give at least one measure some weight to build a score.";
+
 /**
  * "Build your score": the viewer says how much each measure matters to them
  * and the grid sorts by their mix (lib/custom-score.mjs). It starts from an
  * equal split and offers no other preset, so the order is always the viewer's.
  * The preview of the first five is worked out in the browser, never on the server.
+ * On a wide screen it is a side panel the grid makes room for
+ * (globals.css, [data-score-panel]); on a narrow one, a bottom sheet.
  */
 export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; concalls: boolean }) {
   const router = useRouter();
@@ -43,8 +60,11 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const searchParams = useSearchParams();
   const market = useMarket();
   const runDate = useRunDate();
+  const wide = useWide();
   const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
+  const [said, setSaid] = useState("");
+  const trigger = useRef<HTMLButtonElement>(null);
   const urlMix = searchParams.get("w") ?? "";
   const active = parseWeights(urlMix);
   // A market with no calls (US) offers no call measure: there is nothing to weight.
@@ -66,6 +86,11 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const shareOf = (key: string) => shares.find((entry) => entry.key === key)?.share ?? 0;
   const empty = !shares.length;
 
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+
   const push = (mutate: (params: URLSearchParams) => void) => {
     const params = new URLSearchParams(searchParams.toString());
     mutate(params);
@@ -86,11 +111,12 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
       params.set("sort", "custom_score");
       params.delete("dir");
     });
-    setOpen(false);
+    close();
   };
 
   const reset = () => {
     setWeights({ ...EQUAL_START });
+    setSaid("Reset to an equal mix.");
     if (urlMix) pushedMix("");
     push((params) => {
       params.delete("w");
@@ -99,101 +125,138 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   };
 
   const set = (key: string, value: number) => setWeights((current) => ({ ...current, [key]: value }));
+  // A stepper says what it did; the slider already says it through aria-valuetext.
+  const stepTo = (factor: Factor, value: number) => {
+    set(factor.key, value);
+    const next = mixShares({ ...weights, [factor.key]: value }, factors);
+    setSaid(importanceText(factor.label, value, next.find((entry) => entry.key === factor.key)?.share ?? 0));
+  };
+
+  const form = (title: React.ReactNode, description: React.ReactNode) => (
+    <form
+      className="flex min-h-0 flex-1 flex-col"
+      onSubmit={(event) => {
+        event.preventDefault();
+        apply();
+      }}
+    >
+      <div className="space-y-1 px-4 pt-4 pr-16">
+        {title}
+        {description}
+      </div>
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
+        <MixBar factors={factors} shares={shares} />
+        <ul className="space-y-4">
+          {factors.map((factor) => (
+            <li key={factor.key}>
+              <ImportanceControl
+                factor={factor}
+                value={weights[factor.key] ?? 0}
+                share={shareOf(factor.key)}
+                onChange={(next) => set(factor.key, next)}
+                onStep={(next) => stepTo(factor, next)}
+              />
+            </li>
+          ))}
+        </ul>
+        {points.length ? <Nudges points={points} weights={weights} onChange={set} /> : null}
+        <PreviewList preview={preview} empty={empty} />
+      </div>
+      {/* Pinned under the scroll, so Apply is always one tap away. */}
+      <div className="space-y-2 border-t px-4 py-3">
+        <p className="text-xs text-muted-foreground">
+          Your score uses only the weights you choose. Missing data counts as middle of the pack, never as zero. Not advice.
+        </p>
+        {empty ? <p className="text-xs font-medium">{NOTHING_WEIGHTED}</p> : null}
+        <div className="flex items-center justify-between gap-2">
+          <Button type="button" variant="ghost" className="h-11" onClick={reset} disabled={!active}>
+            Reset to equal
+          </Button>
+          <Button type="submit" className="h-11 px-5" disabled={empty}>
+            Sort by my score
+          </Button>
+        </div>
+      </div>
+      {/* The panel's one polite voice: what a stepper or reset just did, or why nothing can apply. */}
+      <p className="sr-only" aria-live="polite">
+        {empty ? NOTHING_WEIGHTED : said}
+      </p>
+    </form>
+  );
 
   return (
     <>
       <PendingMarker pending={pending} />
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger render={<Button variant={active ? "default" : "outline"} className="gap-1.5" />}>
-          <SlidersHorizontal className="size-3.5" aria-hidden />
-          <span>{active ? "Your score · on" : "Your score"}</span>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="max-h-[min(80vh,44rem)] w-[min(24rem,calc(100vw-2rem))] overflow-y-auto">
-          <form
-            className="space-y-4"
-            aria-labelledby="score-builder-title"
-            onSubmit={(event) => {
-              event.preventDefault();
-              apply();
-            }}
-          >
-            <div className="space-y-1">
-              <h2 id="score-builder-title" className="text-sm font-semibold">
-                Build your score
-              </h2>
-              <p className="text-xs text-muted-foreground">Say how much each measure matters to you. The list re-sorts by your mix.</p>
-            </div>
+      <Button
+        ref={trigger}
+        variant={active ? "default" : "outline"}
+        className="gap-1.5"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => (open ? close() : setOpen(true))}
+      >
+        <Scale className="size-3.5" aria-hidden />
+        <span>{active ? "Your score · on" : "Your score"}</span>
+      </Button>
 
-            <MixBar factors={factors} shares={shares} />
-
-            <ul className="space-y-3">
-              {factors.map((factor) => (
-                <li key={factor.key}>
-                  <ImportanceControl
-                    factor={factor}
-                    value={weights[factor.key] ?? 0}
-                    share={shareOf(factor.key)}
-                    onChange={(next) => set(factor.key, next)}
-                  />
-                </li>
-              ))}
-            </ul>
-
-            <PreviewList preview={preview} empty={empty} />
-
-            {points.length ? (
-              <div className="space-y-3 border-t pt-3">
-                {points.map((factor) => {
-                  const value = weights[factor.key] ?? 0;
-                  const id = `points-${factor.key}`;
-                  return (
-                    <div key={factor.key} className="space-y-1">
-                      <div className="flex items-baseline justify-between text-xs">
-                        <label htmlFor={id} className="font-medium">
-                          {factor.label}
-                        </label>
-                        <span className="tabular font-mono text-muted-foreground">{value ? `×${(value / 100).toFixed(2)}` : "Off"}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">{factor.caption}</p>
-                      <input
-                        id={id}
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={5}
-                        value={value}
-                        aria-valuetext={value ? `${factor.label}: ${(value / 100).toFixed(2)} times` : `${factor.label}: off`}
-                        onChange={(event) => set(factor.key, Number(event.target.value))}
-                        className="w-full accent-primary"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            <div className="space-y-2 border-t pt-3">
-              <p className="text-xs text-muted-foreground">
-                Missing data counts as middle of the pack, never as zero. Your settings, your score: not a Cupel rating or advice.
-              </p>
-              {empty ? (
-                <p className="text-xs font-medium" role="status">
-                  Give at least one measure some weight to build a score.
-                </p>
-              ) : null}
-              <div className="flex items-center justify-between gap-2">
-                <Button type="button" variant="ghost" size="sm" onClick={reset} disabled={!active}>
-                  Reset to equal
-                </Button>
-                <Button type="submit" size="sm" disabled={empty}>
-                  Sort by my score
-                </Button>
-              </div>
-            </div>
-          </form>
-        </PopoverContent>
-      </Popover>
+      {wide ? (
+        open ? (
+          <SidePanel onClose={close}>
+            {form(
+              <h2 id="score-builder-title" className="text-base font-semibold">
+                {TITLE}
+              </h2>,
+              <p className="text-xs text-muted-foreground">{DESCRIPTION}</p>,
+            )}
+          </SidePanel>
+        ) : null
+      ) : (
+        <Sheet open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
+          <SheetContent side="bottom" className="max-h-[85dvh] gap-0 p-0">
+            {form(
+              <SheetTitle className="text-base">{TITLE}</SheetTitle>,
+              <SheetDescription className="text-xs">{DESCRIPTION}</SheetDescription>,
+            )}
+          </SheetContent>
+        </Sheet>
+      )}
     </>
+  );
+}
+
+/**
+ * The wide-screen panel: beside the grid rather than over it, so the list it
+ * re-sorts stays in view. Not modal: the page stays usable, Escape closes it.
+ */
+function SidePanel({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const panel = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
+  useEffect(() => {
+    panel.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeRef.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  return (
+    <div
+      ref={panel}
+      data-score-panel
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="score-builder-title"
+      tabIndex={-1}
+      className="fixed top-14 right-0 bottom-0 z-20 flex w-[25rem] flex-col border-l bg-card text-sm shadow-lg outline-none"
+    >
+      <Button type="button" variant="ghost" size="icon" className="absolute top-2 right-2 size-11" onClick={onClose} aria-label="Close">
+        <X className="size-4" aria-hidden />
+      </Button>
+      {children}
+    </div>
   );
 }
 
@@ -226,25 +289,28 @@ function ImportanceControl({
   value,
   share,
   onChange,
+  onStep,
 }: {
   factor: Factor;
   value: number;
   share: number;
   onChange: (value: number) => void;
+  onStep: (value: number) => void;
 }) {
   const [explained, setExplained] = useState(false);
   const id = `weight-${factor.key}`;
   const step = importanceStep(value);
+  const stepper = "size-11 shrink-0 rounded-full";
   return (
     <div className="space-y-1">
-      <div className="flex items-baseline justify-between gap-2 text-xs">
-        <span className="flex items-center gap-1">
-          <label htmlFor={id} className="font-medium">
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="flex items-center gap-0.5">
+          <label htmlFor={id} className="text-sm font-medium">
             {factor.label}
           </label>
           <button
             type="button"
-            className="-my-1.5 inline-flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+            className="-my-2 inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
             aria-expanded={explained}
             aria-controls={`${id}-about`}
             aria-label={`What is ${factor.label}?`}
@@ -264,23 +330,96 @@ function ImportanceControl({
           {factor.about}
         </p>
       ) : null}
-      {/* A value between steps (an older link) shows as the nearer step and is kept until moved. */}
-      <input
-        id={id}
-        type="range"
-        min={0}
-        max={IMPORTANCE.length - 1}
-        step={1}
-        value={step}
-        aria-valuetext={importanceText(factor.label, value, share)}
-        onChange={(event) => onChange(IMPORTANCE[Number(event.target.value)].value)}
-        className="h-6 w-full accent-primary"
-      />
-      <div className="flex justify-between text-[11px] text-muted-foreground" aria-hidden>
-        <span>Ignore</span>
-        <span>Most</span>
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={stepper}
+          disabled={step === 0}
+          aria-label={`Less ${factor.label}`}
+          onClick={() => onStep(IMPORTANCE[step - 1].value)}
+        >
+          <Minus className="size-4" aria-hidden />
+        </Button>
+        {/* A value between steps (an older link) shows as the nearer step and is kept until moved. */}
+        <input
+          id={id}
+          type="range"
+          min={0}
+          max={IMPORTANCE.length - 1}
+          step={1}
+          value={step}
+          aria-valuetext={importanceText(factor.label, value, share)}
+          onChange={(event) => onChange(IMPORTANCE[Number(event.target.value)].value)}
+          className="h-11 min-w-0 flex-1 accent-primary"
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={stepper}
+          disabled={step === IMPORTANCE.length - 1}
+          aria-label={`More ${factor.label}`}
+          onClick={() => onStep(IMPORTANCE[step + 1].value)}
+        >
+          <Plus className="size-4" aria-hidden />
+        </Button>
       </div>
     </div>
+  );
+}
+
+/** Points on top of the mix, collapsed until wanted: most viewers never need them. */
+function Nudges({
+  points,
+  weights,
+  onChange,
+}: {
+  points: Factor[];
+  weights: Record<string, number>;
+  onChange: (key: string, value: number) => void;
+}) {
+  const on = points.some((factor) => (weights[factor.key] ?? 0) > 0);
+  const name = useId();
+  return (
+    <details className="rounded-md border" open={on || undefined}>
+      <summary className="flex min-h-11 cursor-pointer items-center justify-between rounded-md px-3 text-sm font-medium marker:content-none focus-visible:outline-2 focus-visible:outline-ring">
+        Extra nudges
+        <span className="text-xs font-normal text-muted-foreground">{on ? "On" : "Off"}</span>
+      </summary>
+      <div className="space-y-4 border-t px-3 py-3">
+        {points.map((factor) => {
+          const chosen = nudgeStep(weights[factor.key] ?? 0);
+          return (
+            <fieldset key={factor.key} className="space-y-1.5">
+              <legend className="text-sm font-medium">{factor.label}</legend>
+              <p className="text-xs text-muted-foreground">{factor.caption}</p>
+              <div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-1">
+                {NUDGE.map((option, at) => (
+                  <label
+                    key={option.label}
+                    className={cn(
+                      "flex min-h-11 cursor-pointer items-center justify-center rounded text-xs has-focus-visible:outline-2 has-focus-visible:outline-ring",
+                      at === chosen ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      className="sr-only"
+                      name={`${name}-${factor.key}`}
+                      checked={at === chosen}
+                      onChange={() => onChange(factor.key, option.value)}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          );
+        })}
+      </div>
+    </details>
   );
 }
 

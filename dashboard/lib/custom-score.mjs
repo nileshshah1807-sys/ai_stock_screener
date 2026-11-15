@@ -91,14 +91,30 @@ export const IMPORTANCE = [
   { label: "Most", value: 50 },
 ];
 
-/** The step nearest `value` (ties go to the lower step). */
-export function importanceStep(value) {
+/** An extra nudge's size, in words; `d` / `c` keep their number in the URL. */
+export const NUDGE = [
+  { label: "Off", value: 0 },
+  { label: "Light", value: 25 },
+  { label: "Strong", value: 50 },
+];
+
+/** The nudge step nearest `value` (ties go to the lower step). */
+export function nudgeStep(value) {
+  return nearest(NUDGE, value);
+}
+
+function nearest(steps, value) {
   const weight = num(value) ?? 0;
   let best = 0;
-  for (let at = 1; at < IMPORTANCE.length; at++) {
-    if (Math.abs(IMPORTANCE[at].value - weight) < Math.abs(IMPORTANCE[best].value - weight)) best = at;
+  for (let at = 1; at < steps.length; at++) {
+    if (Math.abs(steps[at].value - weight) < Math.abs(steps[best].value - weight)) best = at;
   }
   return best;
+}
+
+/** The step nearest `value` (ties go to the lower step). */
+export function importanceStep(value) {
+  return nearest(IMPORTANCE, value);
 }
 
 /**
@@ -300,4 +316,33 @@ export function rankScores(scores, symbols) {
       }
       return b.score - a.score || (a.symbol < b.symbol ? -1 : 1);
     });
+}
+
+/**
+ * What made a row's blend, for the Your score cell: each weighted measure the
+ * row has, with its value and its part of the blend (weight x value over the
+ * sum of those), largest first. Empty when the row has none of them.
+ * @param {Record<string, unknown>} row
+ * @param {Record<string, number>} weights
+ * @returns {{ key: string, label: string, value: number, part: number }[]}
+ */
+export function scoreDrivers(row, weights) {
+  const parts = [];
+  for (const factor of SCORE_FACTORS) {
+    const weight = weights[factor.key] ?? 0;
+    const value = num(row[factor.column]);
+    if (weight > 0 && value !== null) parts.push({ key: factor.key, label: factor.label, value, raw: weight * Math.max(0, value) });
+  }
+  const total = parts.reduce((sum, entry) => sum + entry.raw, 0);
+  return parts
+    .map(({ raw, ...entry }) => ({ ...entry, part: total ? raw / total : 0 }))
+    .sort((a, b) => b.part - a.part);
+}
+
+/** "Mostly Momentum (82) and Quality (74)." for a cell's tooltip; null with no drivers. */
+export function driversText(drivers) {
+  const [first, second] = drivers;
+  if (!first) return null;
+  const named = (entry) => `${entry.label} (${Math.round(entry.value)})`;
+  return second ? `Mostly ${named(first)} and ${named(second)}.` : `All ${named(first)}.`;
 }

@@ -848,6 +848,14 @@
   [data-screener]:has([data-nav-pending]) {
     cursor: progress;
   }
+
+  /* The score panel (components/screener/score-builder.tsx) sits beside the
+     grid, not over it: the screener gives up the panel's width while it is open. */
+  @media (min-width: 80rem) {
+    [data-screener]:has([data-score-panel]) {
+      margin-right: 25rem;
+    }
+  }
 }
 
 /*

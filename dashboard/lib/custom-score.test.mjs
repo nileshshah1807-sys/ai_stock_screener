@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { EQUAL_START, IMPORTANCE, POINT_FACTORS, RUN_COLUMNS, SCORE_FACTORS, aheadOf, blockFactor, concallRecency, formatWeights, importanceStep, importanceText, mixShares, parseWeights, rankScores, scoreRun, weightedScore } from "./custom-score.mjs";
+import { NUDGE, nudgeStep, driversText, scoreDrivers, EQUAL_START, IMPORTANCE, POINT_FACTORS, RUN_COLUMNS, SCORE_FACTORS, aheadOf, blockFactor, concallRecency, formatWeights, importanceStep, importanceText, mixShares, parseWeights, rankScores, scoreRun, weightedScore } from "./custom-score.mjs";
 import { isAdminOnlyField } from "./ratings.mjs";
 
 test("weights round-trip through the URL form", () => {
@@ -120,4 +120,22 @@ test("a screen reader hears the step and the share", () => {
   assert.equal(importanceText("Value", 0, 0), "Value: Ignore");
   assert.equal(aheadOf(71.6), "Ahead of 72% of stocks");
   assert.equal(aheadOf(null), null);
+});
+
+test("a row's drivers are its weighted measures by their part of the blend", () => {
+  const row = { quality_score: 74, momentum_score: 82, growth_score: null, value_score: 10 };
+  const drivers = scoreDrivers(row, { q: 20, m: 35, g: 20, v: 0 });
+  assert.deepEqual(drivers.map((entry) => entry.key), ["m", "q"], "unweighted and missing measures are left out");
+  assert.ok(Math.abs(drivers.reduce((sum, entry) => sum + entry.part, 0) - 1) < 1e-9);
+  assert.equal(driversText(drivers), "Mostly Momentum (82) and Quality (74).");
+  assert.equal(driversText(scoreDrivers({ quality_score: 60 }, { q: 20 })), "All Quality (60).");
+  assert.equal(driversText([]), null);
+});
+
+test("a nudge reads Off, Light or Strong; an older multiple reads as the nearer one", () => {
+  assert.deepEqual(NUDGE.map((step) => step.label), ["Off", "Light", "Strong"]);
+  assert.equal(nudgeStep(0), 0);
+  assert.equal(nudgeStep(45), 2);
+  assert.equal(nudgeStep(100), 2);
+  assert.equal(nudgeStep(10), 0);
 });

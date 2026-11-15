@@ -23,6 +23,8 @@ export type ColumnId =
   | "quality"
   | "momentum"
   | "growth"
+  | "value"
+  | "steadiness"
   | "fundamental"
   | "technical"
   | "rating"
@@ -115,7 +117,7 @@ export const COLUMNS: readonly ColumnSpec[] = [
     label: "Your score",
     sort: "custom_score",
     numeric: true,
-    title: "0-100. Where this stock lands on your mix, against every stock on the list. 90 = ahead of 90% of them. Not a Cupel rating.",
+    title: "0-100. Where this stock lands on your mix, against every stock on the list. 90 = ahead of 90% of them. Your score uses only the weights you choose.",
     cellClassName: "tabular text-right font-mono text-xs",
     fields: SCORE_FACTORS.map((factor) => factor.column),
     required: true,
@@ -227,6 +229,26 @@ export const COLUMNS: readonly ColumnSpec[] = [
     cellClassName: "text-right",
     title: factorTitle("growth"),
     fields: ["growth_percentile"],
+    availability: "factor",
+  },
+  {
+    id: "value",
+    label: "Value",
+    sort: "value_percentile",
+    numeric: true,
+    cellClassName: "text-right",
+    title: factorTitle("value"),
+    fields: ["value_percentile"],
+    availability: "factor",
+  },
+  {
+    id: "steadiness",
+    label: "Steadiness",
+    sort: "risk_percentile",
+    numeric: true,
+    cellClassName: "text-right",
+    title: factorTitle("risk"),
+    fields: ["risk_percentile"],
     availability: "factor",
   },
   {
@@ -370,6 +392,8 @@ export type Density = "compact" | "comfortable";
  * away in the Columns menu, and on every stock page.
  */
 export const DEFAULT_HIDDEN_COLUMNS: readonly ColumnId[] = [
+  "value",
+  "steadiness",
   "coverage",
   "dcf",
   "evidence",

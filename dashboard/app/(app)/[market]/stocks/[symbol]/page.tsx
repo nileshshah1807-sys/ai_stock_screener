@@ -1002,14 +1002,13 @@ export default async function StockPage({
                     it is the only breakdown there is.
                   */}
                   <Panel
-                    title={verdict ? "Published score" : "Factor profile"}
+                    title={verdict ? "Published score" : "How it measures up"}
                     info={
                       !verdict ? (
                         <p>
-                          Where this stock stands on each measure against every
-                          stock in the {market.label} universe on the last run:
-                          P90 means it scores higher than 90% of them. Each
-                          measure is shown on its own; none is a recommendation.
+                          How this stock compares with every stock in the{" "}
+                          {market.label} market on the last run, one measure at a
+                          time. Facts, not a recommendation.
                         </p>
                       ) : (
                       <>
