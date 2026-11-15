@@ -21,7 +21,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { aheadOf, driversText, parseWeights, scoreDrivers, shownScore } from "@/lib/custom-score.mjs";
+import { aheadOf, driversText, parseWeights, scoreDrivers } from "@/lib/custom-score.mjs";
 import { dcfStatus } from "@/lib/labels";
 import { visibleColumns, type ColumnId } from "@/lib/columns";
 import {
@@ -219,8 +219,10 @@ function PercentileCell({ value }: { value: number | null }) {
   return (
     <span
       title={aheadOf(value) ?? undefined}
+      // relative: the sr-only text is absolutely placed, and without a positioned
+      // parent inside the grid's scroller it widens the page (phones zoom out).
       className={cn(
-        "tabular font-mono text-xs",
+        "relative tabular font-mono text-xs",
         value >= 70 ? "text-positive" : value < 30 ? "text-negative" : "",
       )}
     >
@@ -244,10 +246,10 @@ function CustomScoreCell({ row, weights }: { row: SnapshotRow; weights: Record<s
     );
   }
   const drivers = scoreDrivers(row as unknown as Record<string, unknown>, weights);
-  const title = [driversText(drivers), `${Math.round(shownScore(score))} of 100 on your mix.`].filter(Boolean).join(" ");
+  const title = [driversText(drivers), `${Math.round(score)} of 100 on your mix.`].filter(Boolean).join(" ");
   return (
     <span className="inline-flex flex-col items-end gap-1" title={title}>
-      <span>{formatScore(shownScore(score))}</span>
+      <span>{formatScore(score)}</span>
       <span className="flex h-1 w-12 gap-px overflow-hidden rounded-full bg-muted" aria-hidden>
         {drivers.map((entry, at) => (
           <span

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { shownScore, topByMix, NUDGE, nudgeStep, driversText, scoreDrivers, EQUAL_START, IMPORTANCE, POINT_FACTORS, RUN_COLUMNS, SCORE_FACTORS, aheadOf, blockFactor, concallRecency, formatWeights, importanceStep, importanceText, mixShares, parseWeights, rankScores, scoreRun, weightedScore } from "./custom-score.mjs";
+import { rawScores, topByMix, NUDGE, nudgeStep, driversText, scoreDrivers, EQUAL_START, IMPORTANCE, POINT_FACTORS, RUN_COLUMNS, SCORE_FACTORS, aheadOf, blockFactor, concallRecency, formatWeights, importanceStep, importanceText, mixShares, parseWeights, rankScores, scoreRun, weightedScore } from "./custom-score.mjs";
 import { isAdminOnlyField } from "./ratings.mjs";
 
 test("weights round-trip through the URL form", () => {
@@ -42,9 +42,9 @@ test("points: valuation from 50, a recent call from the run's median call", () =
     { symbol: "A", quality_score: 60, dcf_valuation_score: 70, dcf_blend_eligible: true },
     { symbol: "B", quality_score: 50, dcf_valuation_score: 90, dcf_blend_eligible: false },
   ];
-  // A: percentile 100 + 0.10 * 20, clipped at 100; B: ineligible, stays 0.
-  const dcf = scoreRun(rows, { q: 100, d: 10 });
-  assert.equal(dcf.get("A"), 100);
+  // A: percentile 100 + 0.10 * 20; B: ineligible, stays 0.
+  const dcf = rawScores(rows, { q: 100, d: 10 });
+  assert.equal(dcf.get("A"), 102);
   assert.equal(dcf.get("B"), 0);
 
   const called = Array.from({ length: 30 }, (_, i) => ({
@@ -56,12 +56,12 @@ test("points: valuation from 50, a recent call from the run's median call", () =
   }));
   const outlooks = new Map(called.map((row, i) => [row.symbol, i < 15 ? 50 : 70]));
   outlooks.set("S29", 80);
-  const scores = scoreRun(called, { q: 100, c: 100 }, outlooks);
+  const scores = rawScores(called, { q: 100, c: 100 }, outlooks);
   // Every blend ties at percentile 50; median outlook 60, so 80 is +0.85 * 20.
   assert.equal(scores.get("S29"), 50 + 0.85 * 20);
   assert.equal(scores.get("S0"), 50 - 0.85 * 10);
   // Fewer than 30 calls: measured from 50, not a median.
-  assert.equal(scoreRun(called.slice(0, 2), { q: 100, c: 100 }, outlooks).get("S0"), 50 + 0.15 * 10);
+  assert.equal(rawScores(called.slice(0, 2), { q: 100, c: 100 }, outlooks).get("S0"), 50 + 0.15 * 10);
 });
 
 test("a call halves in weight every 90 days and is gone after 180", () => {
@@ -182,8 +182,23 @@ test("the preview's top 5 is recomputed for every mix: a step moves scores, a di
   assert.deepEqual(topByMix([], equal), []);
 });
 
-test("a score is shown between 0 and 100, whatever the call nudge added", () => {
-  assert.equal(shownScore(109.7), 100);
-  assert.equal(shownScore(-3), 0);
-  assert.equal(shownScore(72.4), 72.4);
+test("nudges move a stock along 0-100, never past it, and never tie the top", () => {
+  // Twenty stocks; the five best on quality are also the cheapest, so a strong fair-value nudge piles them up past 100 raw.
+  const rows = Array.from({ length: 20 }, (_, i) => ({
+    symbol: `s${String(i).padStart(2, "0")}`,
+    quality_score: 100 - i,
+    dcf_valuation_score: i < 5 ? 100 : 50,
+    dcf_blend_eligible: true,
+  }));
+  const raw = rawScores(rows, { q: 100, d: 50 });
+  const scores = scoreRun(rows, { q: 100, d: 50 });
+  assert.ok([...raw.values()].filter((v) => v > 100).length >= 2, "raw points do pass 100");
+  const values = [...scores.values()];
+  assert.equal(Math.max(...values), 100);
+  assert.equal(Math.min(...values), 0);
+  assert.equal(values.filter((v) => v === 100).length, 1, "one stock at the top, not a tie");
+  const order = (map) => [...map.entries()].sort((a, b) => b[1] - a[1]).map(([symbol]) => symbol);
+  assert.deepEqual(order(scores), order(raw), "the re-rank keeps the order the points gave");
+  // No nudge: the blend's percentile, untouched.
+  assert.deepEqual(scoreRun(rows, { q: 100 }), rawScores(rows, { q: 100 }));
 });

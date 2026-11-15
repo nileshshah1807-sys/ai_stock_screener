@@ -236,7 +236,7 @@ export function concallRecency(ageDays) {
 }
 
 /**
- * The viewer's score for every row of a run.
+ * The arithmetic under the viewer's score, before scoreRun ranks it.
  *
  * The weighted blend is ranked across the run onto 0-100 ((rank - 1) / (n - 1),
  * ties averaged); points are then added: `d` / 100 per point of valuation score
@@ -249,24 +249,12 @@ export function concallRecency(ageDays) {
  * @param {Map<string, number>} [outlooks] latest outlook score by symbol
  * @returns {Map<string, number | null>}
  */
-export function scoreRun(rows, weights, outlooks = new Map()) {
+export function rawScores(rows, weights, outlooks = new Map()) {
   const blends = rows.map((row) => {
     const blend = weightedScore(row, weights);
     return blend === null ? null : Math.round(blend * 100) / 100;
   });
-  const sorted = /** @type {number[]} */ (blends.filter((b) => b !== null)).sort((a, b) => a - b);
-  const n = sorted.length;
-  // Each value's percentile once, ties averaged: one pass over the sorted blends.
-  /** @type {Map<number, number>} */
-  const ranks = new Map();
-  for (let lo = 0; lo < n; ) {
-    let hi = lo;
-    while (hi + 1 < n && sorted[hi + 1] === sorted[lo]) hi++;
-    ranks.set(sorted[lo], n < 2 ? 50 : ((lo + hi) / 2 / (n - 1)) * 100);
-    lo = hi + 1;
-  }
-  /** @param {number} value */
-  const percentile = (value) => /** @type {number} */ (ranks.get(value));
+  const percentile = percentiles(blends);
 
   const dcfPoints = (weights.d ?? 0) / 100;
   const callPoints = (weights.c ?? 0) / 100;
@@ -289,7 +277,7 @@ export function scoreRun(rows, weights, outlooks = new Map()) {
       let score = percentile(blend);
       const dcf = num(row.dcf_valuation_score);
       if (dcfPoints && dcf !== null && row.dcf_blend_eligible === true) {
-        score = Math.min(100, Math.max(0, score + dcfPoints * (dcf - 50)));
+        score += dcfPoints * (dcf - 50);
       }
       const call = calls[index];
       if (call) {
@@ -298,6 +286,44 @@ export function scoreRun(rows, weights, outlooks = new Map()) {
       return [String(row.symbol), score];
     }),
   );
+}
+
+/**
+ * Each value's percentile across the non-null values, 0 (lowest) to 100
+ * (highest), ties averaged; a lone value is 50.
+ * @param {(number | null)[]} values
+ * @returns {(value: number) => number}
+ */
+function percentiles(values) {
+  const sorted = /** @type {number[]} */ (values.filter((v) => v !== null)).sort((x, y) => x - y);
+  const n = sorted.length;
+  /** @type {Map<number, number>} */
+  const ranks = new Map();
+  for (let lo = 0; lo < n; ) {
+    let hi = lo;
+    while (hi + 1 < n && sorted[hi + 1] === sorted[lo]) hi++;
+    ranks.set(sorted[lo], n < 2 ? 50 : ((lo + hi) / 2 / (n - 1)) * 100);
+    lo = hi + 1;
+  }
+  return (value) => /** @type {number} */ (ranks.get(value));
+}
+
+/**
+ * The viewer's score: where their mix, plus any nudge points, lands among
+ * every scored stock of the run, 0 (last) to 100 (first). Nudges move a
+ * stock along that line; they never push it past either end or tie the top.
+ * Without a nudge this is the blend's percentile, unchanged.
+ * @param {Record<string, unknown>[]} rows
+ * @param {Record<string, number>} weights
+ * @param {Map<string, number>} [outlooks] latest outlook score by symbol
+ * @returns {Map<string, number | null>}
+ */
+export function scoreRun(rows, weights, outlooks = new Map()) {
+  const raw = rawScores(rows, weights, outlooks);
+  if (!(weights.d ?? 0) && !(weights.c ?? 0)) return raw;
+  const values = [...raw.values()].map((v) => (v === null ? null : Math.round(v * 100) / 100));
+  const percentile = percentiles(values);
+  return new Map([...raw.keys()].map((symbol, i) => [symbol, values[i] === null ? null : percentile(/** @type {number} */ (values[i]))]));
 }
 
 /**
@@ -332,15 +358,6 @@ export function topByMix(rows, weights, outlooks = new Map(), size = 5) {
   return rankScores(scoreRun(rows, weights, outlooks), companies.keys())
     .slice(0, size)
     .flatMap((entry) => (entry.score === null ? [] : [{ symbol: entry.symbol, company: companies.get(entry.symbol) ?? null, score: entry.score }]));
-}
-
-/**
- * A score as shown: 0 to 100. The call nudge can carry a stock past either
- * end; the order keeps the full value, the number on screen does not.
- * @param {number} score
- */
-export function shownScore(score) {
-  return Math.min(100, Math.max(0, score));
 }
 
 /**

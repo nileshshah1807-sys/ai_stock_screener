@@ -25,7 +25,6 @@ import {
   mixShares,
   nudgeStep,
   parseWeights,
-  shownScore,
 } from "@/lib/custom-score.mjs";
 
 const byKey = (key: string) => [...SCORE_FACTORS, ...POINT_FACTORS].find((factor) => factor.key === key);
@@ -248,8 +247,8 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
             </Disclosure>
           ) : null}
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Your score uses only the weights you choose. Missing data counts as middle of the pack, never as zero. Scores show
-            from 0 to 100; a nudge can lift a stock past 100 in the order, never on screen.
+            Your score uses only the weights you choose. Missing data counts as middle of the pack, never as zero. A score is
+            where a stock lands among all of them: 100 is first, 0 is last.
           </p>
           {/* What a stepper or reset just did; the footer note speaks for the rest. */}
           <p className="sr-only" aria-live="polite">
@@ -469,7 +468,7 @@ function PreviewList({ preview, empty, start }: { preview: Preview; empty: boole
                 <span className="tabular mr-2 inline-block w-3 text-xs text-muted-foreground">{at + 1}</span>
                 {row.company ?? row.symbol}
               </span>
-              <span className="tabular shrink-0 font-mono text-xs text-muted-foreground">{formatScore(shownScore(row.score))}</span>
+              <span className="tabular shrink-0 font-mono text-xs text-muted-foreground">{formatScore(row.score)}</span>
             </li>
           ))}
         </ol>

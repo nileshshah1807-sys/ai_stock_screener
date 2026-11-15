@@ -849,6 +849,33 @@
     cursor: progress;
   }
 
+  /* And a moving line across the top of the grid, where the eye is once a
+     panel closes, until the new rows land. Still under reduced motion. */
+  [data-screener]:has([data-nav-pending]) .grid-scroll::before {
+    content: "";
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 30;
+    display: block;
+    height: 2px;
+    margin-bottom: -2px;
+    background: linear-gradient(90deg, transparent, var(--color-primary), transparent) no-repeat;
+    background-size: 40% 100%;
+    animation: grid-progress 1.1s var(--ease-standard) infinite;
+  }
+  @keyframes grid-progress {
+    from { background-position: -40% 0; }
+    to { background-position: 140% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    [data-screener]:has([data-nav-pending]) .grid-scroll::before {
+      animation: none;
+      background: var(--color-primary);
+      opacity: 0.5;
+    }
+  }
+
   /* The builder's importance slider: a thin track filled to the step, one
      calm thumb that answers the press, the focus ring on the thumb alone.
      --fill is the step as 0..1, set by the component. */
