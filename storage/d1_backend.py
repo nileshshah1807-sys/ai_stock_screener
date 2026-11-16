@@ -81,6 +81,11 @@ def table_modes(env: Mapping[str, str]) -> dict[str, str]:
     return modes
 
 
+def table_of(url: str) -> str:
+    """The table a PostgREST URL names (an RPC's function name, which no list holds)."""
+    return urlsplit(url).path.rsplit("/", 1)[-1]
+
+
 def table_session(env: Mapping[str, str] | None = None) -> requests.Session:
     """The session a repository sends its PostgREST calls through."""
     env = os.environ if env is None else env
@@ -89,6 +94,7 @@ def table_session(env: Mapping[str, str] | None = None) -> requests.Session:
     if name == "supabase" and not modes:
         return requests.Session()
     # A mirror must never hold a run up: a short timeout, as the R2 mirror has.
+    # Once any table reads D1 the shared session waits 60 s, dual tables too.
     reads_d1 = name == "d1" or any(mode != "dual" for mode in modes.values())
     timeout = int(env.get("D1_TIMEOUT_SECONDS") or (60 if reads_d1 else MIRROR_TIMEOUT_SECONDS))
     d1 = D1Session(
@@ -303,7 +309,7 @@ class D1Session:
     def request(self, method: str, url: str, *, params=None, json=None, headers=None, **_: Any) -> requests.Response:
         method = method.upper()
         prefer = (headers or {}).get("Prefer", "")
-        table = urlsplit(url).path.rsplit("/", 1)[-1]
+        table = table_of(url)
         try:
             if method in WRITE_METHODS and self.rows_written >= self.max_rows_written:
                 raise WriteCeilingReached(
@@ -330,7 +336,7 @@ class DualSession:
     def __init__(self, primary: requests.Session, mirror: D1Session, *, read_mirror: bool = False):
         self.primary = primary
         self.mirror = mirror
-        self.read_mirror = read_mirror  # dual_d1: reads come from D1
+        self.read_mirror = read_mirror  # dual_d1: reads come from D1 while every copy has landed
         self.failures = 0
         self.mirroring = True
 
@@ -342,6 +348,12 @@ class DualSession:
             self._copy(method, url, kwargs)
         return response
 
+    def _stop_reading_mirror(self) -> None:
+        """A missed copy leaves D1 stale: dual_d1 reads Supabase for the rest of the run."""
+        if self.read_mirror:
+            logger.warning("D1 missed a copy; reads go to Supabase for the rest of this run")
+            self.read_mirror = False
+
     def _copy(self, method: str, url: str, kwargs: dict[str, Any]) -> None:
         """Copy one write to D1; a slow or failing D1 is switched off for the run."""
         path = urlsplit(url).path
@@ -351,6 +363,7 @@ class DualSession:
         except WriteCeilingReached as exc:
             logger.warning("D1 copy switched off for this run: %s", exc)
             self.mirroring = False
+            self._stop_reading_mirror()
             return
         except Exception as exc:  # noqa: BLE001 - the copy never fails the run
             failure = f"failed: {exc}"
@@ -359,6 +372,7 @@ class DualSession:
             return
         self.failures += 1
         logger.warning("D1 copy of %s %s %s", method, path, failure)
+        self._stop_reading_mirror()
         if self.failures >= MIRROR_FAILURES_BEFORE_OFF:
             logger.warning("D1 copy switched off for this run after %d failures in a row", self.failures)
             self.mirroring = False
@@ -372,7 +386,7 @@ class TableRouter:
         self.by_table = dict(by_table)
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        table = urlsplit(url).path.rsplit("/", 1)[-1]
+        table = table_of(url)
         return self.by_table.get(table, self.default).request(method, url, **kwargs)
 
 

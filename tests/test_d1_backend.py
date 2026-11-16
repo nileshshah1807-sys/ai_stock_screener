@@ -202,6 +202,17 @@ class DualTests(unittest.TestCase):
         primary.request.assert_called_once()
         self.assertEqual(mirror.request.call_count, 2)
 
+    def test_dual_d1_reads_supabase_once_a_copy_is_missed(self):
+        for failure in (WriteCeilingReached("ceiling"), RuntimeError("D1 down")):
+            primary, mirror = mock.Mock(), mock.Mock()
+            primary.request.return_value = mock.Mock(ok=True)
+            mirror.request.side_effect = failure
+            session = DualSession(primary, mirror, read_mirror=True)
+            session.request("POST", "https://x/rest/v1/valuation_basis", json=[{}])
+            session.request("GET", "https://x/rest/v1/valuation_basis")
+            self.assertEqual(mirror.request.call_count, 1)
+            self.assertEqual(primary.request.call_count, 2)
+
     def test_the_router_sends_each_table_to_its_session(self):
         default, moved = mock.Mock(), mock.Mock()
         router = TableRouter(default, {"valuation_basis": moved})
