@@ -263,6 +263,7 @@ def run(
     sleep=time.sleep,
     dry_run: bool = False,
     attempts_path: str | None = None,
+    basis_marker_path: str | None = None,
 ) -> dict[str, int]:
     profile = resolve_market(repo.market)
     counts = {"due": 0, "stored": 0, "failed": 0, "deferred": 0, "redrawn": 0, "basis": 0, "derived": 0,
@@ -385,9 +386,12 @@ def run(
             logger.warning("Quarterly results not redrawn on the stock page: %s", exc)
     if not index.empty and not dry_run:
         try:
-            counts["basis"] = refresh_valuation_basis(
-                repo, index["Symbol"], today, profile.timezone
+            symbols, publish = basis_scope(
+                repo, index["Symbol"].tolist(), touched, full=full, marker_path=basis_marker_path
             )
+            counts["basis"] = refresh_valuation_basis(repo, symbols, today, profile.timezone)
+            if publish:
+                _write_marker(basis_marker_path, publish)
         except Exception as exc:  # stored filings stand; the evening run writes the basis
             logger.warning(
                 "Valuation basis not refreshed (apply storage/valuation_basis_schema.sql "
@@ -401,15 +405,45 @@ def run(
     return counts
 
 
+def basis_scope(
+    repo, window: list[str], touched: list[str], *, full: bool, marker_path: str | None
+) -> tuple[list[str], str | None]:
+    """The companies whose valuation basis this run refreshes, and the publish it covers.
+
+    A run refreshes the companies it stored. The whole window is refreshed on a
+    full run and on the first run after a publish, whose basis may hold a year
+    read before a company filed; ``marker_path`` remembers the publish last
+    covered (a workflow cache), and is written only after the refresh. With no
+    marker path every run covers the window, as before.
+    """
+    if marker_path is None:
+        return window, None
+    published = repo.latest_publish_time()
+    try:
+        with open(marker_path, encoding="utf-8") as handle:
+            covered = handle.read().strip()
+    except OSError:
+        covered = ""
+    if full or (published and published != covered):
+        return window, published
+    return touched, None
+
+
+def _write_marker(path: str | None, publish: str) -> None:
+    if path:
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(publish)
+
+
 def refresh_valuation_basis(repo, symbols: Iterable[str], today: date, timezone: str) -> int:
     """Replace the trailing-year lines of each symbol's valuation basis.
 
     The arithmetic is the evening run's (`valuation_basis.trailing_year`). A
     stored basis that runs to a later quarter -- the vendor's, where its
     filings are behind -- is left alone, and a line the filings cannot
-    support is not written, so the stored figure stands. Every run covers the
-    whole lookback window, which also restores a year the evening publisher
-    wrote from filings read before a company filed.
+    support is not written, so the stored figure stands. ``basis_scope`` picks
+    the companies: the whole window after a publish, which restores a year the
+    publisher wrote from filings read before a company filed.
     """
     symbols = list(dict.fromkeys(symbols))
     if not symbols:
@@ -500,6 +534,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
         dry_run=args.dry_run,
         attempts_path=os.environ.get("FILING_ATTEMPTS_PATH"),
+        basis_marker_path=os.environ.get("BASIS_MARKER_PATH"),
     )
     if counts["blocked"]:
         _note_block(counts)

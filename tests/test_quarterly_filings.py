@@ -93,6 +93,10 @@ class FakeRepository:
         self.filings = {}
         self.basis = {}
         self.basis_writes = []
+        self.publish = None
+
+    def latest_publish_time(self):
+        return self.publish
 
     def has_rows(self, table):
         return bool(self.stored)
@@ -552,6 +556,64 @@ def stored_quarter(symbol, period_end, net_profit, *, operating_profit=200.0):
             "other_income": 20.0,
         },
     }
+
+
+class BasisScopeTests(FilingsRun):
+    """The valuation basis: touched companies every run, the window once per publish."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.marker = os.path.join(folder.name, "basis-marker")
+        self.repo = FakeRepository(stored={
+            ("AAA", "2026-09-30", True): stored_row(2),
+            ("BBB", "2026-09-30", True): stored_row(3),
+        })
+        self.records = [filing("AAA", "30-SEP-2026", 2), filing("BBB", "30-SEP-2026", 3)]
+
+    def basis_reads(self, **kwargs):
+        before = len(self.repo.filing_reads)
+        self.run_worker(self.records, {}, repo=self.repo, basis_marker_path=self.marker, **kwargs)
+        return [sorted(read) for read in self.repo.filing_reads[before:]]
+
+    def test_a_publish_triggers_the_window_refresh_exactly_once(self):
+        self.repo.publish = "2026-11-16T15:40:00+00:00"
+        self.assertEqual(self.basis_reads(), [["AAA", "BBB"]])
+        self.assertEqual(self.basis_reads(), [])  # nothing stored, publish covered
+        self.assertEqual(self.basis_reads(), [])
+        self.repo.publish = "2026-11-16T17:40:00+00:00"  # the next publish
+        self.assertEqual(self.basis_reads(), [["AAA", "BBB"]])
+        self.assertEqual(self.basis_reads(), [])
+
+    def test_a_run_refreshes_the_companies_it_stored(self):
+        self.repo.publish = "2026-11-16T15:40:00+00:00"
+        self.basis_reads()
+        self.records.append(filing("AAA", "30-JUN-2026", 7))
+        _, repo, _, _ = self.run_worker(
+            self.records, {"7": document(9, 1)}, repo=self.repo, basis_marker_path=self.marker
+        )
+        # The stock page redraw, then the basis: AAA alone, not the window.
+        self.assertEqual(repo.filing_reads[-2:], [["AAA"], ["AAA"]])
+
+    def test_a_full_run_refreshes_the_window_even_when_the_publish_is_covered(self):
+        self.repo.publish = "2026-11-16T15:40:00+00:00"
+        self.basis_reads()
+        self.assertEqual(self.basis_reads(full=True), [["AAA", "BBB"]])
+
+    def test_a_failed_refresh_leaves_the_publish_to_the_next_run(self):
+        self.repo.publish = "2026-11-16T15:40:00+00:00"
+        broken = self.repo.upsert_valuation_basis
+        self.repo.upsert_valuation_basis = lambda rows: (_ for _ in ()).throw(RuntimeError("down"))
+        self.repo.filings = {"AAA": [stored_quarter("AAA", q, 1.0) for q in ValuationBasisRefresh.QUARTERS]}
+        self.basis_reads()
+        self.repo.upsert_valuation_basis = broken
+        self.assertEqual(self.basis_reads(), [["AAA", "BBB"]])
+
+    def test_without_a_marker_every_run_refreshes_the_window(self):
+        self.repo.publish = "2026-11-16T15:40:00+00:00"
+        for _ in range(2):
+            self.run_worker(self.records, {}, repo=self.repo)
+        self.assertEqual([sorted(r) for r in self.repo.filing_reads], [["AAA", "BBB"]] * 2)
 
 
 class ValuationBasisRefresh(unittest.TestCase):

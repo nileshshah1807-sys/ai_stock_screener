@@ -525,6 +525,17 @@ class DashboardRepository:
                 return rows
             offset += page
 
+    def latest_publish_time(self) -> str | None:
+        """When the newest published run was generated: one field, not the run's manifest."""
+        rows = self._request(
+            "GET",
+            "screener_runs",
+            params=self._scoped({
+                "select": "generated_at_utc", "row_count": "gt.0", "order": "run_date.desc", "limit": "1",
+            }),
+        )
+        return str(rows[0]["generated_at_utc"]) if rows and rows[0].get("generated_at_utc") else None
+
     def latest_snapshot_symbols(self) -> list[str]:
         """Symbols in this market's newest published run, in rank order."""
         run = self.latest_completed_run()

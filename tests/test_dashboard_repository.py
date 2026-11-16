@@ -289,6 +289,19 @@ class MarketScopingTests(unittest.TestCase):
         self.assertEqual(whole["select"], "symbol,period_end,is_consolidated")
         self.assertEqual((asked[4][1]["limit"], asked[4][1]["market"]), ("1", "eq.NSE"))
 
+    def test_the_latest_publish_time_reads_one_field_of_the_newest_published_run(self):
+        asked = []
+
+        class Store(RecordingDashboardRepository):
+            def _request(self, method, path, **kwargs):
+                asked.append((path, dict(kwargs["params"])))
+                return [{"generated_at_utc": "2026-11-16T15:40:00+00:00"}]
+
+        self.assertEqual(Store(market="NSE").latest_publish_time(), "2026-11-16T15:40:00+00:00")
+        path, params = asked[0]
+        self.assertEqual((path, params["select"], params["row_count"], params["market"]),
+                         ("screener_runs", "generated_at_utc", "gt.0", "eq.NSE"))
+
     def test_snapshot_writes_are_stamped(self):
         repository = RecordingDashboardRepository(market="US")
 

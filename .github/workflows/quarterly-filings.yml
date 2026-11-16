@@ -88,9 +88,20 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r requirements-ci.txt
 
+      # The screener publish the valuation basis was last refreshed after: the
+      # whole window is refreshed once per publish, not every run. A miss (an
+      # evicted cache) costs one extra window refresh, nothing else.
+      - name: Restore the valuation-basis marker
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/basis-marker
+          key: valuation-basis-marker-NSE-${{ github.run_id }}
+          restore-keys: valuation-basis-marker-NSE-
+
       - name: Store new filings
         env:
           FILING_ATTEMPTS_PATH: ${{ runner.temp }}/filing-attempts.json
+          BASIS_MARKER_PATH: ${{ runner.temp }}/basis-marker
           FULL: ${{ inputs.full && '--full' || '' }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         # The budget leaves room for setup and the final writes inside the
@@ -101,6 +112,13 @@ jobs:
             --time-budget-minutes 22 \
             ${FULL} \
             ${DRY_RUN}
+
+      - name: Keep the valuation-basis marker
+        if: ${{ !cancelled() && hashFiles(format('{0}/basis-marker', runner.temp)) != '' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/basis-marker
+          key: valuation-basis-marker-NSE-${{ github.run_id }}
 
       # Which filings were not stored and why (fetch refused, format not read),
       # for whoever audits a missing result: gh run download <id> -n filing-attempts.
