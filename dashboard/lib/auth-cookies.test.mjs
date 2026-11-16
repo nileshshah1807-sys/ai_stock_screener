@@ -8,6 +8,10 @@ test("finds the session cookie and its chunks, nothing else", () => {
   assert.deepEqual(authCookieNames(cookie), ["sb-abc-auth-token.0", "sb-abc-auth-token.1", "sb-abc-auth-token"]);
 });
 
+test("a sign-in's code-verifier cookies are not the session", () => {
+  assert.deepEqual(authCookieNames("sb-abc-auth-token-code-verifier=v; sb-abc-auth-token-flows-code-verifier=w"), []);
+});
+
 test("an empty cookie string has none", () => {
   assert.deepEqual(authCookieNames(""), []);
 });

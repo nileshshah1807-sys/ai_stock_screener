@@ -18,12 +18,16 @@ export function GoogleButton({ next }: { next: string | null }) {
 
   async function start() {
     setState("pending");
-    const { error } = await createClient().auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: oauthRedirectTo(window.location.origin, next) },
-    });
-    // On success the page is already leaving for Google.
-    if (error) setState("error");
+    try {
+      const { error } = await createClient().auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: oauthRedirectTo(window.location.origin, next) },
+      });
+      // On success the page is already leaving for Google.
+      if (error) setState("error");
+    } catch {
+      setState("error");
+    }
   }
 
   return (

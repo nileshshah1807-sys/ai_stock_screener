@@ -2,9 +2,11 @@
 
 import { useSyncExternalStore, type ReactNode } from "react";
 
+import { authCookieNames } from "@/lib/auth-cookies.mjs";
+
 const noSubscribe = () => () => {};
-// Supabase's session cookie (sb-<project>-auth-token, possibly chunked .0/.1) is readable by the page.
-export const hasSession = () => /(?:^|;\s*)sb-[^=]+-auth-token/.test(document.cookie);
+// Supabase's session cookie is readable by the page; a sign-in's leftover code-verifier cookie is not a session.
+export const hasSession = () => authCookieNames(document.cookie).length > 0;
 
 /**
  * `signedIn` for a visitor holding a session, `signedOut` otherwise. The
