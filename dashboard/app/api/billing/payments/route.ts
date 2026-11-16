@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { isUnknownSubscription } from "@/lib/billing.mjs";
-import { PAYMENT_LIMIT, paymentRows } from "@/lib/payments.mjs";
+import { PAYMENT_LIMIT, neverAuthorised, paymentRows } from "@/lib/payments.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -42,7 +42,12 @@ export async function GET() {
       () => null,
     );
 
-  const listing = await fetch(`${RAZORPAY}/invoices?subscription_id=${encodeURIComponent(subscriptionId)}&count=${PAYMENT_LIMIT}`, { headers, cache: "no-store" }).catch(() => null);
+  const [listing, subscription] = await Promise.all([
+    fetch(`${RAZORPAY}/invoices?subscription_id=${encodeURIComponent(subscriptionId)}&count=${PAYMENT_LIMIT}`, { headers, cache: "no-store" }).catch(() => null),
+    get(`/subscriptions/${encodeURIComponent(subscriptionId)}`),
+  ]);
+  // An abandoned checkout: its one invoice is a pay page, not a payment.
+  if (neverAuthorised(subscription)) return NextResponse.json({ payments: [] }, { headers: NO_STORE });
   const list = listing ? await listing.json().catch(() => null) : null;
   // An id Razorpay does not know (another mode, or stale): no payments, not an error.
   if (listing && !listing.ok && isUnknownSubscription(listing.status, list)) return NextResponse.json({ payments: [] }, { headers: NO_STORE });
