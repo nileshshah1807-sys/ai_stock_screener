@@ -60,7 +60,7 @@ export function paymentStatus(invoice, payment) {
  * could not be read is simply absent, and its method shows as not recorded).
  * `account` ({name, email}) is the signed-in viewer, the buyer when an invoice names no customer.
  * Every field is chosen here: nothing else of Razorpay's reply reaches the browser.
- * @returns {{id: string, date: string, paise: number, currency: string, method: string, status: string, receiptUrl: string|null, buyerName: string|null, buyerEmail: string|null, item: string|null}[]}
+ * @returns {{id: string, date: string, paise: number, currency: string, method: string, status: string, receiptUrl: string|null, paymentId: string|null, buyerName: string|null, buyerEmail: string|null, item: string|null}[]}
  */
 export function paymentRows(invoices, paymentsById = {}, account = {}) {
   return (Array.isArray(invoices) ? invoices : [])
@@ -79,6 +79,7 @@ export function paymentRows(invoices, paymentsById = {}, account = {}) {
         status,
         // An unpaid invoice's link is Razorpay's pay page, not a receipt.
         receiptUrl: status === "paid" || status === "refunded" ? receiptUrl(invoice.short_url) : null,
+        paymentId: typeof invoice.payment_id === "string" ? invoice.payment_id : null,
         // The buyer's own details and the plan line, for Cupel's receipt (lib/receipt.mjs).
         // An invoice made without a customer names no one: the signed-in account it was listed for is the buyer.
         buyerName: nonEmpty(invoice.customer_details?.name) ?? nonEmpty(account.name),
