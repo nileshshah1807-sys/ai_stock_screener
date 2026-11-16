@@ -44,13 +44,16 @@ class FakeRepository:
     def latest_snapshot_symbols(self):
         return ["RELIANCE", "TANFACIND.BO"]
 
-    def quarterly_filing_state(self):
+    def has_rows(self, table):
+        return table == "quarterly_filings"
+
+    def quarterly_filing_state(self, symbols=None):
         return {("RELIANCE", "2026-09-30", True): {"seq_id": "1", "parser_version": 99}}
 
     def upsert_quarterly_filings(self, rows):
         self.filings += rows
 
-    def shareholding_state(self):
+    def shareholding_state(self, symbols=None):
         return {}
 
     def upsert_shareholding_patterns(self, rows):

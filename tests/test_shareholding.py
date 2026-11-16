@@ -184,9 +184,14 @@ class FakeRepository:
         self.market = market
         self.stored = stored or {}
         self.patterns, self.deals = [], []
+        self.state_reads = []
 
-    def shareholding_state(self):
-        return self.stored
+    def has_rows(self, table):
+        return bool(self.stored)
+
+    def shareholding_state(self, symbols=None):
+        self.state_reads.append(None if symbols is None else sorted(set(symbols)))
+        return {k: v for k, v in self.stored.items() if symbols is None or k[0] in set(symbols)}
 
     def upsert_shareholding_patterns(self, rows):
         self.patterns += rows
@@ -228,6 +233,25 @@ class WorkerTest(unittest.TestCase):
         # A trade printed twice is one row; each kind is read.
         self.assertEqual(sorted(d["kind"] for d in repo.deals), ["block", "bulk"])
         self.assertEqual(counts["stored"], 1)
+
+    def test_an_incremental_run_reads_the_indexed_companies_keys_and_replaces_a_revision(self):
+        # TCS's stored pattern is revised (record 8 for 7): its row is replaced.
+        # INFY, outside the window, is neither read nor written.
+        records = [index_record("TCS", "30-SEP-2026", "8", "13-OCT-2026 10:00:00")]
+        repo = FakeRepository(stored={
+            ("TCS", "2026-09-30"): {"record_id": "7", "parser_version": PARSER_VERSION},
+            ("INFY", "2026-09-30"): {"record_id": "3", "parser_version": PARSER_VERSION},
+        })
+        documents = {"https://archive.example/SHP_8_WEB.xml": document(ONWARD)}
+        counts, fetcher = self._run(repo, records, documents)
+        self.assertEqual(repo.state_reads, [["TCS"]])
+        self.assertEqual(fetcher.asked, ["https://archive.example/SHP_8_WEB.xml"])
+        self.assertEqual([(r["symbol"], r["record_id"]) for r in repo.patterns], [("TCS", "8")])
+
+    def test_a_full_run_reads_every_stored_key(self):
+        repo = FakeRepository(stored={("TCS", "2026-09-30"): {"record_id": "7", "parser_version": PARSER_VERSION}})
+        self._run(repo, [], {}, full=True)
+        self.assertEqual(repo.state_reads, [None])
 
     def test_a_refused_batch_stops_the_run(self):
         records = [

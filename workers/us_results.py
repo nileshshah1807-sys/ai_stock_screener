@@ -108,7 +108,7 @@ def run(repo, *, dry_run: bool = False) -> dict[str, int]:
         logger.warning("US results are written for the US only (market %s)", repo.market)
         return counts
     try:
-        filings = repo.quarterly_filing_state()
+        filings = repo.quarterly_filing_state(keys_only=True)
     except Exception as exc:
         logger.warning("US results not stored: quarterly_filings is unreadable (%s). Apply storage/quarterly_filings_schema.sql.", exc)
         return counts

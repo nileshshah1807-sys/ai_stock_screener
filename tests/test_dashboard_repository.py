@@ -267,6 +267,28 @@ class MarketScopingTests(unittest.TestCase):
             self.assertEqual(len(repository.recent_filed_results("2026-10-01T00:00:00")), 1)
             self.assertEqual(repository.result_first_seen(), {("TCS", "2026-09-30"): market})
 
+    def test_a_state_read_for_symbols_asks_for_those_symbols_in_url_sized_chunks(self):
+        asked = []
+
+        class Store(RecordingDashboardRepository):
+            def _request(self, method, path, **kwargs):
+                asked.append((path, dict(kwargs["params"])))
+                return []
+
+        repository = Store(market="NSE")
+        repository.quarterly_filing_state(["AAA", "BBB", "AAA"])
+        repository.shareholding_state([f"S{i:03d}" for i in range(150)])
+        repository.quarterly_filing_state([])
+        repository.quarterly_filing_state(keys_only=True)
+        self.assertTrue(repository.has_rows("quarterly_filings") is False)
+        first = asked[0][1]
+        self.assertEqual((first["symbol"], first["market"]), ('in.("AAA","BBB")', "eq.NSE"))
+        self.assertEqual([p for p, _ in asked[1:3]], ["shareholding_patterns"] * 2)  # 100 + 50
+        whole = asked[3][1]
+        self.assertNotIn("symbol", whole)  # [] read nothing; None reads the table
+        self.assertEqual(whole["select"], "symbol,period_end,is_consolidated")
+        self.assertEqual((asked[4][1]["limit"], asked[4][1]["market"]), ("1", "eq.NSE"))
+
     def test_snapshot_writes_are_stamped(self):
         repository = RecordingDashboardRepository(market="US")
 
