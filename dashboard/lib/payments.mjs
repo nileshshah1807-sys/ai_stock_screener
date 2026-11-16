@@ -50,7 +50,7 @@ export function paymentStatus(invoice, payment) {
 }
 
 /**
- * Rows for the page, newest first: paid and refunded payments only. `invoices` are Razorpay's invoice objects for one
+ * Rows for the page, newest first. `invoices` are Razorpay's invoice objects for one
  * subscription; `paymentsById` maps payment id to its payment object (a payment that
  * could not be read is simply absent, and its method shows as not recorded).
  * Every field is chosen here: nothing else of Razorpay's reply reaches the browser.
@@ -71,13 +71,22 @@ export function paymentRows(invoices, paymentsById = {}) {
         currency: typeof invoice.currency === "string" ? invoice.currency : "INR",
         method: methodLabel(payment),
         status,
-        receiptUrl: receiptUrl(invoice.short_url),
+        // An unpaid invoice's link is Razorpay's pay page, not a receipt.
+        receiptUrl: status === "paid" || status === "refunded" ? receiptUrl(invoice.short_url) : null,
       };
     })
-    // An unpaid invoice (an abandoned checkout's first one) is not a payment, and its link is Razorpay's pay page.
-    .filter((row) => row.date && (row.status === "paid" || row.status === "refunded"))
+    .filter((row) => row.date)
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     .slice(0, PAYMENT_LIMIT);
+}
+
+/**
+ * A subscription whose checkout was abandoned: never authorised, so it holds no mandate
+ * and nothing was charged (a later checkout cancels it). Its first invoice is only a pay page.
+ * A failed first charge after authorising reads `pending` or `halted`, so it is still listed.
+ */
+export function neverAuthorised(subscription) {
+  return subscription?.paid_count === 0 && ["created", "expired", "cancelled"].includes(subscription?.status);
 }
 
 export const PAYMENT_STATUS_LABEL = { paid: "Paid", refunded: "Refunded", failed: "Failed", pending: "Pending" };

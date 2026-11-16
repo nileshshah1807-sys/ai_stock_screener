@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { cleanDisplayName, initialsOf, shownName } from "./display-name.mjs";
-import { methodLabel, paymentRows, paymentStatus, receiptUrl } from "./payments.mjs";
+import { methodLabel, neverAuthorised, paymentRows, paymentStatus, receiptUrl } from "./payments.mjs";
 
 const inv = (over) => ({ id: "inv_1", status: "paid", amount: 69900, amount_paid: 69900, currency: "INR", issued_at: 1_762_000_000, paid_at: 1_762_000_100, payment_id: "pay_1", short_url: "https://rzp.io/i/abc", ...over });
 
@@ -26,10 +26,20 @@ test("status: refunded and failed and pending read from the payment and the invo
   assert.equal(status(inv({ status: "issued", paid_at: null })), "pending");
 });
 
-test("an unpaid or failed invoice is not listed, so its pay link never shows", () => {
-  const rows = paymentRows([inv({ id: "open", status: "issued", paid_at: null, payment_id: null }), inv({ id: "gone", status: "expired", paid_at: null }), inv()]);
-  assert.deepEqual(rows.map((r) => r.id), ["inv_1"]);
-  assert.deepEqual(paymentRows([inv({ status: "issued", paid_at: null, payment_id: null })]), []);
+test("every payment is listed, but only a paid or refunded one links its receipt", () => {
+  const rows = paymentRows([inv({ id: "open", status: "issued", paid_at: null, payment_id: null, issued_at: 1_800_000_000 }), inv({ id: "gone", status: "expired", paid_at: null }), inv()]);
+  assert.deepEqual(rows.map((r) => [r.id, r.status, r.receiptUrl]), [["open", "pending", null], ["inv_1", "paid", "https://rzp.io/i/abc"], ["gone", "failed", null]]);
+});
+
+test("an abandoned checkout's subscription is never authorised; one that charged or holds a mandate is", () => {
+  assert.equal(neverAuthorised({ status: "created", paid_count: 0 }), true);
+  assert.equal(neverAuthorised({ status: "expired", paid_count: 0 }), true);
+  assert.equal(neverAuthorised({ status: "cancelled", paid_count: 0 }), true);
+  assert.equal(neverAuthorised({ status: "authenticated", paid_count: 0 }), false);
+  assert.equal(neverAuthorised({ status: "halted", paid_count: 0 }), false);
+  assert.equal(neverAuthorised({ status: "active", paid_count: 1 }), false);
+  assert.equal(neverAuthorised({ status: "cancelled", paid_count: 1 }), false);
+  assert.equal(neverAuthorised(null), false);
 });
 
 test("a refunded payment stays listed", () => {
