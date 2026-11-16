@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { isUnknownSubscription } from "@/lib/billing.mjs";
+import { buyerName, isUnknownSubscription } from "@/lib/billing.mjs";
 import { PAYMENT_LIMIT, neverAuthorised, paymentRows } from "@/lib/payments.mjs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -61,5 +61,7 @@ export async function GET() {
     if (payments[index]) byId[id] = payments[index];
   });
 
-  return NextResponse.json({ payments: paymentRows(invoices, byId) }, { headers: NO_STORE });
+  const email = typeof data?.claims?.email === "string" ? data.claims.email : "";
+  const account = { name: buyerName(data?.claims?.user_metadata?.full_name, email), email };
+  return NextResponse.json({ payments: paymentRows(invoices, byId, account) }, { headers: NO_STORE });
 }

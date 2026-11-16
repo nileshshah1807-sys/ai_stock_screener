@@ -41,6 +41,11 @@ export function methodLabel(payment) {
   }
 }
 
+const nonEmpty = (value) => (typeof value === "string" && value.trim() ? value.trim() : null);
+
+/** Only a payment that was made has a receipt. */
+export const hasReceipt = (status) => status === "paid" || status === "refunded";
+
 /** @returns {"paid"|"refunded"|"failed"|"pending"} */
 export function paymentStatus(invoice, payment) {
   if (payment?.status === "refunded" || (payment?.amount_refunded ?? 0) > 0) return "refunded";
@@ -53,10 +58,11 @@ export function paymentStatus(invoice, payment) {
  * Rows for the page, newest first. `invoices` are Razorpay's invoice objects for one
  * subscription; `paymentsById` maps payment id to its payment object (a payment that
  * could not be read is simply absent, and its method shows as not recorded).
+ * `account` ({name, email}) is the signed-in viewer, the buyer when an invoice names no customer.
  * Every field is chosen here: nothing else of Razorpay's reply reaches the browser.
  * @returns {{id: string, date: string, paise: number, currency: string, method: string, status: string, receiptUrl: string|null, buyerName: string|null, buyerEmail: string|null, item: string|null}[]}
  */
-export function paymentRows(invoices, paymentsById = {}) {
+export function paymentRows(invoices, paymentsById = {}, account = {}) {
   return (Array.isArray(invoices) ? invoices : [])
     .filter((invoice) => invoice && typeof invoice.id === "string" && Number.isFinite(invoice.amount) && invoice.status !== "draft")
     .map((invoice) => {
@@ -74,8 +80,9 @@ export function paymentRows(invoices, paymentsById = {}) {
         // An unpaid invoice's link is Razorpay's pay page, not a receipt.
         receiptUrl: status === "paid" || status === "refunded" ? receiptUrl(invoice.short_url) : null,
         // The buyer's own details and the plan line, for Cupel's receipt (lib/receipt.mjs).
-        buyerName: typeof invoice.customer_details?.name === "string" ? invoice.customer_details.name : null,
-        buyerEmail: typeof invoice.customer_details?.email === "string" ? invoice.customer_details.email : null,
+        // An invoice made without a customer names no one: the signed-in account it was listed for is the buyer.
+        buyerName: nonEmpty(invoice.customer_details?.name) ?? nonEmpty(account.name),
+        buyerEmail: nonEmpty(invoice.customer_details?.email) ?? nonEmpty(account.email),
         item: typeof invoice.line_items?.[0]?.name === "string" ? invoice.line_items[0].name : null,
       };
     })
