@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { priceLabel } from "@/lib/billing.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
-import { PAYMENT_STATUS_LABEL } from "@/lib/payments.mjs";
+import { PAYMENT_STATUS_LABEL, hasReceipt } from "@/lib/payments.mjs";
 import { receiptHtml } from "@/lib/receipt.mjs";
 import { cn } from "@/lib/utils";
 
@@ -31,12 +31,13 @@ export type PaymentsState = { status: "loading" } | { status: "error" } | { stat
 const amountOf = (row: PaymentRow) => (row.currency === "INR" ? priceLabel(row.paise) : `${row.currency} ${(row.paise / 100).toFixed(2)}`);
 
 /** Cupel's receipt in a new tab, built here from the row: no server render, and printable. */
-function openReceipt(row: PaymentRow) {
+function openReceipt(row: PaymentRow): boolean {
   const tab = window.open("", "_blank");
-  if (!tab) return;
+  if (!tab) return false;
   tab.opener = null;
   tab.document.write(receiptHtml(row, LEGAL, { date: formatDate, amount: amountOf }));
   tab.document.close();
+  return true;
 }
 
 /** Reads the person's own payments from the server (which holds the Razorpay keys). */
@@ -67,6 +68,7 @@ export function PaymentHistory() {
 /** The list in each of its states; the fetching above is kept out so every state can be drawn from fixtures. */
 export function PaymentList({ state, onRetry }: { state: PaymentsState; onRetry?: () => void }) {
   const list = useRef<HTMLUListElement>(null);
+  const [blocked, setBlocked] = useState<string | null>(null);
   const ready = state.status === "ready";
 
   // Rows settle in once they are known; reduced motion runs nothing.
@@ -138,10 +140,10 @@ export function PaymentList({ state, onRetry }: { state: PaymentsState; onRetry?
               {PAYMENT_STATUS_LABEL[row.status]}
             </span>
             <span className="col-span-2 sm:order-5 sm:col-span-1 sm:text-right">
-              {row.status === "paid" || row.status === "refunded" ? (
+              {hasReceipt(row.status) ? (
                 <button
                   type="button"
-                  onClick={() => openReceipt(row)}
+                  onClick={() => setBlocked(openReceipt(row) ? null : row.id)}
                   aria-label={`Receipt for ${formatDate(row.date)} (opens in a new tab)`}
                   className="inline-flex items-center gap-1 rounded text-brand underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
@@ -152,6 +154,11 @@ export function PaymentList({ state, onRetry }: { state: PaymentsState; onRetry?
                 <span className="text-muted-foreground">No receipt</span>
               )}
             </span>
+            {blocked === row.id ? (
+              <p role="alert" className="col-span-2 text-sm text-destructive sm:order-6 sm:col-span-5">
+                Your browser blocked the receipt tab. Allow pop-ups for this site, then press Receipt again.
+              </p>
+            ) : null}
           </li>
         ))}
       </ul>

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { cleanDisplayName, initialsOf, shownName } from "./display-name.mjs";
-import { methodLabel, neverAuthorised, paymentRows, paymentStatus, receiptUrl } from "./payments.mjs";
+import { hasReceipt, methodLabel, neverAuthorised, paymentRows, paymentStatus, receiptUrl } from "./payments.mjs";
 
 const inv = (over) => ({ id: "inv_1", status: "paid", amount: 69900, amount_paid: 69900, currency: "INR", issued_at: 1_762_000_000, paid_at: 1_762_000_100, payment_id: "pay_1", short_url: "https://rzp.io/i/abc", ...over });
 
@@ -49,6 +49,18 @@ test("a refunded payment stays listed", () => {
 test("the buyer and plan line are carried for the receipt", () => {
   const [row] = paymentRows([inv({ customer_details: { name: "Asha", email: "a@b.co", contact: "+91" }, line_items: [{ name: "Monthly", amount: 12900 }] })]);
   assert.deepEqual([row.buyerName, row.buyerEmail, row.item], ["Asha", "a@b.co", "Monthly"]);
+});
+
+test("only a paid or refunded payment has a receipt button", () => {
+  assert.deepEqual(["paid", "refunded", "failed", "pending"].map(hasReceipt), [true, true, false, false]);
+});
+
+test("an invoice with no customer names the signed-in account; its own customer wins", () => {
+  const account = { name: "Asha Rao", email: "asha@example.com" };
+  const [bare] = paymentRows([inv({ customer_details: { name: null, email: "" } })], {}, account);
+  assert.deepEqual([bare.buyerName, bare.buyerEmail], ["Asha Rao", "asha@example.com"]);
+  const [own] = paymentRows([inv({ customer_details: { name: "Billing Name", email: "bill@example.com" } })], {}, account);
+  assert.deepEqual([own.buyerName, own.buyerEmail], ["Billing Name", "bill@example.com"]);
 });
 
 test("a payment that could not be read shows its method as not recorded, and the row stays", () => {
