@@ -366,7 +366,7 @@ test("the customer is the display name, else the email, and an existing customer
   assert.equal(buyerName("", "a@b.co"), "a@b.co");
   assert.equal(buyerName(undefined, "a@b.co"), "a@b.co");
   assert.equal(buyerName("x".repeat(80), "a@b.co").length, 50);
-  assert.deepEqual(customerBody({ name: "Asha", email: "a@b.co" }), { name: "Asha", email: "a@b.co", fail_existing: 0 });
+  assert.deepEqual(customerBody({ name: "Asha", email: "a@b.co" }), { name: "Asha", email: "a@b.co", fail_existing: "0" });
 });
 
 test("the customer id survives the offer-rejection retry", async () => {
