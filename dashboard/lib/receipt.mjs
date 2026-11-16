@@ -52,7 +52,7 @@ ${line("Payment method", escapeHtml(row.method))}
 <tr class="total"><th>Amount paid</th><td>${escapeHtml(format.amount(row))}</td></tr>
 </table>
 <p class="muted">Issued by ${escapeHtml(seller.service)}, operated by ${escapeHtml(seller.operator)}. Questions: ${escapeHtml(seller.contactEmail)}</p>
-${official ? `<p><a href="${escapeHtml(official)}" target="_blank" rel="noopener noreferrer">View official Razorpay invoice</a></p>` : ""}
+${official ? `<p><a href="${escapeHtml(official)}" target="_blank" rel="noopener noreferrer">Download official Razorpay invoice (PDF)</a></p>` : ""}
 <button type="button" onclick="window.print()">Print or save as PDF</button>
 </main></body></html>`;
 }
