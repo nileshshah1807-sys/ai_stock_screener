@@ -28,11 +28,11 @@ test("a missing buyer says so, and a refund says it was refunded", () => {
 test("shows the Razorpay payment id and links Razorpay's own invoice for a paid row", () => {
   const html = receiptHtml({ ...row, paymentId: "pay_9", receiptUrl: "https://rzp.io/rzp/abc" }, seller, format);
   assert.ok(html.includes("pay_9"));
-  assert.ok(html.includes('href="https://rzp.io/rzp/abc"') && html.includes("View official Razorpay invoice"));
+  assert.ok(html.includes('href="https://rzp.io/rzp/abc"') && html.includes("View or download official Razorpay invoice"));
 });
 
 test("no official link for an unpaid row or a link off Razorpay's host", () => {
-  assert.ok(!receiptHtml({ ...row, status: "pending", receiptUrl: "https://rzp.io/rzp/abc" }, seller, format).includes("View official"));
-  assert.ok(!receiptHtml({ ...row, receiptUrl: "https://evil.example/x" }, seller, format).includes("View official"));
-  assert.ok(!receiptHtml({ ...row, receiptUrl: "javascript:alert(1)" }, seller, format).includes("View official"));
+  assert.ok(!receiptHtml({ ...row, status: "pending", receiptUrl: "https://rzp.io/rzp/abc" }, seller, format).includes("official Razorpay invoice"));
+  assert.ok(!receiptHtml({ ...row, receiptUrl: "https://evil.example/x" }, seller, format).includes("official Razorpay invoice"));
+  assert.ok(!receiptHtml({ ...row, receiptUrl: "javascript:alert(1)" }, seller, format).includes("official Razorpay invoice"));
 });
