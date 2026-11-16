@@ -249,11 +249,14 @@ export async function getDeclaredSymbols(market: MarketCode, quarter: string, db
 const RESULTS_REVALIDATE = 300;
 /** One instance keeps these reads a minute (an R2 cache hit costs 0.7-2.2 s on Workers); well inside the five they are shared for. */
 const kept = sharedMemo<unknown>(60_000, 100);
-const memo = <T>(key: string, load: () => Promise<T>) => kept(key, load) as Promise<T>;
+// `keep`: an answer that may be a failed read's fallback (null, nothing) is not held for every viewer of the instance.
+const memo = <T>(key: string, load: () => Promise<T>, keep: (value: T) => boolean) =>
+  kept(key, load, keep as (value: unknown) => boolean) as Promise<T>;
 
 export const getLatestResultQuarterShared = (market: MarketCode, offered: string[]) =>
   memo(`latest-quarter:${market}:${offered.join(",")}`, () =>
     cachedOr("latest-quarter", market, RESULTS_REVALIDATE, (db) => getLatestResultQuarter(market, offered, db), offered),
+    (quarter) => quarter !== null,
   );
 
 export async function getDeclaredSymbolsShared(market: MarketCode, quarter: string): Promise<Set<string> | null> {
@@ -262,6 +265,7 @@ export async function getDeclaredSymbolsShared(market: MarketCode, quarter: stri
       const set = await getDeclaredSymbols(market, quarter, db);
       return set && [...set];
     }, [quarter]),
+    (declared) => declared !== null,
   );
   return symbols && new Set(symbols);
 }
@@ -274,6 +278,7 @@ export function getResultFeedShared(market: MarketCode, query: ResultFeedQuery) 
   const key = [quarter, String(limit), String(byPeriodEnd), scope];
   return memo(`feed:${market}:${key.join(":")}`, () =>
     cachedOr("feed", market, RESULTS_REVALIDATE, (db) => getResultFeed(market, query, db), key),
+    (feed) => feed.entries.length > 0,
   );
 }
 
@@ -284,10 +289,15 @@ export async function getQuarterFilings(
   periods: string[],
 ): Promise<QuarterFiling[]> {
   if (!symbols.length) return [];
-  return sharedRead("filings", market, QUARTER_FILINGS_REVALIDATE, (db) => readQuarterFilings(market, symbols, periods, db), [
-    await digest(symbols),
-    periods.join(","),
-  ]);
+  return sharedRead(
+    "filings",
+    market,
+    QUARTER_FILINGS_REVALIDATE,
+    (db) => readQuarterFilings(market, symbols, periods, db),
+    [await digest(symbols), periods.join(",")],
+    // These symbols come from the feed, so none of their filings means a failed read, not an answer.
+    (rows) => rows.length > 0,
+  );
 }
 
 /** A result is stored minutes after it is filed; the same beat as the feed. */
