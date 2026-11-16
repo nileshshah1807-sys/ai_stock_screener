@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { cacheWindow } from "./shared-memo.mjs";
+import { cacheWindow, sharedMemo } from "./shared-memo.mjs";
 
 const NOW = Date.parse("2026-11-13T14:00:00Z");
 const KEY = "concalls:NSE:abc";
@@ -28,4 +28,15 @@ test("different keys change window at different moments", () => {
     return ms;
   };
   assert.notEqual(boundary("concalls:NSE:abc"), boundary("events:NSE:all"));
+});
+
+test("a value keep rejects (a failed read's fallback) is returned but loaded again next time", async () => {
+  const memo = sharedMemo(60_000);
+  const answers = [[], [{ symbol: "TCS" }], [{ symbol: "INFY" }]];
+  let loads = 0;
+  const read = () => memo("filings", async () => answers[loads++], (rows) => rows.length > 0, NOW);
+  assert.deepEqual(await read(), []);
+  assert.deepEqual(await read(), [{ symbol: "TCS" }]);
+  assert.deepEqual(await read(), [{ symbol: "TCS" }]);
+  assert.equal(loads, 2);
 });
