@@ -28,7 +28,7 @@ test("a missing buyer says so, and a refund says it was refunded", () => {
 test("shows the Razorpay payment id and links Razorpay's own invoice for a paid row", () => {
   const html = receiptHtml({ ...row, paymentId: "pay_9", receiptUrl: "https://rzp.io/rzp/abc" }, seller, format);
   assert.ok(html.includes("pay_9"));
-  assert.ok(html.includes('href="https://rzp.io/rzp/abc"') && html.includes("Download official Razorpay invoice (PDF)"));
+  assert.ok(html.includes('href="https://rzp.io/rzp/abc"') && html.includes("View or download official Razorpay invoice"));
 });
 
 test("no official link for an unpaid row or a link off Razorpay's host", () => {
