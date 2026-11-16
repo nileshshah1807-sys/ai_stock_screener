@@ -94,19 +94,21 @@ jobs:
       - name: Restore the valuation-basis marker
         uses: actions/cache/restore@v6
         with:
-          path: ${{ runner.temp }}/basis-marker
+          path: reports_advanced/basis-marker
           key: valuation-basis-marker-NSE-${{ github.run_id }}
           restore-keys: valuation-basis-marker-NSE-
 
       - name: Store new filings
         env:
           FILING_ATTEMPTS_PATH: ${{ runner.temp }}/filing-attempts.json
-          BASIS_MARKER_PATH: ${{ runner.temp }}/basis-marker
+          BASIS_MARKER_PATH: reports_advanced/basis-marker
           FULL: ${{ inputs.full && '--full' || '' }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         # The budget leaves room for setup and the final writes inside the
         # job timeout; whatever is left is fetched by the next run.
         run: |
+          mkdir -p reports_advanced
+          cp reports_advanced/basis-marker reports_advanced/basis-marker.restored 2>/dev/null || true
           python -m workers.quarterly_filings \
             --market NSE \
             --time-budget-minutes 22 \
@@ -114,10 +116,11 @@ jobs:
             ${DRY_RUN}
 
       - name: Keep the valuation-basis marker
-        if: ${{ !cancelled() && hashFiles(format('{0}/basis-marker', runner.temp)) != '' }}
+        # hashFiles sees the workspace only; saved when this run wrote a new publish.
+        if: ${{ !cancelled() && hashFiles('reports_advanced/basis-marker') != '' && hashFiles('reports_advanced/basis-marker') != hashFiles('reports_advanced/basis-marker.restored') }}
         uses: actions/cache/save@v6
         with:
-          path: ${{ runner.temp }}/basis-marker
+          path: reports_advanced/basis-marker
           key: valuation-basis-marker-NSE-${{ github.run_id }}
 
       # Which filings were not stored and why (fetch refused, format not read),
