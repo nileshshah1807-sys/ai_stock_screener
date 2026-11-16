@@ -277,3 +277,102 @@ location hint APAC:
 for everyone (`withoutVerdict`), as `lib/queries.ts` `forViewer` does, after merging `extra` into the
 row; and the tables that sit behind `dashboard_has_access()` today (concall_feed, quarterly_filings,
 market_breadth, ...) need the same access check in the Worker. The reader PR is reviewed against this.
+
+## Phase 2: every job off Supabase before 14 Dec (human, 16 Nov 2026)
+
+Supabase keeps login and what the token hook reads; every other table moves to D1 (or is
+already an R2 object). Counts read 16 Nov ~17:00 UTC (Supabase `reltuples`, D1 `count(*)`).
+
+### What stays on Supabase (god decides)
+
+| table | why it must stay |
+|---|---|
+| `auth.*` | login |
+| `plans`, `subscriptions`, `dashboard_allowlist` | `custom_access_token_hook` reads them to put `plan` and `access_until` in the token |
+| `app_settings` | `trial_days()` and the signup trigger `billing_start_trial` read `trial_days` from it |
+| `trial_signals` | written by the signup trial guard, in the same transaction as the trial row |
+| `admin_actions`, `customer_emails` | written by `billing_refund_end_access` / `billing_apply_event` (SQL functions) and the webhook beside a subscription change; must commit with it |
+
+All are under 1 MB with negligible egress. **Moved, though user-owned:** `watchlists`, `watchlist_items`,
+`notification_reads`, `saved_views` (its 50-view cap trigger becomes a check in the Worker route).
+Caveat for Pam (WNN-134): the browser reads these today through RLS; on D1 every read and write is a
+Worker request, which costs Worker CPU on the Free plan (section "Boundaries" of CLAUDE.md).
+
+### One switch per table, four steps
+
+`TABLE_BACKEND` today is one value for a whole run. **PR D1-1** makes it per table, in the backend
+(`storage/d1_backend.py`), without changing a repository method:
+
+| mode | writes | reads |
+|---|---|---|
+| `supabase` | Supabase | Supabase |
+| `dual` | Supabase, then D1 (a D1 error is logged) | Supabase |
+| `dual_d1` | Supabase, then D1 | **D1** (the jobs' egress stops here) |
+| `d1` | D1 | D1 |
+
+Set as `TABLE_BACKEND_DUAL`, `TABLE_BACKEND_DUAL_D1`, `TABLE_BACKEND_D1` (comma lists of tables; a table
+in none is `supabase`), one repository variable each so every workflow follows one setting. Same PR: the
+unique indexes `dual` needs where a writer upserts on a natural key behind an id (`market_events`,
+`transcripts`, `transcript_documents`, `transcript_sentiments`, `transcript_outlooks`), and D1 tables
+for the four user tables and `transcript_filings`, `transcript_filing_documents`.
+
+Per table: **dual** (and backfill) → counts equal Supabase on two days running → **dual_d1** (jobs read
+D1) → dashboard reads D1 (Pam) → **d1** → Supabase table frozen → dropped only after D1 reads are
+verified, god's go and the human's yes.
+
+### Write budget (100k rows a day, account-wide)
+
+Steady-state dual writes, estimated from each writer's rows a run × runs a day, plus one row per index:
+
+| group | tables | rows written a day |
+|---|---|---:|
+| A filings set | quarterly_filings, shareholding_patterns, valuation_basis, financial_statements, market_events, upcoming_events, company_documents, new_listings, universe_index | ~10,000 (season), ~3,000 otherwise |
+| B publish set | screener_snapshot (+2 indexes), screener_runs, market_breadth, concall_feed, bulk_block_deals, transcripts ×4, estimate_history, red_flag_snapshots | ~25,000 |
+| C history | screener_history (+1 index), ~8,600 rows a publish day × 2 | ~17,000 |
+| D user tables | watchlists, items, reads, saved views | < 100 |
+
+~52,000 a day once everything is dual, so the backfill runs at `D1_BACKFILL_ROWS_PER_DAY` = 75,000 until
+group B is dual, then 40,000. `meta.rows_written` is logged per writer; a writer that runs over its
+estimate by 2× is the first thing to fix.
+
+### Backfill left (rows to copy, 16 Nov)
+
+| table | Supabase | D1 | left |
+|---|---:|---:|---:|
+| concall_feed, valuation_basis, bulk_block_deals | 3,225 / 8,543 / 102,142 | done | 0 |
+| quarterly_filings | 46,841 | 36,500 | 10,341 |
+| shareholding_patterns | 39,396 | 0 | 39,396 |
+| financial_statements, market_events, upcoming_events, company_documents, new_listings, universe_index | 9,062 / 12,163 / 4,570 / 24,076 / 93 / 1,949 | 0 | 51,913 |
+| screener_snapshot, screener_runs, market_breadth | 8,653 / 2 / 245 | 0 | 8,900 |
+| transcripts ×4 + filings ×2, estimate_history, red_flag_snapshots | 14,376 + 8,355 / 32,792 / 2,340 | 0 | 57,863 |
+| **subtotal before history** | | | **~168,000** (3 days at 75k, with the index rows) |
+| screener_history (+ its index) | 289,412 | 0 | ~580,000 writes (~11 days at ~50k) |
+
+History rows never change once written, so its dual starts on 23 Nov and the backfill copies the days
+before it, newest first.
+
+### Sequence (target dates; each PR: Angela reviews, god merges)
+
+| when | step | egress removed (raw, WNN-133 measures) |
+|---|---|---|
+| 17 Nov | **PR D1-1**: per-table modes, unique indexes, D1 tables for the user and transcript-filing tables. Tests on SQLite | — |
+| 17-19 Nov | backfill group A (≈113k rows incl. index rows), then B | — |
+| 18 Nov | **group A `dual`** (filings, shareholding, basis, statements, events, documents) | — |
+| 20 Nov | counts equal two days → **group A `dual_d1`**. Biggest job egress: the filings/shareholding/basis readers | ~1.4 GB/d raw before #360/#361; what remains of it |
+| 20 Nov | **group B `dual`** (screener publish: snapshot, runs, breadth, concall, deals, transcripts, estimates, red flags) | — |
+| 23 Nov | **group B `dual_d1`**; **group C `dual`** (history), history backfill 23 Nov - 3 Dec | publisher reads (~100 MB/d raw) |
+| by 25 Nov | dashboard reads group A from D1 (Pam, WNN-134) → group A **`d1`** | browser reads of A |
+| by 1 Dec | dashboard reads group B (Pam) → group B **`d1`**; live_quotes, index_members, market_calendar, breadth members/levels: tables stop being written once the dashboard reads the R2 objects | browser reads of B, live reads |
+| 4 Dec | history backfill verified → group C **`dual_d1`**, dashboard reads history (Pam) → **`d1`** | — |
+| 7 Dec | group D (user tables) dual → d1 with Pam's Worker routes | — |
+| 8-13 Dec | a week with every job on `d1`, Supabase data tables read-only and frozen | all job egress |
+| after 14 Dec | god's go + human's yes per table → drop from Supabase (archive to R2 first) | size back under 50 MB |
+
+**Off the table:** `simulated_rankings`, `simulated_states` (no live rows): archive to R2 and drop with the
+human's yes; not copied. A `PARSER_VERSION` bump between 18 Nov and cutover is written twice (dual) and
+must be capped per run (an env setting) so it cannot take the day past 100k.
+
+**Risks.** (1) D1 rows read (5M a day): the jobs' whole-table reads were cut by #360/#361; any other
+whole-table read of a moved table counts every row each run. (2) A dual write that fails on D1 is logged,
+not retried: the daily count check catches drift before `dual_d1`. (3) Worker CPU on the Free plan for
+reads Pam moves server-side (WNN-134).
