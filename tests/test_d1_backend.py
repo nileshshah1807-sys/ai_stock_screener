@@ -9,6 +9,7 @@ import requests
 from storage.d1_backend import (
     D1Session,
     DualSession,
+    TableRouter,
     UnsupportedQuery,
     WriteCeilingReached,
     table_session,
@@ -58,6 +59,22 @@ class BackendChoiceTests(unittest.TestCase):
     def test_d1_needs_its_credentials(self):
         with self.assertRaises(ValueError):
             table_session({"TABLE_BACKEND": "d1"})
+
+    def test_a_listed_table_takes_its_own_mode_and_the_rest_the_default(self):
+        creds = {"D1_ACCOUNT_ID": "a", "D1_API_TOKEN": "t", "D1_DATABASE_ID": "d"}
+        session = table_session({**creds, "TABLE_BACKEND_DUAL": "concall_feed",
+                                 "TABLE_BACKEND_DUAL_D1": " Valuation_Basis ", "TABLE_BACKEND_D1": "live_quotes"})
+        self.assertIsInstance(session, TableRouter)
+        self.assertIs(type(session.default), requests.Session)
+        self.assertFalse(session.by_table["concall_feed"].read_mirror)
+        self.assertTrue(session.by_table["valuation_basis"].read_mirror)
+        self.assertIsInstance(session.by_table["live_quotes"], D1Session)
+        # one D1 session, so one write ceiling for the run
+        self.assertIs(session.by_table["concall_feed"].mirror, session.by_table["live_quotes"])
+
+    def test_a_table_in_two_lists_is_refused(self):
+        with self.assertRaises(ValueError):
+            table_session({"TABLE_BACKEND_DUAL": "a", "TABLE_BACKEND_D1": "a"})
 
 
 class WriteTests(unittest.TestCase):
@@ -173,6 +190,36 @@ class DualTests(unittest.TestCase):
         primary, mirror = mock.Mock(), mock.Mock()
         DualSession(primary, mirror).request("GET", "https://x/rest/v1/live_quotes")
         mirror.request.assert_not_called()
+
+
+    def test_dual_d1_reads_d1_and_writes_both(self):
+        primary, mirror = mock.Mock(), mock.Mock()
+        primary.request.return_value = mock.Mock(ok=True)
+        session = DualSession(primary, mirror, read_mirror=True)
+        session.request("GET", "https://x/rest/v1/valuation_basis")
+        primary.request.assert_not_called()
+        session.request("POST", "https://x/rest/v1/valuation_basis", json=[{}])
+        primary.request.assert_called_once()
+        self.assertEqual(mirror.request.call_count, 2)
+
+    def test_dual_d1_reads_supabase_once_a_copy_is_missed(self):
+        for failure in (WriteCeilingReached("ceiling"), RuntimeError("D1 down")):
+            primary, mirror = mock.Mock(), mock.Mock()
+            primary.request.return_value = mock.Mock(ok=True)
+            mirror.request.side_effect = failure
+            session = DualSession(primary, mirror, read_mirror=True)
+            session.request("POST", "https://x/rest/v1/valuation_basis", json=[{}])
+            session.request("GET", "https://x/rest/v1/valuation_basis")
+            self.assertEqual(mirror.request.call_count, 1)
+            self.assertEqual(primary.request.call_count, 2)
+
+    def test_the_router_sends_each_table_to_its_session(self):
+        default, moved = mock.Mock(), mock.Mock()
+        router = TableRouter(default, {"valuation_basis": moved})
+        router.request("GET", "https://x/rest/v1/valuation_basis", params={"select": "*"})
+        router.request("GET", "https://x/rest/v1/screener_runs")
+        moved.request.assert_called_once_with("GET", "https://x/rest/v1/valuation_basis", params={"select": "*"})
+        default.request.assert_called_once()
 
 
 if __name__ == "__main__":

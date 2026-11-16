@@ -516,7 +516,9 @@ the scheduled workflows set the same flag.
   move, `docs/d1_migration_plan.md`). Both repositories send every call through
   `self.session`; `supabase` (also unset or "") is a plain session, `dual` writes
   Supabase then D1 (a D1 error is logged, never fails the run) and reads Supabase,
-  and `d1` is D1 alone. `storage/d1_backend.py` turns the PostgREST subset the
+  and `d1` is D1 alone. That is the default; a table named in `TABLE_BACKEND_DUAL`,
+  `TABLE_BACKEND_DUAL_D1` (writes as `dual`, reads D1) or `TABLE_BACKEND_D1` takes that mode
+  instead (`TableRouter`). `storage/d1_backend.py` turns the PostgREST subset the
   repositories use into one SQLite statement per call, with a bulk upsert as one
   `json_each` parameter, and runs it through D1's REST API (`D1_ACCOUNT_ID`,
   `D1_API_TOKEN`, `D1_DATABASE_ID`, `D1_TABLE_DATABASES`). An upsert that changes
