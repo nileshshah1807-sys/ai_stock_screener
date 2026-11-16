@@ -81,6 +81,7 @@ export async function verifyLoginCode(_prev: CodeState, formData: FormData): Pro
   if (error) {
     return { status: "error", message: "That code is wrong or has expired. Codes last 15 minutes and work once." };
   }
+  await enforceTrialGuard(supabase);
   redirect("/screener");
 }
 

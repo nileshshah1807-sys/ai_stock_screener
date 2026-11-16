@@ -4,7 +4,7 @@ import { useSyncExternalStore, type ReactNode } from "react";
 
 const noSubscribe = () => () => {};
 // Supabase's session cookie (sb-<project>-auth-token, possibly chunked .0/.1) is readable by the page.
-const hasSession = () => /(?:^|;\s*)sb-[^=]+-auth-token/.test(document.cookie);
+export const hasSession = () => /(?:^|;\s*)sb-[^=]+-auth-token/.test(document.cookie);
 
 /**
  * `signedIn` for a visitor holding a session, `signedOut` otherwise. The

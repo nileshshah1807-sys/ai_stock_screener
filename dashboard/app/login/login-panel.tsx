@@ -5,6 +5,9 @@ import { useSearchParams } from "next/navigation";
 
 import { trialName } from "@/lib/billing.mjs";
 
+import { GoogleOneTap } from "@/components/google-one-tap";
+
+import { GoogleButton } from "./google-button";
 import { LoginForm } from "./login-form";
 
 type PanelProps = { trialDays: number; sessionLabel: string };
@@ -12,7 +15,13 @@ type PanelProps = { trialDays: number; sessionLabel: string };
 /** The sign-in panel for this URL's ?error and ?trial, read in the browser so the page stays static. */
 export function LoginPanel(props: PanelProps) {
   const params = useSearchParams();
-  return <LoginPanelView {...props} errorCode={params.get("error")} trial={params.get("trial") === "1"} />;
+  const next = params.get("next");
+  return (
+    <>
+      <LoginPanelView {...props} errorCode={params.get("error")} trial={params.get("trial") === "1"} next={next} />
+      <GoogleOneTap next={next} />
+    </>
+  );
 }
 
 /**
@@ -24,7 +33,8 @@ export function LoginPanelView({
   sessionLabel,
   errorCode,
   trial,
-}: PanelProps & { errorCode: string | null; trial: boolean }) {
+  next = null,
+}: PanelProps & { errorCode: string | null; trial: boolean; next?: string | null }) {
   // Each case names what actually happened. "Expired or already used" is by far
   // the most common, and it is worth saying that a link can be spent before it
   // is clicked: mail providers routinely prefetch URLs to scan them, which
@@ -48,11 +58,15 @@ export function LoginPanelView({
         <h1 className="text-heading font-semibold">{trial ? `Start your ${trialName(trialDays)}` : "Sign in"}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {trial
-            ? "Full access to both markets, no card needed. Enter your email and we\u2019ll send you a 6-digit code."
-            : "Enter your email and we\u2019ll send you a 6-digit code. No password needed."}
+            ? "Full access to both markets, no card needed. Continue with Google, or get a 6-digit code by email."
+            : "Continue with Google, or get a 6-digit code by email. No password needed."}
         </p>
 
-        <div className="mt-6">
+        <div className="mt-6 space-y-4">
+          <GoogleButton next={next} />
+          <p className="flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
+            or with your email
+          </p>
           <LoginForm notice={errorMessage} trial={trial} />
         </div>
       </div>

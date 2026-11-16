@@ -13,6 +13,7 @@ import { Pipeline } from "@/components/landing/pipeline";
 import { Sieve } from "@/components/landing/sieve";
 import { StageLine } from "@/components/landing/stage-line";
 import { VisitorSwap } from "@/components/landing/visitor-swap";
+import { GoogleOneTap } from "@/components/google-one-tap";
 import { SiteFooter } from "@/components/site-footer";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { buttonVariants } from "@/components/ui/button";
@@ -246,6 +247,7 @@ export default async function LandingPage() {
       </main>
 
       <SiteFooter width="max-w-6xl px-4 sm:px-6" />
+      <GoogleOneTap />
     </div>
   );
 }

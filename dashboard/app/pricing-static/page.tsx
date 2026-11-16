@@ -1,3 +1,4 @@
+import { GoogleOneTap } from "@/components/google-one-tap";
 import { BillingFrame } from "@/components/billing/billing-frame";
 import { PricingView } from "@/components/billing/pricing-view";
 import { getPlans } from "@/lib/plans";
@@ -19,6 +20,7 @@ export default async function StaticPricingPage() {
   return (
     <BillingFrame session={null}>
       <PricingView plans={plans} email={null} name={null} kind={undefined} subscription={null} trialDays={trialDays} />
+      <GoogleOneTap />
     </BillingFrame>
   );
 }

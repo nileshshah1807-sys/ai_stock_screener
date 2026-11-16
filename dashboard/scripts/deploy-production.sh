@@ -14,6 +14,8 @@ cd "$(dirname "$0")/.."
 # Public values, inlined into the browser bundle at build time.
 export NEXT_PUBLIC_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL:-https://aeikzaubhepxjxqdhkjz.supabase.co}"
 export NEXT_PUBLIC_SITE_URL="${NEXT_PUBLIC_SITE_URL:-https://cupel.in}"
+# Google One Tap's OAuth client id (public, not a secret); unset leaves One Tap off and the Google button working.
+export NEXT_PUBLIC_GOOGLE_CLIENT_ID="${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}"
 export NEXT_TELEMETRY_DISABLED=1
 log="${TMPDIR:-/tmp}/cupel-cf-build.log"
 npx opennextjs-cloudflare build > "$log" 2>&1 || { tail -30 "$log"; exit 1; }
