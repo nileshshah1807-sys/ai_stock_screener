@@ -9,6 +9,10 @@ Both repositories send every call through ``self.session.request(method, url,
   fails the run; reads go to Supabase.
 * ``d1``: D1 alone.
 
+That value is the default; a table can be moved on its own by naming it in
+``TABLE_BACKEND_DUAL``, ``TABLE_BACKEND_DUAL_D1`` (writes as ``dual``, reads from
+D1) or ``TABLE_BACKEND_D1``, comma lists of tables.
+
 The D1 session turns the small part of PostgREST the repositories use into one
 SQLite statement per call (`translate`) and runs it through D1's REST API. A bulk
 upsert is one statement with one parameter, a JSON array read by ``json_each``,
@@ -34,6 +38,8 @@ import requests
 logger = logging.getLogger(__name__)
 
 BACKENDS = ("supabase", "dual", "d1")
+# Per-table overrides of TABLE_BACKEND; dual_d1 writes like dual and reads D1.
+TABLE_MODE_LISTS = {"TABLE_BACKEND_DUAL": "dual", "TABLE_BACKEND_DUAL_D1": "dual_d1", "TABLE_BACKEND_D1": "d1"}
 D1_API = "https://api.cloudflare.com/client/v4/accounts/{account}/d1/database/{database}/query"
 # D1 refuses a string over 2 MB; a bulk write's JSON array is split below that.
 MAX_PAYLOAD_BYTES = 1_500_000
@@ -65,19 +71,40 @@ def backend_name(env: Mapping[str, str] | None = None) -> str:
     return name
 
 
+def table_modes(env: Mapping[str, str]) -> dict[str, str]:
+    """Each table named in a ``TABLE_BACKEND_*`` list, with its mode."""
+    modes: dict[str, str] = {}
+    for variable, mode in TABLE_MODE_LISTS.items():
+        for table in filter(None, (t.strip().lower() for t in str(env.get(variable) or "").split(","))):
+            if modes.setdefault(table, mode) != mode:
+                raise ValueError(f"{table} is named in more than one of {', '.join(TABLE_MODE_LISTS)}")
+    return modes
+
+
 def table_session(env: Mapping[str, str] | None = None) -> requests.Session:
     """The session a repository sends its PostgREST calls through."""
     env = os.environ if env is None else env
     name = backend_name(env)
-    if name == "supabase":
+    modes = table_modes(env)
+    if name == "supabase" and not modes:
         return requests.Session()
     # A mirror must never hold a run up: a short timeout, as the R2 mirror has.
-    timeout = int(env.get("D1_TIMEOUT_SECONDS") or (MIRROR_TIMEOUT_SECONDS if name == "dual" else 60))
+    reads_d1 = name == "d1" or any(mode != "dual" for mode in modes.values())
+    timeout = int(env.get("D1_TIMEOUT_SECONDS") or (60 if reads_d1 else MIRROR_TIMEOUT_SECONDS))
     d1 = D1Session(
         rest_executor(env, timeout),
         max_rows_written=int(env.get("D1_MAX_ROWS_WRITTEN") or DEFAULT_MAX_ROWS_WRITTEN),
     )
-    return DualSession(requests.Session(), d1) if name == "dual" else d1
+    supabase = requests.Session()
+    sessions = {
+        "supabase": supabase,
+        "dual": DualSession(supabase, d1),
+        "dual_d1": DualSession(supabase, d1, read_mirror=True),
+        "d1": d1,
+    }
+    if not modes:
+        return sessions[name]
+    return TableRouter(sessions[name], {table: sessions[mode] for table, mode in modes.items()})
 
 
 # -- PostgREST -> SQLite ----------------------------------------------------
@@ -300,13 +327,16 @@ class D1Session:
 class DualSession:
     """Supabase stays the system of record; D1 receives a copy of every write."""
 
-    def __init__(self, primary: requests.Session, mirror: D1Session):
+    def __init__(self, primary: requests.Session, mirror: D1Session, *, read_mirror: bool = False):
         self.primary = primary
         self.mirror = mirror
+        self.read_mirror = read_mirror  # dual_d1: reads come from D1
         self.failures = 0
         self.mirroring = True
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        if self.read_mirror and method.upper() not in WRITE_METHODS:
+            return self.mirror.request(method, url, **kwargs)
         response = self.primary.request(method, url, **kwargs)
         if self.mirroring and method.upper() in WRITE_METHODS and response.ok:
             self._copy(method, url, kwargs)
@@ -332,6 +362,18 @@ class DualSession:
         if self.failures >= MIRROR_FAILURES_BEFORE_OFF:
             logger.warning("D1 copy switched off for this run after %d failures in a row", self.failures)
             self.mirroring = False
+
+
+class TableRouter:
+    """Sends each call to the session of its table's mode; any other table to the default."""
+
+    def __init__(self, default: Any, by_table: Mapping[str, Any]):
+        self.default = default
+        self.by_table = dict(by_table)
+
+    def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
+        table = urlsplit(url).path.rsplit("/", 1)[-1]
+        return self.by_table.get(table, self.default).request(method, url, **kwargs)
 
 
 def rest_executor(env: Mapping[str, str], timeout: int = 60) -> Executor:
