@@ -142,7 +142,7 @@ export function importanceText(label, weight, share) {
 /** Every column scoreRun reads besides the outlook. */
 export const RUN_COLUMNS = [
   "symbol",
-  ...SCORE_FACTORS.filter((f) => !("derived" in f)).map((f) => f.column),
+  ...SCORE_FACTORS.filter((f) => !f.derived).map((f) => f.column),
   "dcf_valuation_score",
   "dcf_blend_eligible",
   "transcript_score",
