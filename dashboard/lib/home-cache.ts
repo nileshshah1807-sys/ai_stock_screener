@@ -66,7 +66,8 @@ const kept = sharedMemo<unknown>(60_000, 200);
 /**
  * `cachedOr` behind a 60 s per-instance memo: a warm instance answers from
  * memory, a fresh one makes one cross-instance cache read instead of a live
- * query (0.4-1.5 s from a Worker). Same rules as `cachedOr`.
+ * query (0.4-1.5 s from a Worker). Same rules as `cachedOr`. `keep` says
+ * which answers the memo may hold; a failed read's fallback must not be one.
  */
 export function sharedRead<T>(
   name: string,
@@ -74,8 +75,13 @@ export function sharedRead<T>(
   revalidate: number,
   load: (db?: Reader) => Promise<T>,
   extraKey: string[] = [],
+  keep: (value: T) => boolean = () => true,
 ): Promise<T> {
-  return kept(`${name}:${market}:${extraKey.join(":")}`, () => cachedOr(name, market, revalidate, load, extraKey)) as Promise<T>;
+  return kept(
+    `${name}:${market}:${extraKey.join(":")}`,
+    () => cachedOr(name, market, revalidate, load, extraKey),
+    keep as (value: unknown) => boolean,
+  ) as Promise<T>;
 }
 
 /** A short stable key for a long list (symbols), so a cache key stays small. */
