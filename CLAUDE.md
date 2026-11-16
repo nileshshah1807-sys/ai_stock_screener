@@ -509,7 +509,10 @@ the scheduled workflows set the same flag.
   upload time and never fails a run on an R2 error; `r2` is R2 only. Keys are the
   same in both. `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`,
   `R2_SECRET_ACCESS_KEY` carry the bucket. They are repository secrets; each
-  workflow that writes objects sets `dual` whenever the `R2_BUCKET` secret exists. `tools/copy_objects_to_r2.py` is the
+  workflow that writes objects sets `r2` whenever the `R2_BUCKET` secret exists
+  (since 16 Nov 2026, to end Supabase storage egress; the dashboard reads R2 first and
+  Supabase only on a miss), so the Supabase bucket is frozen at that day and a run's
+  prune sweeps R2's own folders. `tools/copy_objects_to_r2.py` is the
   one-off copy (dry run unless `--apply`); `tools.storage_peek` reads R2 with
   `OBJECT_STORE_BACKEND=r2`.
 - **Tables go through `table_session()`, which `TABLE_BACKEND` steers** (the D1

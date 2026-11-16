@@ -61,7 +61,7 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      OBJECT_STORE_BACKEND: ${{ secrets.R2_BUCKET && 'dual' || '' }}
+      OBJECT_STORE_BACKEND: ${{ secrets.R2_BUCKET && 'r2' || '' }}
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -152,7 +152,7 @@ jobs:
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      OBJECT_STORE_BACKEND: ${{ secrets.R2_BUCKET && 'dual' || '' }}
+      OBJECT_STORE_BACKEND: ${{ secrets.R2_BUCKET && 'r2' || '' }}
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
