@@ -2,6 +2,7 @@
 
 import type { FormEvent, ReactNode } from "react";
 
+import { authCookieNames, expireCookie } from "@/lib/auth-cookies.mjs";
 import { lazyClient } from "@/lib/supabase/lazy-client";
 
 /**
@@ -12,8 +13,17 @@ import { lazyClient } from "@/lib/supabase/lazy-client";
 export function SignOutForm({ className, children }: { className?: string; children: ReactNode }) {
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const expireSession = () => authCookieNames(document.cookie).forEach((name) => (document.cookie = expireCookie(name)));
     try {
-      await (await lazyClient()).auth.signOut();
+      // signOut() keeps the session when it cannot load it first (a refresh that fails), and can
+      // wait on the auth lock; either way the browser signs itself out by expiring the cookies.
+      const result = await Promise.race([
+        (await lazyClient()).auth.signOut(),
+        new Promise<{ error: Error }>((resolve) => setTimeout(() => resolve({ error: new Error("timeout") }), 3000)),
+      ]);
+      if (result.error) expireSession();
+    } catch {
+      expireSession();
     } finally {
       // A full load, not router.push: the client router cache still holds signed-in pages.
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination
