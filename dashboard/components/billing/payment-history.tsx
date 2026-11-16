@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import gsap from "gsap";
-import { ExternalLink, TriangleAlert } from "lucide-react";
+import { FileText, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { priceLabel } from "@/lib/billing.mjs";
 import { formatDate } from "@/lib/format";
+import { LEGAL } from "@/lib/legal";
 import { PAYMENT_STATUS_LABEL } from "@/lib/payments.mjs";
+import { receiptHtml } from "@/lib/receipt.mjs";
 import { cn } from "@/lib/utils";
 
 export type PaymentRow = {
@@ -19,11 +21,23 @@ export type PaymentRow = {
   method: string;
   status: "paid" | "refunded" | "failed" | "pending";
   receiptUrl: string | null;
+  buyerName?: string | null;
+  buyerEmail?: string | null;
+  item?: string | null;
 };
 
 export type PaymentsState = { status: "loading" } | { status: "error" } | { status: "ready"; rows: PaymentRow[] };
 
 const amountOf = (row: PaymentRow) => (row.currency === "INR" ? priceLabel(row.paise) : `${row.currency} ${(row.paise / 100).toFixed(2)}`);
+
+/** Cupel's receipt in a new tab, built here from the row: no server render, and printable. */
+function openReceipt(row: PaymentRow) {
+  const tab = window.open("", "_blank");
+  if (!tab) return;
+  tab.opener = null;
+  tab.document.write(receiptHtml(row, LEGAL, { date: formatDate, amount: amountOf }));
+  tab.document.close();
+}
 
 /** Reads the person's own payments from the server (which holds the Razorpay keys). */
 export function PaymentHistory() {
@@ -124,17 +138,16 @@ export function PaymentList({ state, onRetry }: { state: PaymentsState; onRetry?
               {PAYMENT_STATUS_LABEL[row.status]}
             </span>
             <span className="col-span-2 sm:order-5 sm:col-span-1 sm:text-right">
-              {row.receiptUrl ? (
-                <a
-                  href={row.receiptUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+              {row.status === "paid" || row.status === "refunded" ? (
+                <button
+                  type="button"
+                  onClick={() => openReceipt(row)}
                   aria-label={`Receipt for ${formatDate(row.date)} (opens in a new tab)`}
                   className="inline-flex items-center gap-1 rounded text-brand underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   Receipt
-                  <ExternalLink className="size-3.5" aria-hidden />
-                </a>
+                  <FileText className="size-3.5" aria-hidden />
+                </button>
               ) : (
                 <span className="text-muted-foreground">No receipt</span>
               )}
