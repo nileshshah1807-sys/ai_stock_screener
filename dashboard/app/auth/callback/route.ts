@@ -8,7 +8,8 @@ import { createClient } from "@/lib/supabase/server";
  * Sign-in landing route. Establishes the session cookie from a one-time
  * credential, accepting both forms Supabase issues:
  *
- *   ?code=...        PKCE, produced by signInWithOtp from the login form
+ *   ?code=...        PKCE, produced by signInWithOtp from the login form, and by "Continue with Google"
+ *   ?via=one_tap     no credential: Google One Tap already set the session in the browser
  *   ?token_hash=...  OTP,  from the email template and the admin generate_link API;
  *                    handed to /auth/confirm, which verifies it on a click
  *
@@ -65,6 +66,11 @@ export async function GET(request: NextRequest) {
     if (rawType) to.searchParams.set("type", rawType);
     to.searchParams.set("next", safeNext(next));
     return NextResponse.redirect(to);
+  } else if (searchParams.get("via") === "one_tap") {
+    // Google One Tap signed in in the browser (no credential in the URL); this
+    // hop only runs the trial guard below, as every other sign-in does.
+    const { data } = await supabase.auth.getUser();
+    failed = !data.user;
   } else {
     // No credential in the query. Supabase's implicit flow puts the session in
     // the URL fragment, which never reaches the server, so an empty query here
