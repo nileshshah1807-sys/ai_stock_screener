@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { cleanDisplayName, initialsOf, shownName } from "./display-name.mjs";
-import { methodLabel, paymentRows, receiptUrl } from "./payments.mjs";
+import { methodLabel, paymentRows, paymentStatus, receiptUrl } from "./payments.mjs";
 
 const inv = (over) => ({ id: "inv_1", status: "paid", amount: 69900, amount_paid: 69900, currency: "INR", issued_at: 1_762_000_000, paid_at: 1_762_000_100, payment_id: "pay_1", short_url: "https://rzp.io/i/abc", ...over });
 
@@ -18,12 +18,22 @@ test("rows are newest first, drafts are dropped, and only chosen fields leave", 
 });
 
 test("status: refunded and failed and pending read from the payment and the invoice", () => {
-  const status = (invoice, payment) => paymentRows([invoice], payment ? { pay_1: payment } : {})[0].status;
+  const status = (invoice, payment) => paymentStatus(invoice, payment);
   assert.equal(status(inv(), { status: "refunded" }), "refunded");
   assert.equal(status(inv(), { amount_refunded: 100 }), "refunded");
   assert.equal(status(inv({ status: "expired", paid_at: null })), "failed");
   assert.equal(status(inv({ status: "issued", paid_at: null }), { status: "failed" }), "failed");
   assert.equal(status(inv({ status: "issued", paid_at: null })), "pending");
+});
+
+test("an unpaid or failed invoice is not listed, so its pay link never shows", () => {
+  const rows = paymentRows([inv({ id: "open", status: "issued", paid_at: null, payment_id: null }), inv({ id: "gone", status: "expired", paid_at: null }), inv()]);
+  assert.deepEqual(rows.map((r) => r.id), ["inv_1"]);
+  assert.deepEqual(paymentRows([inv({ status: "issued", paid_at: null, payment_id: null })]), []);
+});
+
+test("a refunded payment stays listed", () => {
+  assert.equal(paymentRows([inv()], { pay_1: { status: "refunded" } })[0].status, "refunded");
 });
 
 test("a payment that could not be read shows its method as not recorded, and the row stays", () => {

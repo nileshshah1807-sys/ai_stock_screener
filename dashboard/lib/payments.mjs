@@ -50,7 +50,7 @@ export function paymentStatus(invoice, payment) {
 }
 
 /**
- * Rows for the page, newest first. `invoices` are Razorpay's invoice objects for one
+ * Rows for the page, newest first: paid and refunded payments only. `invoices` are Razorpay's invoice objects for one
  * subscription; `paymentsById` maps payment id to its payment object (a payment that
  * could not be read is simply absent, and its method shows as not recorded).
  * Every field is chosen here: nothing else of Razorpay's reply reaches the browser.
@@ -74,7 +74,8 @@ export function paymentRows(invoices, paymentsById = {}) {
         receiptUrl: receiptUrl(invoice.short_url),
       };
     })
-    .filter((row) => row.date)
+    // An unpaid invoice (an abandoned checkout's first one) is not a payment, and its link is Razorpay's pay page.
+    .filter((row) => row.date && (row.status === "paid" || row.status === "refunded"))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     .slice(0, PAYMENT_LIMIT);
 }
