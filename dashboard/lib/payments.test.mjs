@@ -8,13 +8,13 @@ const inv = (over) => ({ id: "inv_1", status: "paid", amount: 69900, amount_paid
 
 test("a paid invoice becomes a row with the paid time, method and receipt", () => {
   const [row] = paymentRows([inv()], { pay_1: { method: "card", card: { network: "Visa", last4: "4242" }, status: "captured" } });
-  assert.deepEqual(row, { id: "inv_1", date: new Date(1_762_000_100_000).toISOString(), paise: 69900, currency: "INR", method: "Visa ending 4242", status: "paid", receiptUrl: "https://rzp.io/i/abc", buyerName: null, buyerEmail: null, item: null });
+  assert.deepEqual(row, { id: "inv_1", date: new Date(1_762_000_100_000).toISOString(), paise: 69900, currency: "INR", method: "Visa ending 4242", status: "paid", receiptUrl: "https://rzp.io/i/abc", paymentId: "pay_1", buyerName: null, buyerEmail: null, item: null });
 });
 
 test("rows are newest first, drafts are dropped, and only chosen fields leave", () => {
   const rows = paymentRows([inv({ id: "a", paid_at: 1_700_000_000 }), inv({ id: "b", paid_at: 1_800_000_000, customer_details: { email: "x@y.z" } }), inv({ id: "c", status: "draft" })]);
   assert.deepEqual(rows.map((r) => r.id), ["b", "a"]);
-  assert.deepEqual(Object.keys(rows[0]).sort(), ["buyerEmail", "buyerName", "currency", "date", "id", "item", "method", "paise", "receiptUrl", "status"]);
+  assert.deepEqual(Object.keys(rows[0]).sort(), ["buyerEmail", "buyerName", "currency", "date", "id", "item", "method", "paise", "paymentId", "receiptUrl", "status"]);
 });
 
 test("status: refunded and failed and pending read from the payment and the invoice", () => {

@@ -21,6 +21,7 @@ export type PaymentRow = {
   method: string;
   status: "paid" | "refunded" | "failed" | "pending";
   receiptUrl: string | null;
+  paymentId?: string | null;
   buyerName?: string | null;
   buyerEmail?: string | null;
   item?: string | null;
