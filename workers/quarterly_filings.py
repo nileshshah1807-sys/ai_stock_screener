@@ -272,14 +272,18 @@ def run(
         return counts
 
     today = today or datetime.now(ZoneInfo(profile.timezone)).date()
-    stored = repo.quarterly_filing_state()
-    if full or not stored:
+    full = full or not repo.has_rows("quarterly_filings")
+    if full:
         lookback_days = FULL_LOOKBACK_DAYS
     loader = index_records_loader or partial(
         quarterly_results.read_boards, quarterly_results.fetch_index_records
     )
     records = loader(today - timedelta(days=lookback_days), today)
     index = quarterly_results.normalise_index(records)
+    # Only the index's companies can be due, so an incremental run reads their
+    # stored keys, not the table's (it was ~5 MB a run, every 15 minutes).
+    in_window = [] if index is None or index.empty else index["Symbol"].tolist()
+    stored = repo.quarterly_filing_state(None if full else in_window)
     earlier: dict[tuple[str, str, bool], list[dict[str, Any]]] = {}
     for row in quarterly_results.normalise_index(records, latest_only=False).to_dict("records"):
         key = (row["Symbol"], row["Period_End"].isoformat(), bool(row["Is_Consolidated"]))
@@ -288,7 +292,7 @@ def run(
     due = due_filings(index, stored)
     counts["due"] = len(due)
     logger.info(
-        "%s results filings: %d in the index over %d day(s), %d stored, %d to fetch",
+        "%s results filings: %d in the index over %d day(s), %d of theirs stored, %d to fetch",
         profile.code, len(index), lookback_days, len(stored), len(due),
     )
 

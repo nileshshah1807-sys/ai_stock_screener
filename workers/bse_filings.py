@@ -119,7 +119,7 @@ def run(
         )
         counts["shareholding"] = shareholding_worker.store_patterns(
             repo,
-            stored=repo.shareholding_state(),
+            full=full,
             start=start,
             end=today,
             timezone=profile.timezone,

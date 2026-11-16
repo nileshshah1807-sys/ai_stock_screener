@@ -89,12 +89,17 @@ class FakeRepository:
         self.stored = dict(stored or {})
         self.upserted = []
         self.filing_reads = []
+        self.state_reads = []
         self.filings = {}
         self.basis = {}
         self.basis_writes = []
 
-    def quarterly_filing_state(self):
-        return self.stored
+    def has_rows(self, table):
+        return bool(self.stored)
+
+    def quarterly_filing_state(self, symbols=None):
+        self.state_reads.append(None if symbols is None else sorted(set(symbols)))
+        return {k: v for k, v in self.stored.items() if symbols is None or k[0] in set(symbols)}
 
     def upsert_quarterly_filings(self, rows):
         self.upserted += rows
@@ -460,6 +465,36 @@ class IncrementalTests(FilingsRun):
         repo = FakeRepository(stored={("AAA", "2026-09-30", True): stored_row(2)})
         _, _, _, windows = self.run_worker([], {}, repo=repo, full=True)
         self.assertEqual(windows, [FULL_LOOKBACK_DAYS])
+        self.assertEqual(repo.state_reads, [None])  # every stored key
+
+    def test_an_incremental_run_reads_the_stored_keys_of_the_indexed_companies_only(self):
+        # A revision of AAA's stored quarter still replaces its row, AAA's
+        # unrevised quarter is not fetched again, and ZZZ -- outside the
+        # window -- is neither read nor re-stored.
+        repo = FakeRepository(stored={
+            ("AAA", "2026-06-30", True): stored_row(1),
+            ("AAA", "2026-09-30", True): stored_row(2),
+            ("ZZZ", "2026-09-30", True): stored_row(3),
+        })
+        records = [
+            filing("AAA", "30-JUN-2026", 5, broadcast=None, revised="12-Oct-2026 16:37:14"),
+            filing("AAA", "30-SEP-2026", 2),
+        ]
+        _, repo, fetcher, windows = self.run_worker(
+            records, {"5": document(9, 1), "2": document(1, 1)}, repo=repo
+        )
+        self.assertEqual(windows, [DEFAULT_LOOKBACK_DAYS])
+        self.assertEqual(repo.state_reads, [["AAA"]])
+        self.assertEqual(fetcher.asked, ["5"])
+        self.assertEqual(
+            [(r["symbol"], r["period_end"], r["seq_id"]) for r in repo.upserted],
+            [("AAA", "2026-06-30", "5")],
+        )
+
+    def test_an_empty_index_window_reads_no_stored_key(self):
+        repo = FakeRepository(stored={("AAA", "2026-09-30", True): stored_row(2)})
+        counts, repo, _, _ = self.run_worker([], {}, repo=repo)
+        self.assertEqual((repo.state_reads, counts["due"]), ([[]], 0))
 
     def test_tonights_results_come_before_older_filings_when_time_runs_out(self):
         records = [

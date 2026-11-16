@@ -127,7 +127,7 @@ def pattern_row(filing: dict[str, Any], parsed: dict[str, Any], *, timezone: str
 
 
 def store_patterns(
-    repo, *, stored: dict[tuple[str, str], dict[str, Any]], start: date, end: date,
+    repo, *, full: bool, start: date, end: date,
     timezone: str, index_loader: Callable[[date, date], list[dict]], fetcher,
     time_budget_seconds: float | None, clock, dry_run: bool,
 ) -> dict[str, int]:
@@ -135,7 +135,10 @@ def store_patterns(
     records = []
     for window_start, window_end in _windows(start, end, INDEX_WINDOW_DAYS):
         records += index_loader(window_start, window_end)
-    due = due_patterns(shareholding.quarter_filings(records), stored)
+    filings = shareholding.quarter_filings(records)
+    # Only the indexed companies can be due: an incremental run reads their stored keys alone.
+    stored = repo.shareholding_state(None if full else [row["symbol"] for row in filings])
+    due = due_patterns(filings, stored)
     counts["due"] = len(due)
     logger.info("Shareholding patterns: %d filing(s) indexed, %d to fetch", len(records), len(due))
 
@@ -216,13 +219,12 @@ def run(
         logger.info("%s discloses no shareholding pattern; nothing to store", profile.code)
         return {}
     today = today or datetime.now(ZoneInfo(profile.timezone)).date()
-    stored = repo.shareholding_state()
-    full = full or not stored
+    full = full or not repo.has_rows("shareholding_patterns")
     start = today - timedelta(days=FULL_LOOKBACK_DAYS if full else lookback_days)
 
     counts = store_patterns(
         repo,
-        stored=stored,
+        full=full,
         start=start,
         end=today,
         timezone=profile.timezone,

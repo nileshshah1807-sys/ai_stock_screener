@@ -588,14 +588,38 @@ class DashboardRepository:
 
     # -- quarterly filings ----------------------------------------------------
 
-    def quarterly_filing_state(self) -> dict[tuple[str, str, bool], dict[str, Any]]:
-        """What is stored for each (symbol, quarter, basis), to tell what is new."""
-        rows = self._paged(
+    def has_rows(self, table: str) -> bool:
+        """Whether this market has any row in ``table``: one row read, not the table."""
+        return bool(self._request("GET", table, params=self._scoped({"select": "symbol", "limit": "1"})))
+
+    def _paged_for_symbols(
+        self, path: str, params: dict[str, Any], symbols: Iterable[str] | None, chunk_size: int = 100
+    ) -> list[dict[str, Any]]:
+        """``_paged`` over every row, or, given symbols, over theirs alone (in URL-sized chunks)."""
+        if symbols is None:
+            return self._paged(path, params)
+        rows: list[dict[str, Any]] = []
+        for chunk in chunked(list(dict.fromkeys(symbols)), chunk_size):
+            symbols_csv = ",".join(f'"{symbol}"' for symbol in chunk)
+            rows += self._paged(path, {**params, "symbol": f"in.({symbols_csv})"})
+        return rows
+
+    def quarterly_filing_state(
+        self, symbols: Iterable[str] | None = None, *, keys_only: bool = False
+    ) -> dict[tuple[str, str, bool], dict[str, Any]]:
+        """What is stored for each (symbol, quarter, basis), to tell what is new.
+
+        Every stored row, or only those of ``symbols``: an incremental run asks
+        for the companies in its index window, not the whole table.
+        """
+        rows = self._paged_for_symbols(
             "quarterly_filings",
             {
-                "select": "symbol,period_end,is_consolidated,seq_id,parser_version,broadcast_at",
+                "select": "symbol,period_end,is_consolidated"
+                + ("" if keys_only else ",seq_id,parser_version,broadcast_at"),
                 "order": "symbol.asc,period_end.asc,is_consolidated.asc",
             },
+            symbols,
         )
         return {
             (str(row["symbol"]), str(row["period_end"])[:10], bool(row["is_consolidated"])): row
@@ -620,17 +644,16 @@ class DashboardRepository:
     ) -> dict[str, list[dict[str, Any]]]:
         """Symbol -> its stored filings, each with its parsed ``lines``."""
         found: dict[str, list[dict[str, Any]]] = {}
-        for chunk in chunked(list(dict.fromkeys(symbols)), chunk_size):
-            symbols_csv = ",".join(f'"{symbol}"' for symbol in chunk)
-            for row in self._paged(
-                "quarterly_filings",
-                self._scoped({
-                    "select": "symbol,period_end,is_consolidated,filed_at,taxonomy,lines",
-                    "symbol": f"in.({symbols_csv})",
-                    "order": "symbol.asc,period_end.asc,is_consolidated.asc",
-                }),
-            ):
-                found.setdefault(str(row["symbol"]), []).append(row)
+        for row in self._paged_for_symbols(
+            "quarterly_filings",
+            {
+                "select": "symbol,period_end,is_consolidated,filed_at,taxonomy,lines",
+                "order": "symbol.asc,period_end.asc,is_consolidated.asc",
+            },
+            list(symbols),
+            chunk_size,
+        ):
+            found.setdefault(str(row["symbol"]), []).append(row)
         return found
 
     def recent_filed_results(self, since: str) -> list[dict[str, Any]]:
@@ -657,14 +680,15 @@ class DashboardRepository:
 
     # -- shareholding ---------------------------------------------------------
 
-    def shareholding_state(self) -> dict[tuple[str, str], dict[str, Any]]:
-        """What is stored for each (symbol, quarter end), to tell what is new."""
-        rows = self._paged(
+    def shareholding_state(self, symbols: Iterable[str] | None = None) -> dict[tuple[str, str], dict[str, Any]]:
+        """What is stored for each (symbol, quarter end), to tell what is new; all, or ``symbols``' alone."""
+        rows = self._paged_for_symbols(
             "shareholding_patterns",
             {
                 "select": "symbol,period_end,record_id,parser_version",
                 "order": "symbol.asc,period_end.asc",
             },
+            symbols,
         )
         return {(str(row["symbol"]), str(row["period_end"])[:10]): row for row in rows}
 

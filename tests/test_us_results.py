@@ -69,7 +69,7 @@ class FakeRepo:
     def __init__(self, market="US", unreadable=False):
         self.market, self.unreadable, self.written = market, unreadable, []
 
-    def quarterly_filing_state(self):
+    def quarterly_filing_state(self, symbols=None, *, keys_only=False):
         if self.unreadable:
             raise RuntimeError("relation does not exist")
         return {("MSFT", "2026-06-30", True): {}}
