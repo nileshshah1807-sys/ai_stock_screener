@@ -46,6 +46,9 @@ const ERRORS: Record<string, string> = {
   no_active_plan: "No plan is on sale right now. Try again later.",
   razorpay_error: "The payment provider could not start checkout. Try again in a minute.",
   billing_not_configured: "Payments are not switched on yet.",
+  preview_checkout_not_allowed: "Checkout on this test site is open only to listed test accounts.",
+  no_subscription: "Your account has no billing record yet. Sign out, sign in again, then retry.",
+  write_failed: "Checkout could not be saved to your account. Try again in a minute.",
 };
 
 /** Razorpay's checkout script is loaded when first needed, not on every page. */
@@ -207,7 +210,7 @@ export function CheckoutButton({
         return;
       }
       if (!response.ok || !body.subscription_id || !body.key_id || !body.plan) {
-        setError({ text: ERRORS[body.error ?? ""] ?? "Checkout could not start. Try again." });
+        setError({ text: ERRORS[body.error ?? ""] ?? `Checkout could not start (${body.error ?? `error ${response.status}`}). Try again.` });
         setPhase("idle");
         setInFlight(false);
         return;
