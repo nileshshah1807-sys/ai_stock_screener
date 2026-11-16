@@ -148,9 +148,9 @@ export function buyerName(fullName, email) {
   return (name || String(email ?? "")).slice(0, NAME_MAX);
 }
 
-/** POST /v1/customers: fail_existing 0 returns the customer already holding this email instead of failing. */
+/** POST /v1/customers: fail_existing "0" returns the customer already holding this email. It must be the string: the number 0 is ignored and an existing email is refused (400, TEST mode 16 Nov 2026), so the subscription had no customer and its receipt no "Issued to". */
 export function customerBody({ name, email }) {
-  return { name, email, fail_existing: 0 };
+  return { name, email, fail_existing: "0" };
 }
 
 /** Razorpay refused the create because of the offer: a 400 whose description names it. */
