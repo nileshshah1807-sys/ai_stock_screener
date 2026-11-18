@@ -1,32 +1,24 @@
-"""Daily FII/DII cash flows and participant-wise F&O open interest (NSE).
+"""Daily FII/DII cash-market flows (NSE), on Cloudflare only.
 
-Two public NSE files, read once a session:
+NSE's ``fiidiiTradeReact`` serves the day's provisional cash-market buy, sell
+and net value of FIIs/FPIs and DIIs, in rupees crore. Today only: NSE keeps no
+archive of it, so history starts the day this step was switched on.
 
-* ``fiidiiTradeReact``: the day's provisional cash-market buy, sell and net
-  value of FIIs/FPIs and DIIs, in rupees crore. Today only; NSE keeps no
-  archive of it, so it cannot be backfilled.
-* ``fao_participant_oi_DDMMYYYY.csv``: open interest in equity derivatives by
-  participant (Client, DII, FII, Pro), long and short per instrument, in
-  contracts. NSE's archive serves about a year; a day it did not trade is a 404.
-
-Rows go to ``fii_dii_flows`` and ``participant_oi``, keyed (market,
-session_date, category), and to ``live/NSE/<name>.json`` on R2. A session
-already stored is not written again, so the step can ride a workflow that runs
-every 15 minutes. Display evidence only: nothing in ``screener/`` reads it.
-Tables: ``storage/market_flows_schema.sql``.
+Rows go to the D1 table ``fii_dii_flows`` (``storage/d1/market_flows.sql``;
+the workflow routes it with ``TABLE_BACKEND_D1``), keyed (market,
+session_date, category), and to ``live/NSE/fii-dii-flows.json`` on R2, rebuilt
+from the table whenever it is behind it. A session already stored is not
+written again, so the step can ride a workflow that runs every 15 minutes.
+Display evidence only: nothing in ``screener/`` reads it.
 """
 
 from __future__ import annotations
 
 import argparse
-import csv
-import io
 import logging
-import time
 from collections.abc import Callable
-from datetime import date, datetime, timedelta
+from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from screener.markets import resolve as resolve_market
 from screener.numeric import safe_float
@@ -35,28 +27,7 @@ from screener.quarterly_results import REQUEST_HEADERS
 logger = logging.getLogger(__name__)
 
 FLOWS_URL = "https://www.nseindia.com/api/fiidiiTradeReact"
-OI_URL = "https://nsearchives.nseindia.com/content/nsccl/fao_participant_oi_{day:%d%m%Y}.csv"
 FLOW_CATEGORIES = {"FII/FPI": "FII", "FII": "FII", "DII": "DII"}
-OI_CATEGORIES = ("Client", "DII", "FII", "Pro")
-OI_COLUMNS = {
-    "Future Index Long": "future_index_long",
-    "Future Index Short": "future_index_short",
-    "Future Stock Long": "future_stock_long",
-    "Future Stock Short": "future_stock_short",
-    "Option Index Call Long": "option_index_call_long",
-    "Option Index Put Long": "option_index_put_long",
-    "Option Index Call Short": "option_index_call_short",
-    "Option Index Put Short": "option_index_put_short",
-    "Option Stock Call Long": "option_stock_call_long",
-    "Option Stock Put Long": "option_stock_put_long",
-    "Option Stock Call Short": "option_stock_call_short",
-    "Option Stock Put Short": "option_stock_put_short",
-    "Total Long Contracts": "total_long",
-    "Total Short Contracts": "total_short",
-}
-LOOKBACK_DAYS = 7  # catches up a missed evening or a long weekend
-BACKFILL_DAYS = 370
-PAUSE_SECONDS = 0.5  # between archive files, so a backfill does not hammer NSE
 
 
 def parse_flows(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -76,27 +47,6 @@ def parse_flows(payload: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-def parse_oi(text: str, day: date) -> list[dict[str, Any]]:
-    """One row per participant from the archive CSV (its TOTAL row is left out)."""
-    rows, header = [], None
-    for record in csv.reader(io.StringIO(text)):
-        cells = [cell.strip() for cell in record]
-        if cells and cells[0] == "Client Type":
-            if set(OI_COLUMNS) - set(cells):
-                raise ValueError(f"participant OI file for {day} has columns this parser does not read")
-            header = cells
-        elif header and cells and cells[0] in OI_CATEGORIES:
-            values = dict(zip(header, cells))
-            rows.append({
-                "session_date": day.isoformat(),
-                "category": cells[0],
-                **{column: int(float(values[name])) for name, column in OI_COLUMNS.items()},
-            })
-    if header is None:
-        raise ValueError(f"participant OI file for {day} has no header")
-    return rows
-
-
 def _session():
     import requests
 
@@ -111,85 +61,41 @@ def fetch_flows(*, session=None, timeout: int = 30) -> list[dict[str, Any]]:
     return response.json()
 
 
-def fetch_oi(day: date, *, session=None, timeout: int = 30) -> str | None:
-    """The day's participant OI CSV, or None when NSE has none (no session, not yet out)."""
-    response = (session or _session()).get(OI_URL.format(day=day), timeout=timeout)
-    if response.status_code == 404:
-        return None
-    response.raise_for_status()
-    return response.content.decode("utf-8-sig", "replace")
-
-
-def due_days(latest: str | None, today: date, *, backfill: bool) -> list[date]:
-    """Weekdays after the latest stored session, up to today, within the window."""
-    start = today - timedelta(days=BACKFILL_DAYS if backfill else LOOKBACK_DAYS)
-    if latest and not backfill:
-        start = max(start, date.fromisoformat(latest))
-    days = (start + timedelta(days=n) for n in range(1, (today - start).days + 1))
-    return [day for day in days if day.weekday() < 5]
-
-
 def run(
     repo,
     *,
-    today: date | None = None,
-    backfill: bool = False,
     flows_loader: Callable[[], list[dict[str, Any]]] = fetch_flows,
-    oi_loader: Callable[[date], str | None] = fetch_oi,
-    sleep: Callable[[float], None] = time.sleep,
     dry_run: bool = False,
 ) -> dict[str, int]:
-    profile = resolve_market(repo.market)
-    if profile.code != "NSE":
-        logger.info("%s publishes no FII/DII flows; nothing to store", profile.code)
+    if resolve_market(repo.market).code != "NSE":
+        logger.info("%s publishes no FII/DII flows; nothing to store", repo.market)
         return {}
-    today = today or datetime.now(ZoneInfo(profile.timezone)).date()
-
-    latest = repo.latest_flow_session("fii_dii_flows")
+    latest = repo.latest_flow_session()
     try:
         flows = parse_flows(flows_loader())
     except Exception as exc:  # noqa: BLE001 -- a refusal or a changed page; display evidence, the next run asks again
         logger.warning("FII/DII flows not read: %s", exc)
         flows = []
     flows = [row for row in flows if latest is None or row["session_date"] > latest]
-
-    oi: list[dict[str, Any]] = []
-    for n, day in enumerate(due_days(repo.latest_flow_session("participant_oi"), today, backfill=backfill)):
-        if n:
-            sleep(PAUSE_SECONDS)
-        try:
-            text = oi_loader(day)
-            if text is not None:
-                oi += parse_oi(text, day)
-        except Exception as exc:  # noqa: BLE001 -- a refusal or a block page; what was read is kept, the next run resumes here
-            logger.warning("Participant OI for %s not read, stopping: %s", day, exc)
-            break
-
     if not dry_run:
         if flows:
-            repo.upsert_market_flows("fii_dii_flows", flows)
-        if oi:
-            repo.upsert_market_flows("participant_oi", oi)
+            repo.upsert_fii_dii_flows(flows)
         # Rebuilt from the table whenever the object is behind it, so a missed R2 write heals next run.
-        for table in ("fii_dii_flows", "participant_oi"):
-            repo.sync_live_flow_object(table)
-    counts = {"flows": len(flows), "oi": len(oi), "oi_sessions": len({row["session_date"] for row in oi})}
-    logger.info("Market flows: %s%s", counts, " (dry run, nothing written)" if dry_run else "")
-    return counts
+        repo.sync_fii_dii_object()
+    logger.info("FII/DII flows: %d new%s", len(flows), " (dry run, nothing written)" if dry_run else "")
+    return {"flows": len(flows)}
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--market", default="NSE")
-    parser.add_argument("--backfill", action="store_true",
-                        help=f"read the participant OI archive {BACKFILL_DAYS} days back (flows have no archive)")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     from storage.dashboard_repository import DashboardRepository
 
-    run(DashboardRepository.from_environment(args.market), backfill=args.backfill, dry_run=args.dry_run)
+    run(DashboardRepository.from_environment(args.market), dry_run=args.dry_run)
     return 0
 
 

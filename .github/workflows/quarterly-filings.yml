@@ -150,15 +150,18 @@ jobs:
             ${FULL} \
             ${DRY_RUN}
 
-      # FII/DII cash flows and participant-wise F&O open interest
-      # (workers/market_flows.py). Each session is written once; until NSE
-      # posts the day a run asks for the flows and each due OI file (a 404).
-      # Off until storage/market_flows_schema.sql is applied and the
-      # MARKET_FLOWS_ENABLED repository variable is set to true.
-      - name: Store FII/DII flows and participant OI
+      # FII/DII cash flows (workers/market_flows.py), to D1 and R2 only: the
+      # table is D1's (TABLE_BACKEND_D1), created by the D1 backfill's apply.
+      # Each session is written once. Off until MARKET_FLOWS_ENABLED is true.
+      - name: Store FII/DII flows
         if: ${{ !cancelled() && vars.MARKET_FLOWS_ENABLED == 'true' }}
         timeout-minutes: 3
         env:
+          TABLE_BACKEND_D1: fii_dii_flows
+          D1_ACCOUNT_ID: ${{ vars.D1_ACCOUNT_ID }}
+          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          D1_DATABASE_ID: ${{ vars.D1_CORE_ID }}
+          D1_TABLE_DATABASES: fii_dii_flows:${{ vars.D1_EVIDENCE_ID }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

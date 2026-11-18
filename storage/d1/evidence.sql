@@ -134,36 +134,3 @@ CREATE TABLE IF NOT EXISTS "transcripts" (
     "market" TEXT NOT NULL DEFAULT 'NSE',
     PRIMARY KEY ("id")
 ) WITHOUT ROWID;
-
-CREATE TABLE IF NOT EXISTS "fii_dii_flows" (
-    "market" TEXT NOT NULL DEFAULT 'NSE',
-    "session_date" TEXT NOT NULL,
-    "category" TEXT NOT NULL,
-    "buy_value" REAL,
-    "sell_value" REAL,
-    "net_value" REAL,
-    "updated_at" TEXT,
-    PRIMARY KEY ("market", "session_date", "category")
-) WITHOUT ROWID;
-
-CREATE TABLE IF NOT EXISTS "participant_oi" (
-    "market" TEXT NOT NULL DEFAULT 'NSE',
-    "session_date" TEXT NOT NULL,
-    "category" TEXT NOT NULL,
-    "future_index_long" INTEGER NOT NULL,
-    "future_index_short" INTEGER NOT NULL,
-    "future_stock_long" INTEGER NOT NULL,
-    "future_stock_short" INTEGER NOT NULL,
-    "option_index_call_long" INTEGER NOT NULL,
-    "option_index_put_long" INTEGER NOT NULL,
-    "option_index_call_short" INTEGER NOT NULL,
-    "option_index_put_short" INTEGER NOT NULL,
-    "option_stock_call_long" INTEGER NOT NULL,
-    "option_stock_put_long" INTEGER NOT NULL,
-    "option_stock_call_short" INTEGER NOT NULL,
-    "option_stock_put_short" INTEGER NOT NULL,
-    "total_long" INTEGER NOT NULL,
-    "total_short" INTEGER NOT NULL,
-    "updated_at" TEXT,
-    PRIMARY KEY ("market", "session_date", "category")
-) WITHOUT ROWID;
