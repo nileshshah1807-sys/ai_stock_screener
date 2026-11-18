@@ -6,7 +6,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { Check } from "lucide-react";
 
 import { PERIOD_LABEL, planTitle, priceLabel } from "@/lib/billing.mjs";
-import { PLAN_INCLUDES } from "@/lib/plan-includes.mjs";
+import { PLAN_INCLUDES, PLAN_INCLUDES_HEADING } from "@/lib/plan-includes.mjs";
 import type { Plan } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
@@ -141,7 +141,7 @@ export function PricingPlans({
       {note ? <div data-arrive className="mt-3">{note}</div> : null}
 
       <section data-arrive aria-labelledby="plan-includes" className="mt-6">
-        <h3 id="plan-includes" className="text-sm font-semibold">What you get</h3>
+        <h3 id="plan-includes" className="text-sm font-semibold">{PLAN_INCLUDES_HEADING}</h3>
         <ul className="mt-3 grid gap-x-10 gap-y-2.5 text-sm sm:grid-cols-2">
           {PLAN_INCLUDES.map(([name, fact]) => (
             <li key={name} className="flex gap-2.5">

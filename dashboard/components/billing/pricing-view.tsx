@@ -7,6 +7,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { DEFAULT_TRIAL_DAYS, autopayLine, PERIOD_LABEL, TRIAL_UNAVAILABLE, trialName, currentPlanId, lapseReason, perMonthLabel, planTitle, priceLabel, savingPercent } from "@/lib/billing.mjs";
 import { formatDate } from "@/lib/format";
 import { LEGAL } from "@/lib/legal";
+import { PRICING_LEAD } from "@/lib/plan-includes.mjs";
 import type { Plan, Subscription } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
@@ -79,7 +80,7 @@ export function PricingView({
   const lapsed = kind === "lapsed";
   const [headline, lead] = lapsed
     ? LAPSED_HEADLINE[lapseReason(subscription?.status, subscription?.trial_denied_at)]
-    : ["Pricing", "One subscription covers both markets. Every plan includes everything below."];
+    : ["Pricing", PRICING_LEAD];
   const { panels, initialId, endsTrial, permanent } = planPanels(plans ?? [], { email, name, kind, subscription, trialDays });
 
   return (
