@@ -2,6 +2,7 @@ import "server-only";
 
 import { liveBreadth, liveMarket, quoteRow, valuation } from "@/lib/live-compute.mjs";
 import { LIVE_OBJECT_TTL_MS, readLiveObject } from "@/lib/live-objects";
+import { flowSummary, indexFuturesPositioning } from "@/lib/market-flows.mjs";
 import type { MarketCode } from "@/lib/markets";
 import { getLatestRun, getRatedSymbols } from "@/lib/queries";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
@@ -92,4 +93,10 @@ async function computeBreadth(market: MarketCode, scope: string, name: string) {
   if (charted.error) throw new Error(`market_breadth: ${charted.error.message}`);
   const session = (charted.data as { last_session?: string } | null)?.last_session ?? null;
   return liveBreadth(rows, levels ?? [], session, scope, name);
+}
+
+/** The flows card's answer (lib/market-flows.mjs), from the two R2 objects; null parts where an object is absent. */
+export async function liveFlowsData(market: MarketCode) {
+  const [flows, oi] = await Promise.all([readLiveObject(market, "fii-dii-flows"), readLiveObject(market, "participant-oi")]);
+  return { flows: flowSummary(flows), positioning: indexFuturesPositioning(oi) };
 }
