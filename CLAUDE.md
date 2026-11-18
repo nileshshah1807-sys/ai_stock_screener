@@ -41,6 +41,15 @@ the scheduled workflows set the same flag.
   whose input was never reported leaves both the numerator and the denominator,
   and the result is shrunk toward neutral. Never let an unreported metric score
   as the worst observed value.
+- **Dashboard pages are static first: the Worker has 10 ms of CPU a request.**
+  Cloudflare Workers Free allows 10 ms; one Next server render costs 60-600 ms,
+  and a burst of overruns locks the whole site (Error 1102). So, in this order:
+  a static page or file served from assets (zero Worker CPU); ISR/cache for a
+  page that does not depend on the viewer; data read in the browser after render
+  (Supabase `*_visible` views, or an object workers publish). An API route or
+  server render is the last resort, only for what needs a secret (billing,
+  webhook, admin), and never on a timer. A new feature states which of these it
+  uses. Detail and measurements: "Boundaries that matter" below.
 
 ## Markets
 
