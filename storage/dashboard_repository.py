@@ -15,13 +15,14 @@ import os
 import time
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
 
 from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
+from screener.numeric import round_half_up, safe_float
 from storage.d1_backend import table_session
 from storage.object_backend import MIRROR_TIMEOUT_SECONDS, open_object_store, r2_from_env
 
@@ -62,6 +63,20 @@ TRANSIENT_STATUS_CODES = frozenset({502, 503, 504, 520, 521, 522, 523, 524})
 def chunked(rows: list[dict[str, Any]], size: int) -> Iterator[list[dict[str, Any]]]:
     for start in range(0, len(rows), size):
         yield rows[start : start + size]
+
+
+def fii_dii_years(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Calendar-year totals per category from daily FII/DII rows, newest year first."""
+    years: dict[tuple[int, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (int(str(row["session_date"])[:4]), row["category"])
+        total = years.setdefault(key, {"year": key[0], "category": key[1], "buy_value": 0.0,
+                                       "sell_value": 0.0, "net_value": 0.0, "sessions": 0})
+        for field in ("buy_value", "sell_value", "net_value"):
+            total[field] += safe_float(row.get(field)) or 0.0
+        total["sessions"] += 1
+    return [{**total, **{f: round_half_up(total[f], 2) for f in ("buy_value", "sell_value", "net_value")}}
+            for _, total in sorted(years.items(), key=lambda item: (-item[0][0], item[0][1]))]
 
 
 class DashboardRepository:
@@ -748,11 +763,12 @@ class DashboardRepository:
             held = None
         if held == latest:
             return False
-        since = (date.fromisoformat(latest) - timedelta(days=keep_sessions * 7 // 5 + 30)).isoformat()
+        # The whole history (2014 on, ~6.5k rows) is read so each calendar year can be totalled.
         rows = self._paged("fii_dii_flows", self._scoped({
-            "select": "*", "session_date": f"gte.{since}", "order": "session_date.asc,category.asc"}))
+            "select": "*", "order": "session_date.asc,category.asc"}))
         sessions = set(sorted({row["session_date"] for row in rows})[-keep_sessions:])
-        return self._cloudflare_put(name, [row for row in rows if row["session_date"] in sessions])
+        return self._cloudflare_put(
+            name, [row for row in rows if row["session_date"] in sessions], years=fii_dii_years(rows))
 
     def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
         """Store deals not stored yet. The key is the whole trade, so a stored deal
@@ -1077,8 +1093,8 @@ class DashboardRepository:
     def _live_path(self, name: str) -> str:
         return f"live/{self.market}/{name}.json"
 
-    def _cloudflare_put(self, name: str, rows: list[dict[str, Any]]) -> bool:
-        """Replace one live object with ``rows``. An R2 failure is logged, never raised."""
+    def _cloudflare_put(self, name: str, rows: list[dict[str, Any]], **extra: Any) -> bool:
+        """Replace one live object with ``rows`` (and any ``extra`` fields). An R2 failure is logged, never raised."""
         store = self._cloudflare()
         if store is None:
             return False
@@ -1086,6 +1102,7 @@ class DashboardRepository:
             "market": self.market,
             "written_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "rows": rows,
+            **extra,
         }
         try:
             store.put(self._live_path(name), json.dumps(body, separators=(",", ":"), default=str).encode(), "application/json")

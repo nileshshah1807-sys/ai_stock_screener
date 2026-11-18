@@ -102,6 +102,20 @@ class LiveObjectTests(unittest.TestCase):
         self.assertTrue(self.stored(store).sync_fii_dii_object())
         self.assertEqual(store.puts, ["live/NSE/fii-dii-flows.json"])
 
+    def test_the_object_carries_calendar_year_totals(self):
+        store = Store()
+        repo = self.stored(store)
+        repo.upsert_fii_dii_flows([
+            {"session_date": "2025-12-31", "category": "FII", "buy_value": 100.0, "sell_value": 150.5, "net_value": -50.5},
+            {"session_date": "2026-01-02", "category": "FII", "buy_value": 10.0, "sell_value": 4.0, "net_value": 6.0},
+        ])
+        self.assertTrue(repo.sync_fii_dii_object())
+        years = {(y["year"], y["category"]): y for y in json.loads(store.body)["years"]}
+        self.assertEqual(years[(2026, "FII")]["net_value"], 5872.78)
+        self.assertEqual(years[(2026, "FII")]["sessions"], 2)
+        self.assertEqual(years[(2025, "FII")]["net_value"], -50.5)
+        self.assertEqual(years[(2026, "DII")]["net_value"], -3159.9)
+
     def test_without_r2_nothing_is_asked(self):
         self.assertFalse(self.stored(None).sync_fii_dii_object())
 

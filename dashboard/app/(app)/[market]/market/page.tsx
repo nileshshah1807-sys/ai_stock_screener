@@ -5,6 +5,7 @@ import { MarketDayNotice } from "@/components/market-day-notice";
 import { MarketDashboard, type BreadthList } from "@/components/market/market-dashboard";
 import type { GroupKey } from "@/components/market/group-picker";
 import { LiveMovers, LiveMoversSkeleton } from "@/components/market/live-movers";
+import { MarketFlows } from "@/components/market/market-flows";
 import { Pagination } from "@/components/screener/pagination";
 import { ScreenerTable } from "@/components/screener/screener-table";
 import { parseFilters, toSearchParams } from "@/lib/filters";
@@ -70,6 +71,9 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
           <LiveMoversSection market={market} />
         </Suspense>
       ) : null}
+
+      {/* NSE only: the exchange's institutional flows, read in the browser. */}
+      {market.code === "NSE" ? <MarketFlows /> : null}
 
       <MarketDashboard
         // Remount per group so a new row starts from a clean scrub.
