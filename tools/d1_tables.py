@@ -400,6 +400,9 @@ def main(argv: list[str] | None = None) -> int:
     unknown = sorted(set(args.tables) - set(TABLES) - {"all"})
     if unknown:
         raise SystemExit(f"not a D1 table: {', '.join(unknown)}")
+    d1_only = sorted(set(args.tables) & (set(TABLES) - set(ORDER)))
+    if d1_only and args.command in ("backfill", "verify"):
+        raise SystemExit(f"D1-only, no Supabase copy to {args.command}: {', '.join(d1_only)}")
 
     if args.command == "schema":
         for path in write_schema(describe()):

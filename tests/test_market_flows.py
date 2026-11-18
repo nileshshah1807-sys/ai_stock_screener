@@ -106,5 +106,17 @@ class LiveObjectTests(unittest.TestCase):
         self.assertFalse(self.stored(None).sync_fii_dii_object())
 
 
+
+class D1RegistryTests(unittest.TestCase):
+    def test_the_table_is_laid_in_d1_and_never_copied(self):
+        from tools import d1_tables
+
+        self.assertEqual(d1_tables.TABLES["fii_dii_flows"], "evidence")
+        self.assertIn("fii_dii_flows", d1_tables.HAND_LAID)
+        self.assertNotIn("fii_dii_flows", d1_tables.ORDER)
+        with self.assertRaises(SystemExit):
+            d1_tables.main(["backfill", "fii_dii_flows"])
+
+
 if __name__ == "__main__":
     unittest.main()
