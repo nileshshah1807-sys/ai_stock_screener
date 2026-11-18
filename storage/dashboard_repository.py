@@ -15,7 +15,7 @@ import os
 import time
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import requests
@@ -715,6 +715,44 @@ class DashboardRepository:
             )
             written += len(chunk)
         return written
+
+    # FII/DII cash flows (workers/market_flows.py): a D1-only table, keyed
+    # (market, session_date, category); its R2 object holds the newest 260 sessions.
+
+    def latest_flow_session(self) -> str | None:
+        rows = self._request("GET", "fii_dii_flows", params=self._scoped(
+            {"select": "session_date", "order": "session_date.desc", "limit": "1"}))
+        return rows[0]["session_date"] if rows else None
+
+    def upsert_fii_dii_flows(self, rows: list[dict[str, Any]]) -> int:
+        self._request(
+            "POST",
+            "fii_dii_flows?on_conflict=market,session_date,category",
+            json=self._stamped(rows),
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+        return len(rows)
+
+    def sync_fii_dii_object(self, keep_sessions: int = 260) -> bool:
+        """Rewrite live/{market}/fii-dii-flows.json from the table when it lacks the latest session."""
+        store = self._cloudflare()
+        latest = self.latest_flow_session() if store is not None else None
+        if latest is None:
+            return False
+        name = "fii-dii-flows"
+        try:
+            body = store.get(self._live_path(name))
+            held = max((row["session_date"] for row in json.loads(body)["rows"]), default=None) if body else None
+        except Exception as exc:  # noqa: BLE001 -- unreadable: rebuild it
+            logger.warning("R2 %s object unreadable, rebuilding: %s", name, exc)
+            held = None
+        if held == latest:
+            return False
+        since = (date.fromisoformat(latest) - timedelta(days=keep_sessions * 7 // 5 + 30)).isoformat()
+        rows = self._paged("fii_dii_flows", self._scoped({
+            "select": "*", "session_date": f"gte.{since}", "order": "session_date.asc,category.asc"}))
+        sessions = set(sorted({row["session_date"] for row in rows})[-keep_sessions:])
+        return self._cloudflare_put(name, [row for row in rows if row["session_date"] in sessions])
 
     def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
         """Store deals not stored yet. The key is the whole trade, so a stored deal

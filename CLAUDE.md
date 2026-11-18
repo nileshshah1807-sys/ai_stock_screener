@@ -354,6 +354,14 @@ the scheduled workflows set the same flag.
   asked of the mainboard first and NSE Emerge when it has none, and announcement rows keep
   only companies in the latest snapshot. The table is in
   `storage/company_documents_schema.sql`, applied by hand. The backfill (`--backfill-days 365`) is run by hand, never scheduled.
+- **NSE FII/DII cash flows are display evidence, on Cloudflare only.**
+  `workers/market_flows.py` (a step of the Quarterly filings workflow, on when the
+  `MARKET_FLOWS_ENABLED` repository variable is `true`) writes the evening's provisional
+  cash-market buy/sell/net (rupees crore, FII and DII) to the D1 table `fii_dii_flows`
+  (`storage/d1/market_flows.sql`, hand-laid, no Supabase twin; the step sets
+  `TABLE_BACKEND_D1`) and `live/NSE/fii-dii-flows.json` (newest 260 sessions, rebuilt
+  from the table when behind it). NSE keeps no archive, so history starts the day it was
+  switched on. A stored session is not written again. Nothing scores it.
 - **US upcoming results come from Alpha Vantage's earnings calendar.**
   `workers/us_upcoming.py` (a step of the US Financial statements workflow, the
   first run of the day, before 09:00 UTC) makes one request a day, keyed by the `ALPHAVANTAGE_API_KEY`

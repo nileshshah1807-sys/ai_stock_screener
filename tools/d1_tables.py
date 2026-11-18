@@ -50,7 +50,7 @@ TABLES: dict[str, str] = {
         (
             "bulk_block_deals", "shareholding_patterns", "company_documents", "transcripts",
             "transcript_documents", "transcript_sentiments", "transcript_outlooks",
-            "estimate_history", "red_flag_snapshots",
+            "estimate_history", "red_flag_snapshots", "fii_dii_flows",
         ),
         "evidence",
     ),
@@ -99,7 +99,11 @@ INDEXES: dict[str, tuple[str, ...]] = {
 #: Laid out by hand (Dwight, 14 Nov 2026): 156 columns pass D1's 100. Its real
 #: columns are the file's; every other column goes into the "extra" JSON object,
 #: and "payload" (in Storage since Oct 2026) is not carried.
-HAND_LAID = {"screener_snapshot": Path("storage/d1/screener_snapshot.sql")}
+HAND_LAID = {
+    "screener_snapshot": Path("storage/d1/screener_snapshot.sql"),
+    # D1 only: written there by its worker, never copied from Supabase (not in ORDER).
+    "fii_dii_flows": Path("storage/d1/market_flows.sql"),
+}
 EXTRA_COLUMN = "extra"
 SKIPPED_COLUMNS = {"screener_snapshot": {"payload"}}
 
@@ -396,6 +400,9 @@ def main(argv: list[str] | None = None) -> int:
     unknown = sorted(set(args.tables) - set(TABLES) - {"all"})
     if unknown:
         raise SystemExit(f"not a D1 table: {', '.join(unknown)}")
+    d1_only = sorted(set(args.tables) & (set(TABLES) - set(ORDER)))
+    if d1_only and args.command in ("backfill", "verify"):
+        raise SystemExit(f"D1-only, no Supabase copy to {args.command}: {', '.join(d1_only)}")
 
     if args.command == "schema":
         for path in write_schema(describe()):
