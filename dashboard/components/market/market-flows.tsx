@@ -65,10 +65,29 @@ const crore = (value: number | null) =>
 const tone = (value: number | null) => (value === null || value === 0 ? "" : value > 0 ? "text-positive" : "text-negative");
 
 function FlowsPanel({ flows }: { flows: Flows | null }) {
+  // The scrubbed session, shared by both rows; null at rest, when the rows read the latest session.
+  const [at, setAt] = useState<number | null>(null);
+  const [focused, setFocused] = useState(false);
   if (!flows) {
     return <div className="panel px-5 py-8 text-sm text-muted-foreground">No sessions published yet. The next evening run adds them.</div>;
   }
-  const largest = Math.max(1, ...flows.bars.flatMap((s) => [Math.abs(s.fii ?? 0), Math.abs(s.dii ?? 0)]));
+  const { bars } = flows;
+  const largest = Math.max(1, ...bars.flatMap((s) => [Math.abs(s.fii ?? 0), Math.abs(s.dii ?? 0)]));
+  const shown = bars[at ?? bars.length - 1];
+
+  // As the Market page's breadth charts: arrows step a session, Home/End jump, Escape lets go.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape") return setAt(null);
+    let next: number | null = null;
+    if (event.key === "ArrowLeft") next = (at ?? bars.length) - 1;
+    else if (event.key === "ArrowRight") next = (at ?? bars.length - 2) + 1;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = bars.length - 1;
+    if (next === null) return;
+    event.preventDefault();
+    setAt(Math.min(bars.length - 1, Math.max(0, next)));
+  };
+
   return (
     <div className="panel space-y-5 p-4 sm:p-5">
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -77,10 +96,31 @@ function FlowsPanel({ flows }: { flows: Flows | null }) {
         <Total label="FII, month to date" value={flows.monthToDate.fii} />
         <Total label="DII, month to date" value={flows.monthToDate.dii} />
       </dl>
-      <Bars label="FII net per session" bars={flows.bars} side="fii" largest={largest} />
-      <Bars label="DII net per session" bars={flows.bars} side="dii" largest={largest} />
+      <div
+        role="group"
+        tabIndex={0}
+        aria-label={`Net per session, ${bars.length} sessions to ${formatDate(bars.at(-1)?.date)}. Arrow keys step through sessions.`}
+        onKeyDown={onKeyDown}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          setAt(null);
+        }}
+        onPointerLeave={() => setAt(null)}
+        className="-m-1 space-y-5 rounded-row p-1 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <p className="sr-only" aria-live="polite">
+          {focused && at !== null ? `${formatDate(shown.date)}: FII ${crore(shown.fii)}, DII ${crore(shown.dii)}` : ""}
+        </p>
+        <Bars label="FII net" bars={bars} side="fii" largest={largest} at={at} onAt={setAt} />
+        <Bars label="DII net" bars={bars} side="dii" largest={largest} at={at} onAt={setAt} />
+        <p className="flex justify-between text-micro text-muted-foreground tabular-nums">
+          <span>{formatDate(bars[0]?.date)}</span>
+          <span className={cn(at !== null && "font-medium text-foreground")}>{formatDate(shown.date)}</span>
+        </p>
+      </div>
       <p className="text-xs text-muted-foreground">
-        Net buying (buys less sells) in the cash market, in rupees crore. Both rows share one scale.
+        Net buying (buys less sells) in the cash market, in rupees crore; the evening&rsquo;s figures are NSE&rsquo;s provisional ones. Both rows share one scale; point at a session to read it.
       </p>
     </div>
   );
@@ -95,29 +135,55 @@ function Total({ label, value }: { label: string; value: number | null }) {
   );
 }
 
-/** One side's sessions as bars above (net buying) or below (net selling) a zero line. */
-function Bars({ label, bars, side, largest }: { label: string; bars: FlowSession[]; side: "fii" | "dii"; largest: number }) {
+/**
+ * One side's sessions as bars above (net buying) or below (net selling) a zero
+ * line. The caption reads the scrubbed session's value, or the latest at rest;
+ * the other sessions dim while one is scrubbed. No floating tooltip, as the
+ * page's breadth charts.
+ */
+function Bars({
+  label,
+  bars,
+  side,
+  largest,
+  at,
+  onAt,
+}: {
+  label: string;
+  bars: FlowSession[];
+  side: "fii" | "dii";
+  largest: number;
+  at: number | null;
+  onAt: (index: number) => void;
+}) {
+  const value = bars[at ?? bars.length - 1]?.[side] ?? null;
   return (
     <figure>
-      <figcaption className="mb-1.5 text-xs font-medium">{label}</figcaption>
-      <div role="img" aria-label={`${label}, ${bars.length} sessions to ${formatDate(bars.at(-1)?.date)}`} className="relative flex h-24 items-stretch gap-[3px]">
-        <span aria-hidden className="absolute inset-x-0 top-1/2 h-px bg-border" />
-        {bars.map((session) => {
-          const value = session[side];
-          const height = value === null ? 0 : (Math.abs(value) / largest) * 50;
+      <figcaption className="mb-1.5 flex items-baseline justify-between gap-3 text-xs">
+        <span className="font-medium">{label}</span>
+        <span className={cn("text-sm font-semibold tabular-nums", tone(value))}>{crore(value)}</span>
+      </figcaption>
+      <div aria-hidden className="relative flex h-24 touch-pan-y items-stretch">
+        <span className="absolute inset-x-0 top-1/2 h-px bg-border" />
+        {bars.map((session, index) => {
+          const v = session[side];
+          const height = v === null ? 0 : (Math.abs(v) / largest) * 50;
           return (
-            <div key={session.date} title={`${formatDate(session.date)}: ${crore(value)}`} className="relative flex-1">
+            // The whole column is the hit area, so a thin bar is as easy to point at as a tall one.
+            <div key={session.date} onPointerEnter={() => onAt(index)} onPointerDown={() => onAt(index)} className="relative flex-1 px-[1.5px]">
+              {/* A session NSE did not publish is a stub on the zero line, so it never reads as a flat day. */}
+              {v === null ? <span className="absolute inset-x-[1.5px] top-1/2 h-1 -translate-y-1/2 rounded-[1px] bg-muted-foreground/40" /> : null}
               <span
-                className={cn("absolute inset-x-0 rounded-[2px]", value !== null && value < 0 ? "top-1/2 bg-negative/80" : "bottom-1/2 bg-positive/80")}
+                className={cn(
+                  "absolute inset-x-[1.5px] rounded-[2px] transition-opacity duration-150",
+                  v !== null && v < 0 ? "top-1/2 bg-negative/80" : "bottom-1/2 bg-positive/80",
+                  at !== null && at !== index && "opacity-35",
+                )}
                 style={{ height: `${height}%` }}
               />
             </div>
           );
         })}
-      </div>
-      <div className="mt-1 flex justify-between text-micro text-muted-foreground tabular-nums">
-        <span>{formatDate(bars[0]?.date)}</span>
-        <span>{formatDate(bars.at(-1)?.date)}</span>
       </div>
     </figure>
   );
