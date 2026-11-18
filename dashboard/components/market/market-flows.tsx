@@ -60,8 +60,12 @@ export function MarketFlows() {
   );
 }
 
-const crore = (value: number | null) =>
-  value === null ? "—" : `${value > 0 ? "+" : value < 0 ? "−" : ""}₹${formatNumber(Math.abs(value), 0)} cr`;
+// Signed after rounding to whole crore, so a net of −0.3 reads "₹0 cr", not "−₹0 cr".
+const crore = (value: number | null) => {
+  if (value === null) return "—";
+  const whole = Math.round(value);
+  return `${whole > 0 ? "+" : whole < 0 ? "−" : ""}₹${formatNumber(Math.abs(whole), 0)} cr`;
+};
 const tone = (value: number | null) => (value === null || value === 0 ? "" : value > 0 ? "text-positive" : "text-negative");
 
 function FlowsPanel({ flows }: { flows: Flows | null }) {
