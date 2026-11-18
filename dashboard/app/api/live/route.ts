@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getViewer, isAdmin } from "@/lib/auth";
 import { readsFromCloudflare } from "@/lib/db/market-repository";
 import { LIVE_MOVERS_LIMIT } from "@/lib/live-market";
-import { liveBreadthData, liveMarketData, liveQuoteRows, withMoverRatings } from "@/lib/live-data";
+import { liveBreadthData, liveFlowsData, liveMarketData, liveQuoteRows, withMoverRatings } from "@/lib/live-data";
 import type { MarketCode } from "@/lib/markets";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +16,8 @@ const SCOPES = new Set(["market", "sector", "industry"]);
 /**
  * The browser's live reads, once the live objects are read from R2
  * (`TABLE_BACKEND` names live_quotes): `kind` stock (`live_valuation` rows),
- * index (`live_quotes` levels), market (`live_market`) or breadth
- * (`live_breadth`), answered as `{ data }` in the shapes those returned.
+ * index (`live_quotes` levels), market (`live_market`), breadth
+ * (`live_breadth`) or flows (NSE's FII/DII cash flows and F&O positioning), answered as `{ data }` in the shapes those returned.
  * Signed-in viewers with access only: the objects bypass row-level security.
  * A rating is returned only to an admin, on the movers, as live_market() does.
  */
@@ -55,5 +55,6 @@ function answer(market: MarketCode, kind: string | null, params: URLSearchParams
     const scope = params.get("scope") ?? "market";
     return SCOPES.has(scope) ? liveBreadthData(market, scope, params.get("name") ?? "") : undefined;
   }
+  if (kind === "flows") return market === "NSE" ? liveFlowsData(market) : undefined;
   return undefined;
 }
