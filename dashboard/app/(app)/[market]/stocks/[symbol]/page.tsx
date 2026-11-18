@@ -6,7 +6,7 @@ import { AddToWatchlist } from "@/components/watchlist/add-to-watchlist";
 import { CompanyLogo } from "@/components/company-logo";
 import { EntryBadge } from "@/components/entry-badge";
 import { SymbolText } from "@/components/symbol-text";
-import { LiveChange, LivePrice, LiveRatio } from "@/components/live-quote";
+import { LiveChange, LivePrice } from "@/components/live-quote";
 import { CallOutlook } from "@/components/stock/call-outlook";
 import { getLatestConcall } from "@/lib/concalls";
 import { callPanelSource } from "@/lib/concalls.mjs";
@@ -22,6 +22,7 @@ import { DecisionScore } from "@/components/stock/decision-score";
 import { FactorBlocks, researchBasisNote } from "@/components/stock/factor-blocks";
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
 import { RankHistoryChart } from "@/components/stock/rank-history-chart";
+import { RatioSheet } from "@/components/stock/ratio-sheet";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
 import { PriceChart } from "@/components/stock/price-chart";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
@@ -612,7 +613,7 @@ export default async function StockPage({
   // scored the close's.
   const live = { symbol: row.symbol, barDate: row.price_bar_as_of };
   const fundamentalFields: Field[] = [
-    { label: "PE", value: <LiveRatio {...live} metric="pe_ratio" close={row.pe_ratio} format="number1" /> },
+    { label: "PE", value: <RatioSheet {...live} closePrice={row.current_price} metric="pe_ratio" close={row.pe_ratio} format="number1" /> },
     { label: "ROE", value: formatRatioAsPercent(row.roe) },
     {
       label: "Debt / equity",
@@ -641,7 +642,7 @@ export default async function StockPage({
     },
     { label: "Fundamental score", value: formatScore(row.fundamental_score) },
     { label: "Model", value: row.fundamental_model ?? MISSING },
-    { label: "PB", value: <LiveRatio {...live} metric="pb_ratio" close={row.pb_ratio} format="number2" /> },
+    { label: "PB", value: <RatioSheet {...live} closePrice={row.current_price} metric="pb_ratio" close={row.pb_ratio} format="number2" /> },
     {
       label: "ROA",
       value: formatRatioAsPercent(numeric(payload, "ROA")),
@@ -659,7 +660,7 @@ export default async function StockPage({
     {
       label: "EV / EBITDA",
       value: (
-        <LiveRatio {...live} metric="ev_ebitda" close={numeric(payload, "EV_EBITDA")} format="number2" />
+        <RatioSheet {...live} closePrice={row.current_price} metric="ev_ebitda" close={numeric(payload, "EV_EBITDA")} format="number2" />
       ),
       hint: pick(payload, "EV_EBITDA_Price_Aligned") === true
         ? "Recomputed against the completed-session price."
@@ -671,7 +672,7 @@ export default async function StockPage({
     { label: "Income pts", value: text(payload, "Fund_Income_Points") },
     {
       label: "Market cap",
-      value: <LiveRatio {...live} metric="market_cap" close={row.market_cap} format="money" />,
+      value: <RatioSheet {...live} closePrice={row.current_price} metric="market_cap" close={row.market_cap} format="money" />,
     },
   ];
 
