@@ -36,3 +36,15 @@ export function readLiveObject(market: string, name: string): Promise<Record<str
   if (!MARKETS.has(market)) return Promise.resolve(null);
   return memo(`${market}:${name}`, () => load(market, name), (rows) => rows !== null);
 }
+
+/** A symbol as the publisher keys objects: no path separators, so a key can name nothing else. */
+const SYMBOL = /^[A-Z0-9][A-Z0-9&._-]{0,31}$/;
+
+/** One stock's ratio sheet (`ratio-sheet/{MARKET}/{SYMBOL}.json`, lib/ratio-sheet.mjs); null when absent or the symbol is not one. */
+export async function readRatioSheet(market: string, symbol: string): Promise<Record<string, unknown> | null> {
+  if (!MARKETS.has(market) || !SYMBOL.test(symbol)) return null;
+  const bucket = (getCloudflareContext().env as Record<string, unknown>).MARKET_DATA as R2Bucket | undefined;
+  if (!bucket) throw new Error("no MARKET_DATA binding");
+  const object = await bucket.get(`ratio-sheet/${market}/${symbol}.json`);
+  return object ? (JSON.parse(await object.text()) as Record<string, unknown>) : null;
+}

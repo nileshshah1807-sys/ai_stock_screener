@@ -4,6 +4,7 @@ import { getViewer, isAdmin } from "@/lib/auth";
 import { readsFromCloudflare } from "@/lib/db/market-repository";
 import { LIVE_MOVERS_LIMIT } from "@/lib/live-market";
 import { liveBreadthData, liveMarketData, liveQuoteRows, withMoverRatings } from "@/lib/live-data";
+import { readRatioSheet } from "@/lib/live-objects";
 import type { MarketCode } from "@/lib/markets";
 
 export const dynamic = "force-dynamic";
@@ -16,18 +17,19 @@ const SCOPES = new Set(["market", "sector", "industry"]);
 /**
  * The browser's live reads, once the live objects are read from R2
  * (`TABLE_BACKEND` names live_quotes): `kind` stock (`live_valuation` rows),
- * index (`live_quotes` levels), market (`live_market`) or breadth
- * (`live_breadth`), answered as `{ data }` in the shapes those returned.
+ * index (`live_quotes` levels), market (`live_market`), breadth
+ * (`live_breadth`) or ratio (one stock's ratio sheet object), answered as `{ data }` in the shapes those returned.
  * Signed-in viewers with access only: the objects bypass row-level security.
  * A rating is returned only to an admin, on the movers, as live_market() does.
  */
 export async function GET(request: NextRequest) {
-  if (!readsFromCloudflare("live_quotes")) return NextResponse.json({ error: "not enabled" }, { status: 404 });
-  if (!(await getViewer())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
   const params = request.nextUrl.searchParams;
   const market = params.get("market") as MarketCode;
   const kind = params.get("kind");
+  // A ratio sheet exists only in R2, so it is answered whichever source the live reads use.
+  if (kind !== "ratio" && !readsFromCloudflare("live_quotes")) return NextResponse.json({ error: "not enabled" }, { status: 404 });
+  if (!(await getViewer())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   if (!MARKETS.has(market)) return NextResponse.json({ error: "bad market" }, { status: 400 });
 
   try {
@@ -54,6 +56,10 @@ function answer(market: MarketCode, kind: string | null, params: URLSearchParams
   if (kind === "breadth") {
     const scope = params.get("scope") ?? "market";
     return SCOPES.has(scope) ? liveBreadthData(market, scope, params.get("name") ?? "") : undefined;
+  }
+  if (kind === "ratio") {
+    const symbol = params.get("s")?.toUpperCase();
+    return symbol ? readRatioSheet(market, symbol) : undefined;
   }
   return undefined;
 }
