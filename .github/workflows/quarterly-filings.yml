@@ -203,6 +203,24 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: python -m workers.upcoming_events --market NSE ${DRY_RUN}
 
+      # IPOs, NSE mainboard and SME (workers/ipos.py), to D1 and R2 only: once a
+      # day, in the full run, so subscription is one snapshot a day. The tables
+      # are D1's, created by the D1 backfill's apply. Off until IPOS_ENABLED is true.
+      - name: Record IPOs
+        if: ${{ !cancelled() && inputs.full && vars.IPOS_ENABLED == 'true' }}
+        timeout-minutes: 10
+        env:
+          TABLE_BACKEND_D1: ipos,ipo_subscriptions
+          D1_ACCOUNT_ID: ${{ vars.D1_ACCOUNT_ID }}
+          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          D1_DATABASE_ID: ${{ vars.D1_CORE_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.ipos --market NSE ${DRY_RUN}
+
       # Annual-report links (workers/company_documents.py): one seventh of the
       # universe in the daily full run, so each company is visited weekly. The
       # decks, transcripts, recordings and ratings are recorded by the step above.

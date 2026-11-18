@@ -42,7 +42,7 @@ TABLES: dict[str, str] = {
         (
             "concall_feed", "valuation_basis", "quarterly_filings", "financial_statements",
             "upcoming_events", "market_events", "new_listings", "universe_index",
-            "market_breadth", "screener_runs", "screener_snapshot",
+            "market_breadth", "screener_runs", "screener_snapshot", "ipos", "ipo_subscriptions",
         ),
         "core",
     ),
@@ -103,6 +103,8 @@ HAND_LAID = {
     "screener_snapshot": Path("storage/d1/screener_snapshot.sql"),
     # D1 only: written there by its worker, never copied from Supabase (not in ORDER).
     "fii_dii_flows": Path("storage/d1/market_flows.sql"),
+    "ipos": Path("storage/d1/ipos.sql"),
+    "ipo_subscriptions": Path("storage/d1/ipos.sql"),
 }
 EXTRA_COLUMN = "extra"
 SKIPPED_COLUMNS = {"screener_snapshot": {"payload"}}
@@ -233,7 +235,7 @@ def d1_env() -> dict[str, str]:
 def apply_schema(execute) -> None:
     for database in sorted(set(TABLES.values())):
         route = next(table for table, db in TABLES.items() if db == database)  # any table of that database
-        files = [SCHEMA_DIR / f"{database}.sql", *(path for table, path in HAND_LAID.items() if TABLES[table] == database)]
+        files = [SCHEMA_DIR / f"{database}.sql", *dict.fromkeys(path for table, path in HAND_LAID.items() if TABLES[table] == database)]
         for path in files:
             for statement in statements(path.read_text()):
                 execute(route, statement, [])

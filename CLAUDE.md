@@ -362,6 +362,14 @@ the scheduled workflows set the same flag.
   `TABLE_BACKEND_D1`) and `live/NSE/fii-dii-flows.json` (newest 260 sessions, rebuilt
   from the table when behind it). NSE keeps no archive, so history starts the day it was
   switched on. A stored session is not written again. Nothing scores it.
+- **NSE IPOs (mainboard and SME) are display evidence, on Cloudflare only.** `workers/ipos.py`
+  (a step of the Quarterly filings full run, on when the `IPOS_ENABLED` repository variable is
+  `true`) writes the D1 tables `ipos` (status, price band, lot, issue size, issue price, listing
+  day's open and close from the bhavcopy) and `ipo_subscriptions` (category subscription, one
+  snapshot a day while open, then the final; backfilled issues carry the final only), both in
+  `storage/d1/ipos.sql`, hand-laid, and `live/NSE/ipos.json`. Return since listing is the live
+  price over the issue price, worked out in the dashboard. No grey-market premium. BSE SME
+  issues wait for a `workers/bse_source.py` function. `--backfill` reads a year of listings.
 - **US upcoming results come from Alpha Vantage's earnings calendar.**
   `workers/us_upcoming.py` (a step of the US Financial statements workflow, the
   first run of the day, before 09:00 UTC) makes one request a day, keyed by the `ALPHAVANTAGE_API_KEY`

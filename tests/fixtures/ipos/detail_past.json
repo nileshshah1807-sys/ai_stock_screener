@@ -1,0 +1,155 @@
+{
+ "companyName": "Vedant Poly Fabs Limited",
+ "issueInfo": {
+  "dataList": [
+   {
+    "title": "Symbol",
+    "value": "VPFL"
+   },
+   {
+    "title": "Issue Period",
+    "value": "02-Nov-2026 to 04-Nov-2026"
+   },
+   {
+    "title": "Issue Type",
+    "value": "Book Building"
+   },
+   {
+    "title": "Price Range",
+    "value": "Rs.88 to Rs.94 per equity share"
+   },
+   {
+    "title": "Lot Size",
+    "value": "1200 Equity Shares"
+   },
+   {
+    "title": "Face Value",
+    "value": "Rs.10 per Equity Share"
+   }
+  ]
+ },
+ "activeCat": {
+  "dataList": [
+   {
+    "category": "Category",
+    "noOfShareOffered": "No.of shares offered/reserved",
+    "noOfSharesBid": "No. of shares bid for",
+    "noOfTotalMeant": "No. of times of total meant for the category",
+    "srNo": "Sr.No."
+   },
+   {
+    "category": "Qualified Institutional Buyers(QIBs)",
+    "noOfShareOffered": "0",
+    "noOfSharesBid": "68400",
+    "noOfTotalMeant": "0.00",
+    "srNo": "1"
+   },
+   {
+    "category": "Foreign Institutional Investors(FIIs)",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "68400",
+    "noOfTotalMeant": "",
+    "srNo": "1(a)"
+   },
+   {
+    "category": "Domestic Financial Institutions(Banks/ Financial Institutions(FIs)/ Insurance Companies)",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "0",
+    "noOfTotalMeant": "",
+    "srNo": "1(b)"
+   },
+   {
+    "category": "Mutual funds",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "0",
+    "noOfTotalMeant": "",
+    "srNo": "1(c)"
+   },
+   {
+    "category": "Others",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "0",
+    "noOfTotalMeant": "",
+    "srNo": "1(d)"
+   },
+   {
+    "category": "Non Institutional Investors",
+    "noOfShareOffered": "0",
+    "noOfSharesBid": "3432000",
+    "noOfTotalMeant": "0.00",
+    "srNo": "2"
+   },
+   {
+    "category": "Non Institutional Investors(Bid amount of more than Ten Lakh Rupees)",
+    "noOfShareOffered": "0",
+    "noOfSharesBid": "1996800",
+    "noOfTotalMeant": "0.00",
+    "srNo": "2.1"
+   },
+   {
+    "category": "Corporates",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "304800",
+    "noOfTotalMeant": "",
+    "srNo": "2.1(a)"
+   },
+   {
+    "category": "Individuals(Other than RIIs)",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "1692000",
+    "noOfTotalMeant": "",
+    "srNo": "2.1(b)"
+   },
+   {
+    "category": "Others",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "0",
+    "noOfTotalMeant": "",
+    "srNo": "2.1(c)"
+   },
+   {
+    "category": "Non Institutional Investors(Bid amount of more than Two Lakh Rupees upto Ten Lakh Rupees)",
+    "noOfShareOffered": "0",
+    "noOfSharesBid": "1435200",
+    "noOfTotalMeant": "0.00",
+    "srNo": "2.2"
+   },
+   {
+    "category": "Corporates",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "0",
+    "noOfTotalMeant": "",
+    "srNo": "2.2(a)"
+   },
+   {
+    "category": "Individuals(Other than RIIs)",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "1262400",
+    "noOfTotalMeant": "",
+    "srNo": "2.2(b)"
+   },
+   {
+    "category": "Others",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "172800",
+    "noOfTotalMeant": "",
+    "srNo": "2.2(c)"
+   },
+   {
+    "category": "Total",
+    "noOfShareOffered": "0.0",
+    "noOfSharesBid": "3500400.0",
+    "noOfTotalMeant": "0.00",
+    "srNo": null
+   }
+  ],
+  "heading": null,
+  "symbol": null,
+  "updateTime": "Updated as on 04-Nov-2026 19:00:00"
+ },
+ "demandGraph": {
+  "totalIssueSize": "6030000",
+  "noOfTimesIssueSubscribed": "1.85",
+  "TOTAL_BIDS": "11168400"
+ }
+}
