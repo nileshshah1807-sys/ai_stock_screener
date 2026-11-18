@@ -1,0 +1,201 @@
+{
+ "companyName": "CRYSTALCP",
+ "issueInfo": {
+  "dataList": [
+   {
+    "title": "Symbol",
+    "value": "CRYSTALCP"
+   },
+   {
+    "title": "Issue Period",
+    "value": "18-Nov-2026 to 20-Nov-2026"
+   },
+   {
+    "title": "Issue Type",
+    "value": "Book Building"
+   },
+   {
+    "title": "Price Range",
+    "value": "Rs. 259 to Rs. 272 per Equity Share"
+   },
+   {
+    "title": "Face Value",
+    "value": "Rs. 10 per Equity Share"
+   },
+   {
+    "title": "Bid Lot",
+    "value": "55 Equity Shares and in multiples thereof"
+   },
+   {
+    "title": "Minimum Order Quantity",
+    "value": "55 Equity Shares"
+   }
+  ]
+ },
+ "activeCat": {
+  "dataList": [
+   {
+    "category": "Category",
+    "noOfShareOffered": "No.of shares offered/reserved",
+    "noOfSharesBid": "No. of shares bid for",
+    "noOfTotalMeant": "No. of times of total meant for the category",
+    "srNo": "Sr.No."
+   },
+   {
+    "category": "Qualified Institutional Buyers(QIBs)",
+    "noOfShareOffered": "3406814",
+    "noOfSharesBid": "7042035",
+    "noOfTotalMeant": "2.0670441650175206",
+    "srNo": "1"
+   },
+   {
+    "category": "Foreign Institutional Investors(FIIs)",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "735295",
+    "noOfTotalMeant": "",
+    "srNo": "1(a)"
+   },
+   {
+    "category": "Domestic Financial Institutions(Banks/ Financial Institutions(FIs)/ Insurance Companies)",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "0",
+    "noOfTotalMeant": "",
+    "srNo": "1(b)"
+   },
+   {
+    "category": "Mutual funds",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "3345595",
+    "noOfTotalMeant": "",
+    "srNo": "1(c)"
+   },
+   {
+    "category": "Others",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "2961145",
+    "noOfTotalMeant": "",
+    "srNo": "1(d)"
+   },
+   {
+    "category": "Non Institutional Investors",
+    "noOfShareOffered": "2596928",
+    "noOfSharesBid": "1956130",
+    "noOfTotalMeant": "0.7532476834167139",
+    "srNo": "2"
+   },
+   {
+    "category": "Non Institutional Investors(Bid amount of more than Ten Lakh Rupees)",
+    "noOfShareOffered": "1731286",
+    "noOfSharesBid": "1064910",
+    "noOfTotalMeant": "0.6150976788352704",
+    "srNo": "2.1"
+   },
+   {
+    "category": "Corporates",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "0",
+    "noOfTotalMeant": "",
+    "srNo": "2.1(a)"
+   },
+   {
+    "category": "Individuals(Other than RIIs)",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "1024320",
+    "noOfTotalMeant": "",
+    "srNo": "2.1(b)"
+   },
+   {
+    "category": "Others",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "40590",
+    "noOfTotalMeant": "",
+    "srNo": "2.1(c)"
+   },
+   {
+    "category": "Non Institutional Investors(Bid amount of more than Two Lakh Rupees upto Ten Lakh Rupees)",
+    "noOfShareOffered": "865642",
+    "noOfSharesBid": "891220",
+    "noOfTotalMeant": "1.0295480117646787",
+    "srNo": "2.2"
+   },
+   {
+    "category": "Corporates",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "2310",
+    "noOfTotalMeant": "",
+    "srNo": "2.2(a)"
+   },
+   {
+    "category": "Individuals(Other than RIIs)",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "876975",
+    "noOfTotalMeant": "",
+    "srNo": "2.2(b)"
+   },
+   {
+    "category": "Others",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "11935",
+    "noOfTotalMeant": "",
+    "srNo": "2.2(c)"
+   },
+   {
+    "category": "Retail Individual Investors(RIIs)",
+    "noOfShareOffered": "6059497",
+    "noOfSharesBid": "7773040",
+    "noOfTotalMeant": "1.2827863434869264",
+    "srNo": "3"
+   },
+   {
+    "category": "Cut Off",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "7194715",
+    "noOfTotalMeant": "",
+    "srNo": "3(a)"
+   },
+   {
+    "category": "Price bids",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "578325",
+    "noOfTotalMeant": "",
+    "srNo": "3(b)"
+   },
+   {
+    "category": "Employees",
+    "noOfShareOffered": "106837",
+    "noOfSharesBid": "310860",
+    "noOfTotalMeant": "2.9096661269036006",
+    "srNo": "4"
+   },
+   {
+    "category": "Cut Off",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "272800",
+    "noOfTotalMeant": "",
+    "srNo": "4(a)"
+   },
+   {
+    "category": "Price Bids",
+    "noOfShareOffered": "",
+    "noOfSharesBid": "38060",
+    "noOfTotalMeant": "",
+    "srNo": "4(b)"
+   },
+   {
+    "category": "Total",
+    "noOfShareOffered": "1.2170076E7",
+    "noOfSharesBid": "1.7082065E7",
+    "noOfTotalMeant": "1.4036120234581937",
+    "srNo": null
+   }
+  ],
+  "heading": null,
+  "symbol": null,
+  "updateTime": "Updated as on 18-Nov-2026 17:00:00"
+ },
+ "demandGraph": {
+  "totalIssueSize": "12170076",
+  "noOfTimesIssueSubscribed": "0.73",
+  "TOTAL_BIDS": "8942175"
+ }
+}

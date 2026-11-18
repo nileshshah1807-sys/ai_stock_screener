@@ -754,6 +754,30 @@ class DashboardRepository:
         sessions = set(sorted({row["session_date"] for row in rows})[-keep_sessions:])
         return self._cloudflare_put(name, [row for row in rows if row["session_date"] in sessions])
 
+    # IPOs (workers/ipos.py): D1-only tables; live/{market}/ipos.json carries
+    # the window's issues with their subscription by day.
+
+    def stored_ipos(self) -> list[dict[str, Any]]:
+        return self._paged("ipos", self._scoped({"select": "*", "order": "symbol.asc,board.asc"}))
+
+    def upsert_ipos(self, issues: list[dict[str, Any]], subscriptions: list[dict[str, Any]]) -> None:
+        for table, key, rows in (("ipos", "market,symbol,board", issues),
+                                 ("ipo_subscriptions", "market,symbol,as_of,category", subscriptions)):
+            for chunk in chunked(rows, 500):
+                self._request("POST", f"{table}?on_conflict={key}", json=self._stamped(chunk),
+                              headers={"Prefer": "resolution=merge-duplicates,return=minimal"})
+
+    def put_ipos_object(self, *, since: str) -> bool:
+        if self._cloudflare() is None:
+            return False
+        issues = [row for row in self.stored_ipos() if row["status"] != "listed" or (row.get("listing_date") or "") >= since]
+        by_symbol: dict[str, list[dict[str, Any]]] = {}
+        for row in self._paged("ipo_subscriptions", self._scoped(
+                {"select": "symbol,as_of,category,shares_offered,shares_bid,times",
+                 "as_of": f"gte.{since}", "order": "as_of.asc,category.asc"})):
+            by_symbol.setdefault(row.pop("symbol"), []).append(row)
+        return self._cloudflare_put("ipos", [{**row, "subscriptions": by_symbol.get(row["symbol"], [])} for row in issues])
+
     def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
         """Store deals not stored yet. The key is the whole trade, so a stored deal
         never changes; re-sending the history each run used to rewrite every row."""
