@@ -151,8 +151,8 @@ jobs:
             ${DRY_RUN}
 
       # FII/DII cash flows and participant-wise F&O open interest
-      # (workers/market_flows.py). Each session is written once, so the
-      # 15-minute runs cost one small request each until NSE posts the day.
+      # (workers/market_flows.py). Each session is written once; until NSE
+      # posts the day a run asks for the flows and each due OI file (a 404).
       # Off until storage/market_flows_schema.sql is applied and the
       # MARKET_FLOWS_ENABLED repository variable is set to true.
       - name: Store FII/DII flows and participant OI

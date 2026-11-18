@@ -15,7 +15,7 @@ import os
 import time
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import requests
@@ -717,8 +717,8 @@ class DashboardRepository:
         return written
 
     # FII/DII cash flows and participant OI (workers/market_flows.py), keyed
-    # (market, session_date, category). The R2 object of the same name keeps
-    # the last LIVE_FLOW_SESSIONS sessions for the dashboard card.
+    # (market, session_date, category). Each table's R2 object holds its newest
+    # 260 sessions for the dashboard card.
     MARKET_FLOW_OBJECTS = {"fii_dii_flows": "fii-dii-flows", "participant_oi": "participant-oi"}
 
     def latest_flow_session(self, table: str) -> str | None:
@@ -733,8 +733,28 @@ class DashboardRepository:
             json=self._stamped(rows),
             headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
         )
-        self.put_live_series_object(self.MARKET_FLOW_OBJECTS[table], rows)
         return len(rows)
+
+    def sync_live_flow_object(self, table: str, keep_sessions: int = 260) -> bool:
+        """Rewrite the table's R2 object from the table when the object lacks its latest session."""
+        store = self._cloudflare()
+        latest = self.latest_flow_session(table) if store is not None else None
+        if latest is None:
+            return False
+        name = self.MARKET_FLOW_OBJECTS[table]
+        try:
+            body = store.get(self._live_path(name))
+            held = max((row["session_date"] for row in json.loads(body)["rows"]), default=None) if body else None
+        except Exception as exc:  # noqa: BLE001 -- unreadable: rebuild it
+            logger.warning("R2 %s object unreadable, rebuilding: %s", name, exc)
+            held = None
+        if held == latest:
+            return False
+        since = (date.fromisoformat(latest) - timedelta(days=keep_sessions * 7 // 5 + 30)).isoformat()
+        rows = self._paged(table, self._scoped({
+            "select": "*", "session_date": f"gte.{since}", "order": "session_date.asc,category.asc"}))
+        sessions = set(sorted({row["session_date"] for row in rows})[-keep_sessions:])
+        return self._cloudflare_put(name, [row for row in rows if row["session_date"] in sessions])
 
     def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
         """Store deals not stored yet. The key is the whole trade, so a stored deal
@@ -1075,24 +1095,6 @@ class DashboardRepository:
             logger.warning("R2 object %s not written: %s", self._live_path(name), exc)
             return False
         return True
-
-    def put_live_series_object(self, name: str, rows: list[dict[str, Any]], keep_sessions: int = 260) -> bool:
-        """The last object's rows overlaid by ``rows`` per (session_date, category), newest sessions kept.
-
-        An unreadable object is left alone, as the quotes object is."""
-        store = self._cloudflare()
-        if store is None:
-            return False
-        try:
-            body = store.get(self._live_path(name))
-            previous = json.loads(body)["rows"] if body else []
-        except Exception as exc:  # noqa: BLE001 -- keep the last object over a shrunken one
-            logger.warning("R2 %s object unreadable, left as it was: %s", name, exc)
-            return False
-        merged = {(row["session_date"], row["category"]): row for row in [*previous, *rows]}
-        sessions = sorted({key[0] for key in merged})[-keep_sessions:]
-        kept = [merged[key] for key in sorted(merged) if key[0] in set(sessions)]
-        return self._cloudflare_put(name, kept)
 
     def put_live_quotes_object(self, rows: list[dict[str, Any]], before: str) -> bool:
         """The market's quotes object: last object's rows, overlaid by ``rows``.

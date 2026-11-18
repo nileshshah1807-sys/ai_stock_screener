@@ -147,11 +147,11 @@ def run(
 
     latest = repo.latest_flow_session("fii_dii_flows")
     try:
-        payload = flows_loader()
-    except Exception as exc:  # noqa: BLE001 -- display evidence; the next run asks again
+        flows = parse_flows(flows_loader())
+    except Exception as exc:  # noqa: BLE001 -- a refusal or a changed page; display evidence, the next run asks again
         logger.warning("FII/DII flows not read: %s", exc)
-        payload = []
-    flows = [row for row in parse_flows(payload) if latest is None or row["session_date"] > latest]
+        flows = []
+    flows = [row for row in flows if latest is None or row["session_date"] > latest]
 
     oi: list[dict[str, Any]] = []
     for n, day in enumerate(due_days(repo.latest_flow_session("participant_oi"), today, backfill=backfill)):
@@ -159,17 +159,20 @@ def run(
             sleep(PAUSE_SECONDS)
         try:
             text = oi_loader(day)
-        except Exception as exc:  # noqa: BLE001 -- stored so far is kept; the next run resumes here
+            if text is not None:
+                oi += parse_oi(text, day)
+        except Exception as exc:  # noqa: BLE001 -- a refusal or a block page; what was read is kept, the next run resumes here
             logger.warning("Participant OI for %s not read, stopping: %s", day, exc)
             break
-        if text is not None:
-            oi += parse_oi(text, day)
 
     if not dry_run:
         if flows:
             repo.upsert_market_flows("fii_dii_flows", flows)
         if oi:
             repo.upsert_market_flows("participant_oi", oi)
+        # Rebuilt from the table whenever the object is behind it, so a missed R2 write heals next run.
+        for table in ("fii_dii_flows", "participant_oi"):
+            repo.sync_live_flow_object(table)
     counts = {"flows": len(flows), "oi": len(oi), "oi_sessions": len({row["session_date"] for row in oi})}
     logger.info("Market flows: %s%s", counts, " (dry run, nothing written)" if dry_run else "")
     return counts

@@ -26,6 +26,9 @@ class FakeRepo:
         self.written.setdefault(table, []).extend(rows)
         return len(rows)
 
+    def sync_live_flow_object(self, table):
+        self.synced = [*getattr(self, "synced", []), table]
+
 
 class ParseTests(unittest.TestCase):
     def test_flows_read_both_categories_in_crore(self):
@@ -96,6 +99,14 @@ class RunTests(unittest.TestCase):
                                   oi_loader=oi_loader, sleep=lambda _: None)
         self.assertEqual((counts["flows"], counts["oi_sessions"]), (0, 1))
 
+    def test_a_block_page_or_changed_layout_degrades(self):
+        repo = FakeRepo({"participant_oi": "2026-11-16"})
+        bad_flows = [{**FLOWS[0], "date": "18/11/2026"}]
+        counts = market_flows.run(repo, today=date(2026, 11, 18), flows_loader=lambda: bad_flows,
+                                  oi_loader=lambda day: "<html>Access Denied</html>", sleep=lambda _: None)
+        self.assertEqual((counts["flows"], counts["oi"], repo.written), (0, 0, {}))
+        self.assertEqual(repo.synced, ["fii_dii_flows", "participant_oi"])
+
     def test_dry_run_writes_nothing(self):
         repo = FakeRepo()
         counts, _ = self.run_with(repo, {date(2026, 11, 17)}, dry_run=True)
@@ -108,27 +119,53 @@ class RunTests(unittest.TestCase):
 
 
 class LiveObjectTests(unittest.TestCase):
-    def test_the_object_overlays_and_keeps_the_newest_sessions(self):
+    ROWS = [{"market": "NSE", "session_date": d, "category": c, "net_value": 1}
+            for d in ("2026-11-16", "2026-11-17", "2026-11-18") for c in ("DII", "FII")]
+
+    def repo(self, held):
         from storage.dashboard_repository import DashboardRepository
 
         class Store:
-            body = json.dumps({"rows": [{"session_date": "2026-11-16", "category": "FII", "net_value": 1},
-                                        {"session_date": "2026-11-17", "category": "FII", "net_value": 2}]}).encode()
+            def __init__(self):
+                self.body, self.puts = held, []
 
             def get(self, path):
                 return self.body
 
             def put(self, path, body, content_type):
-                self.path, self.written = path, json.loads(body)
+                self.puts.append((path, json.loads(body)))
 
         repo = DashboardRepository("https://example.supabase.co", "key", market="NSE")
-        repo._r2 = store = Store()
-        repo.put_live_series_object("fii-dii-flows", [{"session_date": "2026-11-17", "category": "FII", "net_value": 3},
-                                                      {"session_date": "2026-11-18", "category": "FII", "net_value": 4}],
-                                    keep_sessions=2)
-        self.assertEqual(store.path, "live/NSE/fii-dii-flows.json")
-        self.assertEqual([(r["session_date"], r["net_value"]) for r in store.written["rows"]],
-                         [("2026-11-17", 3), ("2026-11-18", 4)])
+        repo._r2 = Store()
+        repo.latest_flow_session = lambda table: "2026-11-18"
+        repo._paged = lambda path, params: self.ROWS
+        return repo
+
+    def test_an_object_behind_the_table_is_rebuilt_from_it(self):
+        # the last run's put failed: the object stops at 17 Nov though the table has 18 Nov
+        held = json.dumps({"rows": self.ROWS[:4]}).encode()
+        repo = self.repo(held)
+        self.assertTrue(repo.sync_live_flow_object("fii_dii_flows", keep_sessions=2))
+        path, body = repo._r2.puts[0]
+        self.assertEqual(path, "live/NSE/fii-dii-flows.json")
+        self.assertEqual(sorted({row["session_date"] for row in body["rows"]}), ["2026-11-17", "2026-11-18"])
+
+    def test_an_up_to_date_object_is_left_alone(self):
+        repo = self.repo(json.dumps({"rows": self.ROWS}).encode())
+        self.assertFalse(repo.sync_live_flow_object("participant_oi"))
+        self.assertEqual(repo._r2.puts, [])
+
+    def test_upsert_keys_on_market_session_and_category(self):
+        from unittest import mock
+
+        from storage.dashboard_repository import DashboardRepository
+
+        repo = DashboardRepository("https://example.supabase.co", "key", market="NSE")
+        repo._request = mock.Mock()
+        repo.upsert_market_flows("participant_oi", [{"session_date": "2026-11-17", "category": "FII"}])
+        method, path = repo._request.call_args.args
+        self.assertEqual((method, path), ("POST", "participant_oi?on_conflict=market,session_date,category"))
+        self.assertEqual(repo._request.call_args.kwargs["json"][0]["market"], "NSE")
 
 
 if __name__ == "__main__":
