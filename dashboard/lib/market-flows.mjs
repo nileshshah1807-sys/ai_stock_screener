@@ -1,14 +1,12 @@
 /**
  * The NSE Market page's flows card, worked out from the rows
- * workers/market_flows.py writes (tables fii_dii_flows and participant_oi, and
- * the R2 objects live/NSE/fii-dii-flows.json and participant-oi.json):
- * `{ session_date, category, net_value, ... }`, values in rupees crore, and
- * `{ session_date, category, future_index_long, future_index_short, ... }`,
- * in contracts. Display only: nothing scores on it.
+ * workers/market_flows.py writes (table fii_dii_flows and
+ * the R2 object live/NSE/fii-dii-flows.json):
+ * `{ session_date, category, net_value, ... }`, values in rupees crore, plus the
+ * object's calendar-year totals. Display only: nothing scores on it.
  */
 
 export const FLOW_BARS = 20;
-export const OI_CATEGORIES = ["Client", "FII", "DII", "Pro"];
 
 const net = (row) => (typeof row?.net_value === "number" && Number.isFinite(row.net_value) ? row.net_value : null);
 const sum = (values) => (values.some((v) => v !== null) ? values.reduce((a, v) => a + (v ?? 0), 0) : null);
@@ -40,18 +38,19 @@ export function flowSummary(rows) {
 }
 
 /**
- * Index-futures positioning on the latest session: per participant, long and short
- * contracts, net (long - short) and the long share of their open positions.
- * null when there are no rows.
+ * Calendar-year totals from the object's `years` (storage/dashboard_repository.py,
+ * fii_dii_years): newest first, each { year, fii, dii, sessions }, nets in crore,
+ * null where a side was not reported. null when there are none.
  */
-export function indexFuturesPositioning(rows) {
-  const latest = (rows ?? []).reduce((max, row) => (row?.session_date > max ? row.session_date : max), "");
-  if (!latest) return null;
-  const today = new Map(rows.filter((row) => row.session_date === latest).map((row) => [row.category, row]));
-  const participants = OI_CATEGORIES.filter((c) => today.has(c)).map((category) => {
-    const long = Number(today.get(category).future_index_long);
-    const short = Number(today.get(category).future_index_short);
-    return { category, long, short, net: long - short, longShare: long + short ? long / (long + short) : null };
-  });
-  return { date: latest, participants };
+export function flowYears(years) {
+  const byYear = new Map();
+  for (const row of Array.isArray(years) ? years : []) {
+    if ((row?.category !== "FII" && row?.category !== "DII") || !Number.isInteger(row.year)) continue;
+    const entry = byYear.get(row.year) ?? { year: row.year, fii: null, dii: null, sessions: 0 };
+    entry[row.category === "FII" ? "fii" : "dii"] = net(row);
+    entry.sessions = Math.max(entry.sessions, Number(row.sessions) || 0);
+    byYear.set(row.year, entry);
+  }
+  const rows = [...byYear.values()].sort((a, b) => b.year - a.year);
+  return rows.length ? rows : null;
 }

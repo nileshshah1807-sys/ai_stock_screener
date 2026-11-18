@@ -2,50 +2,42 @@
 
 import { useEffect, useState } from "react";
 
-import { useLiveFromR2 } from "@/components/market-provider";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDate, formatInteger, formatNumber } from "@/lib/format";
-import { flowSummary, indexFuturesPositioning } from "@/lib/market-flows.mjs";
-import { importFailed, lazyClient, liveApi } from "@/lib/supabase/lazy-client";
+import { formatDate, formatNumber } from "@/lib/format";
+import { liveApi } from "@/lib/supabase/lazy-client";
 import { cn } from "@/lib/utils";
 
 type FlowSession = { date: string; fii: number | null; dii: number | null };
 type FlowWindow = { sessions: number; fii: number | null; dii: number | null };
 type Flows = { date: string; bars: FlowSession[]; fiveDay: FlowWindow; monthToDate: FlowWindow };
-type Participant = { category: string; long: number; short: number; net: number; longShare: number | null };
-type Positioning = { date: string; participants: Participant[] };
-type Data = { flows: Flows | null; positioning: Positioning | null };
-
-/** Enough sessions for 20 bars and any month to date, two rows a session. */
-const FLOW_ROWS = 50;
+type FlowYear = { year: number; fii: number | null; dii: number | null; sessions: number };
+type Data = { flows: Flows | null; years: FlowYear[] | null };
 
 /**
- * NSE's institutional flows on the Market page: FII and DII net cash buying per
- * session, and index-futures open positions by participant
- * (workers/market_flows.py). Read once in the browser after render, from the R2
- * objects through /api/live or from the tables, so the page's server render does
- * no work for it. Daily data: no polling.
+ * NSE's institutional cash flows on the Market page: FII and DII net buying per
+ * session and per calendar year (workers/market_flows.py). Read once in the
+ * browser after render from the R2 object through /api/live, so the page's
+ * server render does no work for it. Daily data: no polling.
  */
 export function MarketFlows() {
-  const fromR2 = useLiveFromR2();
   const [data, setData] = useState<Data | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let stopped = false;
-    void read(fromR2).then((answer) => {
+    void liveApi({ market: "NSE", kind: "flows" }).then(({ data: answer, error }) => {
       if (stopped) return;
-      if (answer) setData(answer);
-      else setFailed(true);
+      if (error || !answer) setFailed(true);
+      else setData(answer as Data);
     });
     return () => {
       stopped = true;
     };
-  }, [fromR2]);
+  }, []);
 
   return (
     <section aria-labelledby="market-flows-title" className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id="market-flows-title" className="text-lead font-semibold tracking-[-0.011em]">
           FII and DII flows
         </h2>
@@ -54,37 +46,18 @@ export function MarketFlows() {
       {data ? (
         <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
           <FlowsPanel flows={data.flows} />
-          <PositioningPanel positioning={data.positioning} />
+          <YearsPanel years={data.years} latest={data.flows?.date ?? null} />
         </div>
       ) : failed ? (
-        <div className="panel px-5 py-8 text-center text-sm text-muted-foreground">Couldn&rsquo;t load institutional flows.</div>
+        <div className="panel px-5 py-8 text-center text-sm text-muted-foreground">Couldn&rsquo;t load institutional flows. Reload the page to try again.</div>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
-          <Skeleton className="h-64 rounded-xl" />
-          <Skeleton className="h-64 rounded-xl" />
+        <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]" aria-busy>
+          <Skeleton className="h-80 rounded-xl" />
+          <Skeleton className="h-80 rounded-xl" />
         </div>
       )}
     </section>
   );
-}
-
-async function read(fromR2: boolean): Promise<Data | null> {
-  if (fromR2) {
-    const { data, error } = await liveApi({ market: "NSE", kind: "flows" });
-    return error ? null : (data as Data);
-  }
-  const answers = await lazyClient()
-    .then((client) =>
-      Promise.all([
-        client.from("fii_dii_flows").select("session_date,category,net_value").eq("market", "NSE").order("session_date", { ascending: false }).limit(FLOW_ROWS),
-        // Four participants a session: the newest four rows are the latest session.
-        client.from("participant_oi").select("session_date,category,future_index_long,future_index_short").eq("market", "NSE").order("session_date", { ascending: false }).limit(4),
-      ]),
-    )
-    .catch((error) => [importFailed(error), importFailed(error)] as const);
-  const [flows, oi] = answers;
-  if (flows.error || oi.error) return null;
-  return { flows: flowSummary(flows.data), positioning: indexFuturesPositioning(oi.data) };
 }
 
 const crore = (value: number | null) =>
@@ -93,11 +66,7 @@ const tone = (value: number | null) => (value === null || value === 0 ? "" : val
 
 function FlowsPanel({ flows }: { flows: Flows | null }) {
   if (!flows) {
-    return (
-      <div className="panel px-5 py-8 text-sm text-muted-foreground">
-        No cash-flow sessions recorded yet. The history starts with the first session the daily job stores.
-      </div>
-    );
+    return <div className="panel px-5 py-8 text-sm text-muted-foreground">No sessions published yet. The next evening run adds them.</div>;
   }
   const largest = Math.max(1, ...flows.bars.flatMap((s) => [Math.abs(s.fii ?? 0), Math.abs(s.dii ?? 0)]));
   return (
@@ -111,7 +80,7 @@ function FlowsPanel({ flows }: { flows: Flows | null }) {
       <Bars label="FII net per session" bars={flows.bars} side="fii" largest={largest} />
       <Bars label="DII net per session" bars={flows.bars} side="dii" largest={largest} />
       <p className="text-xs text-muted-foreground">
-        Net buying (buys less sells) in the cash market, in rupees crore, as NSE reports it. Both rows share one scale.
+        Net buying (buys less sells) in the cash market, in rupees crore. Both rows share one scale.
       </p>
     </div>
   );
@@ -154,58 +123,69 @@ function Bars({ label, bars, side, largest }: { label: string; bars: FlowSession
   );
 }
 
-function PositioningPanel({ positioning }: { positioning: Positioning | null }) {
+/**
+ * Net per calendar year, FII and DII on one scale, each with a bar out from a
+ * centre line. On a wide screen it takes the session panel's height and scrolls.
+ */
+function YearsPanel({ years, latest }: { years: FlowYear[] | null; latest: string | null }) {
+  if (!years) {
+    return <div className="panel px-5 py-8 text-sm text-muted-foreground">Yearly totals appear with the next evening run.</div>;
+  }
+  const largest = Math.max(1, ...years.flatMap((y) => [Math.abs(y.fii ?? 0), Math.abs(y.dii ?? 0)]));
+  const currentYear = latest ? Number(latest.slice(0, 4)) : null;
   return (
-    <div className="panel p-4 sm:p-5">
+    <div className="panel flex flex-col p-4 sm:p-5 lg:h-0 lg:min-h-full">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-        <h3 className="text-sm font-semibold">Index futures positions</h3>
-        {positioning ? <p className="text-xs text-muted-foreground">Open contracts, {formatDate(positioning.date)}</p> : null}
+        <h3 className="text-sm font-semibold">Year by year</h3>
+        <p className="text-xs text-muted-foreground">
+          Net, rupees crore, {years.at(-1)?.year} to {years[0].year}
+        </p>
       </div>
-      {positioning?.participants.length ? (
-        <table className="mt-3 w-full text-sm tabular-nums">
-          <thead>
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label="FII and DII net by year"
+        className="mt-3 min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-row outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <table className="w-full text-sm tabular-nums">
+          <thead className="sticky top-0 z-10 bg-(--card)">
             <tr className="text-xs text-muted-foreground">
-              <th scope="col" className="py-1.5 text-left font-normal">Participant</th>
-              <th scope="col" className="py-1.5 text-right font-normal">Long</th>
-              <th scope="col" className="py-1.5 text-right font-normal">Short</th>
-              <th scope="col" className="py-1.5 text-right font-normal">Net</th>
+              <th scope="col" className="w-16 py-1.5 pr-3 text-left font-normal">Year</th>
+              <th scope="col" className="py-1.5 pl-3 text-right font-normal">FII</th>
+              <th scope="col" className="py-1.5 pl-3 text-right font-normal">DII</th>
             </tr>
           </thead>
           <tbody>
-            {positioning.participants.map((p) => (
-              <tr key={p.category} className="border-t">
-                <th scope="row" className="py-2.5 text-left font-medium">
-                  {p.category}
-                  <LongShare share={p.longShare} />
+            {years.map((y) => (
+              <tr key={y.year} className="border-t">
+                <th scope="row" className="py-2 pr-3 text-left align-top font-medium">
+                  {y.year}
+                  {y.year === currentYear ? <span className="block text-micro font-normal text-muted-foreground">to date</span> : null}
                 </th>
-                <td className="py-2.5 text-right">{formatInteger(p.long)}</td>
-                <td className="py-2.5 text-right">{formatInteger(p.short)}</td>
-                <td className={cn("py-2.5 text-right font-medium", tone(p.net))}>
-                  {p.net > 0 ? "+" : p.net < 0 ? "−" : ""}
-                  {formatInteger(Math.abs(p.net))}
-                </td>
+                <NetCell value={y.fii} largest={largest} />
+                <NetCell value={y.dii} largest={largest} />
               </tr>
             ))}
           </tbody>
         </table>
-      ) : (
-        <p className="mt-3 text-sm text-muted-foreground">No positions recorded yet.</p>
-      )}
-      <p className="mt-3 text-xs text-muted-foreground">From NSE&rsquo;s participant-wise open interest. The bar is each participant&rsquo;s long share.</p>
+      </div>
     </div>
   );
 }
 
-/** The long share of a participant's open index-futures contracts, as a split bar. */
-function LongShare({ share }: { share: number | null }) {
-  if (share === null) return null;
-  const percent = Math.round(share * 100);
+/** A year's net with a bar from the centre: right for net buying, left for net selling. */
+function NetCell({ value, largest }: { value: number | null; largest: number }) {
+  const width = value === null ? 0 : (Math.abs(value) / largest) * 50;
   return (
-    <span className="mt-1 flex items-center gap-2 text-micro font-normal text-muted-foreground">
-      <span aria-hidden className="flex h-1.5 w-20 overflow-hidden rounded-full bg-negative/60">
-        <span className="bg-positive" style={{ width: `${percent}%` }} />
+    <td className="py-2 pl-3 text-right align-top">
+      <span className={cn("font-medium", tone(value))}>{crore(value)}</span>
+      <span aria-hidden className="relative mt-1.5 block h-1 rounded-full bg-(--control)">
+        <span className="absolute inset-y-[-2px] left-1/2 w-px bg-border" />
+        <span
+          className={cn("absolute inset-y-0 rounded-full", value !== null && value < 0 ? "right-1/2 bg-negative/80" : "left-1/2 bg-positive/80")}
+          style={{ width: `${width}%` }}
+        />
       </span>
-      {percent}% long
-    </span>
+    </td>
   );
 }

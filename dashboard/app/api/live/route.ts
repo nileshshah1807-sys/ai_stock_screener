@@ -17,17 +17,17 @@ const SCOPES = new Set(["market", "sector", "industry"]);
  * The browser's live reads, once the live objects are read from R2
  * (`TABLE_BACKEND` names live_quotes): `kind` stock (`live_valuation` rows),
  * index (`live_quotes` levels), market (`live_market`), breadth
- * (`live_breadth`) or flows (NSE's FII/DII cash flows and F&O positioning), answered as `{ data }` in the shapes those returned.
+ * (`live_breadth`) or flows (NSE's FII/DII cash flows), answered as `{ data }` in the shapes those returned.
  * Signed-in viewers with access only: the objects bypass row-level security.
  * A rating is returned only to an admin, on the movers, as live_market() does.
  */
 export async function GET(request: NextRequest) {
-  if (!readsFromCloudflare("live_quotes")) return NextResponse.json({ error: "not enabled" }, { status: 404 });
-  if (!(await getViewer())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
   const params = request.nextUrl.searchParams;
   const market = params.get("market") as MarketCode;
   const kind = params.get("kind");
+  // FII/DII flows live only in D1 and R2 (no Supabase twin), so they are served whatever TABLE_BACKEND says.
+  if (kind !== "flows" && !readsFromCloudflare("live_quotes")) return NextResponse.json({ error: "not enabled" }, { status: 404 });
+  if (!(await getViewer())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!MARKETS.has(market)) return NextResponse.json({ error: "bad market" }, { status: 400 });
 
   try {

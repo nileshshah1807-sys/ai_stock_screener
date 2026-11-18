@@ -1,8 +1,8 @@
 import "server-only";
 
 import { liveBreadth, liveMarket, quoteRow, valuation } from "@/lib/live-compute.mjs";
-import { LIVE_OBJECT_TTL_MS, readLiveObject } from "@/lib/live-objects";
-import { flowSummary, indexFuturesPositioning } from "@/lib/market-flows.mjs";
+import { LIVE_OBJECT_TTL_MS, readLiveBody, readLiveObject } from "@/lib/live-objects";
+import { flowSummary, flowYears } from "@/lib/market-flows.mjs";
 import type { MarketCode } from "@/lib/markets";
 import { getLatestRun, getRatedSymbols } from "@/lib/queries";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
@@ -95,8 +95,8 @@ async function computeBreadth(market: MarketCode, scope: string, name: string) {
   return liveBreadth(rows, levels ?? [], session, scope, name);
 }
 
-/** The flows card's answer (lib/market-flows.mjs), from the two R2 objects; null parts where an object is absent. */
+/** The flows card's answer (lib/market-flows.mjs) from the R2 object; null parts while it is absent. */
 export async function liveFlowsData(market: MarketCode) {
-  const [flows, oi] = await Promise.all([readLiveObject(market, "fii-dii-flows"), readLiveObject(market, "participant-oi")]);
-  return { flows: flowSummary(flows), positioning: indexFuturesPositioning(oi) };
+  const body = await readLiveBody(market, "fii-dii-flows");
+  return { flows: flowSummary(body?.rows ?? null), years: flowYears(body?.years) };
 }

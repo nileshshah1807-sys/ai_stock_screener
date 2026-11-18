@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { FLOW_BARS, flowSummary, indexFuturesPositioning } from "./market-flows.mjs";
+import { FLOW_BARS, flowSummary, flowYears } from "./market-flows.mjs";
 
 const flow = (date, category, net_value) => ({ session_date: date, category, net_value });
 
@@ -38,14 +38,12 @@ test("bars keep the newest FLOW_BARS sessions; no rows is null", () => {
   assert.equal(flowSummary(null), null);
 });
 
-test("index-futures positioning reads the latest session, in participant order", () => {
-  const oi = (date, category, long, short) => ({ session_date: date, category, future_index_long: long, future_index_short: short });
-  const p = indexFuturesPositioning([oi("2026-11-17", "FII", 1, 1), oi("2026-11-18", "Pro", 30, 10), oi("2026-11-18", "FII", 25, 75), oi("2026-11-18", "Client", 0, 0)]);
-  assert.equal(p.date, "2026-11-18");
-  assert.deepEqual(p.participants, [
-    { category: "Client", long: 0, short: 0, net: 0, longShare: null },
-    { category: "FII", long: 25, short: 75, net: -50, longShare: 0.25 },
-    { category: "Pro", long: 30, short: 10, net: 20, longShare: 0.75 },
+test("flowYears pairs FII and DII per year, newest first; nothing is null", () => {
+  const y = (year, category, net_value, sessions) => ({ year, category, net_value, sessions, buy_value: 1, sell_value: 1 });
+  assert.deepEqual(flowYears([y(2025, "FII", -10.5, 249), y(2026, "DII", 30, 220), y(2026, "FII", 5, 220), y(2025, "DII", null, 249), y(2025, "Other", 1, 1)]), [
+    { year: 2026, fii: 5, dii: 30, sessions: 220 },
+    { year: 2025, fii: -10.5, dii: null, sessions: 249 },
   ]);
-  assert.equal(indexFuturesPositioning([]), null);
+  assert.equal(flowYears([]), null);
+  assert.equal(flowYears(undefined), null);
 });

@@ -19,20 +19,28 @@ type R2Bucket = { get(key: string): Promise<{ text(): Promise<string> } | null> 
 /** A quote run lands every five minutes; half a minute keeps every viewer on one parse per instance. */
 export const LIVE_OBJECT_TTL_MS = 30_000;
 
-const memo = sharedMemo<Record<string, unknown>[] | null>(LIVE_OBJECT_TTL_MS, 20);
+type LiveBody = { rows?: Record<string, unknown>[] } & Record<string, unknown>;
+
+const memo = sharedMemo<LiveBody | null>(LIVE_OBJECT_TTL_MS, 20);
 
 const MARKETS = new Set(["NSE", "US"]);
 
-async function load(market: string, name: string): Promise<Record<string, unknown>[] | null> {
+async function load(market: string, name: string): Promise<LiveBody | null> {
   const bucket = (getCloudflareContext().env as Record<string, unknown>).MARKET_DATA as R2Bucket | undefined;
   if (!bucket) throw new Error("no MARKET_DATA binding");
   const object = await bucket.get(`live/${market}/${name}.json`);
   if (!object) return null;
-  return (JSON.parse(await object.text()) as { rows?: Record<string, unknown>[] }).rows ?? [];
+  return JSON.parse(await object.text()) as LiveBody;
 }
 
-/** The object's rows, read at most once per LIVE_OBJECT_TTL_MS per instance; null when it is absent. */
-export function readLiveObject(market: string, name: string): Promise<Record<string, unknown>[] | null> {
+/** The whole object (rows and any extra fields), read at most once per LIVE_OBJECT_TTL_MS per instance; null when absent. */
+export function readLiveBody(market: string, name: string): Promise<LiveBody | null> {
   if (!MARKETS.has(market)) return Promise.resolve(null);
-  return memo(`${market}:${name}`, () => load(market, name), (rows) => rows !== null);
+  return memo(`${market}:${name}`, () => load(market, name), (body) => body !== null);
+}
+
+/** The object's rows; null when it is absent. */
+export async function readLiveObject(market: string, name: string): Promise<Record<string, unknown>[] | null> {
+  const body = await readLiveBody(market, name);
+  return body ? (body.rows ?? []) : null;
 }
