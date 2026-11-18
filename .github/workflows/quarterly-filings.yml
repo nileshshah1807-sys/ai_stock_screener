@@ -150,6 +150,22 @@ jobs:
             ${FULL} \
             ${DRY_RUN}
 
+      # FII/DII cash flows and participant-wise F&O open interest
+      # (workers/market_flows.py). Each session is written once, so the
+      # 15-minute runs cost one small request each until NSE posts the day.
+      # Off until storage/market_flows_schema.sql is applied and the
+      # MARKET_FLOWS_ENABLED repository variable is set to true.
+      - name: Store FII/DII flows and participant OI
+        if: ${{ !cancelled() && vars.MARKET_FLOWS_ENABLED == 'true' }}
+        timeout-minutes: 3
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.market_flows --market NSE ${DRY_RUN}
+
       # Results and shareholding of companies listed on BSE alone, through the
       # two steps above's own code (workers/bse_filings.py). Stores nothing
       # until workers/bse_source.py is written.

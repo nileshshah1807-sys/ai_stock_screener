@@ -716,6 +716,26 @@ class DashboardRepository:
             written += len(chunk)
         return written
 
+    # FII/DII cash flows and participant OI (workers/market_flows.py), keyed
+    # (market, session_date, category). The R2 object of the same name keeps
+    # the last LIVE_FLOW_SESSIONS sessions for the dashboard card.
+    MARKET_FLOW_OBJECTS = {"fii_dii_flows": "fii-dii-flows", "participant_oi": "participant-oi"}
+
+    def latest_flow_session(self, table: str) -> str | None:
+        rows = self._request("GET", table, params=self._scoped(
+            {"select": "session_date", "order": "session_date.desc", "limit": "1"}))
+        return rows[0]["session_date"] if rows else None
+
+    def upsert_market_flows(self, table: str, rows: list[dict[str, Any]]) -> int:
+        self._request(
+            "POST",
+            f"{table}?on_conflict=market,session_date,category",
+            json=self._stamped(rows),
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+        self.put_live_series_object(self.MARKET_FLOW_OBJECTS[table], rows)
+        return len(rows)
+
     def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
         """Store deals not stored yet. The key is the whole trade, so a stored deal
         never changes; re-sending the history each run used to rewrite every row."""
@@ -1055,6 +1075,24 @@ class DashboardRepository:
             logger.warning("R2 object %s not written: %s", self._live_path(name), exc)
             return False
         return True
+
+    def put_live_series_object(self, name: str, rows: list[dict[str, Any]], keep_sessions: int = 260) -> bool:
+        """The last object's rows overlaid by ``rows`` per (session_date, category), newest sessions kept.
+
+        An unreadable object is left alone, as the quotes object is."""
+        store = self._cloudflare()
+        if store is None:
+            return False
+        try:
+            body = store.get(self._live_path(name))
+            previous = json.loads(body)["rows"] if body else []
+        except Exception as exc:  # noqa: BLE001 -- keep the last object over a shrunken one
+            logger.warning("R2 %s object unreadable, left as it was: %s", name, exc)
+            return False
+        merged = {(row["session_date"], row["category"]): row for row in [*previous, *rows]}
+        sessions = sorted({key[0] for key in merged})[-keep_sessions:]
+        kept = [merged[key] for key in sorted(merged) if key[0] in set(sessions)]
+        return self._cloudflare_put(name, kept)
 
     def put_live_quotes_object(self, rows: list[dict[str, Any]], before: str) -> bool:
         """The market's quotes object: last object's rows, overlaid by ``rows``.
