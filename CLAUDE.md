@@ -50,6 +50,13 @@ the scheduled workflows set the same flag.
   server render is the last resort, only for what needs a secret (billing,
   webhook, admin), and never on a timer. A new feature states which of these it
   uses. Detail and measurements: "Boundaries that matter" below.
+- **No explanatory footnotes in the dashboard.** A card or chart does not end
+  in a sentence telling the viewer how to read it ("Net buying (buys less
+  sells)…", "Both rows share one scale", "point at a session to read it"). The
+  owner finds it unprofessional (18 Nov 2026). Units go in the values (`₹ cr`),
+  labels in short headings and captions; how to use an interaction is said in
+  its `aria-label`, for screen readers only. A caveat that changes what a number
+  means belongs in a short label beside it, not a paragraph under it.
 
 ## Markets
 

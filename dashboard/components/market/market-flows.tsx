@@ -123,9 +123,6 @@ function FlowsPanel({ flows }: { flows: Flows | null }) {
           <span className={cn(at !== null && "font-medium text-foreground")}>{formatDate(shown.date)}</span>
         </p>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Net buying (buys less sells) in the cash market, in rupees crore; the evening&rsquo;s figures are NSE&rsquo;s provisional ones. Both rows share one scale; point at a session to read it.
-      </p>
     </div>
   );
 }
