@@ -3,8 +3,10 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { Check } from "lucide-react";
 
 import { PERIOD_LABEL, planTitle, priceLabel } from "@/lib/billing.mjs";
+import { PLAN_INCLUDES } from "@/lib/plan-includes.mjs";
 import type { Plan } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
@@ -137,6 +139,20 @@ export function PricingPlans({
       </div>
 
       {note ? <div data-arrive className="mt-3">{note}</div> : null}
+
+      <section data-arrive aria-labelledby="plan-includes" className="mt-6">
+        <h3 id="plan-includes" className="text-sm font-semibold">What you get</h3>
+        <ul className="mt-3 grid gap-x-10 gap-y-2.5 text-sm sm:grid-cols-2">
+          {PLAN_INCLUDES.map(([name, fact]) => (
+            <li key={name} className="flex gap-2.5">
+              <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-brand" />
+              <span>
+                <span className="font-medium">{name}:</span> <span className="text-muted-foreground">{fact}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
