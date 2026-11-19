@@ -132,6 +132,20 @@ class ParseTests(unittest.TestCase):
         self.assertNotIn("Amount in ₹ Crore", rows)
         self.assertIsNone(ipos.parse_financials("<html>no table</html>"))
 
+    def test_competitive_strengths_are_read_from_the_issue_page(self):
+        titled = ipos.parse_strengths((FIXTURES / "investorgain_issue_SIDDHIVINAYAK_20112026.html").read_text())
+        self.assertEqual(len(titled), 8)
+        self.assertEqual(titled[0], {
+            "title": "Integrated Sugarcane Processing Infrastructure",
+            "text": "An integrated manufacturing model that enables the production of multiple "
+                    "sugarcane-based products and value-added derivatives."})
+        plain = ipos.parse_strengths((FIXTURES / "investorgain_issue_FOODLINK_20112026.html").read_text())
+        self.assertEqual([item["title"] for item in plain], [None] * 5)
+        self.assertEqual(plain[-1]["text"], "Experienced promoter and professional management team with domain knowledge.")
+        self.assertNotIn("Not a strength.", [item["text"] for item in plain])  # the next list is not read
+        self.assertEqual(ipos.parse_strengths(ISSUE_PAGE), [])  # read, and it prints none
+        self.assertIsNone(ipos.parse_strengths(None))  # not read
+
     def test_gmp_matches_by_name_and_open_date(self):
         tracker = {ipos._name_key(row["name"]): row for row in ipos.parse_gmp(GMP_PAGE)}
         issue = {"company": "Mahanadi Coalfields Limited", "open_date": "2026-11-19"}
@@ -153,6 +167,30 @@ class RunTests(unittest.TestCase):
         self.assertFalse(set(ipos.INTERNAL) & set(crystal))
         self.assertEqual(crystal["financials"]["rows"][2]["label"], "Profit After Tax")
         self.assertIsNone(rows["MAHACOAL"]["financials"])  # its page printed no table
+
+    def test_strengths_are_stored_and_an_issue_page_is_read_once(self):
+        repo, _ = d1_repo()
+        titled = (FIXTURES / "investorgain_issue_SIDDHIVINAYAK_20112026.html").read_text()
+        pages = {"crystal-crop": ISSUE_PAGE, "watrana": titled}
+        asked = []
+
+        def issue_page(path):
+            asked.append(path)
+            return next((page for key, page in pages.items() if key in path), "<html></html>")
+
+        def once():
+            ipos.run(repo, today=TODAY, fetch=fetch_from(PAYLOADS), bars=lambda day: {"VPFL": (89.3, 84.8)},
+                     gmp_page=lambda: GMP_PAGE, issue_page=issue_page)
+
+        once()
+        rows = {row["symbol"]: row for row in repo._r2.objects["live/NSE/ipos.json"]["rows"]}
+        self.assertEqual(len(rows["WATRANA"]["strengths"]), 8)
+        self.assertEqual(rows["CRYSTALCP"]["strengths"], [])  # its page prints none
+        asked.clear()
+        once()
+        # Crystal's figures and strengths are both read; Watrana's page still lacks figures, so is asked again.
+        self.assertEqual([path for path in asked if "crystal-crop" in path or "watrana" in path],
+                         ["/gmp/watrana-rentals-ipo/1818/"])
 
     def test_a_second_run_changes_nothing_and_keeps_what_it_read(self):
         repo, db = d1_repo()

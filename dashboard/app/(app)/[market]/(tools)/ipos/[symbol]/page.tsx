@@ -165,6 +165,26 @@ function FinancialsTable({ financials }: { financials: NonNullable<Ipo["financia
   );
 }
 
+/** The prospectus's competitive strengths, in its order: a bold lead where the RHP gives one. */
+function StrengthsList({ strengths }: { strengths: NonNullable<Ipo["strengths"]> }) {
+  return (
+    <>
+      <ul className="space-y-3 text-sm leading-relaxed">
+        {strengths.map((item, i) => (
+          <li key={i} className="flex gap-3">
+            <span aria-hidden className="mt-[0.6em] size-1 shrink-0 rounded-full bg-positive" />
+            <p className="max-w-prose text-pretty">
+              {item.title ? <span className="font-semibold">{item.title}. </span> : null}
+              <span className={item.title ? "text-muted-foreground" : undefined}>{item.text}</span>
+            </p>
+          </li>
+        ))}
+      </ul>
+      <p className="tabular mt-4 text-[11px] text-muted-foreground">RHP · investorgain.com</p>
+    </>
+  );
+}
+
 /**
  * One issue: its book by category, the facts of the offer, the odds of a retail
  * allotment, the grey market (when switched on, labelled unofficial) and, once
@@ -286,6 +306,11 @@ export default async function IpoPage({ params }: PageProps<"/[market]/ipos/[sym
           {row.financials?.rows.length ? (
             <Panel title="Financials">
               <FinancialsTable financials={row.financials} />
+            </Panel>
+          ) : null}
+          {row.strengths?.length ? (
+            <Panel title="Strengths">
+              <StrengthsList strengths={row.strengths} />
             </Panel>
           ) : null}
         </div>

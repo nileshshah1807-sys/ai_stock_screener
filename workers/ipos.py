@@ -258,6 +258,35 @@ def parse_financials(page: str | None) -> dict[str, Any] | None:
             "unit": unit.group(1).lower() if unit else None, "periods": periods, "rows": rows}
 
 
+def _text(fragment: str) -> str:
+    return re.sub(r"\s+", " ", _cell(fragment)).strip()
+
+
+def parse_strengths(page: str | None) -> list[dict[str, Any]] | None:
+    """The competitive strengths an issue's tracker page prints from its RHP; None when there was no page.
+
+    ``[{"title", "text"}]`` in the page's order: a point led by a bold phrase keeps it
+    as ``title``, a plain point has ``title`` None. [] when the page prints no such list,
+    so a page read once is not asked again. The prospectus states no weaknesses beside
+    them; its risk factors are a chapter of the PDF, not read here.
+    """
+    if page is None:
+        return None
+    text = _flight_text(page)
+    heading = re.search(r"Competitive\s+Strengths?\s*:?\s*</strong>", text, re.I)
+    listing = re.match(r"\s*(?:</p>)?\s*<ul[^>]*>(.*?)</ul>", text[heading.end():], re.S) if heading else None
+    if listing is None:
+        return []
+    out = []
+    for item in re.findall(r"<li[^>]*>(.*?)</li>", listing.group(1), re.S):
+        lead = re.match(r"\s*(?:<p[^>]*>)?\s*<strong>(.*?)</strong>(.*)", item, re.S)
+        title = _text(lead.group(1)).rstrip(":").strip() if lead else None
+        body = re.sub(r"^[:\s–-]+", "", _text(lead.group(2) if lead else item))
+        if title or body:
+            out.append({"title": title or None, "text": body or None})
+    return out
+
+
 def _period(text: str) -> str | None:
     try:
         return datetime.strptime(text, "%d %b %Y").date().isoformat()
@@ -402,9 +431,9 @@ def run(
             _merge(row, gmp_fields(row, tracker))
             found = _tracked(row, tracker)
             # Read once: a prospectus's figures do not change while the issue is open.
-            if found and found.get("page") and not row.get("financials"):
-                page_text = _try(f"{row['symbol']} financials", lambda p=found["page"]: issue_page(p))
-                _merge(row, {"financials": parse_financials(page_text)})
+            if found and found.get("page") and (not row.get("financials") or row.get("strengths") is None):
+                page_text = _try(f"{row['symbol']} issue page", lambda p=found["page"]: issue_page(p))
+                _merge(row, {"financials": parse_financials(page_text), "strengths": parse_strengths(page_text)})
 
     changed = [row for symbol, row in rows.items() if row != stored.get(symbol)]
     columns = {key for row in changed for key in row}

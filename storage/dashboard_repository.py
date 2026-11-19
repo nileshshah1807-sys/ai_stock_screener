@@ -1183,6 +1183,22 @@ class DashboardRepository:
             return False
         return True
 
+    def listed_ipo_symbols(self) -> list[str]:
+        """The listed issues in the IPO object (``workers/ipos.py``): too new for the snapshot, still quoted.
+
+        [] when R2 is off, the object is absent (the US) or unreadable: live quotes go on without them.
+        """
+        store = self._cloudflare()
+        if store is None:
+            return []
+        try:
+            body = store.get(self._live_path("ipos"))
+            rows = json.loads(body)["rows"] if body else []
+        except Exception as exc:  # noqa: BLE001 -- a reading aid; quotes must still be written
+            logger.warning("R2 IPO object unreadable, listed issues not quoted: %s", exc)
+            return []
+        return sorted({str(row["symbol"]) for row in rows if row.get("symbol") and row.get("listing_date")})
+
     def put_live_quotes_object(self, rows: list[dict[str, Any]], before: str) -> bool:
         """The market's quotes object: last object's rows, overlaid by ``rows``.
 

@@ -56,7 +56,7 @@ function Measure({ label, value, detail, tone }: { label: string; value: string;
       <dt className="text-[11px] text-muted-foreground">{label}</dt>
       <dd className={cn("tabular font-mono text-[13px] font-semibold", tone)}>
         {value}
-        {detail ? <span className="ml-1.5 font-normal text-muted-foreground">{detail}</span> : null}
+        {detail ? <span className="block font-normal text-muted-foreground md:ml-1.5 md:inline">{detail}</span> : null}
       </dd>
     </div>
   );
@@ -67,7 +67,7 @@ function categoryLine(row: Ipo) {
   const parts = ["QIB", "NII", "Retail"]
     .map((name) => [name, formatTimes(categoryTimes(row, name))] as const)
     .filter(([, times]) => times)
-    .map(([name, times]) => `${name} ${times}`);
+    .map(([name, times]) => `${name} ${times}`); // a figure never splits from its category
   return parts.length ? parts.join(" · ") : null;
 }
 
@@ -75,7 +75,18 @@ function categoryLine(row: Ipo) {
  * One issue still in the market: dates, band and lot on the left; the book and
  * the grey market on the right. The whole row opens the issue.
  */
-export function IpoRow({ row, market, today }: { row: Ipo; market: Market; today: string }) {
+export function IpoRow({
+  row,
+  market,
+  today,
+  tagSme = true,
+}: {
+  row: Ipo;
+  market: Market;
+  today: string;
+  /** False on the SME-only list, where the tag would repeat on every row. */
+  tagSme?: boolean;
+}) {
   const status = issueStatus(row, today);
   const when =
     status === "upcoming"
@@ -106,11 +117,12 @@ export function IpoRow({ row, market, today }: { row: Ipo; market: Market; today
             company={row.company}
             link={false}
             emphasis="company"
-            sme={row.board === "SME"}
+            sme={tagSme && row.board === "SME"}
           />
           <p className="tabular text-xs text-muted-foreground">{facts.join(" · ")}</p>
         </div>
-        <dl className="flex flex-wrap items-start gap-x-6 gap-y-2 md:justify-end">
+        {/* Fixed tracks, so the book and the GMP start at the same x on every row. */}
+        <dl className="grid grid-cols-[minmax(0,1fr)_minmax(0,8.5rem)] items-start gap-x-6 gap-y-2 md:w-[29rem]">
           {status === "upcoming" ? (
             <Measure label="Book at top of band" value={formatMoneyCompact(bookSize(row), market)} />
           ) : (
@@ -139,7 +151,20 @@ export function IpoRow({ row, market, today }: { row: Ipo; market: Market; today
 }
 
 /** A listed issue: its listing day against the issue price, and today. */
-export function ListedRow({ row, market, now }: { row: Ipo; market: Market; now: number | null }) {
+export function ListedRow({
+  row,
+  market,
+  now,
+  columns,
+  tagSme = true,
+}: {
+  row: Ipo;
+  market: Market;
+  now: number | null;
+  /** The optional columns the table shows (listedColumns). */
+  columns: { subscribed: boolean; now: boolean };
+  tagSme?: boolean;
+}) {
   const cell = "tabular whitespace-nowrap px-3 py-2.5 text-right font-mono text-[13px]";
   const opened = changeFromIssue(row, row.listing_open);
   const closed = changeFromIssue(row, row.listing_close);
@@ -152,24 +177,28 @@ export function ListedRow({ row, market, now }: { row: Ipo; market: Market; now:
           href={marketPath(market.slug, `/ipos/${encodeURIComponent(row.symbol)}`)}
           className="block rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <StockIdentity symbol={row.symbol} company={row.company} link={false} sme={row.board === "SME"} />
+          <StockIdentity symbol={row.symbol} company={row.company} link={false} sme={tagSme && row.board === "SME"} />
         </Link>
       </th>
       <td className={cn(cell, "hidden text-muted-foreground sm:table-cell")}>{formatDate(row.listing_date)}</td>
       <td className={cn(cell, "hidden sm:table-cell")}>{formatMoney(row.issue_price ?? row.price_high, market, 0)}</td>
       <td className={cn(cell, changeTone(opened))}>{formatSignedPercent(opened) ?? MISSING}</td>
       <td className={cn(cell, "hidden md:table-cell", changeTone(closed))}>{formatSignedPercent(closed) ?? MISSING}</td>
-      <td className={cn(cell, "hidden lg:table-cell")}>{formatTimes(row.subscription_total) ?? MISSING}</td>
-      <td className={cell}>
-        {now == null ? (
-          MISSING
-        ) : (
-          <>
-            <span className="hidden sm:inline">{formatMoney(now, market, 2)}</span>
-            <span className={cn("sm:ml-1.5", changeTone(since))}>{formatSignedPercent(since) ?? ""}</span>
-          </>
-        )}
-      </td>
+      {columns.subscribed ? (
+        <td className={cn(cell, "hidden lg:table-cell")}>{formatTimes(row.subscription_total) ?? MISSING}</td>
+      ) : null}
+      {columns.now ? (
+        <td className={cell}>
+          {now == null ? (
+            MISSING
+          ) : (
+            <>
+              <span className="hidden sm:inline">{formatMoney(now, market, 2)}</span>
+              <span className={cn("sm:ml-1.5", changeTone(since))}>{formatSignedPercent(since) ?? ""}</span>
+            </>
+          )}
+        </td>
+      ) : null}
     </tr>
   );
 }

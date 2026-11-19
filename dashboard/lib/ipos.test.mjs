@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 
 import {
   allotmentOdds,
+  boardParam,
   bookSize,
   categoryTimes,
+  listQuery,
+  listedColumns,
+  onBoard,
   changeFromIssue,
   formatSignedPercent,
   formatTimes,
@@ -81,4 +85,32 @@ test("a GMP's time reads as the hour today and with its day before", () => {
   assert.equal(gmpStamp("2026-11-18T19:37:00+05:30", "2026-11-19"), "18 Nov, 19:37");
   assert.equal(gmpStamp(null, "2026-11-19"), null);
   assert.equal(periodLabel("2026-06-30"), "Jun 2026");
+});
+
+test("the board filter keeps one board, and an unnamed board only under all", () => {
+  const rows = [
+    { symbol: "CRYSTALCP", board: "Mainboard" },
+    { symbol: "WATRANA", board: "SME" },
+    { symbol: "ODD", board: null },
+  ];
+  assert.deepEqual(onBoard(rows, "sme").map((r) => r.symbol), ["WATRANA"]);
+  assert.deepEqual(onBoard(rows, "mainboard").map((r) => r.symbol), ["CRYSTALCP"]);
+  assert.equal(onBoard(rows, "all").length, 3);
+  assert.equal(boardParam("sme"), "sme");
+  assert.equal(boardParam("SME"), "all");
+  assert.equal(boardParam(undefined), "all");
+});
+
+test("the list's query carries the board and show-all, and nothing by default", () => {
+  assert.equal(listQuery("all", false), "");
+  assert.equal(listQuery("sme", false), "?board=sme");
+  assert.equal(listQuery("mainboard", true), "?board=mainboard&listed=all");
+  assert.equal(listQuery("all", true), "?listed=all");
+});
+
+test("a listed column no shown row has a value for is left out", () => {
+  const sme = [{ symbol: "HGSINDIALT", subscription_total: null }, { symbol: "MAXENGS", subscription_total: null }];
+  assert.deepEqual(listedColumns(sme, new Map()), { subscribed: false, now: false });
+  const mixed = [...sme, { symbol: "VPFL", subscription_total: 12.4 }];
+  assert.deepEqual(listedColumns(mixed, new Map([["MAXENGS", 160]])), { subscribed: true, now: true });
 });

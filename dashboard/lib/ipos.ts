@@ -38,6 +38,8 @@ export type Ipo = {
     periods: (string | null)[];
     rows: { label: string; values: (number | null)[] }[];
   } | null;
+  /** The RHP's competitive strengths as the tracker prints them; [] when it prints none, null before it is read. */
+  strengths: { title: string | null; text: string | null }[] | null;
 };
 
 /**

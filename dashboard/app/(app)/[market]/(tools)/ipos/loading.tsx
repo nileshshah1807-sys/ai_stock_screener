@@ -7,6 +7,7 @@ export default function IposLoading() {
     <div className="space-y-4 px-4 py-5 sm:px-6" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading IPOs…</span>
       <PageHeadingSkeleton />
+      <Skeleton className="h-8 w-64 rounded-lg" />
       <div className="panel divide-y">
         <Skeleton className="m-4 h-4 w-28" />
         {Array.from({ length: 3 }).map((_, i) => (

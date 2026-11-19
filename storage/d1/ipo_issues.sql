@@ -3,7 +3,9 @@
 -- One row per NSE issue (mainboard and SME), open, upcoming or listed within a
 -- year. "subscription" is a JSON array of the book's top-level categories;
 -- "financials" a JSON object of the restated figures the GMP tracker prints
--- (added 19 Nov 2026: ALTER TABLE "ipo_issues" ADD COLUMN "financials" TEXT).
+-- (added 19 Nov 2026: ALTER TABLE "ipo_issues" ADD COLUMN "financials" TEXT);
+-- "strengths" a JSON array of the RHP's competitive strengths as the tracker
+-- prints them (added 20 Nov 2026: ALTER TABLE "ipo_issues" ADD COLUMN "strengths" TEXT).
 CREATE TABLE IF NOT EXISTS "ipo_issues" (
     "market" TEXT NOT NULL DEFAULT 'NSE',
     "symbol" TEXT NOT NULL,
@@ -33,5 +35,6 @@ CREATE TABLE IF NOT EXISTS "ipo_issues" (
     "gmp_peak" REAL,
     "gmp_as_of" TEXT,
     "financials" TEXT,
+    "strengths" TEXT,
     PRIMARY KEY ("market", "symbol")
 ) WITHOUT ROWID;

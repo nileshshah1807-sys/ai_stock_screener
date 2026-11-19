@@ -66,6 +66,11 @@ class FakeRepo:
     def index_member_symbols(self):
         return self.members
 
+    ipos = ()
+
+    def listed_ipo_symbols(self):
+        return list(self.ipos)
+
     def replace_index_members(self, rows):
         self.replaced = rows
         return len(rows)
@@ -336,6 +341,14 @@ class RunTests(unittest.TestCase):
         self.assertEqual(by_symbol["BBB"]["change_pct"], -1)
         self.assertEqual(repo.pruned, "2026-10-09T06:15:00+00:00")
         self.assertIsNone(repo.live_sectors)  # no weights published yet: nothing written
+
+    def test_a_listed_ipo_not_yet_in_the_snapshot_is_quoted(self):
+        repo = FakeRepo(snapshot=["AAA"])
+        repo.ipos = ["VPFL"]
+        fetch, requested = fetcher({"AAA.NS": quote(101), "VPFL.NS": quote(88)})
+        run(repo, NSE, now=IN_SESSION, fetch_quotes=fetch, fetch_members=must_not_fetch)
+        self.assertIn("VPFL.NS", requested)
+        self.assertEqual({row["symbol"]: row["price"] for row in repo.quotes}["VPFL"], 88)
 
     def test_writes_each_sectors_live_change(self):
         repo = FakeRepo(snapshot=["AAA", "BBB"])

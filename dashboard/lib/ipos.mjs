@@ -34,6 +34,45 @@ export function groupIssues(rows, today) {
   return groups;
 }
 
+/** The board filter's options, in the order shown; `all` is the unfiltered list. */
+export const BOARDS = [
+  { value: "all", label: "All" },
+  { value: "mainboard", label: "Mainboard" },
+  { value: "sme", label: "SME" },
+];
+
+/** The `?board=` value as one of BOARDS; anything else is "all". */
+export function boardParam(value) {
+  return BOARDS.some((board) => board.value === value) ? value : "all";
+}
+
+/** The issues on one board; an issue whose board NSE did not name shows only under "all". */
+export function onBoard(rows, board) {
+  if (board === "all") return rows;
+  const name = board === "sme" ? "SME" : "Mainboard";
+  return rows.filter((row) => row.board === name);
+}
+
+/** The list page's query: "?board=sme&listed=all", "" for the default view. */
+export function listQuery(board, showAll) {
+  const params = new URLSearchParams();
+  if (board !== "all") params.set("board", board);
+  if (showAll) params.set("listed", "all");
+  const text = params.toString();
+  return text ? `?${text}` : "";
+}
+
+/**
+ * The listed table's optional columns that have a value in some row shown: a
+ * column of dashes alone is left out. `prices` is the page's map of today's prices.
+ */
+export function listedColumns(rows, prices) {
+  return {
+    subscribed: rows.some((row) => row.subscription_total != null),
+    now: rows.some((row) => prices.has(row.symbol)),
+  };
+}
+
 /** The book's ratio for one category ("QIB", "NII", "Retail", ...), or null when it has none. */
 export function categoryTimes(row, category) {
   return (row.subscription ?? []).find((entry) => entry.category === category)?.times ?? null;

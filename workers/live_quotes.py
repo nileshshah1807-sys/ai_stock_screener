@@ -279,7 +279,8 @@ def run(
             written = repo.replace_index_members(fresh_members)
             logger.info("Stored %d index constituents", written)
 
-    symbols = set(repo.latest_snapshot_symbols()) | set(repo.index_member_symbols())
+    # Listed IPOs too: the IPOs page shows their price now, weeks before the snapshot has them.
+    symbols = set(repo.latest_snapshot_symbols()) | set(repo.index_member_symbols()) | set(repo.listed_ipo_symbols())
     symbols |= {row["symbol"] for row in fresh_members or []}
     stock_tickers = {ticker_for(symbol, profile): symbol for symbol in sorted(symbols)}
     index_tickers = {
