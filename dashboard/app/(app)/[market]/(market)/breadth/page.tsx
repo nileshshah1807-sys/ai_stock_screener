@@ -61,12 +61,7 @@ export default async function BreadthPage({ params, searchParams }: PageProps<"/
   return (
     <div className="space-y-6 px-4 py-5 sm:px-6">
       <MarketDayNotice />
-      <div>
-        <h1 className="text-title font-semibold">Market breadth</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          How many stocks take part in a move, not just where the index is.
-        </p>
-      </div>
+      <h1 className="text-title font-semibold">Market breadth</h1>
 
       {flows?.length ? <FiiDiiFlows market={market} rows={flows} /> : null}
 

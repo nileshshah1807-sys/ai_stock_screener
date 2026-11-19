@@ -473,8 +473,9 @@ function MoverRow({ market, row }: { market: Market; row: LiveMover }) {
         {formatPercent(row.change_pct, 2, true)}
       </span>
       {/* The rating stays on a phone: it is the screener's verdict, and the
-          reason a mover is worth opening. */}
-      <span className="flex w-[4.5rem] shrink-0 justify-end sm:w-20">
+          reason a mover is worth opening. Wide enough for STRONG BUY (94px),
+          the widest badge, so it never runs over the change beside it. */}
+      <span className="flex w-24 shrink-0 justify-end">
         {row.rating ? <RatingBadge rating={row.rating} /> : null}
       </span>
     </StockListRow>

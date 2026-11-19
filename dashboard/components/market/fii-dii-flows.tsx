@@ -31,7 +31,7 @@ export function FiiDiiFlows({ market, rows }: { market: Market; rows: Record<str
         <h2 id="flows-title" className="text-lead font-semibold tracking-[-0.011em]">
           FII / DII cash flows
         </h2>
-        <p className="text-xs text-muted-foreground">NSE provisional figures for {formatDate(latest.session)}</p>
+        <p className="tabular text-xs text-muted-foreground">NSE provisional · {formatDate(latest.session)}</p>
       </div>
 
       <div className="panel grid gap-x-8 gap-y-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">

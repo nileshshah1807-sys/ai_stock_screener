@@ -45,7 +45,7 @@ export function SectorPeers({ market, sector, symbol }: { market: Market; sector
             Among {sector.name}
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {sector.count} stocks{sector.last_session ? ` · closing prices of ${formatDate(sector.last_session)}` : ""}
+            {sector.count} stocks{sector.last_session ? ` · ${formatDate(sector.last_session)}` : ""}
           </p>
         </div>
         <Link

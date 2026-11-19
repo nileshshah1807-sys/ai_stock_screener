@@ -41,6 +41,13 @@ the scheduled workflows set the same flag.
   whose input was never reported leaves both the numerator and the denominator,
   and the result is shrunk toward neutral. Never let an unreported metric score
   as the worst observed value.
+- **Dashboard copy: no explainer text** (owner, 19 Nov 2026). A page or panel is its
+  heading and its data. No subtitle saying what the page is, how a figure is built
+  or how to use a control: it reads as unprofessional and text-heavy. The most a
+  heading carries is a short source/date label (`NSE provisional · 19 Nov 2026`).
+  Method belongs in a code comment, or behind an existing closed disclosure
+  ("How it's counted"). Empty and error states still say what happened and what
+  to do next.
 
 ## Markets
 

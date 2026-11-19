@@ -38,10 +38,6 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
                 {market.label}
               </span>
             </div>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Our market-cap-weighted index of all {summary.count.toLocaleString(market.locale)} {sector.name} stocks
-              the screener tracks, what they cost, and every one of them.
-            </p>
           </div>
           <div className="sm:text-right">
             <p
@@ -75,15 +71,9 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
 
       {sector.level ? (
         <section aria-labelledby="index-title" className="space-y-3">
-          <div>
-            <h2 id="index-title" className="text-lead font-semibold tracking-[-0.011em]">
-              Sector index
-            </h2>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              Cap-weighted, 100 on its first session. Pick members to compare them with the sector, in percent from
-              the start of the range.
-            </p>
-          </div>
+          <h2 id="index-title" className="text-lead font-semibold tracking-[-0.011em]">
+            Sector index
+          </h2>
           <IndexOverview
             market={market}
             name={sector.name}
@@ -95,14 +85,9 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
       ) : null}
 
       <section aria-labelledby="valuation-title" className="space-y-3">
-        <div>
-          <h2 id="valuation-title" className="text-lead font-semibold tracking-[-0.011em]">
-            Valuation
-          </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            The sector P/E is led by the largest companies; the medians describe the typical one.
-          </p>
-        </div>
+        <h2 id="valuation-title" className="text-lead font-semibold tracking-[-0.011em]">
+          Valuation
+        </h2>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
           <ValuationGrid
             items={[
@@ -130,14 +115,9 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
       </section>
 
       <section aria-labelledby="members-title" className="space-y-3">
-        <div>
-          <h2 id="members-title" className="text-lead font-semibold tracking-[-0.011em]">
-            All {summary.count.toLocaleString(market.locale)} stocks
-          </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Largest first. Sort by any column; a missing figure shows as “—” and sorts last.
-          </p>
-        </div>
+        <h2 id="members-title" className="text-lead font-semibold tracking-[-0.011em]">
+          All {summary.count.toLocaleString(market.locale)} stocks
+        </h2>
         <MembersTable market={market} members={sector.members} />
       </section>
     </div>

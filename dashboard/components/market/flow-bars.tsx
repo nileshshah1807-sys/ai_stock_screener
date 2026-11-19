@@ -90,10 +90,7 @@ export function FlowBars({ market, sessions }: { market: Market; sessions: FlowS
 
       <figcaption className="mt-2 space-y-1.5 text-xs text-muted-foreground">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <span>
-            <span className="tabular">{formatDate(sessions[0].session)}</span> · daily net, buying above the line
-            {sessions.length < MIN_SLOTS ? " · NSE keeps no archive, so history starts here" : ""}
-          </span>
+          <span className="tabular">{formatDate(sessions[0].session)}</span>
           <span className="tabular">{formatDate(sessions.at(-1)!.session)}</span>
         </div>
         <p aria-live="polite" className="tabular flex min-h-5 flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-border/60 pt-1.5">

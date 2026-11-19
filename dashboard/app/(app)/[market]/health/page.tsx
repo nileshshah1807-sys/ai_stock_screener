@@ -131,10 +131,6 @@ export default async function HealthPage({ params }: PageProps<"/[market]/health
     <div className="space-y-4 px-4 py-5 sm:px-6">
         <div className="animate-rise">
           <h1 className="text-title font-semibold">Run health</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Provenance and collection diagnostics for the run currently being
-            served.
-          </p>
         </div>
 
         <div

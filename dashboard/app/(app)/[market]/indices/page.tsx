@@ -23,10 +23,6 @@ export default async function IndicesPage({ params }: PageProps<"/[market]/indic
     <div className="space-y-6 px-4 py-5 sm:px-6">
       <div>
         <h1 className="text-title font-semibold">Indices</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          The {market.label} indices the dashboard follows. Open one for its chart and the stocks
-          it is made of, ranked by the screener.
-        </p>
       </div>
 
       {indices.length ? (
