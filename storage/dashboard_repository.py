@@ -754,6 +754,24 @@ class DashboardRepository:
         sessions = set(sorted({row["session_date"] for row in rows})[-keep_sessions:])
         return self._cloudflare_put(name, [row for row in rows if row["session_date"] in sessions])
 
+    # NSE IPOs (workers/ipos.py): a D1-only table keyed (market, symbol); its R2
+    # object, live/{market}/ipos.json, holds every row the IPOs page shows.
+
+    def ipo_issues(self) -> list[dict[str, Any]]:
+        return self._paged("ipo_issues", {"select": "*", "order": "symbol.asc"})
+
+    def upsert_ipo_issues(self, rows: list[dict[str, Any]]) -> int:
+        self._request(
+            "POST",
+            "ipo_issues?on_conflict=market,symbol",
+            json=self._stamped(rows),
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+        return len(rows)
+
+    def put_ipos_object(self, rows: list[dict[str, Any]]) -> bool:
+        return self._cloudflare_put("ipos", rows)
+
     def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
         """Store deals not stored yet. The key is the whole trade, so a stored deal
         never changes; re-sending the history each run used to rewrite every row."""
@@ -790,6 +808,40 @@ class DashboardRepository:
             for row in rows
             if row.get("symbol")
         }
+
+    def latest_snapshot_fields(self, fields: Iterable[str]) -> tuple[str | None, list[dict[str, Any]]]:
+        """``(run_date, rows)``: ``fields`` of every row in this market's newest published run."""
+        run = self.latest_completed_run()
+        if not run:
+            return None, []
+        rows = self._paged(
+            "screener_snapshot",
+            {
+                "select": ",".join(["symbol", *fields]),
+                "run_date": f"eq.{run['run_date']}",
+                "order": "symbol.asc",
+            },
+        )
+        return str(run["run_date"]), rows
+
+    def put_sector_objects(self, directory: dict[str, Any], sectors: dict[str, dict[str, Any]]) -> bool:
+        """``sectors/{market}/{slug}.json`` for each sector, then ``directory.json``.
+
+        R2 only; no table. The directory goes last, so it never names a sector
+        whose object is not there yet. Without R2 secrets nothing is written.
+        """
+        store = self._cloudflare()
+        if store is None:
+            return False
+
+        def put(name: str, body: dict[str, Any]) -> None:
+            data = json.dumps(body, separators=(",", ":"), allow_nan=False).encode()
+            store.put(f"sectors/{self.market}/{name}.json", data, "application/json")
+
+        for slug, body in sectors.items():
+            put(slug, body)
+        put("directory", directory)
+        return True
 
     def latest_snapshot_unrated(self) -> frozenset[str]:
         """Symbols of this market's newest published run that carry no rating."""

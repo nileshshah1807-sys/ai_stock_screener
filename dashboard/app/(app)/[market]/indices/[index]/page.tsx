@@ -107,7 +107,14 @@ export default async function IndexPage({ params, searchParams }: PageProps<"/[m
         ) : null}
       </div>
 
-      {chart ? <IndexOverview market={market} name={info.name} row={chart} /> : null}
+      {chart ? (
+        <IndexOverview
+          market={market}
+          name={info.name}
+          row={chart}
+          members={members.map((member) => ({ symbol: member.symbol, company: member.company }))}
+        />
+      ) : null}
 
       {info.members !== null ? (
         <section aria-labelledby="constituents-title" className="space-y-3">

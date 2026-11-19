@@ -36,6 +36,9 @@ import { StockTabs } from "@/components/stock/stock-tabs";
 import { NotRatedBadge } from "@/components/new-listing";
 import { HalfYearResults } from "@/components/stock/half-year-results";
 import { NewListingView } from "@/components/stock/new-listing-view";
+import { SectorPeers } from "@/components/stock/sector-peers";
+import { indexSlug } from "@/lib/indices.mjs";
+import { readSector } from "@/lib/sector-objects";
 import {
   Tabs,
   TabsContent,
@@ -240,6 +243,7 @@ export default async function StockPage({
     upcomingResult,
     rankedCount,
     halfYears,
+    sector,
   ] = await Promise.all([
     runRead,
     rowRead,
@@ -261,6 +265,8 @@ export default async function StockPage({
     // "Rank of N" counts ranked companies only; row_count includes the unrated.
     runRead.then((r) => (r ? getRankedCount(market.code, r.run_date, r.row_count) : 0)),
     getHalfYears(market.code, symbol),
+    // The stock's sector, for the peers panel; display evidence, so a failed read only drops it.
+    rowRead.then((r) => (r?.sector ? readSector(market.code, indexSlug(r.sector)) : null)).catch(() => null),
   ]);
   if (!run) notFound();
 
@@ -868,7 +874,17 @@ export default async function StockPage({
           </div>
 
           <p className="mt-1.5 text-xs text-muted-foreground">
-            {row.sector ?? MISSING}
+            {sector ? (
+              <Link
+                prefetch={false}
+                href={marketPath(market.slug, `/sectors/${sector.slug}`)}
+                className="rounded underline decoration-border underline-offset-2 transition-colors hover:text-foreground hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {sector.name}
+              </Link>
+            ) : (
+              (row.sector ?? MISSING)
+            )}
             {row.industry ? ` · ${row.industry}` : ""} · Market cap{" "}
             {formatMoneyCompact(row.market_cap, market)} · Prices as of{" "}
             {formatDate(row.price_bar_as_of ?? run.price_bar_as_of)}
@@ -964,6 +980,13 @@ export default async function StockPage({
             />
           </div>
         </div>
+
+        {/*
+          The stock among its sector, between the hero and the tabs so it is
+          on every tab: the sector heatmap was a page readers never found
+          from here.
+        */}
+        {sector ? <SectorPeers market={market} sector={sector} symbol={row.symbol} /> : null}
 
         {/*
           The page's depth lives behind three tabs rather than one long scroll.

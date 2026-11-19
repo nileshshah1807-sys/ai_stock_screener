@@ -19,6 +19,7 @@ import { GlobalSearch, GlobalSearchButton } from "@/components/global-search";
 import { SmoothDetails } from "@/components/motion";
 import { formatDate } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
+import { MARKET_PAGES } from "@/lib/market-pages";
 import { TOOLS } from "@/lib/tools";
 import type { BellState } from "@/lib/notifications";
 import type { MarketDay } from "@/lib/market-calendar.mjs";
@@ -36,11 +37,11 @@ import { SignOutForm } from "@/components/sign-out-form";
  * the stocks are, and notifications -- the other thing about "what changed" --
  * sit beside it there.
  *
- * Market (breadth across the whole market) is a destination of its own,
- * beside the screener. Tools is one tab for several views beside the ranking
+ * Market (movers, sectors, breadth) is a destination of its own, beside the
+ * screener, with its own row of pages like Tools. Tools is one tab for several views beside the ranking
  * -- earnings calls, results, returns -- because a tab apiece would be the
  * sixth, seventh and eighth. The tab opens the first tool and stays lit on
- * all of them; the row that picks between them is ToolsNav, in the tools
+ * all of them; the row that picks between them is SubNav, in the tools
  * layout.
  *
  * Markets are deliberately NOT in this list. Which market you are looking at
@@ -49,6 +50,7 @@ import { SignOutForm } from "@/components/sign-out-form";
  * the structure and would multiply this group's length by the market count.
  */
 const TOOL_PATHS = TOOLS.map((tool) => tool.path);
+const MARKET_PATHS = MARKET_PAGES.map((page) => page.path);
 
 /*
  * Home is the market root and the screener its own tab. Movers is the sixth
@@ -58,7 +60,7 @@ const TOOL_PATHS = TOOLS.map((tool) => tool.path);
 const NAV: readonly { path: string; label: string; icon: typeof LayoutGrid; also?: readonly string[]; desktopOnly?: boolean }[] = [
   { path: "", label: "Home", icon: House },
   { path: "/screener", label: "Screener", icon: LayoutGrid },
-  { path: "/market", label: "Market", icon: ChartArea },
+  { path: MARKET_PATHS[0], label: "Market", icon: ChartArea, also: MARKET_PATHS },
   { path: TOOL_PATHS[0], label: "Tools", icon: Shapes, also: TOOL_PATHS },
   { path: "/watchlists", label: "Watchlists", icon: Bookmark },
 ];

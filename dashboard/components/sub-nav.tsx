@@ -4,24 +4,29 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { GlassTrack } from "@/components/glass-track";
+import { MARKET_PAGES } from "@/lib/market-pages";
 import { marketPath, type Market } from "@/lib/markets";
 import { TOOLS } from "@/lib/tools";
 import { cn } from "@/lib/utils";
 
+/** The header tabs that open onto a row of pages; the layout names which by key (icons cannot cross from a server layout). */
+const GROUPS = { Tools: TOOLS, Market: MARKET_PAGES } as const;
+
 /**
- * Which tool is open, as a second row of navigation under the header.
+ * Which page of a header tab is open (Tools, Market), as a second row of
+ * navigation under the header.
  *
  * Links on a glass track, the same control as the primary nav and the market
- * switch: all three say "one of these is current", and each tool has its own
- * URL. It is the smaller size of the three because it qualifies the Tools tab
+ * switch: all three say "one of these is current", and each page has its own
+ * URL. It is the smaller size of the three because it qualifies the tab
  * above it rather than competing with it.
  */
-export function ToolsNav({ market, admin }: { market: Market; admin: boolean }) {
+export function SubNav({ group, market, admin }: { group: keyof typeof GROUPS; market: Market; admin: boolean }) {
   const pathname = usePathname();
 
   return (
-    <GlassTrack label="Tools" className="w-max gap-0.5 p-0.5">
-      {TOOLS.filter((tool) => admin || !tool.adminOnly).map(({ path, label, icon: Icon }) => {
+    <GlassTrack label={group} className="w-max max-w-full gap-0.5 overflow-x-auto p-0.5">
+      {GROUPS[group].filter((page) => admin || !page.adminOnly).map(({ path, label, icon: Icon }) => {
         const href = marketPath(market.slug, path);
         const active = pathname === href || pathname.startsWith(`${href}/`);
         return (

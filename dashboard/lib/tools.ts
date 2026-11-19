@@ -1,18 +1,19 @@
-import { FileSpreadsheet, MessagesSquare, TrendingUp, type LucideIcon } from "lucide-react";
+import { CalendarRange, FileSpreadsheet, MessagesSquare, TrendingUp, type LucideIcon } from "lucide-react";
 
 /**
  * The tools, in one place: views beside the ranking -- the season's calls and
  * results, and how past rankings would have done. This list is what the Tools tab in the header stays lit for
- * (app-shell) and what the row beneath it offers (ToolsNav). A new tool is one
+ * (app-shell) and what the row beneath it offers (SubNav). A new tool is one
  * entry here and one folder under `app/(app)/[market]/(tools)`.
  *
- * A plain module, not part of ToolsNav: the header is a server component, and
+ * A plain module, not part of SubNav: the header is a server component, and
  * a value imported from a client module arrives there as a reference, not as
  * the array.
  */
 export const TOOLS: readonly { path: string; label: string; icon: LucideIcon; adminOnly?: boolean }[] = [
   { path: "/concalls", label: "Concalls", icon: MessagesSquare },
   { path: "/results", label: "Results", icon: FileSpreadsheet },
+  { path: "/ipos", label: "IPOs", icon: CalendarRange },
   // Past-performance figures; admin-only until they can be published
   // (docs/commercialisation_readiness.md, section 1).
   { path: "/returns", label: "Returns", icon: TrendingUp, adminOnly: true },

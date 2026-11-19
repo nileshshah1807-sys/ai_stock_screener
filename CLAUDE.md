@@ -354,14 +354,38 @@ the scheduled workflows set the same flag.
   asked of the mainboard first and NSE Emerge when it has none, and announcement rows keep
   only companies in the latest snapshot. The table is in
   `storage/company_documents_schema.sql`, applied by hand. The backfill (`--backfill-days 365`) is run by hand, never scheduled.
+- **Sector pages are display evidence, on R2 only.** `workers/sectors.py`, run by
+  `tools/publish_market_breadth.py`, writes `sectors/{MARKET}/directory.json` and one
+  `sectors/{MARKET}/{slug}.json` per snapshot sector: our own cap-weighted level (base 100,
+  previous-session cap weights, today's share count), its 1D/1M/1Y, valuation medians, P/E
+  buckets and every member's snapshot fields (no rating). Each sector object is written before
+  the directory. `/[market]/sectors` and `/[market]/sectors/[slug]` read them
+  (`dashboard/lib/sector-objects.ts`); the compare chart on index and sector pages reads each
+  stock's price series through `/api/price-series` (R2, no Supabase fallback). Nothing scores it.
 - **NSE FII/DII cash flows are display evidence, on Cloudflare only.**
   `workers/market_flows.py` (a step of the Quarterly filings workflow, on when the
   `MARKET_FLOWS_ENABLED` repository variable is `true`) writes the evening's provisional
   cash-market buy/sell/net (rupees crore, FII and DII) to the D1 table `fii_dii_flows`
   (`storage/d1/market_flows.sql`, hand-laid, no Supabase twin; the step sets
   `TABLE_BACKEND_D1`) and `live/NSE/fii-dii-flows.json` (newest 260 sessions, rebuilt
-  from the table when behind it). NSE keeps no archive, so history starts the day it was
+  from the table when behind it), which the Market tab's Breadth page reads (`components/market/fii-dii-flows.tsx`).
+  NSE keeps no archive, so history starts the day it was
   switched on. A stored session is not written again. Nothing scores it.
+- **NSE IPOs are display evidence, on Cloudflare only.** `workers/ipos.py` (a step of
+  the Quarterly filings workflow, on when the `IPO_CENTRE_ENABLED` repository variable is
+  `true`) reads NSE's current, upcoming and past issues (mainboard and SME), each issue's
+  combined NSE+BSE book by category (`ipo-active-category`) and its detail (lot, registrar,
+  RHP), and the listing day's open and close from that day's bhavcopy, into the D1 table
+  `ipo_issues` (`storage/d1/ipo_issues.sql`, hand-laid, no Supabase twin; `TABLE_BACKEND_D1`)
+  and `live/NSE/ipos.json`, which the Tools tab's IPOs page reads. Nothing about IPOs goes
+  to Supabase. A field once read is never overwritten with nothing (an SME's book reads
+  zero offered after it closes). Older issues fill in `--book-budget` at a time. GMP is off
+  unless `IPO_GMP_ENABLED` is `true`: the unofficial figure the public tracker
+  investorgain.com prints (its Next flight payload, `reportTableData`), labelled unofficial
+  wherever shown. BSE-only SME issues are absent. NSE's past-issues feed also lists NCDs,
+  partly-paid shares and SME companies moving to the mainboard under their old bidding dates:
+  an issue listed more than 30 days after it closed is not an IPO and is dropped, stored or not
+  (`MAX_LISTING_LAG_DAYS`). Nothing scores it.
 - **US upcoming results come from Alpha Vantage's earnings calendar.**
   `workers/us_upcoming.py` (a step of the US Financial statements workflow, the
   first run of the day, before 09:00 UTC) makes one request a day, keyed by the `ALPHAVANTAGE_API_KEY`
@@ -583,7 +607,8 @@ validation/   reproducibility manifests and replay
 dashboard/    Next.js front end, with its own README; routes are nested
               under /[market] (/ind, /us; /nse redirects). Concalls, Results and Returns
               share the header's Tools tab (`lib/tools.ts`, the `(tools)` route group);
-              Market is a tab of its own
+              Today's movers (/market), Sectors and Breadth share the Market tab
+              (`lib/market-pages.ts`, the `(market)` route group)
 ```
 
 ## Gotchas
