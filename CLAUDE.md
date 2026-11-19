@@ -48,6 +48,22 @@ the scheduled workflows set the same flag.
   Method belongs in a code comment, or behind an existing closed disclosure
   ("How it's counted"). Empty and error states still say what happened and what
   to do next.
+- **Dashboard pages are static first: the Worker has 10 ms of CPU a request.**
+  Cloudflare Workers Free allows 10 ms; one Next server render costs 60-600 ms,
+  and a burst of overruns locks the whole site (Error 1102). So, in this order:
+  a static page or file served from assets (zero Worker CPU); ISR/cache for a
+  page that does not depend on the viewer; data read in the browser after render
+  (Supabase `*_visible` views, or an object workers publish). An API route or
+  server render is the last resort, only for what needs a secret (billing,
+  webhook, admin), and never on a timer. A new feature states which of these it
+  uses. Detail and measurements: "Boundaries that matter" below.
+- **No explanatory footnotes in the dashboard.** A card or chart does not end
+  in a sentence telling the viewer how to read it ("Net buying (buys less
+  sells)…", "Both rows share one scale", "point at a session to read it"). The
+  owner finds it unprofessional (18 Nov 2026). Units go in the values (`₹ cr`),
+  labels in short headings and captions; how to use an interaction is said in
+  its `aria-label`, for screen readers only. A caveat that changes what a number
+  means belongs in a short label beside it, not a paragraph under it.
 
 ## Markets
 
@@ -368,7 +384,12 @@ the scheduled workflows set the same flag.
   buckets and every member's snapshot fields (no rating). Each sector object is written before
   the directory. `/[market]/sectors` and `/[market]/sectors/[slug]` read them
   (`dashboard/lib/sector-objects.ts`); the compare chart on index and sector pages reads each
-  stock's price series through `/api/price-series` (R2, no Supabase fallback). Nothing scores it.
+  stock's price series through `/api/price-series` (R2, no Supabase fallback). During the session
+  the 1D figures are live: the publisher also writes `sectors/{MARKET}/weights.json` (each
+  member's market cap at the close), and `workers/live_quotes.py` turns it and each run's quotes
+  into `live/{MARKET}/sectors.json` (`live_sector_changes`, the level's own weighting), read through `/api/live?kind=sectors`
+  whatever `TABLE_BACKEND` says. A member's live 1D is its quote. A live figure counts only from a
+  later session than the objects' close (`liveFor`, `dashboard/lib/sectors.mjs`). Nothing scores it.
 - **NSE FII/DII cash flows are display evidence, on Cloudflare only.**
   `workers/market_flows.py` (a step of the Quarterly filings workflow, on when the
   `MARKET_FLOWS_ENABLED` repository variable is `true`) writes the evening's provisional
@@ -389,7 +410,10 @@ the scheduled workflows set the same flag.
   zero offered after it closes). Older issues fill in `--book-budget` at a time. GMP is off
   unless `IPO_GMP_ENABLED` is `true`: the unofficial figure the public tracker
   investorgain.com prints (its Next flight payload, `reportTableData`), labelled unofficial
-  wherever shown. BSE-only SME issues are absent. NSE's past-issues feed also lists NCDs,
+  wherever shown. The same switch reads each unlisted issue's page on the tracker once for
+  its restated financials (`financials`, as the tracker prints them from the RHP, in its
+  unit; NSE publishes no structured figures and its RHP tables vary too much to parse).
+  BSE-only SME issues are absent. NSE's past-issues feed also lists NCDs,
   partly-paid shares and SME companies moving to the mainboard under their old bidding dates:
   an issue listed more than 30 days after it closed is not an IPO and is dropped, stored or not
   (`MAX_LISTING_LAG_DAYS`). Nothing scores it.
@@ -514,6 +538,21 @@ the scheduled workflows set the same flag.
   - Before a production deploy, burst ~30 signed-in loads at `cupel-preview`
     with `npx wrangler tail --format json` and count `exceededCpu` against
     `main`. Rollback: `npx wrangler rollback <version> -y`.
+  - **Each branch previews at its own URL; never `deploy` over `cupel-preview`.**
+    The Worker serves one build, so one branch's `deploy` replaces another's
+    (19 Nov 2026: an IPO build replaced the sector pages mid-check). From
+    `dashboard/`, with `.env.production` loaded (`set -a; . ./.env.production; set +a`):
+    `npx opennextjs-cloudflare build -c wrangler.preview.jsonc`, then
+    `npx opennextjs-cloudflare upload -c wrangler.preview.jsonc --preview-alias <branch>`
+    (lowercase letters, digits, dashes). That uploads a version at
+    `https://<branch>-cupel-preview.<account>.workers.dev` without changing what
+    the Worker serves; re-run both to update it. Sign in again on that host
+    (cookies are per host; the email code works, Google there is untested
+    against Supabase's redirect list). `WORKER_SELF_REFERENCE` still reaches the
+    deployed version. The burst test runs on the alias URL too (`wrangler tail`
+    sees every version). `wrangler deployments list -c wrangler.preview.jsonc`
+    shows what the main preview URL serves; `deploy` there only when the owner
+    asks.
 
 - **Buy/sell ratings and the Returns page are admin-only.** Signed-in viewers
   read `screener_snapshot`, `screener_history` and `screener_runs` only

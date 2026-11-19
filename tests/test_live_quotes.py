@@ -80,6 +80,15 @@ class FakeRepo:
     def prune_live_quotes(self, before):
         self.pruned = before
 
+    weights = None
+    live_sectors = None
+
+    def sector_weights(self):
+        return self.weights
+
+    def put_live_sectors_object(self, rows):
+        self.live_sectors = rows
+
 
 def fetcher(quotes):
     requested = []
@@ -326,6 +335,14 @@ class RunTests(unittest.TestCase):
         self.assertEqual(by_symbol["Nifty 50"]["kind"], "index")
         self.assertEqual(by_symbol["BBB"]["change_pct"], -1)
         self.assertEqual(repo.pruned, "2026-10-09T06:15:00+00:00")
+        self.assertIsNone(repo.live_sectors)  # no weights published yet: nothing written
+
+    def test_writes_each_sectors_live_change(self):
+        repo = FakeRepo(snapshot=["AAA", "BBB"])
+        repo.weights = {"energy": {"last_session": "2026-10-15", "members": [["AAA", 3.0], ["BBB", 1.0]]}}
+        fetch, _ = fetcher({"AAA.NS": quote(101), "BBB.NS": quote(99)})
+        run(repo, NSE, now=IN_SESSION, fetch_quotes=fetch, fetch_members=must_not_fetch)
+        self.assertEqual([(row["slug"], row["d1"], row["traded"]) for row in repo.live_sectors], [("energy", 0.5, 2)])
 
     def test_charted_indices_are_quoted_without_a_movers_list(self):
         # The Nasdaq Composite and Russell 2000 have no movers list, but the

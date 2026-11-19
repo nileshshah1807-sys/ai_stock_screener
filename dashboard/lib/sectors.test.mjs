@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { peerSlice, rebase, squarify } from "./sectors.mjs";
+import { liveFor, peerSlice, rebase, squarify } from "./sectors.mjs";
 
 test("rebase starts at zero on the first point in range", () => {
   const out = rebase(
@@ -51,4 +51,12 @@ test("peerSlice keeps the largest members and the stock itself, with its place b
   assert.equal(unreported.capRank, null);
   assert.deepEqual(unreported.peers.map((m) => m.s), ["A", "D", "B"]);
   assert.equal(peerSlice(members, "Z", 5).own, null);
+});
+
+test("a live reading counts only from a later session than the close", () => {
+  const live = { session: "2026-11-19", d1: 1.2 };
+  assert.equal(liveFor("2026-11-18", live), live);
+  assert.equal(liveFor("2026-11-19", live), null); // the evening run already holds this session
+  assert.equal(liveFor("2026-11-18", null), null);
+  assert.equal(liveFor(null, live), null);
 });

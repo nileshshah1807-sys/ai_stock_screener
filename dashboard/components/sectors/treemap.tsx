@@ -208,13 +208,13 @@ export function Treemap({
               {sizeText(shownItem) ? ` · ${sizeText(shownItem)}` : ""}
             </>
           ) : colourOption.kind === "diverging" ? (
-            `Colour −${scaleValue}% to +${scaleValue}%; grey is no change, hatched is not reported`
+            `−${scaleValue}% to +${scaleValue}% · hatched: not reported`
           ) : (
-            `Lightest is the lowest ${colourOption.label}, darkest the highest; hatched is not reported`
+            `${colourOption.label}: low to high · hatched: not reported`
           )}
         </span>
         <span>
-          {tiles.length < items.length ? `The ${tiles.length} largest of ${items.length} drawn` : null}
+          {tiles.length < items.length ? `Largest ${tiles.length} of ${items.length}` : null}
           {tiles.length < items.length && note ? " · " : null}
           {note}
         </span>

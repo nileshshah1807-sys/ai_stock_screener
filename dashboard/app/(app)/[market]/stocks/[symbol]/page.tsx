@@ -16,6 +16,7 @@ import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { isAdmin } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { PUBLISHED_SCORE_INFO, SHOW_VERDICT, publicText } from "@/lib/ratings.mjs";
+import { indexSlug } from "@/lib/indices.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
@@ -37,7 +38,6 @@ import { NotRatedBadge } from "@/components/new-listing";
 import { HalfYearResults } from "@/components/stock/half-year-results";
 import { NewListingView } from "@/components/stock/new-listing-view";
 import { SectorPeers } from "@/components/stock/sector-peers";
-import { indexSlug } from "@/lib/indices.mjs";
 import { readSector } from "@/lib/sector-objects";
 import {
   Tabs,

@@ -132,8 +132,41 @@ class PutObjectsTests(unittest.TestCase):
         repository = DashboardRepository.__new__(DashboardRepository)
         repository.market = "NSE"
         repository._r2 = Store()
-        self.assertTrue(repository.put_sector_objects({"sectors": []}, {"energy": {"name": "Energy"}}))
-        self.assertEqual([path for path, _, _ in written], ["sectors/NSE/energy.json", "sectors/NSE/directory.json"])
+        self.assertTrue(repository.put_sector_objects({"sectors": []}, {"energy": {"name": "Energy"}}, {"energy": {}}))
+        self.assertEqual(
+            [path for path, _, _ in written],
+            ["sectors/NSE/energy.json", "sectors/NSE/weights.json", "sectors/NSE/directory.json"],
+        )
 
         repository._r2 = None
         self.assertFalse(repository.put_sector_objects({}, {"x": {}}))
+
+
+class LiveSectorTests(unittest.TestCase):
+    WEIGHTS = {
+        "energy": {"last_session": "2026-11-18", "members": [["A", 300.0], ["B", 100.0], ["C", 50.0], ["D", None]]},
+        "tech": {"last_session": "2026-11-19", "members": [["A", 1.0]]},
+    }
+
+    def quote(self, change, session="2026-11-19"):
+        return {"session": session, "change_pct": change}
+
+    def test_cap_weighted_and_held_members_weigh_unchanged(self):
+        quotes = {"A": self.quote(2.0), "B": self.quote(-4.0), "C": self.quote(1.0, "2026-11-18"), "D": self.quote(5.0)}
+        rows = sectors.live_sector_changes(self.WEIGHTS, quotes)
+        self.assertEqual([row["slug"] for row in rows], ["energy"])  # tech's close already covers the session
+        energy = rows[0]
+        self.assertAlmostEqual(energy["d1"], round((300 * 2 - 100 * 4 + 50 * 0) / 450, 2))
+        self.assertEqual((energy["advancing"], energy["declining"], energy["traded"]), (2, 1, 3))
+
+    def test_withheld_or_missing_quotes_leave_both_sides(self):
+        rows = sectors.live_sector_changes(self.WEIGHTS, {"A": self.quote(None), "B": self.quote(-1.0)})
+        self.assertEqual(rows[0]["d1"], -1.0)
+        self.assertEqual(rows[0]["traded"], 1)
+
+    def test_nothing_traded_writes_nothing(self):
+        self.assertEqual(sectors.live_sector_changes(self.WEIGHTS, {"A": self.quote(1.0, "2026-11-18")}), [])
+
+    def test_weights_carry_each_members_cap(self):
+        weights = sectors.member_weights({"energy": {"last_session": "2026-11-18", "members": [{"s": "A", "mc": 3.0}]}})
+        self.assertEqual(weights, {"energy": {"last_session": "2026-11-18", "members": [["A", 3.0]]}})

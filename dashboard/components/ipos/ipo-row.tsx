@@ -10,6 +10,7 @@ import {
   changeFromIssue,
   formatSignedPercent,
   formatTimes,
+  gmpStamp,
   issueStatus,
   minInvestment,
 } from "@/lib/ipos.mjs";
@@ -37,6 +38,16 @@ export function priceBand(row: Ipo, market: Market) {
 /** Green above the issue price, red below, muted at it or unknown. */
 export function changeTone(value: number | null) {
   return value == null || value === 0 ? "text-muted-foreground" : value > 0 ? "text-positive" : "text-negative";
+}
+
+/** The heartbeat: a dot whose ring swells and fades while bidding is live, as on the live charts. */
+export function LiveDot() {
+  return (
+    <span aria-hidden className="relative inline-flex size-1.5 shrink-0">
+      <span className="absolute inset-0 rounded-full bg-positive animate-heartbeat" />
+      <span className="relative size-1.5 rounded-full bg-positive" />
+    </span>
+  );
 }
 
 function Measure({ label, value, detail, tone }: { label: string; value: string; detail?: string | null; tone?: string }) {
@@ -113,7 +124,7 @@ export function IpoRow({ row, market, today }: { row: Ipo; market: Market; today
             <Measure
               label="GMP (unofficial)"
               value={formatMoney(row.gmp, market, row.gmp % 1 ? 1 : 0)}
-              detail={formatSignedPercent(row.gmp_pct, 1)}
+              detail={[formatSignedPercent(row.gmp_pct, 1), gmpStamp(row.gmp_as_of, today)].filter(Boolean).join(" · ")}
               tone={changeTone(row.gmp)}
             />
           ) : null}

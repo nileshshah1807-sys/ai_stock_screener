@@ -1,7 +1,8 @@
 import "server-only";
 
 import { liveBreadth, liveMarket, quoteRow, valuation } from "@/lib/live-compute.mjs";
-import { LIVE_OBJECT_TTL_MS, readLiveObject } from "@/lib/live-objects";
+import { LIVE_OBJECT_TTL_MS, readLiveBody, readLiveObject } from "@/lib/live-objects";
+import { flowSummary, flowYears } from "@/lib/market-flows.mjs";
 import type { MarketCode } from "@/lib/markets";
 import { getLatestRun, getRatedSymbols } from "@/lib/queries";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
@@ -92,4 +93,16 @@ async function computeBreadth(market: MarketCode, scope: string, name: string) {
   if (charted.error) throw new Error(`market_breadth: ${charted.error.message}`);
   const session = (charted.data as { last_session?: string } | null)?.last_session ?? null;
   return liveBreadth(rows, levels ?? [], session, scope, name);
+}
+
+/** The flows card's answer (lib/market-flows.mjs) from the R2 object; null parts while it is absent. */
+export async function liveFlowsData(market: MarketCode) {
+  const body = await readLiveBody(market, "fii-dii-flows");
+  return { flows: flowSummary(body?.rows ?? null), years: flowYears(body?.years) };
+}
+
+/** Each sector's change in the live session (workers/sectors.live_sector_changes); no rows while it is absent. */
+export async function liveSectorsData(market: MarketCode) {
+  const body = await readLiveBody(market, "sectors");
+  return { rows: body?.rows ?? [], written_at: (body?.written_at as string | undefined) ?? null };
 }
