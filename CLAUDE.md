@@ -512,6 +512,21 @@ the scheduled workflows set the same flag.
   - Before a production deploy, burst ~30 signed-in loads at `cupel-preview`
     with `npx wrangler tail --format json` and count `exceededCpu` against
     `main`. Rollback: `npx wrangler rollback <version> -y`.
+  - **Each branch previews at its own URL; never `deploy` over `cupel-preview`.**
+    The Worker serves one build, so one branch's `deploy` replaces another's
+    (19 Nov 2026: an IPO build replaced the sector pages mid-check). From
+    `dashboard/`, with `.env.production` loaded (`set -a; . ./.env.production; set +a`):
+    `npx opennextjs-cloudflare build -c wrangler.preview.jsonc`, then
+    `npx opennextjs-cloudflare upload -c wrangler.preview.jsonc --preview-alias <branch>`
+    (lowercase letters, digits, dashes). That uploads a version at
+    `https://<branch>-cupel-preview.<account>.workers.dev` without changing what
+    the Worker serves; re-run both to update it. Sign in again on that host
+    (cookies are per host; the email code works, Google there is untested
+    against Supabase's redirect list). `WORKER_SELF_REFERENCE` still reaches the
+    deployed version. The burst test runs on the alias URL too (`wrangler tail`
+    sees every version). `wrangler deployments list -c wrangler.preview.jsonc`
+    shows what the main preview URL serves; `deploy` there only when the owner
+    asks.
 
 - **Buy/sell ratings and the Returns page are admin-only.** Signed-in viewers
   read `screener_snapshot`, `screener_history` and `screener_runs` only
