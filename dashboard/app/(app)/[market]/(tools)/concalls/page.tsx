@@ -38,7 +38,7 @@ const FACETS = [{ param: "stance", label: "Mgmt Sentiment", options: STANCE_FILT
  * it opens above a market-cap floor: every filter is in the URL, the search
  * included, so a result can be bookmarked.
  *
- * NSE only for now: there is no recording or transcript source for the US.
+ * The US feed is S&P 500 calls from Alpha Vantage (workers/us_transcripts.py).
  */
 export default async function ConcallsPage({
   params,
@@ -46,17 +46,6 @@ export default async function ConcallsPage({
 }: PageProps<"/[market]/concalls">) {
   const market = marketFromSlug((await params).market)!;
   const query = await searchParams;
-
-  if (market.code !== "NSE") {
-    return (
-      <div className="space-y-4 px-4 py-5 sm:px-6">
-        <h1 className="text-title font-semibold">Concalls</h1>
-        <div className="panel px-5 py-10 text-center">
-          <p className="text-sm font-medium">Coming soon</p>
-        </div>
-      </div>
-    );
-  }
 
   const feed = await loadFeedFilters(market.code, query, { defaultScope: "all", facets: FACETS });
   const search = searchTerm(query.q);

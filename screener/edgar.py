@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
+SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
+CONCEPT_URL = "https://data.sec.gov/api/xbrl/companyconcept/CIK{cik:010d}/{taxonomy}/{tag}.json"
 SOURCE_LABEL = "SEC EDGAR annual filings (XBRL)"
 
 # SEC's fair-access policy allows ten requests a second per client. Requests
@@ -668,7 +670,7 @@ def _build(all_facts, series, ends, events):
 
 
 class EdgarClient:
-    """Throttled reader for the two EDGAR endpoints the screener needs."""
+    """Throttled reader for the EDGAR endpoints the screener and the US transcript worker need."""
 
     def __init__(self, user_agent, *, session=None, timeout_seconds=30,
                  sleep=time.sleep, clock=time.monotonic):
@@ -753,3 +755,11 @@ class EdgarClient:
             return None
         facts = self._get(FACTS_URL.format(cik=cik))
         return annual_frames(facts, today=today) if facts else None
+
+    def submissions(self, cik):
+        """The registrant's filing index (``filings.recent``), or ``None``."""
+        return self._get(SUBMISSIONS_URL.format(cik=cik))
+
+    def concept(self, cik, taxonomy, tag):
+        """Every reported value of one XBRL concept, with its filing, or ``None``."""
+        return self._get(CONCEPT_URL.format(cik=cik, taxonomy=taxonomy, tag=tag))

@@ -90,3 +90,8 @@ jobs:
       # transcript stored above replaces the same call's recording there.
       - name: Publish the concall feed
         run: python -m workers.concall_feed
+
+      # The tone step above scores US calls too (its queue covers both markets);
+      # us-transcripts.yml stores them and their outlooks.
+      - name: Publish the US concall feed
+        run: python -m workers.concall_feed --market US

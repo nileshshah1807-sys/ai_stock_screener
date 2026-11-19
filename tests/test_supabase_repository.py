@@ -34,6 +34,22 @@ class PendingTranscriptRepositoryTests(unittest.TestCase):
             }},
         )])
 
+    def test_each_pending_transcript_carries_its_market_for_the_archive_path(self):
+        repository = SupabaseRepository("https://example.test", "service-role-key")
+
+        def request(method, path, **kwargs):
+            if path == "rpc/pending_transcripts_for_analysis":
+                return [{"id": "t1", "document_id": None}, {"id": "t2", "document_id": None}]
+            if path == "transcripts":
+                self.assertEqual(kwargs["params"]["id"], "in.(t1,t2)")
+                return [{"id": "t1", "market": "NSE"}, {"id": "t2", "market": "US"}]
+            return []
+
+        repository._request = request
+        result = repository.list_transcripts_for_analysis("m", "v", 25)
+        self.assertEqual([row["market"] for row in result], ["NSE", "US"])
+        self.assertEqual(repository._transcript_path(result[1]), "transcripts/US/t2.txt.gz")
+
     def test_latest_sentiments_falls_back_when_structured_output_view_is_not_deployed(self):
         repository = SupabaseRepository("https://example.test", "service-role-key")
         requests_made = []
