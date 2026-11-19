@@ -26,9 +26,15 @@ class FakeRepository:
         # Filed transcripts already stored for the call being processed.
         self.stored_call = []
         self.deleted = []
+        self.upserted_filings = []
+        self.stored_filings = []
 
     def upsert_filing(self, filing):
+        self.upserted_filings.append(filing["seq_id"])
         return {"id": "filing-1", "status": "discovered", "attempt_count": 2}
+
+    def transcript_filings(self, exchange):
+        return self.stored_filings
 
     def find_document_by_sha256(self, sha256):
         return self.document
@@ -230,6 +236,34 @@ class TranscriptWorkerTests(unittest.TestCase):
 
         self.assertEqual(summary, {"cover_letters_repaired": 0, "cover_letters_removed": 0})
         repository.short_transcripts.assert_not_called()
+
+    def run_over(self, repository, seq_ids):
+        worker = TranscriptWorker(repository, self.settings)
+        worker._repair_stored_cover_letters = lambda directory: {}
+        worker._analyze_pending_transcripts = lambda: {"analyzed": 0, "deferred": 0}
+        worker._download_pdf = lambda url, directory: (_ for _ in ()).throw(ValueError("not fetched in this test"))
+        records = [{**self.record, "seq_id": seq_id} for seq_id in seq_ids]
+        with patch("workers.transcript_worker.discover_nse_transcripts", return_value=records):
+            return worker.run()
+
+    def test_a_finished_filing_is_neither_written_nor_fetched_again(self):
+        repository = FakeRepository()
+        repository.stored_filings = [
+            {"seq_id": "101", "status": "document_ready"},
+            {"seq_id": "102", "status": "rejected"},
+            {"seq_id": "103", "status": "failed"},
+        ]
+        summary = self.run_over(repository, ["101", "102", "103", "104"])
+
+        self.assertEqual(repository.upserted_filings, ["103", "104"])
+        self.assertEqual(summary["already_stored"], 2)
+
+    def test_an_unreadable_filings_table_falls_back_to_checking_each_filing(self):
+        repository = FakeRepository()
+        repository.transcript_filings = MagicMock(side_effect=RuntimeError("timeout"))
+        self.run_over(repository, ["101", "102"])
+
+        self.assertEqual(repository.upserted_filings, ["101", "102"])
 
     def test_records_collection_failure_for_later_retry(self):
         repository = FakeRepository()
