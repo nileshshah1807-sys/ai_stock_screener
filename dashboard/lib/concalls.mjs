@@ -163,3 +163,26 @@ export function searchTerm(value) {
     .trim()
     .slice(0, 60);
 }
+
+/**
+ * Each company's latest call outlook, by symbol, from feed rows read newest
+ * call first (`call_date` descending): the first outlook seen for a symbol is
+ * its latest. A row without a numeric outlook is passed over.
+ *
+ * @param {Array<{ symbol: unknown, outlook_score: unknown }>} feed
+ * @returns {Record<string, number>}
+ */
+export function latestOutlooks(feed) {
+  const outlooks = {};
+  for (const call of feed) {
+    const symbol = String(call.symbol ?? "");
+    const score = call.outlook_score === null || call.outlook_score === "" ? NaN : Number(call.outlook_score);
+    if (symbol && !(symbol in outlooks) && Number.isFinite(score)) outlooks[symbol] = score;
+  }
+  return outlooks;
+}
+
+/** The first call date a ranking reads: a call older than 180 days adds nothing (concallRecency). */
+export function outlookSince(runDate) {
+  return new Date(Date.parse(runDate) - 190 * 86_400_000).toISOString().slice(0, 10);
+}

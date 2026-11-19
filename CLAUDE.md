@@ -291,8 +291,14 @@ the scheduled workflows set the same flag.
   text has no speaker labels, so the tone score reads it as one voice -- its
   agreement with the filed transcript's score has not been measured yet.
   `workers/concall_feed.py` derives `concall_feed` (one row per call, no
-  text) for the dashboard's Concalls page; the table is in
-  `storage/concalls_schema.sql` and must be applied by hand.
+  text) for the dashboard's Concalls page. Since 19 Nov 2026 it lives in D1
+  alone: every step that runs the worker sets `TABLE_BACKEND_D1=concall_feed`,
+  the D1 backfill no longer copies it (out of `ORDER` in `tools/d1_tables.py`),
+  and the dashboard reads it from D1 whatever `TABLE_BACKEND` says
+  (`D1_ONLY`, `dashboard/lib/db/table-backend.mjs`); the browser's score
+  preview gets outlooks from `/api/live?kind=calls`. Supabase's table
+  (`storage/concalls_schema.sql`) is frozen at that day and is still where
+  the D1 layout is described from: a new column goes on both.
 - **Management's sentiment on the Concalls page is the outlook score in a
   word.** `workers/concall_feed.management_stance` reads the call's outlook
   score into a band (`sentiment.outlook.stance_from_score`: bullish from 72,

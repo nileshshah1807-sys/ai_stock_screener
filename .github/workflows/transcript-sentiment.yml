@@ -89,9 +89,21 @@ jobs:
       # The Concalls page reads this, not the transcript tables. A filed
       # transcript stored above replaces the same call's recording there.
       - name: Publish the concall feed
+        env:
+          # concall_feed is D1's alone (TABLE_BACKEND_D1); Supabase's copy is frozen.
+          TABLE_BACKEND_D1: concall_feed
+          D1_ACCOUNT_ID: ${{ vars.D1_ACCOUNT_ID }}
+          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          D1_DATABASE_ID: ${{ vars.D1_CORE_ID }}
         run: python -m workers.concall_feed
 
       # The tone step above scores US calls too (its queue covers both markets);
       # us-transcripts.yml stores them and their outlooks.
       - name: Publish the US concall feed
+        env:
+          # concall_feed is D1's alone (TABLE_BACKEND_D1); Supabase's copy is frozen.
+          TABLE_BACKEND_D1: concall_feed
+          D1_ACCOUNT_ID: ${{ vars.D1_ACCOUNT_ID }}
+          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          D1_DATABASE_ID: ${{ vars.D1_CORE_ID }}
         run: python -m workers.concall_feed --market US

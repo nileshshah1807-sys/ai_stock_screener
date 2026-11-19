@@ -249,6 +249,12 @@ jobs:
           python -m tools.extract_transcript_outlook --latest-only --max-cost 0.25
 
       - name: Publish the concall feed
+        env:
+          # concall_feed is D1's alone (TABLE_BACKEND_D1); Supabase's copy is frozen.
+          TABLE_BACKEND_D1: concall_feed
+          D1_ACCOUNT_ID: ${{ vars.D1_ACCOUNT_ID }}
+          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          D1_DATABASE_ID: ${{ vars.D1_CORE_ID }}
         run: python -m workers.concall_feed
 
       # The bell in the dashboard's header. The Financial statements workflow

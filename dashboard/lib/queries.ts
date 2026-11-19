@@ -25,6 +25,8 @@ import { createClient } from "@/lib/supabase/server";
 import { indexSlug } from "@/lib/indices.mjs";
 import { BSE_SUFFIX } from "@/lib/listing.mjs";
 import { cachedOr, sharedRead } from "@/lib/home-cache";
+import { readCallOutlooks } from "@/lib/concalls";
+import { outlookSince } from "@/lib/concalls.mjs";
 import type { Reader } from "@/lib/results";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
 import { createDayMemo, localDay, type MarketDay } from "@/lib/market-calendar.mjs";
@@ -1931,9 +1933,7 @@ async function readRunScores(
       if (page.length < FETCH_CHUNK) return rows;
     }
   };
-  // A call older than 180 days adds nothing (concallRecency), so older outlooks are not read.
-  const since = new Date(Date.parse(runDate) - 190 * 86_400_000).toISOString().slice(0, 10);
-  const [run, calls] = await Promise.all([
+  const [run, outlooks] = await Promise.all([
     readAll((from, to) =>
       supabase
         .from(table)
@@ -1944,27 +1944,9 @@ async function readRunScores(
         .order("symbol", { ascending: true })
         .range(from, to),
     ),
-    weights.c
-      ? readAll((from, to) =>
-          supabase
-            .from("concall_feed")
-            .select("symbol, call_date, outlook_score")
-            .eq("market", market)
-            .gte("call_date", since)
-            .not("outlook_score", "is", null)
-            .order("call_date", { ascending: false })
-            .order("symbol", { ascending: true })
-            .range(from, to),
-        )
-      : Promise.resolve([]),
+    weights.c ? readCallOutlooks(supabase, market, outlookSince(runDate)) : Promise.resolve({}),
   ]);
   // An empty run is a failed read, never a result: thrown, so it is not cached.
   if (!run.length) throw new Error(`no ${table} rows for ${market} ${runDate}`);
-  // Newest call first, so the first outlook seen for a company is its latest.
-  const outlooks = new Map<string, number>();
-  for (const call of calls) {
-    const symbol = String(call.symbol);
-    if (!outlooks.has(symbol)) outlooks.set(symbol, Number(call.outlook_score));
-  }
-  return Object.fromEntries(scoreRun(run, weights, outlooks));
+  return Object.fromEntries(scoreRun(run, weights, new Map(Object.entries(outlooks))));
 }

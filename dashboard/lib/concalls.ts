@@ -5,6 +5,7 @@ import { digest, sharedRead } from "@/lib/home-cache";
 import type { Reader } from "@/lib/results";
 import { createClient } from "@/lib/supabase/server";
 import { readForSymbols } from "@/lib/symbol-scope.mjs";
+import { latestOutlooks } from "@/lib/concalls.mjs";
 
 /**
  * Reads for the Concalls page.
@@ -140,4 +141,35 @@ export async function getLatestConcall(
     return null;
   }
   return (data as unknown as ConcallWithOutlook | null) ?? null;
+}
+
+const OUTLOOK_PAGE = 1000;
+
+/**
+ * Each company's latest call outlook since `since`, by symbol (`latestOutlooks`).
+ * Through `db`'s `from`, so it reads D1 wherever TABLE_BACKEND has moved
+ * `concall_feed` there. Throws on a failed read, so nothing caches it.
+ */
+export async function readCallOutlooks(db: Reader, market: MarketCode, since: string): Promise<Record<string, number>> {
+  const feed: { symbol: unknown; outlook_score: unknown }[] = [];
+  for (let from = 0; ; from += OUTLOOK_PAGE) {
+    const { data, error } = await db
+      .from("concall_feed")
+      .select("symbol, call_date, outlook_score")
+      .eq("market", market)
+      .gte("call_date", since)
+      .not("outlook_score", "is", null)
+      .order("call_date", { ascending: false })
+      .order("symbol", { ascending: true })
+      .range(from, from + OUTLOOK_PAGE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as unknown as { symbol: unknown; outlook_score: unknown }[];
+    feed.push(...page);
+    if (page.length < OUTLOOK_PAGE) return latestOutlooks(feed);
+  }
+}
+
+/** `readCallOutlooks` for the browser's score preview (`/api/live?kind=calls`), one shared read per market and day. */
+export async function getCallOutlooks(market: MarketCode, since: string): Promise<Record<string, number>> {
+  return sharedRead("call-outlooks", market, 300, async (db) => readCallOutlooks(db ?? (await createClient()), market, since), [since]);
 }
