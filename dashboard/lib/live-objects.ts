@@ -39,6 +39,13 @@ export function readLiveBody(market: string, name: string): Promise<LiveBody | n
   return memo(`${market}:${name}`, () => load(market, name), (body) => body !== null);
 }
 
+/** An object few viewers share (one per issue): read per request, kept out of the memo so it cannot evict the shared ones. */
+export async function readLiveRows(market: string, name: string): Promise<Record<string, unknown>[] | null> {
+  if (!MARKETS.has(market)) return null;
+  const body = await load(market, name);
+  return body ? (body.rows ?? []) : null;
+}
+
 /** The object's rows; null when it is absent. */
 export async function readLiveObject(market: string, name: string): Promise<Record<string, unknown>[] | null> {
   const body = await readLiveBody(market, name);

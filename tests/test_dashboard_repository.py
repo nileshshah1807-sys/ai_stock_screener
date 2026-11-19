@@ -532,3 +532,28 @@ class RetryTests(unittest.TestCase):
         ):
             repository.replace_market_breadth([{"scope": "s", "name": "n"}])
         self.assertIn("updated_at", request.call_args.kwargs["json"][0])
+
+
+class ListedIpoSymbolTests(unittest.TestCase):
+    """The IPO object's listed issues join the live-quote universe; a bad object costs only them."""
+
+    def repo(self, body):
+        repository = RecordingDashboardRepository()
+        repository._r2 = MemoryObjectStore()
+        if body is not None:
+            repository._r2.objects["live/NSE/ipos.json"] = body
+        return repository
+
+    def test_only_listed_issues_are_named(self):
+        rows = [{"symbol": "VPFL", "listing_date": "2026-11-09"},
+                {"symbol": "CRYSTALCP", "listing_date": None},
+                {"symbol": "BCSSL", "listing_date": "2026-11-05"}]
+        body = json.dumps({"market": "NSE", "rows": rows}).encode()
+        self.assertEqual(self.repo(body).listed_ipo_symbols(), ["BCSSL", "VPFL"])
+
+    def test_an_absent_or_unreadable_object_names_none(self):
+        self.assertEqual(self.repo(None).listed_ipo_symbols(), [])
+        with self.assertLogs("storage.dashboard_repository", "WARNING"):
+            self.assertEqual(self.repo(b"<html>").listed_ipo_symbols(), [])
+        repository = RecordingDashboardRepository()  # no R2 secrets
+        self.assertEqual(repository.listed_ipo_symbols(), [])

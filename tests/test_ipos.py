@@ -68,10 +68,35 @@ def d1_repo(market="NSE"):
     return repo, db
 
 
-def run(repo, payloads=PAYLOADS, today=TODAY, page=GMP_PAGE, bars=None):
+def rhp_lines(name):
+    return [(page, [tuple(span) for span in spans]) for page, spans in fixture(name)]
+
+
+def chapter_pdf(*headings):
+    """A one-page RHP: the chapter's title, its opening, then each heading in bold over a plain paragraph."""
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    y = 60
+    for text, font in [("SECTION II - RISK FACTORS", "tibo"),
+                       ("An investment in the Equity Shares involves a high degree of risk.", "tiro")] + [
+            line for n, heading in enumerate(headings, 1)
+            for line in ((f"{n}. {heading}", "tibo"), ("We discuss it here.", "tiro"))]:
+        page.insert_text((50, y), text, fontsize=10, fontname=font)
+        y += 20
+    return doc.tobytes()
+
+
+def no_rhp(url):
+    raise RuntimeError("404")
+
+
+def run(repo, payloads=PAYLOADS, today=TODAY, page=GMP_PAGE, bars=None, rhp_pdf=no_rhp):
     return ipos.run(repo, today=today, fetch=fetch_from(payloads),
                     bars=bars or (lambda day: {"VPFL": (89.3, 84.8)}), gmp_page=lambda: page,
-                    issue_page=lambda path: ISSUE_PAGE if "crystal-crop" in path else "<html></html>")
+                    issue_page=lambda path: ISSUE_PAGE if "crystal-crop" in path else "<html></html>",
+                    rhp_pdf=rhp_pdf)
 
 
 class ParseTests(unittest.TestCase):
@@ -132,6 +157,44 @@ class ParseTests(unittest.TestCase):
         self.assertNotIn("Amount in ₹ Crore", rows)
         self.assertIsNone(ipos.parse_financials("<html>no table</html>"))
 
+    def test_competitive_strengths_are_read_from_the_issue_page(self):
+        titled = ipos.parse_strengths((FIXTURES / "investorgain_issue_SIDDHIVINAYAK_20112026.html").read_text())
+        self.assertEqual(len(titled), 8)
+        self.assertEqual(titled[0], {
+            "title": "Integrated Sugarcane Processing Infrastructure",
+            "text": "An integrated manufacturing model that enables the production of multiple "
+                    "sugarcane-based products and value-added derivatives."})
+        plain = ipos.parse_strengths((FIXTURES / "investorgain_issue_FOODLINK_20112026.html").read_text())
+        self.assertEqual([item["title"] for item in plain], [None] * 5)
+        self.assertEqual(plain[-1]["text"], "Experienced promoter and professional management team with domain knowledge.")
+        self.assertNotIn("Not a strength.", [item["text"] for item in plain])  # the next list is not read
+        self.assertEqual(ipos.parse_strengths(ISSUE_PAGE), [])  # read, and it prints none
+        self.assertIsNone(ipos.parse_strengths(None))  # not read
+
+    def test_risk_factors_are_the_numbered_bold_headings_of_the_chapter(self):
+        sme = ipos.risk_headings(rhp_lines("rhp_lines_WATRANA_19112026.json"))
+        # Its numbers are plain, alone on their line; tables of "1.25" sit between; SECTION III ends it.
+        self.assertEqual(len(sme), 5)
+        self.assertTrue(sme[0]["title"].startswith("Our Company has availed secured borrowings"))
+        self.assertIsNone(sme[0]["text"])  # one sentence
+        self.assertEqual(sme[3]["text"], "Any non-compliance with applicable GST laws or other regulatory requirements "
+                                         "may adversely affect our business, financial condition and results of operations.")
+        mainboard = ipos.risk_headings(rhp_lines("rhp_lines_CRYSTALCP_19112026.json"))
+        self.assertEqual(len(mainboard), 6)
+        # "₹755.31 million" and "3.47%" are not a sentence's end; a heading's plain "." still reads as bold.
+        self.assertTrue(mainboard[0]["title"].endswith("3.47% of the net worth of our Company as of June 30, 2026."))
+        self.assertEqual(mainboard[4]["title"],
+                         "We typically do not enter into long-term agreements with majority of our customers and distributors.")
+
+    def test_risk_factors_are_read_from_the_pdf(self):
+        pdf = chapter_pdf("We depend on one customer. Its loss would hurt us.", "Our plant is in one place.")
+        self.assertEqual(ipos.parse_risk_factors(pdf), [
+            {"title": "We depend on one customer.", "text": "Its loss would hurt us."},
+            {"title": "Our plant is in one place.", "text": None},
+        ])
+        self.assertEqual(ipos.risk_headings([]), [])  # read, and no chapter found
+        self.assertIsNone(ipos.parse_risk_factors(None))  # not read
+
     def test_gmp_matches_by_name_and_open_date(self):
         tracker = {ipos._name_key(row["name"]): row for row in ipos.parse_gmp(GMP_PAGE)}
         issue = {"company": "Mahanadi Coalfields Limited", "open_date": "2026-11-19"}
@@ -154,6 +217,57 @@ class RunTests(unittest.TestCase):
         self.assertEqual(crystal["financials"]["rows"][2]["label"], "Profit After Tax")
         self.assertIsNone(rows["MAHACOAL"]["financials"])  # its page printed no table
 
+    def test_strengths_are_stored_and_an_issue_page_is_read_once(self):
+        repo, _ = d1_repo()
+        titled = (FIXTURES / "investorgain_issue_SIDDHIVINAYAK_20112026.html").read_text()
+        pages = {"crystal-crop": ISSUE_PAGE, "watrana": titled}
+        asked = []
+
+        def issue_page(path):
+            asked.append(path)
+            return next((page for key, page in pages.items() if key in path), "<html></html>")
+
+        def once():
+            ipos.run(repo, today=TODAY, fetch=fetch_from(PAYLOADS), bars=lambda day: {"VPFL": (89.3, 84.8)},
+                     gmp_page=lambda: GMP_PAGE, issue_page=issue_page, rhp_pdf=no_rhp)
+
+        once()
+        rows = {row["symbol"]: row for row in repo._r2.objects["live/NSE/ipos.json"]["rows"]}
+        self.assertEqual(len(rows["WATRANA"]["strengths"]), 8)
+        self.assertEqual(rows["CRYSTALCP"]["strengths"], [])  # its page prints none
+        asked.clear()
+        once()
+        # Crystal's figures and strengths are both read; Watrana's page still lacks figures, so is asked again.
+        self.assertEqual([path for path in asked if "crystal-crop" in path or "watrana" in path],
+                         ["/gmp/watrana-rentals-ipo/1818/"])
+
+    def test_risk_factors_are_read_once_and_kept_out_of_the_list_object(self):
+        repo, db = d1_repo()
+        pdf = chapter_pdf("We depend on one customer.")
+        asked = []
+
+        def rhp_pdf(url):
+            asked.append(url)
+            if "WATRANA" in url:
+                raise RuntimeError("404")
+            return pdf
+
+        run(repo, rhp_pdf=rhp_pdf)
+        self.assertEqual(len(asked), 2)  # the two issues whose detail names an RHP
+        stored = dict(db.execute("select symbol, risk_factors from ipo_issues where risk_factors is not null").fetchall())
+        self.assertEqual(json.loads(stored["CRYSTALCP"]), [{"title": "We depend on one customer.", "text": None}])
+        self.assertNotIn("WATRANA", stored)  # refused: asked again next run
+        self.assertEqual(repo._r2.objects["live/NSE/ipo-risks/CRYSTALCP.json"]["rows"][0]["title"],
+                         "We depend on one customer.")
+        self.assertFalse(any("risk_factors" in row for row in repo._r2.objects["live/NSE/ipos.json"]["rows"]))
+        asked.clear()
+        run(repo, rhp_pdf=rhp_pdf)
+        self.assertEqual(asked, ["https://nsearchives.nseindia.com/content/ipo/RHP_WATRANA.zip"])
+        asked.clear()
+        ipos.run(repo, today=TODAY, fetch=fetch_from(PAYLOADS), gmp_page=lambda: None, rhp_pdf=rhp_pdf,
+                 bars=lambda day: {}, rhp_budget=0)
+        self.assertEqual(asked, [])
+
     def test_a_second_run_changes_nothing_and_keeps_what_it_read(self):
         repo, db = d1_repo()
         run(repo)
@@ -169,7 +283,7 @@ class RunTests(unittest.TestCase):
         run(repo, today=date(2026, 11, 22))
         asked = []
         ipos.run(repo, today=date(2026, 11, 23), fetch=lambda path: asked.append(path) or PAYLOADS.get(path, []),
-                 bars=lambda day: asked.append(day) or {}, gmp_page=lambda: None)
+                 bars=lambda day: asked.append(day) or {}, gmp_page=lambda: None, rhp_pdf=no_rhp)
         self.assertNotIn("ipo-active-category?symbol=CRYSTALCP", asked)
         self.assertNotIn(date(2026, 11, 9), asked)
 

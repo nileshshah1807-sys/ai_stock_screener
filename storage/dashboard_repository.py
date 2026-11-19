@@ -788,6 +788,10 @@ class DashboardRepository:
     def put_ipos_object(self, rows: list[dict[str, Any]]) -> bool:
         return self._cloudflare_put("ipos", rows)
 
+    def put_ipo_risks_object(self, symbol: str, risks: list[dict[str, Any]]) -> bool:
+        """``live/{market}/ipo-risks/{symbol}.json``: one issue's RHP risk factors, read by its page alone."""
+        return self._cloudflare_put(f"ipo-risks/{symbol}", risks)
+
     def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
         """Store deals not stored yet. The key is the whole trade, so a stored deal
         never changes; re-sending the history each run used to rewrite every row."""
@@ -1182,6 +1186,22 @@ class DashboardRepository:
             logger.warning("R2 object %s not written: %s", self._live_path(name), exc)
             return False
         return True
+
+    def listed_ipo_symbols(self) -> list[str]:
+        """The listed issues in the IPO object (``workers/ipos.py``): too new for the snapshot, still quoted.
+
+        [] when R2 is off, the object is absent (the US) or unreadable: live quotes go on without them.
+        """
+        store = self._cloudflare()
+        if store is None:
+            return []
+        try:
+            body = store.get(self._live_path("ipos"))
+            rows = json.loads(body)["rows"] if body else []
+        except Exception as exc:  # noqa: BLE001 -- a reading aid; quotes must still be written
+            logger.warning("R2 IPO object unreadable, listed issues not quoted: %s", exc)
+            return []
+        return sorted({str(row["symbol"]) for row in rows if row.get("symbol") and row.get("listing_date")})
 
     def put_live_quotes_object(self, rows: list[dict[str, Any]], before: str) -> bool:
         """The market's quotes object: last object's rows, overlaid by ``rows``.

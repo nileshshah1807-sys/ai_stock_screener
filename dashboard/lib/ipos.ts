@@ -1,6 +1,6 @@
 import "server-only";
 
-import { readLiveObject } from "@/lib/live-objects";
+import { readLiveObject, readLiveRows } from "@/lib/live-objects";
 import type { MarketCode } from "@/lib/markets";
 
 /** One category of the book: shares reserved, shares bid and the ratio (null when none were reserved). */
@@ -38,6 +38,8 @@ export type Ipo = {
     periods: (string | null)[];
     rows: { label: string; values: (number | null)[] }[];
   } | null;
+  /** The RHP's competitive strengths as the tracker prints them; [] when it prints none, null before it is read. */
+  strengths: { title: string | null; text: string | null }[] | null;
 };
 
 /**
@@ -48,6 +50,15 @@ export type Ipo = {
 export async function getIpos(market: MarketCode): Promise<Ipo[] | null> {
   if (market !== "NSE") return null;
   return (await readLiveObject(market, "ipos")) as Ipo[] | null;
+}
+
+/** A heading of the RHP's Risk Factors chapter: its first sentence, and the rest. */
+export type RiskFactor = { title: string; text: string | null };
+
+/** One issue's RHP risk factors, from its own object (`live/NSE/ipo-risks/{symbol}.json`); null before they are read. */
+export async function getRiskFactors(market: MarketCode, symbol: string): Promise<RiskFactor[] | null> {
+  if (market !== "NSE") return null;
+  return (await readLiveRows(market, `ipo-risks/${symbol}`)) as RiskFactor[] | null;
 }
 
 /** Today's price for each of `symbols` that the live quotes object holds. */

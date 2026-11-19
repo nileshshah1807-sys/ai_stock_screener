@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, FileText } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileText } from "lucide-react";
 
 import { AllotmentOdds } from "@/components/ipos/allotment-odds";
 import { LiveDot, changeTone, priceBand, shortDate } from "@/components/ipos/ipo-row";
@@ -15,7 +15,7 @@ import {
   formatMoneyCompact,
   formatNumber,
 } from "@/lib/format";
-import { getIpos, getPricesNow, type Ipo } from "@/lib/ipos";
+import { getIpos, getPricesNow, getRiskFactors, type Ipo, type RiskFactor } from "@/lib/ipos";
 import {
   STATUS_LABEL,
   bookSize,
@@ -27,6 +27,7 @@ import {
   issueStatus,
   minInvestment,
   periodLabel,
+  splitRisks,
 } from "@/lib/ipos.mjs";
 import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
@@ -165,6 +166,57 @@ function FinancialsTable({ financials }: { financials: NonNullable<Ipo["financia
   );
 }
 
+/** Points from the prospectus, in its order: a bold lead where it gives one. */
+function PointList({ items, tone }: { items: { title: string | null; text: string | null }[]; tone: "positive" | "negative" }) {
+  return (
+    <ul className="space-y-3 text-sm leading-relaxed">
+      {items.map((item, i) => (
+        <li key={i} className="flex gap-3">
+          <span
+            aria-hidden
+            className={cn("mt-[0.6em] size-1 shrink-0 rounded-full", tone === "positive" ? "bg-positive" : "bg-negative")}
+          />
+          <p className="max-w-prose text-pretty">
+            {item.title ? (
+              <span className="font-semibold">{/[.?!:]$/.test(item.title) ? item.title : `${item.title}.`} </span>
+            ) : null}
+            <span className={item.title ? "text-muted-foreground" : undefined}>{item.text}</span>
+          </p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Source({ label }: { label: string }) {
+  return <p className="tabular mt-4 text-[11px] text-muted-foreground">{label}</p>;
+}
+
+/** The RHP's risk factors: the first few, the rest behind a closed disclosure. */
+function RiskList({ risks }: { risks: RiskFactor[] }) {
+  const { lead, more } = splitRisks(risks);
+  return (
+    <>
+      <PointList items={lead} tone="negative" />
+      {more.length ? (
+        <details className="group/more mt-3">
+          <summary className="-mx-2 inline-flex min-h-11 cursor-pointer items-center gap-1 rounded-md px-2 text-sm font-medium marker:content-none hover:bg-muted/60 focus-visible:outline-2 focus-visible:outline-ring">
+            {more.length} more
+            <ChevronRight
+              aria-hidden
+              className="size-4 transition-transform duration-200 ease-out group-open/more:rotate-90 motion-reduce:transition-none"
+            />
+          </summary>
+          <div className="pt-2">
+            <PointList items={more} tone="negative" />
+          </div>
+        </details>
+      ) : null}
+      <Source label="RHP" />
+    </>
+  );
+}
+
 /**
  * One issue: its book by category, the facts of the offer, the odds of a retail
  * allotment, the grey market (when switched on, labelled unofficial) and, once
@@ -179,7 +231,10 @@ export default async function IpoPage({ params }: PageProps<"/[market]/ipos/[sym
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: market.timezone }).format(new Date());
   const status = issueStatus(row, today);
   const listed = status === "listed";
-  const now = listed ? ((await getPricesNow(market.code, [row.symbol])).get(row.symbol) ?? null) : null;
+  const [now, risks] = await Promise.all([
+    listed ? getPricesNow(market.code, [row.symbol]).then((prices) => prices.get(row.symbol) ?? null) : null,
+    getRiskFactors(market.code, row.symbol),
+  ]);
   const lot = minInvestment(row);
   const retail = categoryTimes(row, "Retail");
   const gmpDigits = (value: number | null) => (value != null && value % 1 ? 1 : 0);
@@ -286,6 +341,17 @@ export default async function IpoPage({ params }: PageProps<"/[market]/ipos/[sym
           {row.financials?.rows.length ? (
             <Panel title="Financials">
               <FinancialsTable financials={row.financials} />
+            </Panel>
+          ) : null}
+          {row.strengths?.length ? (
+            <Panel title="Strengths">
+              <PointList items={row.strengths} tone="positive" />
+              <Source label="RHP · investorgain.com" />
+            </Panel>
+          ) : null}
+          {risks?.length ? (
+            <Panel title="Risk factors">
+              <RiskList risks={risks} />
             </Panel>
           ) : null}
         </div>

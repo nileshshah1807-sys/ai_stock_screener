@@ -1,12 +1,13 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 
+import { BoardFilter } from "@/components/ipos/board-filter";
 import { IpoRow, ListedRow, LiveDot } from "@/components/ipos/ipo-row";
 import { PageTitle } from "@/components/page-title";
 import { Reveal } from "@/components/motion";
 import { formatDateTimeIST } from "@/lib/format";
 import { getIpos, getPricesNow, type Ipo } from "@/lib/ipos";
-import { groupIssues } from "@/lib/ipos.mjs";
+import { BOARDS, boardParam, groupIssues, listQuery, listedColumns, onBoard } from "@/lib/ipos.mjs";
 import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
 
 export const metadata: Metadata = { title: "IPOs" };
@@ -44,8 +45,19 @@ function Section({
   );
 }
 
-function ListedTable({ rows, market, prices }: { rows: Ipo[]; market: Market; prices: Map<string, number> }) {
+function ListedTable({
+  rows,
+  market,
+  prices,
+  tagSme,
+}: {
+  rows: Ipo[];
+  market: Market;
+  prices: Map<string, number>;
+  tagSme: boolean;
+}) {
   const head = "px-3 py-2 text-right font-medium";
+  const columns = listedColumns(rows, prices);
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
@@ -59,13 +71,20 @@ function ListedTable({ rows, market, prices }: { rows: Ipo[]; market: Market; pr
             <th scope="col" className={`${head} hidden sm:table-cell`}>Issue price</th>
             <th scope="col" className={head}>Listing open</th>
             <th scope="col" className={`${head} hidden md:table-cell`}>Day&rsquo;s close</th>
-            <th scope="col" className={`${head} hidden lg:table-cell`}>Subscribed</th>
-            <th scope="col" className={head}>Now</th>
+            {columns.subscribed ? <th scope="col" className={`${head} hidden lg:table-cell`}>Subscribed</th> : null}
+            {columns.now ? <th scope="col" className={head}>Now</th> : null}
           </tr>
         </thead>
         <tbody>
           {rows.map((row) => (
-            <ListedRow key={row.symbol} row={row} market={market} now={prices.get(row.symbol) ?? null} />
+            <ListedRow
+              key={row.symbol}
+              row={row}
+              market={market}
+              now={prices.get(row.symbol) ?? null}
+              columns={columns}
+              tagSme={tagSme}
+            />
           ))}
         </tbody>
       </table>
@@ -100,9 +119,13 @@ export default async function IposPage({ params, searchParams }: PageProps<"/[ma
   }
 
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: market.timezone }).format(new Date());
-  const rows = (await getIpos(market.code)) ?? [];
+  const issues = (await getIpos(market.code)) ?? [];
+  const board = boardParam(typeof query.board === "string" ? query.board : undefined);
+  const counts = Object.fromEntries(BOARDS.map(({ value }) => [value, onBoard(issues, value).length]));
+  const rows = onBoard(issues, board) as Ipo[];
   const groups = groupIssues(rows, today) as Record<"bidding" | "upcoming" | "awaiting" | "listed", Ipo[]>;
   const showAll = query.listed === "all";
+  const base = marketPath(market.slug, "/ipos");
   const listed = showAll ? groups.listed : groups.listed.slice(0, LISTED_SHOWN);
   const prices = await getPricesNow(market.code, listed.map((row) => row.symbol));
   const live = SECTIONS.filter(({ key }) => groups[key].length);
@@ -133,12 +156,27 @@ export default async function IposPage({ params, searchParams }: PageProps<"/[ma
         }
       />
 
-      {!rows.length ? (
+      {issues.length ? <BoardFilter base={base} current={board} counts={counts} showAll={showAll} /> : null}
+
+      {!issues.length ? (
         <div className="panel px-5 py-10 text-center">
           <p className="text-sm font-medium">No issues to show yet.</p>
           <p className="mt-1 text-xs text-muted-foreground">
             The list fills on the next run of the Quarterly filings workflow.
           </p>
+        </div>
+      ) : !rows.length ? (
+        <div className="panel px-5 py-10 text-center">
+          <p className="text-sm font-medium">
+            No {board === "sme" ? "SME" : "mainboard"} issue in the last year.
+          </p>
+          <Link
+            prefetch={false}
+            href={`${base}${listQuery("all", showAll)}`}
+            className="mt-2 inline-block rounded text-xs font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Show every issue
+          </Link>
         </div>
       ) : (
         <Reveal className="space-y-4">
@@ -148,7 +186,7 @@ export default async function IposPage({ params, searchParams }: PageProps<"/[ma
                 <ul className="divide-y">
                   {groups[key].map((row) => (
                     <li key={row.symbol}>
-                      <IpoRow row={row} market={market} today={today} />
+                      <IpoRow row={row} market={market} today={today} tagSme={board !== "sme"} />
                     </li>
                   ))}
                 </ul>
@@ -167,12 +205,12 @@ export default async function IposPage({ params, searchParams }: PageProps<"/[ma
 
           {groups.listed.length ? (
             <Section title="Listed in the last year" count={groups.listed.length}>
-              <ListedTable rows={listed} market={market} prices={prices} />
+              <ListedTable rows={listed} market={market} prices={prices} tagSme={board !== "sme"} />
               {groups.listed.length > listed.length ? (
                 <div className="border-t px-4 py-2.5 text-center">
                   <Link
                     prefetch={false}
-                    href={`${marketPath(market.slug, "/ipos")}?listed=all`}
+                    href={`${base}${listQuery(board, true)}`}
                     className="rounded text-xs font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     Show all {groups.listed.length}

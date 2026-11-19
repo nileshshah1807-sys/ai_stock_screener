@@ -7,6 +7,15 @@
  * prints. Dates are ISO days in India time; `today` is too.
  */
 
+/** Risk factors shown before the rest fold away: an RHP states 70-100. */
+export const RISKS_SHOWN = 5;
+
+/** The first `shown` risk factors, and the rest for a closed disclosure. */
+export function splitRisks(risks, shown = RISKS_SHOWN) {
+  const all = risks ?? [];
+  return { lead: all.slice(0, shown), more: all.slice(shown) };
+}
+
 /** Where an issue stands today. */
 export function issueStatus(row, today) {
   if (row.listing_date && row.listing_date <= today) return "listed";
@@ -32,6 +41,45 @@ export function groupIssues(rows, today) {
   groups.awaiting.sort(by("close_date", -1));
   groups.listed.sort(by("listing_date", -1));
   return groups;
+}
+
+/** The board filter's options, in the order shown; `all` is the unfiltered list. */
+export const BOARDS = [
+  { value: "all", label: "All" },
+  { value: "mainboard", label: "Mainboard" },
+  { value: "sme", label: "SME" },
+];
+
+/** The `?board=` value as one of BOARDS; anything else is "all". */
+export function boardParam(value) {
+  return BOARDS.some((board) => board.value === value) ? value : "all";
+}
+
+/** The issues on one board; an issue whose board NSE did not name shows only under "all". */
+export function onBoard(rows, board) {
+  if (board === "all") return rows;
+  const name = board === "sme" ? "SME" : "Mainboard";
+  return rows.filter((row) => row.board === name);
+}
+
+/** The list page's query: "?board=sme&listed=all", "" for the default view. */
+export function listQuery(board, showAll) {
+  const params = new URLSearchParams();
+  if (board !== "all") params.set("board", board);
+  if (showAll) params.set("listed", "all");
+  const text = params.toString();
+  return text ? `?${text}` : "";
+}
+
+/**
+ * The listed table's optional columns that have a value in some row shown: a
+ * column of dashes alone is left out. `prices` is the page's map of today's prices.
+ */
+export function listedColumns(rows, prices) {
+  return {
+    subscribed: rows.some((row) => row.subscription_total != null),
+    now: rows.some((row) => prices.has(row.symbol)),
+  };
 }
 
 /** The book's ratio for one category ("QIB", "NII", "Retail", ...), or null when it has none. */

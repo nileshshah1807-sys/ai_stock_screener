@@ -12,6 +12,10 @@ All of it is NSE's public JSON, read with the session our other NSE workers use:
   more after the close; a listed issue still answers, so older issues fill in a
   ``book_budget`` at a time.
 * ``ipo-detail?symbol=&series=``: lot size, face value, registrar, the offer document.
+* The offer document itself (NSE's archive, a zip holding the RHP PDF): the
+  headings of its Risk Factors chapter, read once per issue, ``rhp_budget`` a run.
+  They go to the table and to ``live/NSE/ipo-risks/{symbol}.json``, not to the
+  list object: some 20 KB an issue.
 
 The listing day's open and close come from that day's bhavcopy.
 
@@ -32,11 +36,13 @@ from __future__ import annotations
 
 import argparse
 import html
+import io
 import json
 import logging
 import os
 import re
 import time
+import zipfile
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -64,6 +70,8 @@ BOOK_SETTLES_DAYS = 1
 UNLISTED_DAYS = 30
 #: Bookkeeping the page does not need.
 INTERNAL = ("detail_read", "book_final", "listing_checked")
+#: Kept out of the list object; each issue's own object holds them.
+APART = ("risk_factors",)
 
 
 def _date(text: Any) -> str | None:
@@ -258,6 +266,123 @@ def parse_financials(page: str | None) -> dict[str, Any] | None:
             "unit": unit.group(1).lower() if unit else None, "periods": periods, "rows": rows}
 
 
+def _text(fragment: str) -> str:
+    return re.sub(r"\s+", " ", _cell(fragment)).strip()
+
+
+def parse_strengths(page: str | None) -> list[dict[str, Any]] | None:
+    """The competitive strengths an issue's tracker page prints from its RHP; None when there was no page.
+
+    ``[{"title", "text"}]`` in the page's order: a point led by a bold phrase keeps it
+    as ``title``, a plain point has ``title`` None. [] when the page prints no such list,
+    so a page read once is not asked again. The prospectus states no weaknesses beside
+    them; its risk factors are a chapter of the PDF, not read here.
+    """
+    if page is None:
+        return None
+    text = _flight_text(page)
+    heading = re.search(r"Competitive\s+Strengths?\s*:?\s*</strong>", text, re.I)
+    listing = re.match(r"\s*(?:</p>)?\s*<ul[^>]*>(.*?)</ul>", text[heading.end():], re.S) if heading else None
+    if listing is None:
+        return []
+    out = []
+    for item in re.findall(r"<li[^>]*>(.*?)</li>", listing.group(1), re.S):
+        lead = re.match(r"\s*(?:<p[^>]*>)?\s*<strong>(.*?)</strong>(.*)", item, re.S)
+        title = _text(lead.group(1)).rstrip(":").strip() if lead else None
+        body = re.sub(r"^[:\s–-]+", "", _text(lead.group(2) if lead else item))
+        if title or body:
+            out.append({"title": title or None, "text": body or None})
+    return out
+
+
+RISK_CHAPTER = re.compile(r"^(SECTION\s+[IVX]+\s*[-–—:.]?\s*)?RISK\s+FACTORS$", re.I)
+NEXT_SECTION = re.compile(r"^SECTION\s*[-–—:]?\s*[IVX]+\b", re.I)
+RISK_NUMBER = re.compile(r"^(\d{1,3})\s*[.)](?:\s+(.*)|$)")  # "5." or "5. Our ...", never "5.21%"
+LIST_MARK = re.compile(r"^\s*\d{1,3}\s*[.)]\s*$")
+#: A sentence ends at ". " before a capital, but not after an initial or a common abbreviation.
+SENTENCE_END = re.compile(r"(?<![A-Z])(?<!\bLtd)(?<!\bPvt)(?<!\bNo)(?<!\bCo)(?<!\bRs)(?<!\bMr)(?<!\bMs)(?<!\bDr)"
+                          r"(?<!\bvs)(?<!\bi\.e)(?<!\be\.g)\.\s+(?=[A-Z“\"])")
+#: The chapter is some 20-90 pages; it starts within the first 150.
+RISK_PAGES = 150
+
+
+def _pdf_lines(pdf: bytes) -> list[tuple[int, list[tuple[str, bool]]]]:
+    """``(page, [(text, bold)])`` per line, in reading order, from the page that says the
+    offer carries "a high degree of risk" (the chapter's opening) for ``RISK_PAGES`` pages."""
+    import pymupdf
+
+    out: list[tuple[int, list[tuple[str, bool]]]] = []
+    with pymupdf.open(stream=pdf, filetype="pdf") as doc:
+        pages = range(min(RISK_PAGES, doc.page_count))
+        start = next((i for i in pages if re.search(r"high\s+degree\s+of\s+risk", doc[i].get_text(), re.I)), None)
+        if start is None:
+            return out
+        for number in range(start, min(start + RISK_PAGES, doc.page_count)):
+            for block in doc[number].get_text("dict", sort=True)["blocks"]:
+                for line in block.get("lines", []):
+                    spans = [(s["text"], bool(s["flags"] & 16) or "bold" in s["font"].lower())
+                             for s in line["spans"] if s["text"].strip()]
+                    if spans:
+                        out.append((number, spans))
+    return out
+
+
+def _bold(spans: list[tuple[str, bool]]) -> bool:
+    """Bold when 80% of its letters are: a heading's stray plain '.', or a plain list number, does not count."""
+    sizes = [(len(text.strip()), bold) for text, bold in spans if not LIST_MARK.match(text)]
+    total = sum(size for size, _ in sizes)
+    return sum(size for size, bold in sizes if bold) >= 0.8 * total
+
+
+def _risk_item(heading: str) -> dict[str, Any]:
+    heading = re.sub(r"\s+([,.;:%)])", r"\1", re.sub(r"\s+", " ", heading)).strip()
+    first, *rest = SENTENCE_END.split(heading, maxsplit=1)
+    return {"title": first + "." if rest else first, "text": rest[0] if rest else None}
+
+
+def risk_headings(lines: list[tuple[int, list[tuple[str, bool]]]]) -> list[dict[str, Any]]:
+    """The numbered bold headings of the RHP's Risk Factors chapter, in its order.
+
+    A heading is a bold line numbered one more than the last (the number itself may
+    be plain, alone on its line), continued by the bold lines under it; the plain
+    text after it is its discussion, not read. Numbering in sequence is what keeps a
+    table's "1." or a "5.21%" out. The chapter ends at the next SECTION heading.
+    Measured on eight RHPs, mainboard and SME (19 Nov 2026): 72-104 headings each,
+    every one read. ``{"title"}`` is the heading's first sentence, ``{"text"}`` the rest.
+    """
+    start = next((i for i, (_, spans) in enumerate(lines)
+                  if RISK_CHAPTER.match(" ".join(t.strip() for t, _ in spans).strip())), None)
+    if start is None:
+        return []
+    headings: list[str] = []
+    expect, open_ = 1, False
+    for page, spans in lines[start + 1:]:
+        text = re.sub(r"\s+", " ", " ".join(t.strip() for t, _ in spans)).strip()
+        if re.fullmatch(r"(Page\s*)?\d+", text):  # a page number
+            continue
+        bold = _bold(spans)
+        if bold and page > lines[start][0] and NEXT_SECTION.match(text):
+            break
+        number = RISK_NUMBER.match(text)
+        if bold and number and int(number.group(1)) == expect:
+            headings.append(number.group(2) or "")
+            expect, open_ = expect + 1, True
+        elif open_:
+            if bold:
+                headings[-1] = f"{headings[-1]} {text}".strip()
+            else:
+                open_ = False
+                if not headings[-1]:  # a bare number before plain text was not a heading
+                    headings.pop()
+                    expect -= 1
+    return [_risk_item(heading) for heading in headings if heading]
+
+
+def parse_risk_factors(pdf: bytes | None) -> list[dict[str, Any]] | None:
+    """The RHP's risk factors as ``[{"title", "text"}]``; [] when it was read and none were found, None when not read."""
+    return None if pdf is None else risk_headings(_pdf_lines(pdf))
+
+
 def _period(text: str) -> str | None:
     try:
         return datetime.strptime(text, "%d %b %Y").date().isoformat()
@@ -309,6 +434,20 @@ def _issue_page(path: str) -> str:
     return response.text
 
 
+def _rhp_pdf(url: str) -> bytes:
+    """The offer document: NSE's zip holds the RHP and SEBI's general information document (GID)."""
+    import requests
+
+    response = requests.get(url, headers=REQUEST_HEADERS, timeout=120)
+    response.raise_for_status()
+    if not response.content.startswith(b"PK"):
+        return response.content
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        pdfs = [item for item in archive.infolist() if item.filename.lower().endswith(".pdf")
+                and not re.search(r"(^|[^a-z])GID([^a-z]|$)|abridged", Path(item.filename).name, re.I)]
+        return archive.read(max(pdfs, key=lambda item: item.file_size))
+
+
 def _merge(row: dict, fields: dict) -> None:
     """Fill ``row`` from ``fields``, never replacing a value with nothing."""
     row.update({key: value for key, value in fields.items() if value is not None})
@@ -341,7 +480,9 @@ def run(
     bars: Callable[[date], dict] = _listing_bars,
     gmp_page: Callable[[], str | None] = _gmp_page,
     issue_page: Callable[[str], str] = _issue_page,
+    rhp_pdf: Callable[[str], bytes] = _rhp_pdf,
     book_budget: int = 40,
+    rhp_budget: int = 5,
     listing_days: int = 8,
     window_days: int = 365,
     dry_run: bool = False,
@@ -402,9 +543,19 @@ def run(
             _merge(row, gmp_fields(row, tracker))
             found = _tracked(row, tracker)
             # Read once: a prospectus's figures do not change while the issue is open.
-            if found and found.get("page") and not row.get("financials"):
-                page_text = _try(f"{row['symbol']} financials", lambda p=found["page"]: issue_page(p))
-                _merge(row, {"financials": parse_financials(page_text)})
+            if found and found.get("page") and (not row.get("financials") or row.get("strengths") is None):
+                page_text = _try(f"{row['symbol']} issue page", lambda p=found["page"]: issue_page(p))
+                _merge(row, {"financials": parse_financials(page_text), "strengths": parse_strengths(page_text)})
+
+    # Read once: a filed prospectus does not change. Newest first, a few a run: each is 5-25 MB.
+    unread = sorted((row for row in rows.values() if row.get("rhp_url") and row.get("risk_factors") is None),
+                    key=lambda row: row.get("open_date") or "", reverse=True)
+    read_risks = []
+    for row in unread[:rhp_budget]:
+        risks = _try(f"{row['symbol']} RHP", lambda u=row["rhp_url"]: parse_risk_factors(rhp_pdf(u)))
+        if risks is not None:
+            row["risk_factors"] = risks
+            read_risks.append(row)
 
     changed = [row for symbol, row in rows.items() if row != stored.get(symbol)]
     columns = {key for row in changed for key in row}
@@ -412,7 +563,10 @@ def run(
     if not dry_run:
         if changed:
             repo.upsert_ipo_issues(changed)
-        shown = sorted({key for row in rows.values() for key in row} - {*INTERNAL, "market"})
+        for row in read_risks:
+            if row["risk_factors"]:
+                repo.put_ipo_risks_object(row["symbol"], row["risk_factors"])
+        shown = sorted({key for row in rows.values() for key in row} - {*INTERNAL, *APART, "market"})
         repo.put_ipos_object(sorted(({key: row.get(key) for key in shown} for row in rows.values()),
                                     key=lambda row: row.get("open_date") or "", reverse=True))
     logger.info("IPOs: %d issues, %d changed%s", len(rows), len(changed), " (dry run, nothing written)" if dry_run else "")
@@ -423,13 +577,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--market", default="NSE")
     parser.add_argument("--book-budget", type=int, default=40)
+    parser.add_argument("--rhp-budget", type=int, default=5)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     from storage.dashboard_repository import DashboardRepository
 
-    run(DashboardRepository.from_environment(args.market), book_budget=args.book_budget, dry_run=args.dry_run)
+    run(DashboardRepository.from_environment(args.market), book_budget=args.book_budget,
+        rhp_budget=args.rhp_budget, dry_run=args.dry_run)
     return 0
 
 
