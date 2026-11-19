@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 
 /**
- * The Market page when it fails to render. The reads themselves never throw
+ * A Market page (movers, sectors, breadth) when it fails to render. The reads themselves never throw
  * -- a failed one is reported in place (see getMarketBreadth) -- so this is a
  * fault in drawing what came back, and a retry renders the segment again.
  */

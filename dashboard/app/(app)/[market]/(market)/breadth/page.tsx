@@ -1,26 +1,24 @@
-import { Suspense } from "react";
 import type { Metadata } from "next";
 
 import { MarketDayNotice } from "@/components/market-day-notice";
 import { MarketDashboard, type BreadthList } from "@/components/market/market-dashboard";
 import type { GroupKey } from "@/components/market/group-picker";
-import { LiveMovers, LiveMoversSkeleton } from "@/components/market/live-movers";
-import { MarketFlows } from "@/components/market/market-flows";
+import { FiiDiiFlows } from "@/components/market/fii-dii-flows";
 import { Pagination } from "@/components/screener/pagination";
 import { ScreenerTable } from "@/components/screener/screener-table";
 import { parseFilters, toSearchParams } from "@/lib/filters";
 import { formatDate } from "@/lib/format";
 import { LIST_METRICS } from "@/lib/market-breadth.mjs";
+import { readLiveObject } from "@/lib/live-objects";
 import { marketFromSlug, type Market } from "@/lib/markets";
 import {
   getLatestRun,
-  getLiveMarket,
   getMarketBreadth,
   getSnapshotPage,
   PAGE_SIZE,
 } from "@/lib/queries";
 
-export const metadata: Metadata = { title: "Market" };
+export const metadata: Metadata = { title: "Market breadth" };
 export const dynamic = "force-dynamic";
 
 function selectedGroup(query: Record<string, string | string[] | undefined>): GroupKey {
@@ -42,38 +40,30 @@ function selectedGroup(query: Record<string, string | string[] | undefined>): Gr
  * a trend is broad. Every series is rebuilt daily by
  * tools/publish_market_breadth.py from the same closes the model scores on.
  *
- * Above the breadth, today's movers within each index, from the five-minute
- * quotes (components/market/live-movers.tsx).
+ * Above the charts, NSE's FII/DII cash flows: who was buying, beside how
+ * broadly. Read from the R2 object workers/market_flows.py writes; absent
+ * for the US, and until the step has run.
  */
-export default async function MarketPage({ params, searchParams }: PageProps<"/[market]/market">) {
+export default async function BreadthPage({ params, searchParams }: PageProps<"/[market]/breadth">) {
   const market = marketFromSlug((await params).market)!;
   const query = await searchParams;
   const selected = selectedGroup(query);
   const listed = Array.isArray(query.list) ? query.list[0] : query.list;
   const metric = listed && LIST_METRICS.includes(listed) ? listed : null;
 
-  const [{ groups, group, indices, failed }, list] = await Promise.all([
+  const [{ groups, group, indices, failed }, list, flows] = await Promise.all([
     getMarketBreadth(market.code, selected),
     metric ? breadthList(market, metric, selected, query) : Promise.resolve(null),
+    // Display evidence: a failed read drops the panel, never the page.
+    market.code === "NSE" ? readLiveObject(market.code, "fii-dii-flows").catch(() => null) : null,
   ]);
 
   return (
     <div className="space-y-6 px-4 py-5 sm:px-6">
       <MarketDayNotice />
-      <h1 className="text-title font-semibold">Market</h1>
+      <h1 className="text-title font-semibold">Market breadth</h1>
 
-      {/* Today's prices first: what is moving now is the question a reader
-          arrives with; breadth below is the slower, session-by-session view.
-          Streamed, so the page never waits on the read: the skeleton holds
-          its place until it lands. */}
-      {market.liveIndices ? (
-        <Suspense fallback={<LiveMoversSkeleton />}>
-          <LiveMoversSection market={market} />
-        </Suspense>
-      ) : null}
-
-      {/* NSE only: the exchange's institutional flows, read in the browser. */}
-      {market.code === "NSE" ? <MarketFlows /> : null}
+      {flows?.length ? <FiiDiiFlows market={market} rows={flows} /> : null}
 
       <MarketDashboard
         // Remount per group so a new row starts from a clean scrub.
@@ -103,12 +93,6 @@ export default async function MarketPage({ params, searchParams }: PageProps<"/[
       ) : null}
     </div>
   );
-}
-
-/** Today's movers, read on the server and kept current in the browser. */
-async function LiveMoversSection({ market }: { market: Market }) {
-  const { live, failed } = await getLiveMarket(market.code);
-  return <LiveMovers market={market} initial={live} failed={failed} />;
 }
 
 /**

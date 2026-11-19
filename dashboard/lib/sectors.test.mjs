@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { liveFor, rebase, squarify } from "./sectors.mjs";
+import { liveFor, peerSlice, rebase, squarify } from "./sectors.mjs";
 
 test("rebase starts at zero on the first point in range", () => {
   const out = rebase(
@@ -34,6 +34,23 @@ test("a treemap fills the box with areas in proportion and drops empty sizes", (
     assert.ok(tile.x >= -1e-9 && tile.y >= -1e-9 && tile.x + tile.w <= 6 + 1e-9 && tile.y + tile.h <= 4 + 1e-9);
   }
   assert.deepEqual(squarify([], 10, 10), []);
+});
+
+test("peerSlice keeps the largest members and the stock itself, with its place by market cap", () => {
+  const members = [
+    { s: "A", mc: 300 },
+    { s: "B", mc: null },
+    { s: "C", mc: 100 },
+    { s: "D", mc: 200 },
+  ];
+  const top = peerSlice(members, "C", 2);
+  assert.deepEqual(top.peers.map((m) => m.s), ["A", "D", "C"]);
+  assert.equal(top.capRank, 3);
+  assert.equal(top.ranked, 3);
+  const unreported = peerSlice(members, "B", 2);
+  assert.equal(unreported.capRank, null);
+  assert.deepEqual(unreported.peers.map((m) => m.s), ["A", "D", "B"]);
+  assert.equal(peerSlice(members, "Z", 5).own, null);
 });
 
 test("a live reading counts only from a later session than the close", () => {

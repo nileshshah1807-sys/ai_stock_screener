@@ -63,6 +63,9 @@ export function Treemap({
   colours,
   label,
   height = 420,
+  note,
+  highlight,
+  controls = true,
 }: {
   items: TreemapItem[];
   sizes: SizeOption[];
@@ -70,6 +73,11 @@ export function Treemap({
   label: string;
   height?: number;
   /** One line under the map: what area means and what it leaves out. */
+  note?: string;
+  /** The key of a tile to outline: the stock a reader came from. */
+  highlight?: string;
+  /** False draws the map alone, on its first size and colour, for a preview that links to the full page. */
+  controls?: boolean;
 }) {
   const [size, setSize] = useState(sizes[0].value);
   const [colour, setColour] = useState(colours[0].value);
@@ -113,7 +121,7 @@ export function Treemap({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+      {controls ? <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <Picker label="Size">
           <SegmentedControl label="Size by" value={size} onChange={setSize} options={sizes} />
         </Picker>
@@ -138,7 +146,7 @@ export function Treemap({
             />
           </Picker>
         ) : null}
-      </div>
+      </div> : null}
 
       <div
         ref={box}
@@ -165,9 +173,11 @@ export function Treemap({
                 onMouseEnter={() => setActive(tile.item.key)}
                 onFocus={() => setActive(tile.item.key)}
                 onBlur={() => setActive(null)}
+                aria-current={tile.item.key === highlight ? "true" : undefined}
                 className={cn(
                   "flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-[4px] text-center text-foreground transition-[filter] duration-(--duration-fast) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   active && active !== tile.item.key && "brightness-[0.94] dark:brightness-75",
+                  tile.item.key === highlight && "ring-2 ring-foreground ring-inset",
                 )}
                 style={{ background: background(colourOption, value, scaleValue, rank) }}
               >
@@ -203,7 +213,11 @@ export function Treemap({
             `${colourOption.label}: low to high · hatched: not reported`
           )}
         </span>
-        {tiles.length < items.length ? <span>{`Largest ${tiles.length} of ${items.length}`}</span> : null}
+        <span>
+          {tiles.length < items.length ? `Largest ${tiles.length} of ${items.length}` : null}
+          {tiles.length < items.length && note ? " · " : null}
+          {note}
+        </span>
       </div>
     </div>
   );

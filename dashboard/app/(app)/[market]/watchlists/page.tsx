@@ -8,7 +8,6 @@ import { WatchlistRowAction } from "@/components/watchlist/watchlist-row-action"
 import { WatchlistSearch } from "@/components/watchlist/watchlist-search";
 import { WatchlistSelector } from "@/components/watchlist/watchlist-selector";
 import { parseFilters, toSearchParams } from "@/lib/filters";
-import { formatDate } from "@/lib/format";
 import { marketFromSlug } from "@/lib/markets";
 import {
   getLatestRun,
@@ -100,16 +99,7 @@ export default async function WatchlistsPage({
     <div className="space-y-4 px-4 py-5 sm:px-6">
       <div>
         <h1 className="text-title font-semibold">Watchlists</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {run ? (
-            <>
-              Your own lists, scored against the {formatDate(run.run_date)} run.
-              A list holds tickers, not scores, so it re-reads every day.
-            </>
-          ) : (
-            <>No screener run has been published yet.</>
-          )}
-        </p>
+        {run ? null : <p className="mt-1 text-sm text-muted-foreground">No screener run has been published yet.</p>}
       </div>
 
       {/* Selector and the add control on one row: choosing a list and filling

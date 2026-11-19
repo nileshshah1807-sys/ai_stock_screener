@@ -69,7 +69,7 @@ export type BreadthList = {
 };
 
 /**
- * The Market page: benchmark indices, then breadth for the selected group.
+ * The Breadth page: benchmark indices, then breadth for the selected group.
  *
  * Range, unit and the scrubbed date are client state -- changing them costs
  * no round trip, so they respond on the press. Range and unit are written to

@@ -54,10 +54,6 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
                 {market.label}
               </span>
             </div>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Our market-cap-weighted index of all {summary.count.toLocaleString(market.locale)} {sector.name} stocks
-              the screener tracks, what they cost, and every one of them.
-            </p>
           </div>
           <div className="sm:text-right">
             <p

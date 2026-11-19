@@ -1,17 +1,17 @@
-import { LiveMoversSkeleton } from "@/components/market/live-movers";
 import { Skeleton } from "@/components/ui/skeleton";
 
 /**
- * Mirrors the Market page: heading, today's movers (both markets list them),
- * the control row, then a grid of chart cards -- so
- * nothing moves when the page streams in over it.
+ * Mirrors the Breadth page: heading, the control row, then a grid of chart
+ * cards -- so nothing moves when the page streams in over it.
  */
-export default function MarketLoading() {
+export default function BreadthLoading() {
   return (
     <div className="space-y-6 px-4 py-5 sm:px-6" aria-busy="true" aria-live="polite">
-      <span className="sr-only">Loading the market…</span>
-      <Skeleton className="h-9 w-40" />
-      <LiveMoversSkeleton />
+      <span className="sr-only">Loading market breadth…</span>
+      <div className="space-y-2">
+        <Skeleton className="h-9 w-56" />
+        <Skeleton className="h-4 w-80 max-w-full" />
+      </div>
       <div className="flex flex-wrap gap-3 py-2">
         <Skeleton className="h-9 w-36 rounded-md" />
         <Skeleton className="h-8 w-28 rounded-lg" />

@@ -41,6 +41,13 @@ the scheduled workflows set the same flag.
   whose input was never reported leaves both the numerator and the denominator,
   and the result is shrunk toward neutral. Never let an unreported metric score
   as the worst observed value.
+- **Dashboard copy: no explainer text** (owner, 19 Nov 2026). A page or panel is its
+  heading and its data. No subtitle saying what the page is, how a figure is built
+  or how to use a control: it reads as unprofessional and text-heavy. The most a
+  heading carries is a short source/date label (`NSE provisional · 19 Nov 2026`).
+  Method belongs in a code comment, or behind an existing closed disclosure
+  ("How it's counted"). Empty and error states still say what happened and what
+  to do next.
 - **Dashboard pages are static first: the Worker has 10 ms of CPU a request.**
   Cloudflare Workers Free allows 10 ms; one Next server render costs 60-600 ms,
   and a burst of overruns locks the whole site (Error 1102). So, in this order:
@@ -389,7 +396,8 @@ the scheduled workflows set the same flag.
   cash-market buy/sell/net (rupees crore, FII and DII) to the D1 table `fii_dii_flows`
   (`storage/d1/market_flows.sql`, hand-laid, no Supabase twin; the step sets
   `TABLE_BACKEND_D1`) and `live/NSE/fii-dii-flows.json` (newest 260 sessions, rebuilt
-  from the table when behind it). NSE keeps no archive, so history starts the day it was
+  from the table when behind it), which the Market tab's Breadth page reads (`components/market/fii-dii-flows.tsx`).
+  NSE keeps no archive, so history starts the day it was
   switched on. A stored session is not written again. Nothing scores it.
 - **NSE IPOs are display evidence, on Cloudflare only.** `workers/ipos.py` (a step of
   the Quarterly filings workflow, on when the `IPO_CENTRE_ENABLED` repository variable is
@@ -666,7 +674,8 @@ validation/   reproducibility manifests and replay
 dashboard/    Next.js front end, with its own README; routes are nested
               under /[market] (/ind, /us; /nse redirects). Concalls, Results and Returns
               share the header's Tools tab (`lib/tools.ts`, the `(tools)` route group);
-              Market is a tab of its own
+              Today's movers (/market), Sectors and Breadth share the Market tab
+              (`lib/market-pages.ts`, the `(market)` route group)
 ```
 
 ## Gotchas

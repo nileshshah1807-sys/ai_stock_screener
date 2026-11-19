@@ -86,6 +86,20 @@ export function squarify(items, width, height) {
 }
 
 /**
+ * A stock among its sector's members: the largest `limit` by market cap, plus
+ * the stock itself when it is not among them, and its place by market cap
+ * (1-based, null when it has none) of the `ranked` members that report one.
+ */
+export function peerSlice(members, symbol, limit) {
+  const ranked = members.filter((m) => m.mc !== null && m.mc > 0).sort((a, b) => b.mc - a.mc);
+  const index = ranked.findIndex((m) => m.s === symbol);
+  const own = members.find((m) => m.s === symbol) ?? null;
+  const peers = ranked.slice(0, limit);
+  if (own && !peers.includes(own)) peers.push(own);
+  return { peers, own, capRank: index >= 0 ? index + 1 : null, ranked: ranked.length };
+}
+
+/**
  * A live reading (a sector's live change, or a member's quote) when it is from
  * a later session than the close the page was built from, else null: until
  * the next session trades, the close is the figure.

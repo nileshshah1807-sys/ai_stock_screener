@@ -56,9 +56,6 @@ export default async function ReturnsPage({ params, searchParams }: PageProps<"/
     <div className="space-y-5 px-4 py-5 sm:px-6">
       <div>
         <h1 className="text-title font-semibold">Returns</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          What the screener&rsquo;s picks went on to return, against the {market.benchmark}.
-        </p>
       </div>
 
       {report.status === "no-history" ? (

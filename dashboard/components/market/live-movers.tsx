@@ -203,13 +203,13 @@ export function LiveMoversSkeleton() {
   );
 }
 
-/** The section's heading, with the quotes' freshness beside it once there are any. */
+/** The page's heading, with the quotes' freshness beside it once there are any. */
 function MoversHeading({ children }: { children?: React.ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-      <h2 id="live-movers-title" className="text-lead font-semibold tracking-[-0.011em]">
+      <h1 id="live-movers-title" className="text-title font-semibold">
         Today&rsquo;s movers
-      </h2>
+      </h1>
       {children}
     </div>
   );
@@ -420,10 +420,10 @@ function MoverColumn({
     <div className={cn("min-w-0", className)}>
       {/* Below lg the toggle above names the column, so the heading is
           left to screen readers there. */}
-      <h3 className="flex items-center gap-2 px-4 pb-1 pt-3 text-xs font-medium uppercase tracking-wider text-muted-foreground max-lg:sr-only">
+      <h2 className="flex items-center gap-2 px-4 pb-1 pt-3 text-xs font-medium uppercase tracking-wider text-muted-foreground max-lg:sr-only">
         <Icon className="size-3.5" aria-hidden />
         {title}
-      </h3>
+      </h2>
       {rows.length ? (
         <>
           <ul className="divide-y">
@@ -473,8 +473,9 @@ function MoverRow({ market, row }: { market: Market; row: LiveMover }) {
         {formatPercent(row.change_pct, 2, true)}
       </span>
       {/* The rating stays on a phone: it is the screener's verdict, and the
-          reason a mover is worth opening. */}
-      <span className="flex w-[4.5rem] shrink-0 justify-end sm:w-20">
+          reason a mover is worth opening. Wide enough for STRONG BUY (94px),
+          the widest badge, so it never runs over the change beside it. */}
+      <span className="flex w-24 shrink-0 justify-end">
         {row.rating ? <RatingBadge rating={row.rating} /> : null}
       </span>
     </StockListRow>

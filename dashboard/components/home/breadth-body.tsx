@@ -57,7 +57,7 @@ export function BreadthBody({ now }: { now: BreadthNow }) {
         </div>
       ) : null}
       <Link prefetch={false}
-        href={marketPath(market.slug, "/market")}
+        href={marketPath(market.slug, "/breadth")}
         className="mt-4 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         Breadth charts

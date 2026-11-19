@@ -47,8 +47,22 @@ export function SectorsMap({ market, sectors }: { market: Market; sectors: Secto
   );
 }
 
-/** One sector's members as tiles, with StocksSena's size and colour choices where we hold the field. */
-export function MembersMap({ market, members }: { market: Market; members: SectorMember[] }) {
+/**
+ * One sector's members as tiles, with StocksSena's size and colour choices
+ * where we hold the field. `highlight` outlines one member; `preview` drops
+ * the pickers for a smaller map that links on to the sector page.
+ */
+export function MembersMap({
+  market,
+  members,
+  highlight,
+  preview = false,
+}: {
+  market: Market;
+  members: SectorMember[];
+  highlight?: string;
+  preview?: boolean;
+}) {
   const money = (value: number | null) => formatMoneyCompact(value, market);
   const items: TreemapItem[] = members.map((member) => ({
     key: member.s,
@@ -87,6 +101,9 @@ export function MembersMap({ market, members }: { market: Market; members: Secto
       sizes={sizes}
       colours={colours}
       label="Members heatmap"
+      highlight={highlight}
+      controls={!preview}
+      height={preview ? 220 : undefined}
     />
   );
 }

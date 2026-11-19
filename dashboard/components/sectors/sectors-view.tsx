@@ -120,13 +120,13 @@ function Heading({
   liveSession?: string | null;
 }) {
   return (
-    <div>
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
       <h1 className="text-title font-semibold">Sectors</h1>
-      <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-        {count ? `${count} ` : ""}
-        {market} sectors, each as our own market-cap-weighted index of every stock the screener tracks in it.
-        {liveSession ? ` 1D is live for ${formatDate(liveSession)}.` : asOf ? ` Closing prices of ${formatDate(asOf)}.` : ""}
-      </p>
+      {asOf ? (
+        <p className="tabular text-xs text-muted-foreground">
+          {count} {market} sectors · {liveSession ? `Live · ${formatDate(liveSession)}` : formatDate(asOf)}
+        </p>
+      ) : null}
     </div>
   );
 }

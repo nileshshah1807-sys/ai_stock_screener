@@ -68,11 +68,6 @@ export default async function NotificationsPage({
           Back to screener
         </Link>
         <h1 className="mt-2 text-title font-semibold">Notifications</h1>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          {market.code === "NSE"
-            ? "Quarterly results as companies file them with the exchange, and earnings-call transcripts as they are published. Checked three times a day."
-            : "Quarterly results as the data vendor publishes them, which can be days after the company reports. Checked three times a day."}
-        </p>
       </div>
 
       <EventFilterBar {...feed.bar} />
