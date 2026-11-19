@@ -260,6 +260,29 @@ It has exactly these keys; where a set of values is listed, use one of them:
 }"""
 
 
+# A US call is read with the same prompt, its country and currency changed. NSE's
+# prompt stays byte-identical, so no stored NSE reading needs a rescore. The
+# order book keeps its key and is read in the market's currency, as the *_INR
+# settings are (CLAUDE.md, Markets).
+US_ORDER_BOOK_UNIT = "US$ million"
+_US_PROMPT_EDITS = (
+    ("from an Indian company's", "from a US-listed company's"),
+    ("backlog in rupees crore. Convert lakh, million and billion.",
+     "backlog in millions of US dollars, whatever the key is called. Convert thousands and billions."),
+)
+
+
+def system_prompt(market: str = "NSE") -> str:
+    if market != "US":
+        return SYSTEM_PROMPT
+    prompt = SYSTEM_PROMPT
+    for old, new in _US_PROMPT_EDITS:
+        if old not in prompt:
+            raise ValueError(f"the outlook prompt no longer says {old!r}; update _US_PROMPT_EDITS")
+        prompt = prompt.replace(old, new)
+    return prompt
+
+
 def _shortened(text: str, limit: int = MAX_TRANSCRIPT_CHARACTERS) -> str:
     """``text`` within ``limit`` characters, its middle cut out if it must be."""
     if len(text) <= limit:
@@ -269,11 +292,13 @@ def _shortened(text: str, limit: int = MAX_TRANSCRIPT_CHARACTERS) -> str:
     return text[:head] + marker + text[-(limit - head - len(marker)):]
 
 
-def build_messages(company: str, symbol: str, call_date: str, text: str) -> list[dict[str, str]]:
+def build_messages(
+    company: str, symbol: str, call_date: str, text: str, market: str = "NSE"
+) -> list[dict[str, str]]:
     body = _shortened(text)
     header = f"Company: {company or symbol} ({symbol})\nCall date: {call_date or 'unknown'}\n\nTranscript:\n"
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt(market)},
         {"role": "user", "content": header + body},
     ]
 
@@ -614,7 +639,7 @@ def compare_outlooks(previous: dict[str, Any], current: dict[str, Any]) -> list[
     old_book, new_book = _number(before.get("value_inr_crore")), _number(after.get("value_inr_crore"))
     if old_book and new_book and old_book > 0:
         move = new_book / old_book - 1.0
-        span = f"{old_book:,.0f} -> {new_book:,.0f} crore"
+        span = f"{old_book:,.0f} -> {new_book:,.0f} {after.get('unit') or 'crore'}"
         if abs(move) < ORDER_BOOK_TOLERANCE:
             changes.append({"item": "order_book", "change": "kept", "text": f"order book steady, {span}"})
         else:
@@ -803,6 +828,7 @@ def _messages(transcript: dict[str, Any], text: str):
         transcript.get("symbol") or "",
         str(transcript.get("call_date") or "")[:10],
         text,
+        transcript.get("market") or "NSE",
     )
 
 
@@ -810,6 +836,8 @@ def analyse_transcript(session, provider: Provider, transcript: dict[str, Any], 
     """Extract, verify and score one call. Returns the row to store."""
     extraction, usage = request_extraction(session, provider, _messages(transcript, text))
     verified, kept, dropped = verify_quotes(extraction, text)
+    if transcript.get("market") == "US":
+        verified["order_book"] = {**verified["order_book"], "unit": US_ORDER_BOOK_UNIT}
     call_date = str(transcript.get("call_date") or "")[:10] or None
     return {
         "transcript_id": transcript["id"],

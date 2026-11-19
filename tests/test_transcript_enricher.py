@@ -115,6 +115,17 @@ class TranscriptEnricherTests(unittest.TestCase):
         self.assertEqual(recency_weight("2026-02-06", today), 0.25)
         self.assertEqual(recency_weight("2026-02-05", today), 0.0)
 
+    def test_the_store_is_read_for_the_runs_own_market(self):
+        # A symbol alone is not a company: a US run must not read NSE's TCS call.
+        from unittest import mock
+
+        config = SimpleNamespace(SUPABASE_URL="https://x", SUPABASE_SERVICE_ROLE_KEY="k", MARKET="US")
+        with mock.patch("scoring.transcript_enricher.SupabaseRepository") as built:
+            built.return_value.latest_sentiments.return_value = []
+            built.return_value.latest_outlooks.return_value = []
+            TranscriptSentimentEnricher(config).enrich(pd.DataFrame({"Symbol": ["TCS"], "Final_Score": [60.0]}))
+        self.assertEqual(built.call_args.kwargs["market"], "US")
+
     def test_enrichment_prioritizes_fetched_fresh_sentiment(self):
         source = pd.DataFrame({
             "Symbol": ["RELIANCE", "TCS"],

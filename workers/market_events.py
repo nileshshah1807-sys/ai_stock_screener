@@ -25,7 +25,7 @@ Two kinds so far:
 
 ``transcript``
     An earnings-call transcript stored by the transcript worker in the last
-    few days.
+    few days, of a call held within ``STALE_CALL_DAYS`` of being stored.
 
 Adding a kind is one function that returns rows and one line in ``run``.
 """
@@ -49,6 +49,9 @@ KIND_TRANSCRIPT = "transcript"
 # How far back a run looks for things to record. Longer than the gap between
 # runs by a wide margin, so a few failed runs lose nothing.
 RECENT_DAYS = 7
+# A call stored this long after it was held is a fill-in of the past (the US
+# worker works back through earlier quarters a few a day), not news.
+STALE_CALL_DAYS = 30
 RETENTION_DAYS = 180
 # A filing for a quarter that ended longer ago than this is a late or repeated
 # submission, not this season's result.
@@ -164,6 +167,8 @@ def transcript_events(
             continue
         call_date = str(row.get("call_date") or "")[:10] or None
         quarter = str(row.get("quarter") or "").strip() or None
+        if call_date and (date.fromisoformat(str(created_at)[:10]) - date.fromisoformat(call_date)).days > STALE_CALL_DAYS:
+            continue
         events.append(
             _event(
                 symbol,

@@ -149,10 +149,17 @@ jobs:
       # is no free US counterpart, so the execution overlay reads "Unavailable"
       # rather than inventing a number.
       NSE_LIQUIDITY_ENABLED: "False"
-      # Transcript sentiment is NSE-only for now: the collector discovers
-      # announcement PDFs from NSE and OCRs them. Absent evidence is neutral in
-      # this model, not zero, so US rows score correctly without it.
-      TRANSCRIPT_SENTIMENT_ENABLED: "False"
+      # S&P 500 calls from Alpha Vantage (us-transcripts.yml): tone and outlook,
+      # weighted as on NSE, each call measured against the median US call of the
+      # run (50 until 30 calls are scored). Absent evidence is neutral, not zero,
+      # so the other ~1,000 names score as before. A failed read degrades the
+      # run rather than failing it: US transcript evidence is new and partial.
+      TRANSCRIPT_SENTIMENT_ENABLED: "True"
+      TRANSCRIPT_SENTIMENT_WEIGHT: "1.0"
+      REQUIRE_TRANSCRIPT_FOR_STRONG_BUY: "False"
+      TRANSCRIPT_MIN_PRIORITY_SCORE: "55"
+      TRANSCRIPT_MAX_PRIORITY_RISK: "60"
+      TRANSCRIPT_FAIL_ON_ERROR: "False"
       # VIGIL republishes NSE/SEBI records and has no US counterpart.
       RED_FLAG_ENRICHMENT_ENABLED: "False"
       # backtest/ is a point-in-time NSE bhavcopy simulation. It does not model

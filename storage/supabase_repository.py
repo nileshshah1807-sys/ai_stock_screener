@@ -106,6 +106,36 @@ class SupabaseRepository:
             headers={"Prefer": "return=minimal"},
         )
 
+    def transcript_filings(self, exchange: str, page: int = 1000) -> list[dict[str, Any]]:
+        """Every stored filing of one exchange: its key, symbol and how far it got."""
+        rows: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            batch = self._request(
+                "GET",
+                "transcript_filings",
+                params={
+                    "exchange": f"eq.{exchange}",
+                    "select": "id,seq_id,symbol,status,attempt_count",
+                    "order": "seq_id.asc",
+                    "limit": str(page),
+                    "offset": str(offset),
+                },
+            ) or []
+            rows.extend(batch)
+            if len(batch) < page:
+                return rows
+            offset += page
+
+    def index_members(self, index_name: str) -> list[str]:
+        """This market's members of one index, as the live-quotes worker last stored them."""
+        rows = self._request(
+            "GET",
+            "index_members",
+            params={"select": "symbol", "market": f"eq.{self.market}", "index_name": f"eq.{index_name}", "limit": "5000"},
+        ) or []
+        return sorted({str(row["symbol"]) for row in rows})
+
     def find_document_by_sha256(self, sha256: str) -> dict[str, Any] | None:
         rows = self._request("GET", f"transcript_documents?sha256=eq.{sha256}&limit=1")
         return rows[0] if rows else None
@@ -362,9 +392,24 @@ class SupabaseRepository:
         company_names = self.company_names_by_document_id(
             [transcript["document_id"] for transcript in transcripts if transcript.get("document_id")]
         )
+        # The RPC does not return the market, and a call's archived text is
+        # stored under its market's folder: without it a US call would go to NSE's.
+        markets = self._markets_by_transcript_id([t["id"] for t in transcripts if t.get("id")])
         for transcript in transcripts:
             transcript["company_name"] = company_names.get(transcript.get("document_id"), "")
+            transcript.setdefault("market", markets.get(transcript.get("id")))
         return transcripts
+
+    def _markets_by_transcript_id(self, ids: list[str], batch_size: int = 100) -> dict[str, str]:
+        found: dict[str, str] = {}
+        for start in range(0, len(ids), batch_size):
+            rows = self._request(
+                "GET",
+                "transcripts",
+                params={"select": "id,market", "id": f"in.({','.join(ids[start:start + batch_size])})"},
+            ) or []
+            found.update({row["id"]: row["market"] for row in rows})
+        return found
 
     def company_names_by_document_id(
         self, document_ids: list[str], batch_size: int = 100
