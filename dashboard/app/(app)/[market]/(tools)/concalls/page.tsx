@@ -12,6 +12,7 @@ import { getConcalls } from "@/lib/concalls";
 import { STANCE_FILTERS, groupByCallDate, searchTerm } from "@/lib/concalls.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
 import { formatDate } from "@/lib/format";
+import { localDay } from "@/lib/market-calendar.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { getCompanyFacts } from "@/lib/queries";
 import { getUpcoming } from "@/lib/upcoming";
@@ -52,7 +53,7 @@ export default async function ConcallsPage({
   const filtered = Boolean(search) || !feed.isDefault;
 
   // Calls are dated by the exchange's calendar.
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: market.timezone }).format(new Date());
+  const today = localDay(new Date().valueOf(), market.timezone);
   const [calls, facts, upcoming, lists] = await Promise.all([
     getConcalls(market.code, {
       symbols: feed.symbols,

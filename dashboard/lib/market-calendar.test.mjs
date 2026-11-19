@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { inSession, quoteFreshness } from "./live-quotes.mjs";
-import { dayAt, noticeDismissKey, noticeText, tradingHours } from "./market-calendar.mjs";
+import { dayAt, localDay, noticeDismissKey, noticeText, tradingHours } from "./market-calendar.mjs";
 
 const NSE = {
   timezone: "Asia/Kolkata",
@@ -75,4 +75,11 @@ test("the day's row is read once per window, 'no row' included, and an error is 
   assert.equal(await memo("NSE:e", 0, load({ row: null, keep: false })), null);
   assert.equal(await memo("NSE:e", 1, load({ row: HOLIDAY, keep: true })), HOLIDAY);
   assert.equal(reads, 5);
+});
+
+test("a US evening is still that day in New York, already the next in India", () => {
+  // 20:30 ET on 19 Nov 2026 (EST, UTC-5) is 01:30 UTC and 07:00 IST on the 20th.
+  const evening = Date.UTC(2026, 10, 20, 1, 30);
+  assert.equal(localDay(evening, "America/New_York"), "2026-11-19");
+  assert.equal(localDay(evening, "Asia/Kolkata"), "2026-11-20");
 });

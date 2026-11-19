@@ -41,6 +41,15 @@ the scheduled workflows set the same flag.
   whose input was never reported leaves both the numerator and the denominator,
   and the result is shrunk toward neutral. Never let an unreported metric score
   as the worst observed value.
+- **Every feature and fix ships with its unit tests** (owner, 19 Nov 2026). A
+  change that adds or alters behaviour adds or updates a test in the same
+  commit: Python under `tests/` (`unittest`-style), the dashboard as a
+  `node:test` file beside the module (`dashboard/lib/*.test.mjs`, run by
+  `cd dashboard && npm test`). The dashboard runs no component tests, so a
+  rule a page or component decides (what shows, for which market, how a value
+  is worded) goes in a `lib/*.mjs` function the component calls, and the test
+  covers that function. Pure layout or copy needs no test. A bug fix adds the
+  test that would have caught it.
 - **Dashboard copy: no explainer text** (owner, 19 Nov 2026). A page or panel is its
   heading and its data. No subtitle saying what the page is, how a figure is built
   or how to use a control: it reads as unprofessional and text-heavy. The most a
