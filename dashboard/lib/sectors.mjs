@@ -84,3 +84,12 @@ export function squarify(items, width, height) {
   if (row.length) place(row);
   return out;
 }
+
+/**
+ * A live reading (a sector's live change, or a member's quote) when it is from
+ * a later session than the close the page was built from, else null: until
+ * the next session trades, the close is the figure.
+ */
+export function liveFor(lastSession, live) {
+  return live && lastSession && live.session > lastSession ? live : null;
+}

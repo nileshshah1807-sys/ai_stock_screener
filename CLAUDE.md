@@ -377,7 +377,12 @@ the scheduled workflows set the same flag.
   buckets and every member's snapshot fields (no rating). Each sector object is written before
   the directory. `/[market]/sectors` and `/[market]/sectors/[slug]` read them
   (`dashboard/lib/sector-objects.ts`); the compare chart on index and sector pages reads each
-  stock's price series through `/api/price-series` (R2, no Supabase fallback). Nothing scores it.
+  stock's price series through `/api/price-series` (R2, no Supabase fallback). During the session
+  the 1D figures are live: the publisher also writes `sectors/{MARKET}/weights.json` (each
+  member's market cap at the close), and `workers/live_quotes.py` turns it and each run's quotes
+  into `live/{MARKET}/sectors.json` (`live_sector_changes`, the level's own weighting), read through `/api/live?kind=sectors`
+  whatever `TABLE_BACKEND` says. A member's live 1D is its quote. A live figure counts only from a
+  later session than the objects' close (`liveFor`, `dashboard/lib/sectors.mjs`). Nothing scores it.
 - **NSE FII/DII cash flows are display evidence, on Cloudflare only.**
   `workers/market_flows.py` (a step of the Quarterly filings workflow, on when the
   `MARKET_FLOWS_ENABLED` repository variable is `true`) writes the evening's provisional

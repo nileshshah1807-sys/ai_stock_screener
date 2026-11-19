@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useMemo } from "react";
 import { ArrowLeft } from "lucide-react";
 
 import { IndexOverview } from "@/components/indices/index-overview";
@@ -7,6 +10,9 @@ import { MembersMap, MembersTable } from "@/components/sectors/sector-views";
 import { formatDate, formatMoneyCompact, formatNumber, formatPercent, formatRatioAsPercent } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
 import type { SectorObject } from "@/lib/sector-objects";
+import { liveFor } from "@/lib/sectors.mjs";
+import { useLiveQuotes } from "@/lib/use-live-quotes";
+import { useLiveSectors } from "@/lib/use-live-sectors";
 import { cn } from "@/lib/utils";
 
 const pct = (value: number | null) => formatPercent(value, 2, true);
@@ -16,10 +22,20 @@ const times = (value: number | null) => (value === null ? "—" : `${formatNumbe
  * One sector: our cap-weighted index of its members with a compare list
  * beside it, what the sector costs (cap-weighted and median), its P/E
  * spread, a heatmap and every member. All of it from one R2 object written
- * by workers/sectors.py; no Supabase read, no rating.
+ * by workers/sectors.py; no Supabase read, no rating. During the session
+ * the 1D figures (the sector's, its breadth, each member's) are live.
  */
 export function SectorView({ market, sector }: { market: Market; sector: SectorObject }) {
   const { summary } = sector;
+  const live = liveFor(sector.last_session, useLiveSectors(market.code).get(sector.slug));
+  const symbols = useMemo(() => sector.members.map((member) => member.s), [sector.members]);
+  const quote = useLiveQuotes(market.code, symbols);
+  const members = sector.members.map((member) => {
+    const now = liveFor(sector.last_session, quote(member.s));
+    return now && now.change_pct !== null ? { ...member, d1: now.change_pct } : member;
+  });
+  const d1 = live ? live.d1 : sector.d1;
+  const breadth = live ?? summary;
   return (
     <div className="space-y-8 px-4 py-5 sm:px-6">
       <div>
@@ -47,13 +63,15 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
             <p
               className={cn(
                 "numeral text-[1.625rem] font-semibold leading-tight tracking-[-0.02em]",
-                sector.d1 === null ? "text-muted-foreground" : sector.d1 >= 0 ? "text-positive" : "text-negative",
+                d1 === null ? "text-muted-foreground" : d1 >= 0 ? "text-positive" : "text-negative",
               )}
             >
-              {pct(sector.d1)}
+              {pct(d1)}
             </p>
             <p className="text-xs text-muted-foreground">
-              Cap-weighted{sector.last_session ? ` · ${formatDate(sector.last_session)}` : ""}
+              {live
+                ? `Live · cap-weighted · ${formatDate(live.session)}`
+                : `Cap-weighted${sector.last_session ? ` · ${formatDate(sector.last_session)}` : ""}`}
             </p>
           </div>
         </div>
@@ -66,24 +84,18 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
           { label: "Total market cap", value: formatMoneyCompact(summary.total_cap, market) },
           {
             label: "Advancing",
-            value: `${summary.advancing} of ${summary.traded}`,
-            share: summary.traded ? summary.advancing / summary.traded : null,
-            hint: `In the ${formatDate(sector.run_date)} run`,
+            value: `${breadth.advancing} of ${breadth.traded}`,
+            share: breadth.traded ? breadth.advancing / breadth.traded : null,
+            hint: live ? `Live, ${formatDate(live.session)}` : `In the ${formatDate(sector.run_date)} run`,
           },
         ]}
       />
 
       {sector.level ? (
         <section aria-labelledby="index-title" className="space-y-3">
-          <div>
-            <h2 id="index-title" className="text-lead font-semibold tracking-[-0.011em]">
-              Sector index
-            </h2>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              Cap-weighted, 100 on its first session. Pick members to compare them with the sector, in percent from
-              the start of the range.
-            </p>
-          </div>
+          <h2 id="index-title" className="text-lead font-semibold tracking-[-0.011em]">
+            Sector index
+          </h2>
           <IndexOverview
             market={market}
             name={sector.name}
@@ -95,14 +107,9 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
       ) : null}
 
       <section aria-labelledby="valuation-title" className="space-y-3">
-        <div>
-          <h2 id="valuation-title" className="text-lead font-semibold tracking-[-0.011em]">
-            Valuation
-          </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            The sector P/E is led by the largest companies; the medians describe the typical one.
-          </p>
-        </div>
+        <h2 id="valuation-title" className="text-lead font-semibold tracking-[-0.011em]">
+          Valuation
+        </h2>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)]">
           <ValuationGrid
             items={[
@@ -126,19 +133,14 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
         <h2 id="map-title" className="text-lead font-semibold tracking-[-0.011em]">
           Heatmap
         </h2>
-        <MembersMap market={market} members={sector.members} />
+        <MembersMap market={market} members={members} />
       </section>
 
       <section aria-labelledby="members-title" className="space-y-3">
-        <div>
-          <h2 id="members-title" className="text-lead font-semibold tracking-[-0.011em]">
-            All {summary.count.toLocaleString(market.locale)} stocks
-          </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Largest first. Sort by any column; a missing figure shows as “—” and sorts last.
-          </p>
-        </div>
-        <MembersTable market={market} members={sector.members} />
+        <h2 id="members-title" className="text-lead font-semibold tracking-[-0.011em]">
+          All {summary.count.toLocaleString(market.locale)} stocks
+        </h2>
+        <MembersTable market={market} members={members} />
       </section>
     </div>
   );

@@ -63,7 +63,6 @@ export function Treemap({
   colours,
   label,
   height = 420,
-  note,
 }: {
   items: TreemapItem[];
   sizes: SizeOption[];
@@ -71,7 +70,6 @@ export function Treemap({
   label: string;
   height?: number;
   /** One line under the map: what area means and what it leaves out. */
-  note?: string;
 }) {
   const [size, setSize] = useState(sizes[0].value);
   const [colour, setColour] = useState(colours[0].value);
@@ -200,16 +198,12 @@ export function Treemap({
               {sizeText(shownItem) ? ` · ${sizeText(shownItem)}` : ""}
             </>
           ) : colourOption.kind === "diverging" ? (
-            `Colour −${scaleValue}% to +${scaleValue}%; grey is no change, hatched is not reported`
+            `−${scaleValue}% to +${scaleValue}% · hatched: not reported`
           ) : (
-            `Lightest is the lowest ${colourOption.label}, darkest the highest; hatched is not reported`
+            `${colourOption.label}: low to high · hatched: not reported`
           )}
         </span>
-        <span>
-          {tiles.length < items.length ? `The ${tiles.length} largest of ${items.length} drawn` : null}
-          {tiles.length < items.length && note ? " · " : null}
-          {note}
-        </span>
+        {tiles.length < items.length ? <span>{`Largest ${tiles.length} of ${items.length}`}</span> : null}
       </div>
     </div>
   );

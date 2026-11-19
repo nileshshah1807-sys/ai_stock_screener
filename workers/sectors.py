@@ -1,8 +1,10 @@
 """Sector pages: a cap-weighted index per sector, its valuation and members.
 
-Published as R2 objects only (``sectors/{MARKET}/directory.json`` and one
-``sectors/{MARKET}/{slug}.json`` per sector, by
-``DashboardRepository.put_sector_objects``); no table. Written by
+Published as R2 objects only (``sectors/{MARKET}/directory.json``, one
+``sectors/{MARKET}/{slug}.json`` per sector and ``weights.json``, by
+``DashboardRepository.put_sector_objects``); no table. During the session
+``workers/live_quotes.py`` turns ``weights.json`` and its quotes into
+``live/{MARKET}/sectors.json`` (``live_sector_changes``). Written by
 ``tools/publish_market_breadth.py`` from the same adjusted closes the breadth
 charts use and the newest published run's snapshot.
 
@@ -214,3 +216,50 @@ def build_sector_objects(observations, sessions, rows, *, market, run_date):
     if len({entry["slug"] for entry in directory}) != len(directory):
         raise ValueError("Two sectors share a slug")
     return {"market": market, "run_date": run_date, "sectors": directory}, objects
+
+
+def member_weights(objects) -> dict:
+    """``{slug: {"last_session", "members": [[symbol, market_cap], ...]}}``: what ``live_sector_changes`` needs."""
+    return {
+        slug: {"last_session": body["last_session"], "members": [[m["s"], m["mc"]] for m in body["members"]]}
+        for slug, body in objects.items()
+    }
+
+
+def live_sector_changes(weights, quotes) -> list[dict]:
+    """Each sector's cap-weighted change in the quotes' session, by the level's own rule.
+
+    ``quotes`` maps symbol to a live quote (``session``, ``change_pct`` in
+    percent, against the previous close). A member weighs its market cap at
+    the last close; one that has not traded this session held its price; a
+    withheld change (a change of unit) or a member with no quote is left out
+    of both sides. A sector whose close already covers the session is
+    omitted, since its close is the figure.
+    """
+    session = max((quote["session"] for quote in quotes.values() if quote.get("session")), default=None)
+    out = []
+    for slug, sector in weights.items():
+        if session is None or not sector.get("last_session") or sector["last_session"] >= session:
+            continue
+        weighted = total = 0.0
+        advancing = declining = traded = 0
+        for symbol, cap in sector["members"]:
+            quote = quotes.get(symbol)
+            if quote is None:
+                continue
+            if quote.get("session") == session:
+                change = safe_float(quote.get("change_pct"))
+                if change is None:
+                    continue
+                traded += 1
+                advancing += change > 0
+                declining += change < 0
+            else:
+                change = 0.0
+            if cap and cap > 0:
+                weighted += cap * change
+                total += cap
+        if traded:
+            d1 = round_half_up(weighted / total, 2) + 0.0 if total else None
+            out.append({"slug": slug, "session": session, "d1": d1, "advancing": advancing, "declining": declining, "traded": traded})
+    return out

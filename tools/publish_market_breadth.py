@@ -334,8 +334,10 @@ def main(argv=None):
         return 1 if stale else 0
     if sector_objects:
         # R2 only, no table; an R2 error must not cost the breadth publish below.
+        from workers.sectors import member_weights
+
         try:
-            if repository.put_sector_objects(sector_directory, sector_objects):
+            if repository.put_sector_objects(sector_directory, sector_objects, member_weights(sector_objects)):
                 logger.info("Published %d sector objects to R2", len(sector_objects))
             else:
                 logger.warning("No R2 secrets: sector pages not published")

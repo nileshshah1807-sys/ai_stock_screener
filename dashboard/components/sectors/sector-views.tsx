@@ -43,7 +43,6 @@ export function SectorsMap({ market, sectors }: { market: Market; sectors: Secto
       colours={colours}
       label="Sectors heatmap"
       height={380}
-      note="Change of each sector's cap-weighted index"
     />
   );
 }
@@ -88,7 +87,6 @@ export function MembersMap({ market, members }: { market: Market; members: Secto
       sizes={sizes}
       colours={colours}
       label="Members heatmap"
-      note="Each tile opens the stock"
     />
   );
 }

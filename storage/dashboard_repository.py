@@ -822,8 +822,10 @@ class DashboardRepository:
         )
         return str(run["run_date"]), rows
 
-    def put_sector_objects(self, directory: dict[str, Any], sectors: dict[str, dict[str, Any]]) -> bool:
-        """``sectors/{market}/{slug}.json`` for each sector, then ``directory.json``.
+    def put_sector_objects(
+        self, directory: dict[str, Any], sectors: dict[str, dict[str, Any]], weights: dict[str, Any] | None = None
+    ) -> bool:
+        """``sectors/{market}/{slug}.json`` for each sector and ``weights.json``, then ``directory.json``.
 
         R2 only; no table. The directory goes last, so it never names a sector
         whose object is not there yet. Without R2 secrets nothing is written.
@@ -838,8 +840,26 @@ class DashboardRepository:
 
         for slug, body in sectors.items():
             put(slug, body)
+        if weights is not None:
+            put("weights", weights)
         put("directory", directory)
         return True
+
+    def sector_weights(self) -> dict[str, Any] | None:
+        """``sectors/{market}/weights.json`` (workers/sectors.member_weights), or None when absent or unreadable."""
+        store = self._cloudflare()
+        if store is None:
+            return None
+        try:
+            body = store.get(f"sectors/{self.market}/weights.json")
+            return json.loads(body) if body else None
+        except Exception as exc:  # noqa: BLE001 -- live sectors are a reading aid; quotes must still be written
+            logger.warning("Sector weights unreadable: %s", exc)
+            return None
+
+    def put_live_sectors_object(self, rows: list[dict[str, Any]]) -> bool:
+        """``live/{market}/sectors.json``: each sector's change in the live session."""
+        return self._cloudflare_put("sectors", rows)
 
     def latest_snapshot_unrated(self) -> frozenset[str]:
         """Symbols of this market's newest published run that carry no rating."""

@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 
 import { KpiBand } from "@/components/sectors/kpi";
@@ -5,12 +7,22 @@ import { SectorsMap } from "@/components/sectors/sector-views";
 import { formatDate, formatMoneyCompact, formatPercent } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
 import type { SectorEntry } from "@/lib/sector-objects";
+import { liveFor } from "@/lib/sectors.mjs";
+import { useLiveSectors } from "@/lib/use-live-sectors";
 import { cn } from "@/lib/utils";
 
 const pct = (value: number | null) => formatPercent(value, 2, true);
 
 /** The page's body, given the directory's sectors (empty before the first publish). */
-export function SectorsView({ market, sectors }: { market: Market; sectors: SectorEntry[] }) {
+export function SectorsView({ market, sectors: closed }: { market: Market; sectors: SectorEntry[] }) {
+  const live = useLiveSectors(closed.length ? market.code : null);
+  // During the session each sector's 1D and breadth are the live ones; its 1M and 1Y stay at the close.
+  const nows = closed.map((sector) => liveFor(sector.last_session, live.get(sector.slug)));
+  const liveSession = nows.find(Boolean)?.session ?? null;
+  const sectors = closed.map((sector, index) => {
+    const now = nows[index];
+    return now ? { ...sector, d1: now.d1, advancing: now.advancing, declining: now.declining, traded: now.traded } : sector;
+  });
   const asOf = sectors.map((sector) => sector.last_session).filter(Boolean).sort().at(-1) ?? null;
 
   if (!sectors.length) {
@@ -36,7 +48,7 @@ export function SectorsView({ market, sectors }: { market: Market; sectors: Sect
 
   return (
     <div className="space-y-8 px-4 py-5 sm:px-6">
-      <Heading count={sectors.length} market={market.label} asOf={asOf} />
+      <Heading count={sectors.length} market={market.label} asOf={asOf} liveSession={liveSession} />
 
       <KpiBand
         items={[
@@ -96,14 +108,24 @@ export function SectorsView({ market, sectors }: { market: Market; sectors: Sect
   );
 }
 
-function Heading({ count, market, asOf }: { count: number; market: string; asOf: string | null }) {
+function Heading({
+  count,
+  market,
+  asOf,
+  liveSession = null,
+}: {
+  count: number;
+  market: string;
+  asOf: string | null;
+  liveSession?: string | null;
+}) {
   return (
     <div>
       <h1 className="text-title font-semibold">Sectors</h1>
       <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
         {count ? `${count} ` : ""}
         {market} sectors, each as our own market-cap-weighted index of every stock the screener tracks in it.
-        {asOf ? ` Closing prices of ${formatDate(asOf)}.` : ""}
+        {liveSession ? ` 1D is live for ${formatDate(liveSession)}.` : asOf ? ` Closing prices of ${formatDate(asOf)}.` : ""}
       </p>
     </div>
   );

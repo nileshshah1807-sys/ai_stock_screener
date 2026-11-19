@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { rebase, squarify } from "./sectors.mjs";
+import { liveFor, rebase, squarify } from "./sectors.mjs";
 
 test("rebase starts at zero on the first point in range", () => {
   const out = rebase(
@@ -34,4 +34,12 @@ test("a treemap fills the box with areas in proportion and drops empty sizes", (
     assert.ok(tile.x >= -1e-9 && tile.y >= -1e-9 && tile.x + tile.w <= 6 + 1e-9 && tile.y + tile.h <= 4 + 1e-9);
   }
   assert.deepEqual(squarify([], 10, 10), []);
+});
+
+test("a live reading counts only from a later session than the close", () => {
+  const live = { session: "2026-11-19", d1: 1.2 };
+  assert.equal(liveFor("2026-11-18", live), live);
+  assert.equal(liveFor("2026-11-19", live), null); // the evening run already holds this session
+  assert.equal(liveFor("2026-11-18", null), null);
+  assert.equal(liveFor(null, live), null);
 });
