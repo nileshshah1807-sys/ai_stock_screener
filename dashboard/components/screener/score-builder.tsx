@@ -28,8 +28,6 @@ import {
   parseWeights,
 } from "@/lib/custom-score.mjs";
 
-const byKey = (key: string) => [...SCORE_FACTORS, ...POINT_FACTORS].find((factor) => factor.key === key);
-
 type Factor = { key: string; label: string; caption: string; about: string; toggle?: boolean };
 type Shares = { key: string; share: number }[];
 
@@ -86,7 +84,7 @@ const NOTHING_WEIGHTED = "Give at least one measure some weight to build a score
  * The preview of the first five is worked out in the browser, never on the server.
  * It opens in the app's one panel (components/panel-sheet.tsx), as Filters does.
  */
-export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; concalls: boolean }) {
+export function ScoreBuilder({ factorModel }: { factorModel: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -101,14 +99,12 @@ export function ScoreBuilder({ factorModel, concalls }: { factorModel: boolean; 
   const start = useRef<HTMLElement>(null);
   const urlMix = searchParams.get("w") ?? "";
   const active = parseWeights(urlMix);
-  // A market with no calls (US) offers no call measure: there is nothing to weight.
-  const offered = (factor?: object) => concalls || !(factor && "concall" in factor && factor.concall);
-  const factors: Factor[] = SCORE_FACTORS.filter(offered);
-  const points: Factor[] = POINT_FACTORS.filter(offered);
+  const factors: Factor[] = SCORE_FACTORS;
+  const points: Factor[] = POINT_FACTORS;
   // A saved view that sets a mix moves the controls to it.
   const [weights, setWeights, pushedMix] = useUrlDraft<Record<string, number>>(
     urlMix,
-    (url) => Object.fromEntries(Object.entries({ ...EQUAL_START, ...(parseWeights(url) ?? {}) }).filter(([key]) => offered(byKey(key)))),
+    (url) => ({ ...EQUAL_START, ...(parseWeights(url) ?? {}) }),
     formatWeights,
   );
   const preview = useScorePreview(open && factorModel, market.code, runDate, weights);

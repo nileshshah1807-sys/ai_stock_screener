@@ -290,8 +290,10 @@ class D1State:
 
 
 #: The order the backfill copies in (docs/d1_migration_plan.md section 6), history last.
+#: concall_feed left it on 19 Nov 2026: its worker writes D1 alone (TABLE_BACKEND_D1), so
+#: Supabase's frozen copy must never be copied over it.
 ORDER = (
-    "concall_feed", "valuation_basis", "bulk_block_deals",
+    "valuation_basis", "bulk_block_deals",
     "quarterly_filings", "financial_statements", "upcoming_events", "market_events",
     "new_listings", "universe_index", "market_breadth",
     "shareholding_patterns", "company_documents", "transcripts", "transcript_documents",

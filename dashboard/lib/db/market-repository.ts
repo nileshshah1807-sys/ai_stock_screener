@@ -4,6 +4,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 import { RESULT_FEED, SNAPSHOT_COLUMNS } from "@/lib/db/d1-views.mjs";
 import { compile, evaluate, readRow, splitExtra, TableQuery, UnsupportedQuery } from "@/lib/db/table-query.mjs";
+import { readsOffSupabase } from "@/lib/db/table-backend.mjs";
 import { readLiveObject } from "@/lib/live-objects";
 import { isAdminOnlyField, isRatingField, withoutRatings } from "@/lib/ratings.mjs";
 
@@ -16,7 +17,8 @@ import { isAdminOnlyField, isRatingField, withoutRatings } from "@/lib/ratings.m
  * reads everything from Supabase, as before; "d1" reads every table listed
  * below from Cloudflare; a comma list ("market_events,concall_feed") moves
  * only those, so tables flip one by one as their backfill is verified, and
- * flip back without a deploy.
+ * flip back without a deploy. A table its worker writes to D1 alone
+ * (`D1_ONLY`, lib/db/table-backend.mjs) is read from D1 whatever the setting.
  *
  * `withMarketTables` is the one seam: it replaces a Supabase client's `from`,
  * so every reader keeps its code and its return shape, and a moved table is
@@ -76,9 +78,7 @@ function setting(): string {
 
 /** Whether `table` (the base table, or "live_quotes" for the live objects) is read off Supabase. */
 export function readsFromCloudflare(table: string): boolean {
-  const value = setting();
-  if (!value || value === "supabase") return false;
-  return value === "d1" || value.split(",").some((name) => name.trim() === table);
+  return readsOffSupabase(setting(), table);
 }
 
 function routed(name: string): Source | null {

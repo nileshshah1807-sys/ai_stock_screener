@@ -1,10 +1,7 @@
-/**
- * Who is on each market's list and which factors it is measured on, as the page says it.
- * The US run has no transcript sentiment, so it names no management guidance.
- */
-const MARKETS = {
-  NSE: { universe: "NSE- and BSE-listed", factors: "quality, growth, value, momentum, risk and management guidance" },
-  US: { universe: "S&P 1500", factors: "quality, growth, value, momentum and risk" },
+/** Who is on each market's list, as the page says it. */
+const UNIVERSES = {
+  NSE: "NSE- and BSE-listed",
+  US: "S&P 1500",
 };
 
 /**
@@ -13,6 +10,6 @@ const MARKETS = {
  * the viewer ranks the list by their own score (lib/ratings.mjs).
  */
 export function screenerIntro(marketCode) {
-  const { universe, factors } = MARKETS[marketCode] ?? MARKETS.US;
-  return `${universe} companies, measured daily on ${factors}. Rank them by your own score. Updated every evening after the market closes.`;
+  const universe = UNIVERSES[marketCode] ?? UNIVERSES.US;
+  return `${universe} companies, measured daily on quality, growth, value, momentum, risk and management guidance. Rank them by your own score. Updated every evening after the market closes.`;
 }

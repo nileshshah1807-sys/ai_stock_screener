@@ -55,7 +55,8 @@ export function sourceLabel(source) {
       provisional: true,
     };
   }
-  return { label: "Filed transcript", title: "The transcript the company filed with the exchange.", provisional: false };
+  // Not "filed": a US transcript is a vendor's (Alpha Vantage), not a filing.
+  return { label: "Transcript", title: "The transcript of the call.", provisional: false };
 }
 
 /**
@@ -161,4 +162,41 @@ export function searchTerm(value) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 60);
+}
+
+/**
+ * Each company's latest call outlook, by symbol, from feed rows read newest
+ * call first (`call_date` descending): the first outlook seen for a symbol is
+ * its latest. A row without a numeric outlook is passed over.
+ *
+ * @param {Array<{ symbol: unknown, outlook_score: unknown }>} feed
+ * @returns {Record<string, number>}
+ */
+export function latestOutlooks(feed) {
+  const outlooks = {};
+  for (const call of feed) {
+    const symbol = String(call.symbol ?? "");
+    const score = call.outlook_score === null || call.outlook_score === "" ? NaN : Number(call.outlook_score);
+    if (symbol && !(symbol in outlooks) && Number.isFinite(score)) outlooks[symbol] = score;
+  }
+  return outlooks;
+}
+
+/** The first call date a ranking reads: a call older than 180 days adds nothing (concallRecency). */
+export function outlookSince(runDate) {
+  return new Date(Date.parse(runDate) - 190 * 86_400_000).toISOString().slice(0, 10);
+}
+
+/** The run's transcript statuses that mean it scored, or at least found, a call (scoring/transcript_enricher.py). */
+const RUN_CALL_STATUSES = new Set(["Available", "Prior-cycle", "Expired"]);
+
+/**
+ * Whether the run found a call for this company, so the stock page's
+ * "Management transcript" audit has something to show. Null, "No transcript"
+ * and "Not configured" leave every field a dash: the panel is left out.
+ *
+ * @param {unknown} status the snapshot's `transcript_status`
+ */
+export function runHasCall(status) {
+  return typeof status === "string" && RUN_CALL_STATUSES.has(status.trim());
 }

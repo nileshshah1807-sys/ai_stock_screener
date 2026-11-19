@@ -1,16 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import {
-  STANCE_FILTERS,
-  callPanelSource,
-  groupByCallDate,
-  highlightList,
-  outlookTone,
-  searchTerm,
-  sourceLabel,
-  stanceLabel,
-} from "./concalls.mjs";
+import { STANCE_FILTERS, callPanelSource, groupByCallDate, highlightList, latestOutlooks, outlookSince, outlookTone, runHasCall, searchTerm, sourceLabel, stanceLabel } from "./concalls.mjs";
 
 test("management's stance is the outlook score's band, with its sentence", () => {
   assert.deepEqual(stanceLabel("optimistic", " We expect a strong second half. "), {
@@ -35,7 +26,7 @@ test("a call read from its recording says so", () => {
   assert.equal(sourceLabel("recording").label, "From the recording");
   assert.equal(sourceLabel("transcript").provisional, false);
   // An unknown source is not presented as provisional.
-  assert.equal(sourceLabel(undefined).label, "Filed transcript");
+  assert.equal(sourceLabel(undefined).label, "Transcript");
 });
 
 test("the outlook is read against the neutral 50", () => {
@@ -147,4 +138,24 @@ test("the stance filter offers the five stances, best first", () => {
     STANCE_FILTERS.map((item) => item.value),
     ["bullish", "optimistic", "neutral", "cautious", "bearish"],
   );
+});
+
+test("a company's outlook is its newest call's, and a call without one is passed over", () => {
+  const feed = [
+    { symbol: "AAPL", call_date: "2026-11-01", outlook_score: 64 },
+    { symbol: "MSFT", call_date: "2026-10-28", outlook_score: null },
+    { symbol: "AAPL", call_date: "2026-08-01", outlook_score: 51 },
+    { symbol: "MSFT", call_date: "2026-07-25", outlook_score: "58.5" },
+  ];
+  assert.deepEqual(latestOutlooks(feed), { AAPL: 64, MSFT: 58.5 });
+  assert.deepEqual(latestOutlooks([]), {});
+});
+
+test("a ranking reads calls from 190 days before the run", () => {
+  assert.equal(outlookSince("2026-11-19"), "2026-05-13");
+});
+
+test("the stock page's transcript audit shows only when the run found a call", () => {
+  for (const status of ["Available", "Prior-cycle", "Expired"]) assert.equal(runHasCall(status), true, status);
+  for (const status of [null, undefined, "", "No transcript", "Not configured"]) assert.equal(runHasCall(status), false, String(status));
 });
