@@ -1,4 +1,4 @@
-import { FileSpreadsheet, MessagesSquare, TrendingUp, type LucideIcon } from "lucide-react";
+import { CalendarRange, FileSpreadsheet, MessagesSquare, TrendingUp, type LucideIcon } from "lucide-react";
 
 /**
  * The tools, in one place: views beside the ranking -- the season's calls and
@@ -13,6 +13,7 @@ import { FileSpreadsheet, MessagesSquare, TrendingUp, type LucideIcon } from "lu
 export const TOOLS: readonly { path: string; label: string; icon: LucideIcon; adminOnly?: boolean }[] = [
   { path: "/concalls", label: "Concalls", icon: MessagesSquare },
   { path: "/results", label: "Results", icon: FileSpreadsheet },
+  { path: "/ipos", label: "IPOs", icon: CalendarRange },
   // Past-performance figures; admin-only until they can be published
   // (docs/commercialisation_readiness.md, section 1).
   { path: "/returns", label: "Returns", icon: TrendingUp, adminOnly: true },
