@@ -31,6 +31,13 @@ export type Ipo = {
   gmp_pct: number | null;
   gmp_peak: number | null;
   gmp_as_of: string | null;
+  /** The restated figures the GMP tracker prints from the prospectus, in `unit`; a blank is null. */
+  financials: {
+    basis: string | null;
+    unit: string | null;
+    periods: (string | null)[];
+    rows: { label: string; values: (number | null)[] }[];
+  } | null;
 };
 
 /**

@@ -3,10 +3,18 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, FileText } from "lucide-react";
 
 import { AllotmentOdds } from "@/components/ipos/allotment-odds";
-import { changeTone, priceBand, shortDate } from "@/components/ipos/ipo-row";
+import { LiveDot, changeTone, priceBand, shortDate } from "@/components/ipos/ipo-row";
 import { StockIdentity } from "@/components/stock-identity";
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
-import { MISSING, formatDate, formatDateTimeIST, formatInteger, formatMoney, formatMoneyCompact } from "@/lib/format";
+import {
+  MISSING,
+  formatDate,
+  formatDateTimeIST,
+  formatInteger,
+  formatMoney,
+  formatMoneyCompact,
+  formatNumber,
+} from "@/lib/format";
 import { getIpos, getPricesNow, type Ipo } from "@/lib/ipos";
 import {
   STATUS_LABEL,
@@ -18,6 +26,7 @@ import {
   impliedListing,
   issueStatus,
   minInvestment,
+  periodLabel,
 } from "@/lib/ipos.mjs";
 import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
@@ -118,6 +127,44 @@ function BookTable({ row, market }: { row: Ipo; market: Market }) {
   );
 }
 
+/** The prospectus's restated figures, as the GMP tracker prints them: a row per line, a column per period. */
+function FinancialsTable({ financials }: { financials: NonNullable<Ipo["financials"]> }) {
+  const cell = "tabular whitespace-nowrap px-3 py-2 text-right font-mono text-[13px]";
+  const basis = financials.basis ? financials.basis[0] + financials.basis.slice(1).toLowerCase() : null;
+  return (
+    <div className="-mx-1 overflow-x-auto">
+      <table className="w-full border-collapse text-sm">
+        <caption className="sr-only">
+          Restated financials from the prospectus{financials.unit ? `, in rupees ${financials.unit}` : ""}
+        </caption>
+        <thead>
+          <tr className="whitespace-nowrap border-b text-[11px] text-muted-foreground">
+            <th scope="col" className="px-3 py-2 text-left font-medium">Period ended</th>
+            {financials.periods.map((period, i) => (
+              <th key={period ?? i} scope="col" className="px-3 py-2 text-right font-medium">
+                {periodLabel(period) ?? MISSING}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {financials.rows.map((row) => (
+            <tr key={row.label} className="border-b last:border-0">
+              <th scope="row" className="whitespace-nowrap px-3 py-2 text-left font-normal">{row.label}</th>
+              {financials.periods.map((period, i) => (
+                <td key={period ?? i} className={cell}>{formatNumber(row.values[i] ?? null, 2)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="tabular mt-3 px-1 text-[11px] text-muted-foreground">
+        {[financials.unit ? `₹ ${financials.unit}` : null, basis, "investorgain.com"].filter(Boolean).join(" · ")}
+      </p>
+    </div>
+  );
+}
+
 /**
  * One issue: its book by category, the facts of the offer, the odds of a retail
  * allotment, the grey market (when switched on, labelled unofficial) and, once
@@ -187,7 +234,8 @@ export default async function IpoPage({ params }: PageProps<"/[market]/ipos/[sym
             emphasis="company"
             sme={row.board === "SME"}
           />
-          <span className="rounded-md bg-(--control) px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-(--control) px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+            {status === "bidding" ? <LiveDot /> : null}
             {STATUS_LABEL[status]}
           </span>
         </div>
@@ -235,6 +283,11 @@ export default async function IpoPage({ params }: PageProps<"/[market]/ipos/[sym
               <AllotmentOdds retailTimes={retail} lotCost={lot} />
             </Panel>
           ) : null}
+          {row.financials?.rows.length ? (
+            <Panel title="Financials">
+              <FinancialsTable financials={row.financials} />
+            </Panel>
+          ) : null}
         </div>
 
         <div className="space-y-4">
@@ -257,6 +310,7 @@ export default async function IpoPage({ params }: PageProps<"/[market]/ipos/[sym
                     tone: row.gmp > 0 ? "positive" : row.gmp < 0 ? "negative" : "default",
                   },
                   { label: "Highest so far", value: formatMoney(row.gmp_peak, market, gmpDigits(row.gmp_peak)) },
+                  { label: "Updated", value: formatDateTimeIST(row.gmp_as_of) },
                   {
                     label: "Price plus GMP",
                     value: formatMoney(impliedListing(row), market, 0),
@@ -265,7 +319,7 @@ export default async function IpoPage({ params }: PageProps<"/[market]/ipos/[sym
                 ]}
               />
               <p className="tabular mt-4 text-[11px] text-muted-foreground">
-                investorgain.com{row.gmp_as_of ? ` · ${formatDateTimeIST(row.gmp_as_of)}` : ""}
+                investorgain.com
               </p>
             </Panel>
           ) : null}

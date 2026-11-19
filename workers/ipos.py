@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 NSE_API = "https://www.nseindia.com/api"
 GMP_URL = "https://www.investorgain.com/report/live-ipo-gmp/331/"
+TRACKER = "https://www.investorgain.com"
 IST = ZoneInfo("Asia/Kolkata")
 BOARDS = {"Equity": "Mainboard", "SME": "SME"}
 MAX_LISTING_LAG_DAYS = 30
@@ -166,14 +167,19 @@ def _name_key(name: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", re.sub(r"\b(limited|ltd|ipo)\b", "", str(name or "").lower()))
 
 
+def _flight_text(page: str | None) -> str:
+    """The text of a Next page's flight payload: its ``self.__next_f.push([1, "..."])`` chunks, joined."""
+    return "".join(json.loads(f'"{chunk}"') for chunk in
+                   re.findall(r'self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', page or ""))
+
+
 def parse_gmp(page: str) -> list[dict[str, Any]]:
     """The tracker's rows: name, open date, GMP now and at its peak, percent and time stamp.
 
     The table sits in Next's flight payload (``self.__next_f.push([1, "..."])``) as
     ``initialTableResponse.reportTableData``; each chunk is a JSON string literal.
     """
-    text = "".join(json.loads(f'"{chunk}"') for chunk in
-                   re.findall(r'self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', page or ""))
+    text = _flight_text(page)
     start = re.search(r'"reportTableData":\s*', text)
     if start is None:
         return []
@@ -196,18 +202,67 @@ def parse_gmp(page: str) -> list[dict[str, Any]]:
             "gmp": safe_float(gmp.group(1).replace(",", "")) if gmp else None,
             "gmp_pct": safe_float(row.get("~gmp_percent_calc")),
             "gmp_peak": safe_float(row.get("~max_gmp1")), "gmp_as_of": as_of,
+            "page": row.get("~urlrewrite_folder_name"),
         })
     return out
 
 
-def gmp_fields(row: dict, tracker: dict[str, dict]) -> dict[str, Any]:
-    """The tracker's figures for one issue, matched by name and open date; {} when unmatched or blank."""
+def _tracked(row: dict, tracker: dict[str, dict]) -> dict | None:
+    """The tracker's row for one issue, matched by name and open date."""
     found = tracker.get(_name_key(row.get("company")))
+    if found and found.get("open_date") and row.get("open_date") and found["open_date"] != row["open_date"]:
+        return None
+    return found
+
+
+def gmp_fields(row: dict, tracker: dict[str, dict]) -> dict[str, Any]:
+    """The tracker's figures for one issue; {} when unmatched or blank."""
+    found = _tracked(row, tracker)
     if not found or found["gmp"] is None:
         return {}
-    if found.get("open_date") and row.get("open_date") and found["open_date"] != row["open_date"]:
-        return {}
     return {key: found[key] for key in ("gmp", "gmp_pct", "gmp_peak", "gmp_as_of")}
+
+
+def _cell(text: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", text)).strip()
+
+
+def parse_financials(page: str | None) -> dict[str, Any] | None:
+    """The restated financials an issue's tracker page prints from its RHP; None when it has none.
+
+    ``{"basis", "unit", "periods": [ISO dates], "rows": [{"label", "values"}]}``: the
+    values as printed, in ``unit`` (crore or lakh); a blank cell is None, not zero.
+    """
+    text = _flight_text(page)
+    start = text.find("fin-table-wrap")
+    end = text.find("</table>", start)
+    if start < 0 or end < 0:
+        return None
+    block = text[start:end]
+    basis = re.search(r"Financials\s*\(([^)]+)\)", block)
+    unit = re.search(r"Amount in\s*(?:&#8377;|₹)?\s*(Crore|Lakh)", block, re.I)
+    periods, rows = [], []
+    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", block, re.S):
+        cells = [_cell(c) for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, re.S)]
+        if not cells or not cells[0]:
+            continue
+        if cells[0].lower().startswith("period"):
+            periods = [_period(c) for c in cells[1:] if c]
+        elif periods:
+            values = [safe_float(c.replace(",", "")) for c in cells[1:len(periods) + 1]]
+            if any(value is not None for value in values):  # the unit's line is a row too
+                rows.append({"label": re.sub(r"\bNET\b", "Net", cells[0]), "values": values})
+    if not periods or not rows:
+        return None
+    return {"basis": basis.group(1).strip() if basis else None,
+            "unit": unit.group(1).lower() if unit else None, "periods": periods, "rows": rows}
+
+
+def _period(text: str) -> str | None:
+    try:
+        return datetime.strptime(text, "%d %b %Y").date().isoformat()
+    except ValueError:
+        return None
 
 
 def _nse_fetch() -> Callable[[str], Any]:
@@ -244,6 +299,16 @@ def _gmp_page() -> str | None:
     return response.text
 
 
+def _issue_page(path: str) -> str:
+    """One issue's page on the tracker; ``path`` is its GMP page's, as the table links it."""
+    import requests
+
+    response = requests.get(TRACKER + path.replace("/gmp/", "/ipo/", 1),
+                            headers={"User-Agent": REQUEST_HEADERS["User-Agent"]}, timeout=30)
+    response.raise_for_status()
+    return response.text
+
+
 def _merge(row: dict, fields: dict) -> None:
     """Fill ``row`` from ``fields``, never replacing a value with nothing."""
     row.update({key: value for key, value in fields.items() if value is not None})
@@ -275,6 +340,7 @@ def run(
     fetch: Callable[[str], Any] | None = None,
     bars: Callable[[date], dict] = _listing_bars,
     gmp_page: Callable[[], str | None] = _gmp_page,
+    issue_page: Callable[[str], str] = _issue_page,
     book_budget: int = 40,
     listing_days: int = 8,
     window_days: int = 365,
@@ -331,8 +397,14 @@ def run(
     if page:
         tracker = {_name_key(item["name"]): item for item in parse_gmp(page)}
         for row in rows.values():
-            if not row.get("listing_date"):
-                _merge(row, gmp_fields(row, tracker))
+            if row.get("listing_date"):
+                continue
+            _merge(row, gmp_fields(row, tracker))
+            found = _tracked(row, tracker)
+            # Read once: a prospectus's figures do not change while the issue is open.
+            if found and found.get("page") and not row.get("financials"):
+                page_text = _try(f"{row['symbol']} financials", lambda p=found["page"]: issue_page(p))
+                _merge(row, {"financials": parse_financials(page_text)})
 
     changed = [row for symbol, row in rows.items() if row != stored.get(symbol)]
     columns = {key for row in changed for key in row}

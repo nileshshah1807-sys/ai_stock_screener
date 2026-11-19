@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 
-import { IpoRow, ListedRow } from "@/components/ipos/ipo-row";
+import { IpoRow, ListedRow, LiveDot } from "@/components/ipos/ipo-row";
 import { PageTitle } from "@/components/page-title";
 import { Reveal } from "@/components/motion";
 import { formatDateTimeIST } from "@/lib/format";
@@ -21,10 +21,21 @@ const SECTIONS = [
   { key: "awaiting", title: "Awaiting listing" },
 ] as const;
 
-function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+function Section({
+  title,
+  count,
+  live,
+  children,
+}: {
+  title: string;
+  count: number;
+  live?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <section className="panel overflow-hidden">
       <h2 className="flex items-center gap-2 border-b px-4 py-3 text-base font-semibold tracking-[-0.011em]">
+        {live ? <LiveDot /> : null}
         {title}
         <span className="tabular ml-auto font-mono text-xs font-normal text-muted-foreground">{count}</span>
       </h2>
@@ -133,7 +144,7 @@ export default async function IposPage({ params, searchParams }: PageProps<"/[ma
         <Reveal className="space-y-4">
           {live.length ? (
             live.map(({ key, title }) => (
-              <Section key={key} title={title} count={groups[key].length}>
+              <Section key={key} title={title} count={groups[key].length} live={key === "bidding"}>
                 <ul className="divide-y">
                   {groups[key].map((row) => (
                     <li key={row.symbol}>
