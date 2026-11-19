@@ -343,13 +343,21 @@ export function MarketDashboard({
           <Section
             title="Benchmark indices"
             action={
-              <Link prefetch={false}
-                href={marketPath(market.slug, "/indices")}
-                className="touch-target inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard) hover:bg-(--control-hover) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                All indices
-                <ChevronRight className="size-3.5" aria-hidden />
-              </Link>
+              <span className="flex items-center gap-1.5">
+                {[
+                  { href: "/sectors", label: "Sectors" },
+                  { href: "/indices", label: "All indices" },
+                ].map((link) => (
+                  <Link prefetch={false}
+                    key={link.href}
+                    href={marketPath(market.slug, link.href)}
+                    className="touch-target inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md bg-(--control) pr-1.5 pl-2.5 text-xs font-medium text-muted-foreground transition-[background-color,color] duration-(--duration-fast) ease-(--ease-standard) hover:bg-(--control-hover) hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {link.label}
+                    <ChevronRight className="size-3.5" aria-hidden />
+                  </Link>
+                ))}
+              </span>
             }
           >
             {indexSeries.map(({ name, points }) => (

@@ -370,6 +370,14 @@ the scheduled workflows set the same flag.
   asked of the mainboard first and NSE Emerge when it has none, and announcement rows keep
   only companies in the latest snapshot. The table is in
   `storage/company_documents_schema.sql`, applied by hand. The backfill (`--backfill-days 365`) is run by hand, never scheduled.
+- **Sector pages are display evidence, on R2 only.** `workers/sectors.py`, run by
+  `tools/publish_market_breadth.py`, writes `sectors/{MARKET}/directory.json` and one
+  `sectors/{MARKET}/{slug}.json` per snapshot sector: our own cap-weighted level (base 100,
+  previous-session cap weights, today's share count), its 1D/1M/1Y, valuation medians, P/E
+  buckets and every member's snapshot fields (no rating). Each sector object is written before
+  the directory. `/[market]/sectors` and `/[market]/sectors/[slug]` read them
+  (`dashboard/lib/sector-objects.ts`); the compare chart on index and sector pages reads each
+  stock's price series through `/api/price-series` (R2, no Supabase fallback). Nothing scores it.
 - **NSE FII/DII cash flows are display evidence, on Cloudflare only.**
   `workers/market_flows.py` (a step of the Quarterly filings workflow, on when the
   `MARKET_FLOWS_ENABLED` repository variable is `true`) writes the evening's provisional

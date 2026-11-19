@@ -807,6 +807,40 @@ class DashboardRepository:
             if row.get("symbol")
         }
 
+    def latest_snapshot_fields(self, fields: Iterable[str]) -> tuple[str | None, list[dict[str, Any]]]:
+        """``(run_date, rows)``: ``fields`` of every row in this market's newest published run."""
+        run = self.latest_completed_run()
+        if not run:
+            return None, []
+        rows = self._paged(
+            "screener_snapshot",
+            {
+                "select": ",".join(["symbol", *fields]),
+                "run_date": f"eq.{run['run_date']}",
+                "order": "symbol.asc",
+            },
+        )
+        return str(run["run_date"]), rows
+
+    def put_sector_objects(self, directory: dict[str, Any], sectors: dict[str, dict[str, Any]]) -> bool:
+        """``sectors/{market}/{slug}.json`` for each sector, then ``directory.json``.
+
+        R2 only; no table. The directory goes last, so it never names a sector
+        whose object is not there yet. Without R2 secrets nothing is written.
+        """
+        store = self._cloudflare()
+        if store is None:
+            return False
+
+        def put(name: str, body: dict[str, Any]) -> None:
+            data = json.dumps(body, separators=(",", ":"), allow_nan=False).encode()
+            store.put(f"sectors/{self.market}/{name}.json", data, "application/json")
+
+        for slug, body in sectors.items():
+            put(slug, body)
+        put("directory", directory)
+        return True
+
     def latest_snapshot_unrated(self) -> frozenset[str]:
         """Symbols of this market's newest published run that carry no rating."""
         run = self.latest_completed_run()
