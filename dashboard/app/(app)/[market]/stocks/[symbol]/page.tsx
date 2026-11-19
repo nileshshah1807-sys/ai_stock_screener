@@ -9,7 +9,7 @@ import { SymbolText } from "@/components/symbol-text";
 import { LiveChange, LivePrice, LiveRatio } from "@/components/live-quote";
 import { CallOutlook } from "@/components/stock/call-outlook";
 import { getLatestConcall } from "@/lib/concalls";
-import { callPanelSource } from "@/lib/concalls.mjs";
+import { callPanelSource, runHasCall } from "@/lib/concalls.mjs";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, tailFromHistory, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
@@ -1142,16 +1142,20 @@ export default async function StockPage({
                     <Panel
                       title="Reverse DCF"
                       info="Solves the assumptions implied by today's market cap. Evidence, not a target price."
+                      // Alone on its row when there is no call to pair it with.
+                      className={runHasCall(row.transcript_status) ? undefined : "lg:col-span-2"}
                     >
                       <FieldList fields={dcfFields} columns={2} visible={4} />
                     </Panel>
 
-                    <Panel
-                      title="Management transcript"
-                      info="How the latest call sounded (tone) and what it said (outlook), each against the median call."
-                    >
-                      <FieldList fields={transcriptFields} columns={2} visible={5} />
-                    </Panel>
+                    {runHasCall(row.transcript_status) ? (
+                      <Panel
+                        title="Management transcript"
+                        info="How the latest call sounded (tone) and what it said (outlook), each against the median call."
+                      >
+                        <FieldList fields={transcriptFields} columns={2} visible={5} />
+                      </Panel>
+                    ) : null}
                   </div>
 
                   {market.nseEvidence ? null : (

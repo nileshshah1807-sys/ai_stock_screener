@@ -186,3 +186,17 @@ export function latestOutlooks(feed) {
 export function outlookSince(runDate) {
   return new Date(Date.parse(runDate) - 190 * 86_400_000).toISOString().slice(0, 10);
 }
+
+/** The run's transcript statuses that mean it scored, or at least found, a call (scoring/transcript_enricher.py). */
+const RUN_CALL_STATUSES = new Set(["Available", "Prior-cycle", "Expired"]);
+
+/**
+ * Whether the run found a call for this company, so the stock page's
+ * "Management transcript" audit has something to show. Null, "No transcript"
+ * and "Not configured" leave every field a dash: the panel is left out.
+ *
+ * @param {unknown} status the snapshot's `transcript_status`
+ */
+export function runHasCall(status) {
+  return typeof status === "string" && RUN_CALL_STATUSES.has(status.trim());
+}

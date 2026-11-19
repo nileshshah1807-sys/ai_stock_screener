@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { STANCE_FILTERS, callPanelSource, groupByCallDate, highlightList, latestOutlooks, outlookSince, outlookTone, searchTerm, sourceLabel, stanceLabel } from "./concalls.mjs";
+import { STANCE_FILTERS, callPanelSource, groupByCallDate, highlightList, latestOutlooks, outlookSince, outlookTone, runHasCall, searchTerm, sourceLabel, stanceLabel } from "./concalls.mjs";
 
 test("management's stance is the outlook score's band, with its sentence", () => {
   assert.deepEqual(stanceLabel("optimistic", " We expect a strong second half. "), {
@@ -153,4 +153,9 @@ test("a company's outlook is its newest call's, and a call without one is passed
 
 test("a ranking reads calls from 190 days before the run", () => {
   assert.equal(outlookSince("2026-11-19"), "2026-05-13");
+});
+
+test("the stock page's transcript audit shows only when the run found a call", () => {
+  for (const status of ["Available", "Prior-cycle", "Expired"]) assert.equal(runHasCall(status), true, status);
+  for (const status of [null, undefined, "", "No transcript", "Not configured"]) assert.equal(runHasCall(status), false, String(status));
 });
