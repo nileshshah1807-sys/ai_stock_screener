@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
+import { outlookSince } from "@/lib/concalls.mjs";
 import { RUN_COLUMNS, topByMix } from "@/lib/custom-score.mjs";
 import { lazyClient } from "@/lib/supabase/lazy-client";
 
@@ -37,13 +38,13 @@ async function readAll(read: (from: number, to: number) => PromiseLike<{ data: u
 /**
  * The run as lib/queries.ts readRunScores reads it, but from the browser
  * straight to Supabase as the viewer (RLS, the *_visible view), so the live
- * preview costs the Worker nothing.
- * shortcut: reads Supabase even when TABLE_BACKEND moves these tables to D1;
- * move it to an /api route on the same cache when that lands (docs/d1_migration_plan.md).
+ * preview costs the Worker nothing. Call outlooks are D1's alone, so they come
+ * from `/api/live?kind=calls`, one shared read per market and day.
+ * shortcut: the run still reads Supabase even when TABLE_BACKEND moves
+ * screener_snapshot to D1; move it to /api/live when that lands (docs/d1_migration_plan.md).
  */
 async function readRun(market: string, runDate: string, withCalls: boolean): Promise<Run> {
   const client = await lazyClient();
-  const since = new Date(Date.parse(runDate) - 190 * 86_400_000).toISOString().slice(0, 10);
   const [rows, calls] = await Promise.all([
     once(`rows:${market}:${runDate}`, () =>
       readAll((from, to) =>
@@ -59,20 +60,11 @@ async function readRun(market: string, runDate: string, withCalls: boolean): Pro
     ),
     withCalls
       ? once(`calls:${market}:${runDate}`, async () => {
-          const feed = await readAll((from, to) =>
-            client
-              .from("concall_feed")
-              .select("symbol, call_date, outlook_score")
-              .eq("market", market)
-              .gte("call_date", since)
-              .not("outlook_score", "is", null)
-              .order("call_date", { ascending: false })
-              .order("symbol", { ascending: true })
-              .range(from, to),
-          );
-          const outlooks = new Map<string, number>();
-          for (const call of feed) if (!outlooks.has(String(call.symbol))) outlooks.set(String(call.symbol), Number(call.outlook_score));
-          return outlooks;
+          const query = new URLSearchParams({ kind: "calls", market, since: outlookSince(runDate) });
+          const response = await fetch(`/api/live?${query}`);
+          if (!response.ok) throw new Error(`call outlooks: ${response.status}`);
+          const { data } = (await response.json()) as { data: Record<string, number> };
+          return new Map(Object.entries(data));
         })
       : Promise.resolve(new Map<string, number>()),
   ]);

@@ -46,7 +46,7 @@ export const SCORE_FACTORS = [
   },
   {
     // `derived`: not a snapshot column (never select it); callSignals works it out per run from tone and outlook.
-    key: "c", column: CALL_COLUMN, derived: true, label: "Earnings call", concall: true, toggle: true,
+    key: "c", column: CALL_COLUMN, derived: true, label: "Earnings call", toggle: true,
     caption: "How upbeat and confident the latest earnings call was",
     about: "How positive management sounded on its latest earnings call: mostly what it said about the outlook, partly the tone of its words, against every other recent call. A call counts half after 90 days and not at all after 180; no recent call counts as middle of the pack. Words, not results.",
   },

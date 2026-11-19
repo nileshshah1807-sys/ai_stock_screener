@@ -322,7 +322,7 @@ export default function PreviewPage() {
                 <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
                   <FilterBar sectors={["Financials", "Information Technology", "Industrials"]} factorModel />
                 </div>
-                <ScoreBuilder factorModel concalls />
+                <ScoreBuilder factorModel />
                 <ViewOptions factorModel />
                 <StockSearch />
                 <ExportLink />

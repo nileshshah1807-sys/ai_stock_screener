@@ -9,7 +9,7 @@ import { SymbolText } from "@/components/symbol-text";
 import { LiveChange, LivePrice, LiveRatio } from "@/components/live-quote";
 import { CallOutlook } from "@/components/stock/call-outlook";
 import { getLatestConcall } from "@/lib/concalls";
-import { callPanelSource } from "@/lib/concalls.mjs";
+import { callPanelSource, runHasCall } from "@/lib/concalls.mjs";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, tailFromHistory, withTail } from "@/lib/price-series.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
@@ -1142,14 +1142,13 @@ export default async function StockPage({
                     <Panel
                       title="Reverse DCF"
                       info="Solves the assumptions implied by today's market cap. Evidence, not a target price."
-                      // Alone on its row on a US page, where there is no
-                      // transcript panel to pair with it.
-                      className={market.nseEvidence ? undefined : "lg:col-span-2"}
+                      // Alone on its row when there is no call to pair it with.
+                      className={runHasCall(row.transcript_status) ? undefined : "lg:col-span-2"}
                     >
                       <FieldList fields={dcfFields} columns={2} visible={4} />
                     </Panel>
 
-                    {market.nseEvidence ? (
+                    {runHasCall(row.transcript_status) ? (
                       <Panel
                         title="Management transcript"
                         info="How the latest call sounded (tone) and what it said (outlook), each against the median call."
@@ -1161,7 +1160,7 @@ export default async function StockPage({
 
                   {market.nseEvidence ? null : (
                     <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-                      Call transcripts, the red-flag feed and impact cost are
+                      The red-flag feed and impact cost are
                       collected for NSE listings only, so they play no part in a{" "}
                       {market.label} score.
                     </p>

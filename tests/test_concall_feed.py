@@ -341,3 +341,46 @@ class PromiseReadingTests(unittest.TestCase):
         self.assertEqual(records["2025-10-12"], {"kept": 0, "missed": 1})
         # The same period guided again is the same promise.
         self.assertEqual(records["2026-10-12"], {"kept": 0, "missed": 1})
+
+
+class D1OnlyTests(unittest.TestCase):
+    """concall_feed lives in D1 alone (19 Nov 2026); Supabase's copy is frozen."""
+
+    def test_the_backfill_never_copies_supabase_over_it(self):
+        from tools import d1_tables
+
+        self.assertEqual(d1_tables.TABLES["concall_feed"], "core")
+        self.assertNotIn("concall_feed", d1_tables.ORDER)
+        with self.assertRaises(SystemExit):
+            d1_tables.main(["backfill", "concall_feed"])
+
+    def test_the_dashboard_reads_every_d1_only_table_from_d1(self):
+        import re
+        from pathlib import Path
+
+        from tools import d1_tables
+
+        source = Path("dashboard/lib/db/table-backend.mjs").read_text()
+        listed = set(re.findall(r'"(\w+)"', re.search(r"D1_ONLY = new Set\(\[(.*?)\]\)", source).group(1)))
+        frozen_twins = set(d1_tables.TABLES) - set(d1_tables.ORDER) - set(d1_tables.HAND_LAID)
+        self.assertEqual(listed, frozen_twins)
+
+    def test_every_step_that_publishes_the_feed_writes_d1_alone(self):
+        from pathlib import Path
+
+        import yaml
+
+        steps = [
+            (path.name, step)
+            for path in sorted(Path(".github/workflows").glob("*.yml"))
+            for job in (yaml.safe_load(path.read_text()).get("jobs") or {}).values()
+            for step in job.get("steps") or []
+            if "workers.concall_feed" in str(step.get("run", ""))
+        ]
+        self.assertGreaterEqual(len(steps), 4)
+        for name, step in steps:
+            env = step.get("env") or {}
+            with self.subTest(workflow=name, step=step.get("name")):
+                self.assertIn("concall_feed", str(env.get("TABLE_BACKEND_D1", "")).split(","))
+                for key in ("D1_ACCOUNT_ID", "D1_API_TOKEN", "D1_DATABASE_ID"):
+                    self.assertIn(key, env)

@@ -30,6 +30,8 @@ COVER_LETTER_ERROR = "cover letter; the transcript it links to was not found"
 # A company that has not put its transcript up after this many runs is not
 # going to; the filing stops being fetched three times a day.
 COVER_LETTER_MAX_ATTEMPTS = 15
+# A filing in one of these states is done: nothing about it is fetched or written again.
+FINISHED_STATUSES = frozenset({"document_ready", "rejected"})
 
 
 @dataclass(frozen=True)
@@ -75,13 +77,14 @@ class TranscriptWorker:
         summary = {
             "discovered": 0, "documents_ready": 0, "analyzed": 0, "deferred": 0, "failed": 0,
             "cover_letters_resolved": 0, "cover_letters_unresolved": 0,
-            "cover_letters_repaired": 0, "cover_letters_removed": 0,
+            "cover_letters_repaired": 0, "cover_letters_removed": 0, "already_stored": 0,
         }
         self._cover_letters = {"resolved": 0, "unresolved": 0}
         logger.info("Discovering NSE earnings transcripts from the last %s day(s)", self.settings.lookback_days)
         records = discover_nse_transcripts(self.settings.lookback_days)
         summary["discovered"] = len(records)
         logger.info("NSE discovery completed: %s matching transcript(s)", summary["discovered"])
+        finished = self._finished_seq_ids()
         with TemporaryDirectory(prefix="nse_transcripts_") as temporary_directory:
             download_directory = Path(temporary_directory)
             for record in records:
@@ -91,6 +94,9 @@ class TranscriptWorker:
                         self.settings.max_documents_per_run,
                     )
                     break
+                if str(record.get("seq_id") or "").strip() in finished:
+                    summary["already_stored"] += 1
+                    continue
                 try:
                     if self._process_filing(record, download_directory):
                         summary["documents_ready"] += 1
@@ -108,6 +114,20 @@ class TranscriptWorker:
         summary["deferred"] = analysis_summary["deferred"]
         return summary
 
+    def _finished_seq_ids(self) -> set[str]:
+        """NSE filings already stored or given up on, read in one paged request.
+
+        Without it every run wrote each of the window's ~2,000 filings back one
+        request at a time (an upsert) only to learn it was done. A failed read
+        falls back to that: the upsert still skips a finished filing.
+        """
+        try:
+            rows = self.repository.transcript_filings("NSE")
+        except Exception as exc:  # noqa: BLE001 - the per-filing check still holds
+            logger.warning("Stored filings unreadable (%s); checking each filing instead", exc)
+            return set()
+        return {str(row.get("seq_id")) for row in rows if row.get("status") in FINISHED_STATUSES}
+
     def _process_filing(self, record: dict, download_directory: Path) -> bool:
         filing = filing_payload(record)
         if filing is None:
@@ -120,7 +140,7 @@ class TranscriptWorker:
             filing["seq_id"],
         )
         stored_filing = self.repository.upsert_filing(filing)
-        if stored_filing["status"] in {"document_ready", "rejected"}:
+        if stored_filing["status"] in FINISHED_STATUSES:
             return False
         if (
             stored_filing.get("last_error") == COVER_LETTER_ERROR

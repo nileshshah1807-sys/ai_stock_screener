@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { getViewer, isAdmin } from "@/lib/auth";
+import { getCallOutlooks } from "@/lib/concalls";
 import { readsFromCloudflare } from "@/lib/db/market-repository";
 import { LIVE_MOVERS_LIMIT } from "@/lib/live-market";
 import { liveBreadthData, liveFlowsData, liveMarketData, liveQuoteRows, liveSectorsData, withMoverRatings } from "@/lib/live-data";
@@ -18,6 +19,8 @@ const SCOPES = new Set(["market", "sector", "industry"]);
  * (`TABLE_BACKEND` names live_quotes): `kind` stock (`live_valuation` rows),
  * index (`live_quotes` levels), market (`live_market`), breadth
  * (`live_breadth`), flows (NSE's FII/DII cash flows) or sectors (each sector's live change), answered as `{ data }` in the shapes those returned.
+ * `calls` is each company's latest call outlook since `since` (the score preview's call measure):
+ * `concall_feed` is D1's alone, which the browser cannot reach.
  * Signed-in viewers with access only: the objects bypass row-level security.
  * A rating is returned only to an admin, on the movers, as live_market() does.
  */
@@ -25,8 +28,8 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const market = params.get("market") as MarketCode;
   const kind = params.get("kind");
-  // FII/DII flows and live sectors live only in R2 (no Supabase twin), so they are served whatever TABLE_BACKEND says.
-  if (kind !== "flows" && kind !== "sectors" && !readsFromCloudflare("live_quotes")) return NextResponse.json({ error: "not enabled" }, { status: 404 });
+  // FII/DII flows and live sectors live only in R2, and call outlooks only in D1 (no Supabase twin), so they are served whatever TABLE_BACKEND says.
+  if (kind !== "flows" && kind !== "sectors" && kind !== "calls" && !readsFromCloudflare("live_quotes")) return NextResponse.json({ error: "not enabled" }, { status: 404 });
   if (!(await getViewer())) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (!MARKETS.has(market)) return NextResponse.json({ error: "bad market" }, { status: 400 });
 
@@ -57,5 +60,9 @@ function answer(market: MarketCode, kind: string | null, params: URLSearchParams
   }
   if (kind === "flows") return market === "NSE" ? liveFlowsData(market) : undefined;
   if (kind === "sectors") return liveSectorsData(market);
+  if (kind === "calls") {
+    const since = params.get("since") ?? "";
+    return /^\d{4}-\d{2}-\d{2}$/.test(since) ? getCallOutlooks(market, since) : undefined;
+  }
   return undefined;
 }

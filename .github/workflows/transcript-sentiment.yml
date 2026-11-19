@@ -5,6 +5,14 @@ on:
   schedule:
     - cron: "30 4,11,15 * * *"
   workflow_dispatch:
+    inputs:
+      # Temporary (19 Nov 2026): rewrites concall_feed into D1 without collecting or
+      # scoring, for the move of that table to D1. Remove once a scheduled run on
+      # main has published the feed to D1.
+      feed_only:
+        description: Only publish the NSE and US concall feeds (no collection, no scoring)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -53,23 +61,28 @@ jobs:
           # that actually save time (29 Sept 2026). Installing afresh costs ~1 min.
 
       - name: Install OCR runtime
+        if: ${{ !inputs.feed_only }}
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
 
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+        # The feed needs no torch: the core lock is enough (as CI runs its tests).
+        run: python -m pip install --upgrade pip && python -m pip install -r ${{ inputs.feed_only && 'requirements-ci.txt' || 'requirements.txt' }}
 
       - name: Cache Hugging Face models
+        if: ${{ !inputs.feed_only }}
         uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface
           key: huggingface-finbert-v1
 
       - name: Run regression tests
+        if: ${{ !inputs.feed_only }}
         env:
           TRANSCRIPT_ENABLE_FINBERT: "false"
         run: python -m unittest discover -s tests
 
       - name: Collect and analyze transcripts
+        if: ${{ !inputs.feed_only }}
         run: python -m workers.transcript_worker
 
       # The outlook of each new call, which the daily screener blends with the
@@ -77,6 +90,7 @@ jobs:
       # all, so the cap only bounds a run that goes wrong. A call still pending
       # here is scored on tone alone, so a failure degrades and does not block.
       - name: Extract call outlooks
+        if: ${{ !inputs.feed_only }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
@@ -89,9 +103,21 @@ jobs:
       # The Concalls page reads this, not the transcript tables. A filed
       # transcript stored above replaces the same call's recording there.
       - name: Publish the concall feed
+        env:
+          # concall_feed is D1's alone (TABLE_BACKEND_D1); Supabase's copy is frozen.
+          TABLE_BACKEND_D1: concall_feed
+          D1_ACCOUNT_ID: ${{ vars.D1_ACCOUNT_ID }}
+          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          D1_DATABASE_ID: ${{ vars.D1_CORE_ID }}
         run: python -m workers.concall_feed
 
       # The tone step above scores US calls too (its queue covers both markets);
       # us-transcripts.yml stores them and their outlooks.
       - name: Publish the US concall feed
+        env:
+          # concall_feed is D1's alone (TABLE_BACKEND_D1); Supabase's copy is frozen.
+          TABLE_BACKEND_D1: concall_feed
+          D1_ACCOUNT_ID: ${{ vars.D1_ACCOUNT_ID }}
+          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          D1_DATABASE_ID: ${{ vars.D1_CORE_ID }}
         run: python -m workers.concall_feed --market US
