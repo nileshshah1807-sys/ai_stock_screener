@@ -16,6 +16,7 @@ import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { isAdmin } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { PUBLISHED_SCORE_INFO, SHOW_VERDICT, publicText } from "@/lib/ratings.mjs";
+import { indexSlug } from "@/lib/indices.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
@@ -868,7 +869,17 @@ export default async function StockPage({
           </div>
 
           <p className="mt-1.5 text-xs text-muted-foreground">
-            {row.sector ?? MISSING}
+            {row.sector ? (
+              <Link
+                prefetch={false}
+                href={marketPath(market.slug, `/sectors/${indexSlug(row.sector)}`)}
+                className="rounded underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {row.sector}
+              </Link>
+            ) : (
+              MISSING
+            )}
             {row.industry ? ` · ${row.industry}` : ""} · Market cap{" "}
             {formatMoneyCompact(row.market_cap, market)} · Prices as of{" "}
             {formatDate(row.price_bar_as_of ?? run.price_bar_as_of)}
