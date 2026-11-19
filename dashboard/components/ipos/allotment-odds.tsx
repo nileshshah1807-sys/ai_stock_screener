@@ -89,9 +89,8 @@ export function AllotmentOdds({ retailTimes, lotCost }: { retailTimes: number | 
             </p>
             {lotCost ? (
               <p className="tabular mt-2 text-xs text-muted-foreground">
-                Blocks {formatMoney(lotCost * applications, market, 0)} until allotment
-                {applications > 1 ? ` (${formatMoney(lotCost, market, 0)} each)` : ""}; what is not allotted is
-                released.
+                {formatMoney(lotCost * applications, market, 0)} blocked
+                {applications > 1 ? ` · ${formatMoney(lotCost, market, 0)} each` : ""}
               </p>
             ) : null}
           </>

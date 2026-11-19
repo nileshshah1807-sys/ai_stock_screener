@@ -1,7 +1,9 @@
 -- cupel-evidence, laid by hand: a D1-only table with no Supabase twin
 -- (workers/ipos.py). Created by `python -m tools.d1_tables apply`.
 -- One row per NSE issue (mainboard and SME), open, upcoming or listed within a
--- year. "subscription" is a JSON array of the book's top-level categories.
+-- year. "subscription" is a JSON array of the book's top-level categories;
+-- "financials" a JSON object of the restated figures the GMP tracker prints
+-- (added 19 Nov 2026: ALTER TABLE "ipo_issues" ADD COLUMN "financials" TEXT).
 CREATE TABLE IF NOT EXISTS "ipo_issues" (
     "market" TEXT NOT NULL DEFAULT 'NSE',
     "symbol" TEXT NOT NULL,
@@ -30,5 +32,6 @@ CREATE TABLE IF NOT EXISTS "ipo_issues" (
     "gmp_pct" REAL,
     "gmp_peak" REAL,
     "gmp_as_of" TEXT,
+    "financials" TEXT,
     PRIMARY KEY ("market", "symbol")
 ) WITHOUT ROWID;

@@ -389,7 +389,10 @@ the scheduled workflows set the same flag.
   zero offered after it closes). Older issues fill in `--book-budget` at a time. GMP is off
   unless `IPO_GMP_ENABLED` is `true`: the unofficial figure the public tracker
   investorgain.com prints (its Next flight payload, `reportTableData`), labelled unofficial
-  wherever shown. BSE-only SME issues are absent. NSE's past-issues feed also lists NCDs,
+  wherever shown. The same switch reads each unlisted issue's page on the tracker once for
+  its restated financials (`financials`, as the tracker prints them from the RHP, in its
+  unit; NSE publishes no structured figures and its RHP tables vary too much to parse).
+  BSE-only SME issues are absent. NSE's past-issues feed also lists NCDs,
   partly-paid shares and SME companies moving to the mainboard under their old bidding dates:
   an issue listed more than 30 days after it closed is not an IPO and is dropped, stored or not
   (`MAX_LISTING_LAG_DAYS`). Nothing scores it.

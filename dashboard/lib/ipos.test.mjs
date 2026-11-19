@@ -8,8 +8,10 @@ import {
   changeFromIssue,
   formatSignedPercent,
   formatTimes,
+  gmpStamp,
   groupIssues,
   impliedListing,
+  periodLabel,
   issueStatus,
   minInvestment,
 } from "./ipos.mjs";
@@ -72,4 +74,11 @@ test("ratios and changes print with a true minus and two places", () => {
   assert.equal(formatSignedPercent(-5), "−5.0%");
   assert.equal(formatSignedPercent(6.99, 2), "+6.99%");
   assert.equal(formatSignedPercent(0), "0.0%");
+});
+
+test("a GMP's time reads as the hour today and with its day before", () => {
+  assert.equal(gmpStamp("2026-11-19T11:02:00+05:30", "2026-11-19"), "11:02");
+  assert.equal(gmpStamp("2026-11-18T19:37:00+05:30", "2026-11-19"), "18 Nov, 19:37");
+  assert.equal(gmpStamp(null, "2026-11-19"), null);
+  assert.equal(periodLabel("2026-06-30"), "Jun 2026");
 });

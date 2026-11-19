@@ -20,6 +20,7 @@ def fixture(name):
 
 
 GMP_PAGE = (FIXTURES / "investorgain_gmp_18112026.html").read_text()
+ISSUE_PAGE = (FIXTURES / "investorgain_issue_CRYSTALCP_19112026.html").read_text()
 PAYLOADS = {
     "ipo-current-issue": fixture("current_18112026.json"),
     "all-upcoming-issues?category=ipo": fixture("upcoming_18112026.json"),
@@ -69,7 +70,8 @@ def d1_repo(market="NSE"):
 
 def run(repo, payloads=PAYLOADS, today=TODAY, page=GMP_PAGE, bars=None):
     return ipos.run(repo, today=today, fetch=fetch_from(payloads),
-                    bars=bars or (lambda day: {"VPFL": (89.3, 84.8)}), gmp_page=lambda: page)
+                    bars=bars or (lambda day: {"VPFL": (89.3, 84.8)}), gmp_page=lambda: page,
+                    issue_page=lambda path: ISSUE_PAGE if "crystal-crop" in path else "<html></html>")
 
 
 class ParseTests(unittest.TestCase):
@@ -115,9 +117,20 @@ class ParseTests(unittest.TestCase):
         rows = {row["name"]: row for row in ipos.parse_gmp(GMP_PAGE)}
         self.assertEqual(rows["Mahanadi Coalfields"], {
             "name": "Mahanadi Coalfields", "open_date": "2026-11-19", "gmp": 3.1, "gmp_pct": 2.28,
-            "gmp_peak": 9.25, "gmp_as_of": "2026-11-18T19:37:00+05:30"})
+            "gmp_peak": 9.25, "gmp_as_of": "2026-11-18T19:37:00+05:30",
+            "page": "/gmp/mahanadi-coalfields-ipo/2401/"})
         self.assertIsNone(rows["Antala Industries"]["gmp"])  # "--": nothing quoted
         self.assertEqual(ipos.parse_gmp("<html>changed layout</html>"), [])
+
+    def test_restated_financials_are_read_from_the_issue_page(self):
+        fin = ipos.parse_financials(ISSUE_PAGE)
+        self.assertEqual((fin["basis"], fin["unit"]), ("Restated Consolidated", "crore"))
+        self.assertEqual(fin["periods"], ["2026-06-30", "2026-03-31", "2025-03-31", "2024-03-31"])
+        rows = {row["label"]: row["values"] for row in fin["rows"]}
+        self.assertEqual(rows["Total Income"], [1209.21, 3180.98, 2731.94, 2271.71])
+        self.assertEqual(rows["Net Worth"][0], None)  # blank for the stub period: not reported, not zero
+        self.assertNotIn("Amount in ₹ Crore", rows)
+        self.assertIsNone(ipos.parse_financials("<html>no table</html>"))
 
     def test_gmp_matches_by_name_and_open_date(self):
         tracker = {ipos._name_key(row["name"]): row for row in ipos.parse_gmp(GMP_PAGE)}
@@ -138,6 +151,8 @@ class RunTests(unittest.TestCase):
         self.assertEqual((rows["VPFL"]["listing_open"], rows["VPFL"]["listing_close"]), (89.3, 84.8))
         self.assertIsNone(rows["VPFL"]["gmp"])  # a listed issue takes no grey-market figure
         self.assertFalse(set(ipos.INTERNAL) & set(crystal))
+        self.assertEqual(crystal["financials"]["rows"][2]["label"], "Profit After Tax")
+        self.assertIsNone(rows["MAHACOAL"]["financials"])  # its page printed no table
 
     def test_a_second_run_changes_nothing_and_keeps_what_it_read(self):
         repo, db = d1_repo()

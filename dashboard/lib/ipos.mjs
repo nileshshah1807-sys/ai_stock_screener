@@ -84,6 +84,20 @@ export function allotmentOdds(times, applications = 1) {
 }
 
 /** `1.4` -> "1.40×"; null -> null, for the caller's dash. */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** When the tracker last moved a GMP: "11:02" today, "18 Nov, 19:37" before. The stamp is India time already. */
+export function gmpStamp(asOf, today) {
+  if (!asOf) return null;
+  const time = asOf.slice(11, 16);
+  return asOf.slice(0, 10) === today ? time : `${Number(asOf.slice(8, 10))} ${MONTHS[Number(asOf.slice(5, 7)) - 1]}, ${time}`;
+}
+
+/** A financial period's column head: "Jun 2026". */
+export function periodLabel(iso) {
+  return iso ? `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}` : null;
+}
+
 export function formatTimes(value) {
   if (value == null || !Number.isFinite(value)) return null;
   return `${value.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×`;
