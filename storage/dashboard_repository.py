@@ -770,6 +770,24 @@ class DashboardRepository:
         return self._cloudflare_put(
             name, [row for row in rows if row["session_date"] in sessions], years=fii_dii_years(rows))
 
+    # NSE IPOs (workers/ipos.py): a D1-only table keyed (market, symbol); its R2
+    # object, live/{market}/ipos.json, holds every row the IPOs page shows.
+
+    def ipo_issues(self) -> list[dict[str, Any]]:
+        return self._paged("ipo_issues", {"select": "*", "order": "symbol.asc"})
+
+    def upsert_ipo_issues(self, rows: list[dict[str, Any]]) -> int:
+        self._request(
+            "POST",
+            "ipo_issues?on_conflict=market,symbol",
+            json=self._stamped(rows),
+            headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
+        )
+        return len(rows)
+
+    def put_ipos_object(self, rows: list[dict[str, Any]]) -> bool:
+        return self._cloudflare_put("ipos", rows)
+
     def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
         """Store deals not stored yet. The key is the whole trade, so a stored deal
         never changes; re-sending the history each run used to rewrite every row."""

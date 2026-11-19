@@ -378,6 +378,21 @@ the scheduled workflows set the same flag.
   `TABLE_BACKEND_D1`) and `live/NSE/fii-dii-flows.json` (newest 260 sessions, rebuilt
   from the table when behind it). NSE keeps no archive, so history starts the day it was
   switched on. A stored session is not written again. Nothing scores it.
+- **NSE IPOs are display evidence, on Cloudflare only.** `workers/ipos.py` (a step of
+  the Quarterly filings workflow, on when the `IPO_CENTRE_ENABLED` repository variable is
+  `true`) reads NSE's current, upcoming and past issues (mainboard and SME), each issue's
+  combined NSE+BSE book by category (`ipo-active-category`) and its detail (lot, registrar,
+  RHP), and the listing day's open and close from that day's bhavcopy, into the D1 table
+  `ipo_issues` (`storage/d1/ipo_issues.sql`, hand-laid, no Supabase twin; `TABLE_BACKEND_D1`)
+  and `live/NSE/ipos.json`, which the Tools tab's IPOs page reads. Nothing about IPOs goes
+  to Supabase. A field once read is never overwritten with nothing (an SME's book reads
+  zero offered after it closes). Older issues fill in `--book-budget` at a time. GMP is off
+  unless `IPO_GMP_ENABLED` is `true`: the unofficial figure the public tracker
+  investorgain.com prints (its Next flight payload, `reportTableData`), labelled unofficial
+  wherever shown. BSE-only SME issues are absent. NSE's past-issues feed also lists NCDs,
+  partly-paid shares and SME companies moving to the mainboard under their old bidding dates:
+  an issue listed more than 30 days after it closed is not an IPO and is dropped, stored or not
+  (`MAX_LISTING_LAG_DAYS`). Nothing scores it.
 - **US upcoming results come from Alpha Vantage's earnings calendar.**
   `workers/us_upcoming.py` (a step of the US Financial statements workflow, the
   first run of the day, before 09:00 UTC) makes one request a day, keyed by the `ALPHAVANTAGE_API_KEY`

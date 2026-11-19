@@ -169,6 +169,27 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: python -m workers.market_flows --market NSE ${DRY_RUN}
 
+      # NSE IPOs (workers/ipos.py), to D1 and R2 only, as the flows above: the
+      # table is D1's (TABLE_BACKEND_D1). Every run refreshes the books still
+      # bidding. Off until IPO_CENTRE_ENABLED is true; GMP, read from the public
+      # tracker, only when IPO_GMP_ENABLED is true as well.
+      - name: Store IPOs
+        if: ${{ !cancelled() && vars.IPO_CENTRE_ENABLED == 'true' }}
+        timeout-minutes: 6
+        env:
+          TABLE_BACKEND_D1: ipo_issues
+          D1_ACCOUNT_ID: ${{ vars.D1_ACCOUNT_ID }}
+          D1_API_TOKEN: ${{ secrets.D1_API_TOKEN }}
+          D1_DATABASE_ID: ${{ vars.D1_CORE_ID }}
+          D1_TABLE_DATABASES: ipo_issues:${{ vars.D1_EVIDENCE_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          IPO_GMP_ENABLED: ${{ vars.IPO_GMP_ENABLED }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.ipos --market NSE ${DRY_RUN}
+
       # Results and shareholding of companies listed on BSE alone, through the
       # two steps above's own code (workers/bse_filings.py). Stores nothing
       # until workers/bse_source.py is written.
