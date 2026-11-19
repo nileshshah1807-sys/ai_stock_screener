@@ -18,6 +18,7 @@ import {
   periodLabel,
   issueStatus,
   minInvestment,
+  splitRisks,
 } from "./ipos.mjs";
 
 // Shapes from workers/ipos.py's object on 18 Nov 2026.
@@ -113,4 +114,13 @@ test("a listed column no shown row has a value for is left out", () => {
   assert.deepEqual(listedColumns(sme, new Map()), { subscribed: false, now: false });
   const mixed = [...sme, { symbol: "VPFL", subscription_total: 12.4 }];
   assert.deepEqual(listedColumns(mixed, new Map([["MAXENGS", 160]])), { subscribed: true, now: true });
+});
+
+test("an RHP's risk factors show the first five; the rest fold away", () => {
+  const risks = Array.from({ length: 78 }, (_, i) => ({ title: `Risk ${i + 1}.`, text: null }));
+  const { lead, more } = splitRisks(risks);
+  assert.deepEqual(lead.map((risk) => risk.title), ["Risk 1.", "Risk 2.", "Risk 3.", "Risk 4.", "Risk 5."]);
+  assert.equal(more.length, 73);
+  assert.deepEqual(splitRisks(risks.slice(0, 3)), { lead: risks.slice(0, 3), more: [] });
+  assert.deepEqual(splitRisks(null), { lead: [], more: [] });
 });

@@ -7,6 +7,15 @@
  * prints. Dates are ISO days in India time; `today` is too.
  */
 
+/** Risk factors shown before the rest fold away: an RHP states 70-100. */
+export const RISKS_SHOWN = 5;
+
+/** The first `shown` risk factors, and the rest for a closed disclosure. */
+export function splitRisks(risks, shown = RISKS_SHOWN) {
+  const all = risks ?? [];
+  return { lead: all.slice(0, shown), more: all.slice(shown) };
+}
+
 /** Where an issue stands today. */
 export function issueStatus(row, today) {
   if (row.listing_date && row.listing_date <= today) return "listed";

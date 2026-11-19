@@ -788,6 +788,10 @@ class DashboardRepository:
     def put_ipos_object(self, rows: list[dict[str, Any]]) -> bool:
         return self._cloudflare_put("ipos", rows)
 
+    def put_ipo_risks_object(self, symbol: str, risks: list[dict[str, Any]]) -> bool:
+        """``live/{market}/ipo-risks/{symbol}.json``: one issue's RHP risk factors, read by its page alone."""
+        return self._cloudflare_put(f"ipo-risks/{symbol}", risks)
+
     def upsert_bulk_block_deals(self, rows: list[dict[str, Any]], chunk_size: int = 1000) -> int:
         """Store deals not stored yet. The key is the whole trade, so a stored deal
         never changes; re-sending the history each run used to rewrite every row."""
