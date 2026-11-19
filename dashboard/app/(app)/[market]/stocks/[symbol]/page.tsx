@@ -1142,26 +1142,21 @@ export default async function StockPage({
                     <Panel
                       title="Reverse DCF"
                       info="Solves the assumptions implied by today's market cap. Evidence, not a target price."
-                      // Alone on its row on a US page, where there is no
-                      // transcript panel to pair with it.
-                      className={market.nseEvidence ? undefined : "lg:col-span-2"}
                     >
                       <FieldList fields={dcfFields} columns={2} visible={4} />
                     </Panel>
 
-                    {market.nseEvidence ? (
-                      <Panel
-                        title="Management transcript"
-                        info="How the latest call sounded (tone) and what it said (outlook), each against the median call."
-                      >
-                        <FieldList fields={transcriptFields} columns={2} visible={5} />
-                      </Panel>
-                    ) : null}
+                    <Panel
+                      title="Management transcript"
+                      info="How the latest call sounded (tone) and what it said (outlook), each against the median call."
+                    >
+                      <FieldList fields={transcriptFields} columns={2} visible={5} />
+                    </Panel>
                   </div>
 
                   {market.nseEvidence ? null : (
                     <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-                      Call transcripts, the red-flag feed and impact cost are
+                      The red-flag feed and impact cost are
                       collected for NSE listings only, so they play no part in a{" "}
                       {market.label} score.
                     </p>

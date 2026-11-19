@@ -13,7 +13,6 @@ test("each market names its own universe and both say how and when", () => {
   }
 });
 
-test("management guidance is named for NSE only (the US run has no transcript sentiment)", () => {
-  assert.ok(screenerIntro("NSE").includes("management guidance"));
-  assert.ok(!screenerIntro("US").includes("management guidance"));
+test("both markets name management guidance (each scores its calls)", () => {
+  for (const code of ["NSE", "US"]) assert.ok(screenerIntro(code).includes("management guidance"), code);
 });

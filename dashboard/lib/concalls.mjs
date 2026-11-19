@@ -55,7 +55,8 @@ export function sourceLabel(source) {
       provisional: true,
     };
   }
-  return { label: "Filed transcript", title: "The transcript the company filed with the exchange.", provisional: false };
+  // Not "filed": a US transcript is a vendor's (Alpha Vantage), not a filing.
+  return { label: "Transcript", title: "The transcript of the call.", provisional: false };
 }
 
 /**

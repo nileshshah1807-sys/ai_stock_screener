@@ -35,7 +35,7 @@ test("a call read from its recording says so", () => {
   assert.equal(sourceLabel("recording").label, "From the recording");
   assert.equal(sourceLabel("transcript").provisional, false);
   // An unknown source is not presented as provisional.
-  assert.equal(sourceLabel(undefined).label, "Filed transcript");
+  assert.equal(sourceLabel(undefined).label, "Transcript");
 });
 
 test("the outlook is read against the neutral 50", () => {

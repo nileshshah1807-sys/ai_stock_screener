@@ -51,8 +51,8 @@ export default async function ConcallsPage({
   const search = searchTerm(query.q);
   const filtered = Boolean(search) || !feed.isDefault;
 
-  // The exchange files by India's calendar.
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  // Calls are dated by the exchange's calendar.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: market.timezone }).format(new Date());
   const [calls, facts, upcoming, lists] = await Promise.all([
     getConcalls(market.code, {
       symbols: feed.symbols,
@@ -80,9 +80,10 @@ export default async function ConcallsPage({
           info={
             <>
                 <p>
-                  Earnings calls the day they are held. A call is first read from the recording the company
-                  files that evening, then from its transcript once that is filed. Open a highlight for the
-                  sentence it came from.
+                  {market.nseEvidence
+                    ? "Earnings calls the day they are held. A call is first read from the recording the company files that evening, then from its transcript once that is filed. "
+                    : "Earnings calls of S&P 500 companies, read from each call's transcript. "}
+                  Open a highlight for the sentence it came from.
                 </p>
                 <p>
                   Outlook starts at 50 and moves only on what the call stated (guidance, order book,
@@ -90,8 +91,10 @@ export default async function ConcallsPage({
                   scores about 59. Management stance is the outlook in a word, against that typical call:
                   Bullish from 72, Optimistic from 62, Neutral from 53, Cautious from 45, Bearish below;
                   hover it for the statement that moved the score most that way. A call whose outlook
-                  verified nothing shows a dash. A call read from its recording has no speaker labels and its
-                  figures are as the speech model heard them.
+                  verified nothing shows a dash.
+                  {market.nseEvidence
+                    ? " A call read from its recording has no speaker labels and its figures are as the speech model heard them."
+                    : null}
                 </p>
             </>
           }

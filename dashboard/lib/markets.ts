@@ -76,10 +76,10 @@ export type Market = {
    */
   liveIndices: boolean;
   /**
-   * Whether the exchange-only evidence is collected: impact cost, transcript
-   * sentiment and the red-flag feed. The US workflow switches all three off
-   * (`NSE_LIQUIDITY_ENABLED`, `TRANSCRIPT_SENTIMENT_ENABLED`,
-   * `RED_FLAG_ENRICHMENT_ENABLED`), so a US row's fields for them are empty
+   * Whether the exchange-only evidence is collected: impact cost, the
+   * red-flag feed and call recordings. The US workflow switches the first two
+   * off (`NSE_LIQUIDITY_ENABLED`, `RED_FLAG_ENRICHMENT_ENABLED`) and has no
+   * recording source, so a US row's fields for them are empty
    * by construction, not unreported -- a page says so once rather than
    * printing a panel of dashes.
    */
