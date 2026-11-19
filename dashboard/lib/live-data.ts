@@ -100,3 +100,9 @@ export async function liveFlowsData(market: MarketCode) {
   const body = await readLiveBody(market, "fii-dii-flows");
   return { flows: flowSummary(body?.rows ?? null), years: flowYears(body?.years) };
 }
+
+/** Each sector's change in the live session (workers/sectors.live_sector_changes); no rows while it is absent. */
+export async function liveSectorsData(market: MarketCode) {
+  const body = await readLiveBody(market, "sectors");
+  return { rows: body?.rows ?? [], written_at: (body?.written_at as string | undefined) ?? null };
+}

@@ -370,6 +370,19 @@ the scheduled workflows set the same flag.
   asked of the mainboard first and NSE Emerge when it has none, and announcement rows keep
   only companies in the latest snapshot. The table is in
   `storage/company_documents_schema.sql`, applied by hand. The backfill (`--backfill-days 365`) is run by hand, never scheduled.
+- **Sector pages are display evidence, on R2 only.** `workers/sectors.py`, run by
+  `tools/publish_market_breadth.py`, writes `sectors/{MARKET}/directory.json` and one
+  `sectors/{MARKET}/{slug}.json` per snapshot sector: our own cap-weighted level (base 100,
+  previous-session cap weights, today's share count), its 1D/1M/1Y, valuation medians, P/E
+  buckets and every member's snapshot fields (no rating). Each sector object is written before
+  the directory. `/[market]/sectors` and `/[market]/sectors/[slug]` read them
+  (`dashboard/lib/sector-objects.ts`); the compare chart on index and sector pages reads each
+  stock's price series through `/api/price-series` (R2, no Supabase fallback). During the session
+  the 1D figures are live: the publisher also writes `sectors/{MARKET}/weights.json` (each
+  member's market cap at the close), and `workers/live_quotes.py` turns it and each run's quotes
+  into `live/{MARKET}/sectors.json` (`live_sector_changes`, the level's own weighting), read through `/api/live?kind=sectors`
+  whatever `TABLE_BACKEND` says. A member's live 1D is its quote. A live figure counts only from a
+  later session than the objects' close (`liveFor`, `dashboard/lib/sectors.mjs`). Nothing scores it.
 - **NSE FII/DII cash flows are display evidence, on Cloudflare only.**
   `workers/market_flows.py` (a step of the Quarterly filings workflow, on when the
   `MARKET_FLOWS_ENABLED` repository variable is `true`) writes the evening's provisional
@@ -517,6 +530,21 @@ the scheduled workflows set the same flag.
   - Before a production deploy, burst ~30 signed-in loads at `cupel-preview`
     with `npx wrangler tail --format json` and count `exceededCpu` against
     `main`. Rollback: `npx wrangler rollback <version> -y`.
+  - **Each branch previews at its own URL; never `deploy` over `cupel-preview`.**
+    The Worker serves one build, so one branch's `deploy` replaces another's
+    (19 Nov 2026: an IPO build replaced the sector pages mid-check). From
+    `dashboard/`, with `.env.production` loaded (`set -a; . ./.env.production; set +a`):
+    `npx opennextjs-cloudflare build -c wrangler.preview.jsonc`, then
+    `npx opennextjs-cloudflare upload -c wrangler.preview.jsonc --preview-alias <branch>`
+    (lowercase letters, digits, dashes). That uploads a version at
+    `https://<branch>-cupel-preview.<account>.workers.dev` without changing what
+    the Worker serves; re-run both to update it. Sign in again on that host
+    (cookies are per host; the email code works, Google there is untested
+    against Supabase's redirect list). `WORKER_SELF_REFERENCE` still reaches the
+    deployed version. The burst test runs on the alias URL too (`wrangler tail`
+    sees every version). `wrangler deployments list -c wrangler.preview.jsonc`
+    shows what the main preview URL serves; `deploy` there only when the owner
+    asks.
 
 - **Buy/sell ratings and the Returns page are admin-only.** Signed-in viewers
   read `screener_snapshot`, `screener_history` and `screener_runs` only

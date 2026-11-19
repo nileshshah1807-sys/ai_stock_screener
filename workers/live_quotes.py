@@ -327,10 +327,24 @@ def run(
         cutoff = (now - PRUNE_AFTER).astimezone(UTC).isoformat(timespec="seconds")
         repo.prune_live_quotes(cutoff)
         repo.put_live_quotes_object(rows, cutoff)
+        publish_live_sectors(repo, stocks)
     logger.info("Live quotes for %s: %s", profile.code, summary)
     if stock_tickers and len(stocks) < MIN_COVERAGE * len(stock_tickers):
         summary["status"] = "low_coverage"
     return summary
+
+
+def publish_live_sectors(repo, stocks: list[dict[str, Any]]) -> None:
+    """``live/{MARKET}/sectors.json`` from this run's quotes (workers/sectors.py). Never fails the run."""
+    from workers.sectors import live_sector_changes
+
+    weights = repo.sector_weights()
+    if not weights:
+        return
+    try:
+        repo.put_live_sectors_object(live_sector_changes(weights, {row["symbol"]: row for row in stocks}))
+    except Exception as exc:  # noqa: BLE001 -- a reading aid must not cost the quotes
+        logger.warning("Live sectors not written: %s", exc)
 
 
 def main(argv: Iterable[str] | None = None) -> int:

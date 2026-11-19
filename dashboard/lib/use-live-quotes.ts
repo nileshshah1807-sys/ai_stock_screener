@@ -93,14 +93,21 @@ function readSupabase(market: MarketCode, kind: QuoteKind, symbols: string[]) {
     .catch(importFailed);
 }
 
+// api/live answers at most 500 symbols, and a PostgREST `in` list that long nears URL limits.
+const READ_CHUNK = 400;
+
 async function read(market: MarketCode, kind: QuoteKind, symbols: string[], fromR2: boolean): Promise<void> {
-  const { data, error } = fromR2
-    ? await liveApi({ market, kind, s: symbols })
-    : await readSupabase(market, kind, symbols);
+  const chunks = Array.from({ length: Math.ceil(symbols.length / READ_CHUNK) }, (_, index) =>
+    symbols.slice(index * READ_CHUNK, (index + 1) * READ_CHUNK),
+  );
+  const answers = await Promise.all(
+    chunks.map((chunk) => (fromR2 ? liveApi({ market, kind, s: chunk }) : readSupabase(market, kind, chunk))),
+  );
   // A failed read leaves the close on screen; the next poll tries again.
-  if (error || !data) return;
+  const rows = answers.flatMap(({ data, error }) => (error || !data ? [] : (data as unknown as LiveQuote[])));
+  if (!rows.length) return;
   const readAt = Date.now();
-  for (const row of data as unknown as LiveQuote[]) {
+  for (const row of rows) {
     const key = keyOf(market, row.symbol, kind);
     const before = quotes.get(key);
     const price = Number(row.price);

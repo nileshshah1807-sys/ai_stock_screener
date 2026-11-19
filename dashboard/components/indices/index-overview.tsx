@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { CompareLines, CompareList, useCompare, type CompareMember } from "@/components/indices/compare-chart";
 import { IndexChart } from "@/components/market/index-chart";
 import { ScrubContext, type ChartPoint } from "@/components/market/breadth-chart";
 import { SegmentedControl } from "@/components/segmented-control";
@@ -22,15 +23,23 @@ const DEFAULT_RANGE = "1Y";
  *
  * Only for an index with a published level history; one without (Nifty Bank,
  * Nifty Next 50) shows its live level in the heading instead (IndexLevel).
+ *
+ * Given `members`, a list beside the chart lays any of them over the index;
+ * with one picked the chart turns into a compare chart (CompareLines). A
+ * sector's own index has no live quote (`live={false}`).
  */
 export function IndexOverview({
   market,
   name,
   row,
+  members,
+  live = true,
 }: {
   market: Market;
   name: string;
-  row: BreadthRow;
+  row: Pick<BreadthRow, "sessions" | "series">;
+  members?: CompareMember[];
+  live?: boolean;
 }) {
   const [range, setRange] = useState(DEFAULT_RANGE);
   const [scrub, setScrub] = useState<string | null>(null);
@@ -38,7 +47,8 @@ export function IndexOverview({
 
   const points = useMemo(() => indexPoints(decodeRow(row)) as ChartPoint[], [row]);
   const last = points.at(-1)?.time;
-  const lookup = useLiveQuotes(market.code, [name], "index");
+  const lookup = useLiveQuotes(live ? market.code : null, live ? [name] : [], "index");
+  const compare = useCompare(market);
   const quote = liveOverlay(lookup(name), last);
 
   const { from, to } = useMemo(() => {
@@ -51,27 +61,45 @@ export function IndexOverview({
   }, [last, quote?.session, range, points]);
   const shown = useMemo(() => sliceFrom(points, from) as ChartPoint[], [points, from]);
 
+  const overlays = useMemo(
+    () =>
+      compare.picked.flatMap((entry) => {
+        const loaded = compare.loaded[entry.symbol];
+        return loaded ? [{ symbol: entry.symbol, slot: entry.slot, points: loaded }] : [];
+      }),
+    [compare.picked, compare.loaded],
+  );
+
+  const chart = overlays.length ? (
+    <CompareLines name={name} index={points} members={overlays} from={from} />
+  ) : (
+    <IndexChart name={name} points={shown} quote={quote} market={market} now={now} from={from} to={to} linked={false} />
+  );
+
   return (
     <ScrubContext.Provider value={{ time: scrub, setTime: setScrub }}>
-      <div className="space-y-3">
-        <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <SegmentedControl
-            label="Time range"
-            value={range}
-            onChange={setRange}
-            options={RANGES.map((entry) => ({ value: entry.label, label: entry.label }))}
-          />
+      <div className={cn(members?.length && "grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]")}>
+        <div className="min-w-0 space-y-3">
+          <div className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <SegmentedControl
+              label="Time range"
+              value={range}
+              onChange={setRange}
+              options={RANGES.map((entry) => ({ value: entry.label, label: entry.label }))}
+            />
+          </div>
+          {chart}
         </div>
-        <IndexChart
-          name={name}
-          points={shown}
-          quote={quote}
-          market={market}
-          now={now}
-          from={from}
-          to={to}
-          linked={false}
-        />
+        {members?.length ? (
+          <CompareList
+            market={market}
+            members={members}
+            picked={compare.picked}
+            loaded={compare.loaded}
+            onToggle={compare.toggle}
+            onClear={compare.clear}
+          />
+        ) : null}
       </div>
     </ScrubContext.Provider>
   );

@@ -328,9 +328,21 @@ def main(argv=None):
 
         Path(args.dump).write_text(json.dumps({"rows": rows, "members": members}), encoding="utf-8")
         logger.info("Wrote rows to %s", args.dump)
+    sector_directory, sector_objects = build_sector_pages(repository, observations, sessions, profile.code)
     if args.dry_run:
         logger.info("Dry run: nothing written")
         return 1 if stale else 0
+    if sector_objects:
+        # R2 only, no table; an R2 error must not cost the breadth publish below.
+        from workers.sectors import member_weights
+
+        try:
+            if repository.put_sector_objects(sector_directory, sector_objects, member_weights(sector_objects)):
+                logger.info("Published %d sector objects to R2", len(sector_objects))
+            else:
+                logger.warning("No R2 secrets: sector pages not published")
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Sector objects failed: %s", exc)
     written = repository.replace_market_breadth(rows)
     logger.info("Published %d market breadth rows", written)
     # After the rows, so a list never names a session the charts do not show yet.
@@ -350,6 +362,19 @@ def main(argv=None):
         written_levels = repository.replace_breadth_levels(levels)
         logger.info("Published live-breadth levels for %d stocks", written_levels)
     return 1 if stale else 0
+
+
+def build_sector_pages(repository, observations, sessions, market):
+    """The sector pages' R2 objects from the newest run (workers/sectors.py)."""
+    from workers.sectors import SNAPSHOT_FIELDS, build_sector_objects
+
+    run_date, rows = repository.latest_snapshot_fields(SNAPSHOT_FIELDS)
+    if not rows:
+        return None, {}
+    started = time.monotonic()
+    directory, objects = build_sector_objects(observations, sessions, rows, market=market, run_date=run_date)
+    logger.info("Built %d sector objects in %.0fs", len(objects), time.monotonic() - started)
+    return directory, objects
 
 
 def benchmark_quote_label(profile):
