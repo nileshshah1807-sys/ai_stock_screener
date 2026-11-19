@@ -672,6 +672,37 @@ class OutlookChangeTests(unittest.TestCase):
         self.assertEqual(summarise_changes([]), "")
 
 
+class OutlookMarketTests(unittest.TestCase):
+    def test_nse_reads_the_prompt_it_always_read_and_the_us_its_own_country_and_currency(self):
+        from sentiment.outlook import SYSTEM_PROMPT, system_prompt
+
+        self.assertIs(build_messages("Acme Ltd", "ACME", "2026-08-10", CALL)[0]["content"], SYSTEM_PROMPT)
+        us = build_messages("Acme Inc", "ACME", "2026-08-10", CALL, "US")[0]["content"]
+        self.assertEqual(us, system_prompt("US"))
+        self.assertIn("a US-listed company's", us)
+        self.assertIn("millions of US dollars", us)
+        self.assertNotIn("Indian", us)
+        self.assertNotIn("rupees", us)
+
+    def test_a_us_reading_carries_its_order_book_unit(self):
+        from sentiment.outlook import analyse_transcript, compare_outlooks
+
+        text = "Our backlog now stands at 1,500 million dollars after strong orders this quarter."
+        reply = {"order_book": {"value_inr_crore": 1500, "trend": "up", "quote": text}}
+
+        class Provider:
+            stored_model_name = "test/model"
+
+        with patch("sentiment.outlook.request_extraction", return_value=(reply, {})):
+            us = analyse_transcript(None, Provider(), {"id": "t", "market": "US", "symbol": "ACME"}, text)
+            nse = analyse_transcript(None, Provider(), {"id": "t", "market": "NSE", "symbol": "ACME"}, text)
+        self.assertEqual(us["extraction"]["order_book"]["unit"], "US$ million")
+        self.assertNotIn("unit", nse["extraction"]["order_book"])
+        before = {"order_book": {"value_inr_crore": 1000}}
+        self.assertIn("1,000 -> 1,500 US$ million", compare_outlooks(before, us["extraction"])[0]["text"])
+        self.assertIn("1,000 -> 1,500 crore", compare_outlooks(before, nse["extraction"])[0]["text"])
+
+
 class OutlookRunTests(unittest.TestCase):
     """The extraction run, with the API and the database replaced by fakes."""
 

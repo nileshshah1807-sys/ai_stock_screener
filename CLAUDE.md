@@ -426,6 +426,27 @@ the scheduled workflows set the same flag.
   writes nothing and keeps the step green.
   Alpha Vantage free key: personal, non-commercial use only (ToS s.2a); if the
   dashboard gains other viewers, this source must be dropped or licensed.
+- **US (S&P 500) call transcripts come from Alpha Vantage, a few a day, and score
+  as NSE's do.** The US call transcripts workflow (`us-transcripts.yml`, 13:30 UTC)
+  runs `workers/us_transcripts.py`: the S&P 500 is `index_members` (Wikipedia if
+  that read fails); each call is found by its results 8-K (Item 2.02) in EDGAR, and
+  its fiscal quarter named from the last 10-Q/10-K's cover page (`fy`/`fp`; a label
+  off the company's usual offset from its fiscal year end is corrected, as
+  Salesforce's FY2026 10-K and Target's Nov 2022 10-Q need; Alpha Vantage uses the
+  company's own labels, checked 19 Nov 2026). It asks `EARNINGS_CALL_TRANSCRIPT` at
+  most 24 times a run, 1.5 s apart (the free key refuses a second request within
+  a second, and the 25th is the calendar's), newest 8-K first; leftover budget
+  fills in earlier quarters. There is no bulk backfill. Stored as ordinary
+  transcripts (`market = 'US'`, extraction `api:alphavantage`, keyed by the 8-K
+  accession in `transcript_filings`); a call not there yet is asked again, at most
+  3 times. Then the outlook (`--market US`: `sentiment.outlook.system_prompt` is
+  NSE's prompt with the country and currency changed -- NSE's stays byte-identical
+  -- and the order book is read in US$ million under the same key) and the US
+  concall feed. Tone comes from transcript-sentiment.yml, whose queue covers both
+  markets. The US screener has `TRANSCRIPT_SENTIMENT_ENABLED` on (weights as NSE,
+  `TRANSCRIPT_FAIL_ON_ERROR` off). The bell skips a call stored more than 30 days
+  after it was held (`STALE_CALL_DAYS`), so the fill-in is not announced. SEC holds
+  no call audio (EDGAR takes no audio files). Same licence caveat as the calendar.
 - **Access is carried in the token; billing writes it.** `storage/billing_schema.sql`
   adds `plans` (price is data: `amount_paise`), `subscriptions` (a 7-day trial row
   per new user) and a Supabase custom access token hook that puts `plan` (admin,
