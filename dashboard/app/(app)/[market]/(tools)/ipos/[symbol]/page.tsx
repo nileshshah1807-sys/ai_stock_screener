@@ -105,11 +105,14 @@ function BookTable({ row, market }: { row: Ipo; market: Market }) {
           </tr>
         </tbody>
       </table>
-      <p className="tabular mt-3 px-1 text-[11px] leading-relaxed text-muted-foreground">
-        Combined NSE and BSE book{row.subscription_as_of ? `, as at ${formatDateTimeIST(row.subscription_as_of)}` : ""}.
-        {bookSize(row)
-          ? ` ${formatMoneyCompact(bookSize(row), market)} on offer at the top of the band; the anchor portion is allotted before bidding and is not in it.`
-          : ""}
+      <p className="tabular mt-3 px-1 text-[11px] text-muted-foreground">
+        {[
+          "NSE + BSE",
+          row.subscription_as_of ? formatDateTimeIST(row.subscription_as_of) : null,
+          bookSize(row) ? `${formatMoneyCompact(bookSize(row), market)} offered, excl. anchor` : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
       </p>
     </div>
   );
@@ -213,7 +216,7 @@ export default async function IpoPage({ params }: PageProps<"/[market]/ipos/[sym
               <p className="text-sm text-muted-foreground">
                 {status === "upcoming"
                   ? `Bidding opens ${shortDate(row.open_date)}; the book shows here within a quarter of an hour of the first bids.`
-                  : "The exchange's book for this issue has not been read yet."}
+                  : "NSE has not published the shares on offer yet."}
               </p>
             )}
           </Panel>
@@ -261,9 +264,8 @@ export default async function IpoPage({ params }: PageProps<"/[market]/ipos/[sym
                   },
                 ]}
               />
-              <p className="tabular mt-4 text-[11px] leading-relaxed text-muted-foreground">
-                The premium traders quote for the shares before they list, as the public tracker investorgain.com
-                prints it{row.gmp_as_of ? `, ${formatDateTimeIST(row.gmp_as_of)}` : ""}. No exchange publishes it.
+              <p className="tabular mt-4 text-[11px] text-muted-foreground">
+                investorgain.com{row.gmp_as_of ? ` · ${formatDateTimeIST(row.gmp_as_of)}` : ""}
               </p>
             </Panel>
           ) : null}
