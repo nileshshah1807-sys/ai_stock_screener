@@ -25,7 +25,6 @@ import { FactorBlocks, researchBasisNote } from "@/components/stock/factor-block
 import { FieldList, Panel, type Field } from "@/components/stock/field-list";
 import { RankHistoryChart } from "@/components/stock/rank-history-chart";
 import { PayloadExplorer } from "@/components/stock/payload-explorer";
-import { PriceChart } from "@/components/stock/price-chart";
 import { ScoreWaterfall } from "@/components/stock/score-waterfall";
 import { StageSummary, stageMarkers } from "@/components/stock/stage-summary";
 import { Financials } from "@/components/stock/financials";
@@ -35,7 +34,7 @@ import { Shareholding } from "@/components/stock/shareholding";
 import { Documents } from "@/components/stock/documents";
 import { getCompanyDocuments } from "@/lib/documents";
 import { StockTabs } from "@/components/stock/stock-tabs";
-import { TradingViewChart } from "@/components/stock/tradingview-chart";
+import { StockChart } from "@/components/stock/stock-chart";
 import { NotRatedBadge } from "@/components/new-listing";
 import { HalfYearResults } from "@/components/stock/half-year-results";
 import { NewListingView } from "@/components/stock/new-listing-view";
@@ -974,18 +973,16 @@ export default async function StockPage({
             numbers and the shape they describe.
           */}
           <div className="mt-4">
-            {tvSymbol ? (
-              <TradingViewChart symbol={tvSymbol} market={market.code} />
-            ) : (
-              <PriceChart
-                series={priceSeries}
-                sessions={sessions ?? []}
-                tail={priceTail}
-                height={300}
-                markers={stageMarkers(row)}
-                live={{ symbol: row.symbol, barDate: row.price_bar_as_of ?? null }}
-              />
-            )}
+            <StockChart
+              tvSymbol={tvSymbol}
+              market={market.code}
+              series={priceSeries}
+              sessions={sessions ?? []}
+              tail={priceTail}
+              height={300}
+              markers={stageMarkers(row)}
+              live={{ symbol: row.symbol, barDate: row.price_bar_as_of ?? null }}
+            />
           </div>
         </div>
 
