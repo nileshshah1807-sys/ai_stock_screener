@@ -106,6 +106,10 @@ class UniverseResult:
     sme_names: tuple[tuple[str, str], ...] = ()
     bse_session: str = ""
     bse_traded: frozenset[str] = frozenset()
+    # (NSE symbol, BSE ticker) for companies listed on both, matched by ISIN.
+    # Display only: the stock page charts the BSE listing, which TradingView's
+    # free widget serves and NSE's it does not.
+    bse_tickers: tuple[tuple[str, str], ...] = ()
 
 
 def _get(
@@ -216,6 +220,25 @@ def _nse_sme():
     return frame
 
 
+def _bse_tickers(bse, listings) -> tuple[tuple[str, str], ...]:
+    """(NSE symbol, BSE ticker) for each listing whose ISIN BSE's file names.
+
+    ``listings`` are frames with ``SYMBOL`` and ``ISIN``. The two exchanges'
+    tickers often differ, and an equal ticker can be another company, so the
+    ISIN is the only safe join.
+    """
+    stocks = bse.loc[bse["FinInstrmTp"].eq("STK")].dropna(subset=["ISIN", "TckrSymb"])
+    by_isin = dict(
+        zip(stocks["ISIN"].str.strip(), stocks["TckrSymb"].astype(str).str.strip().str.upper(), strict=True)
+    )
+    pairs = {}
+    for frame in listings:
+        for symbol, isin in zip(frame["SYMBOL"], frame["ISIN"], strict=True):
+            if isinstance(symbol, str) and isinstance(isin, str) and isin.strip() in by_isin:
+                pairs.setdefault(symbol.strip(), by_isin[isin.strip()])
+    return tuple(sorted(pairs.items()))
+
+
 def _nse_with_bse(groups, sme=None) -> UniverseResult:
     """NSE's list (plus ``sme`` when given) plus every BSE equity in ``groups`` listed on BSE alone."""
     nse, result = _nse_master()
@@ -252,11 +275,15 @@ def _nse_with_bse(groups, sme=None) -> UniverseResult:
     added = sorted({f"{symbol.strip().upper()}{BSE_SUFFIX}" for symbol in bse_only["TckrSymb"].dropna()})
     symbols = tuple(dict.fromkeys((*result.symbols, *added)))
     session = str(bse["TradDt"].max())
+    listings = [nse.rename(columns={"ISIN NUMBER": "ISIN"})]
+    if sme is not None:
+        listings.append(sme.rename(columns={"ISIN_NUMBER": "ISIN"}))
     traded = bse_only.loc[bse_only["TradDt"].eq(bse["TradDt"].max()), "TckrSymb"].dropna()
     result = replace(
         result,
         bse_session=session,
         bse_traded=frozenset(f"{x.strip().upper()}{BSE_SUFFIX}" for x in traded),
+        bse_tickers=_bse_tickers(bse, listings),
     )
     logger.info("NSE + BSE-only universe: %d symbols (%d BSE-only)", len(symbols), len(added))
     if sme is not None:

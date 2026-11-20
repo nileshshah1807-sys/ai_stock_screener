@@ -12,6 +12,7 @@ import { getLatestConcall } from "@/lib/concalls";
 import { callPanelSource, runHasCall } from "@/lib/concalls.mjs";
 import { ExpectationsGap } from "@/components/stock/expectations-gap";
 import { decodeSeries, tailFromHistory, withTail } from "@/lib/price-series.mjs";
+import { tradingViewSymbol } from "@/lib/tradingview.mjs";
 import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { isAdmin } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,7 @@ import { Shareholding } from "@/components/stock/shareholding";
 import { Documents } from "@/components/stock/documents";
 import { getCompanyDocuments } from "@/lib/documents";
 import { StockTabs } from "@/components/stock/stock-tabs";
+import { TradingViewChart } from "@/components/stock/tradingview-chart";
 import { NotRatedBadge } from "@/components/new-listing";
 import { HalfYearResults } from "@/components/stock/half-year-results";
 import { NewListingView } from "@/components/stock/new-listing-view";
@@ -317,6 +319,8 @@ export default async function StockPage({
   const change1d = row.pct_change_1d ?? derivedChange1d;
 
   const payload = row.payload ?? {};
+  // TradingView where it serves the stock; our own chart where it does not.
+  const tvSymbol = tradingViewSymbol(market.code, row.symbol, pick(payload, "BSE_Symbol"));
   const valueAudit = valueInputAudit(pick(payload, "Value_Input_Audit"));
   const missingFundamentalFields = text(payload, "Fundamental_Missing_Fields");
   const missingTechnicalComponents = text(payload, "Technical_Missing_Components");
@@ -970,14 +974,18 @@ export default async function StockPage({
             numbers and the shape they describe.
           */}
           <div className="mt-4">
-            <PriceChart
-              series={priceSeries}
-              sessions={sessions ?? []}
-              tail={priceTail}
-              height={300}
-              markers={stageMarkers(row)}
-              live={{ symbol: row.symbol, barDate: row.price_bar_as_of ?? null }}
-            />
+            {tvSymbol ? (
+              <TradingViewChart symbol={tvSymbol} market={market.code} />
+            ) : (
+              <PriceChart
+                series={priceSeries}
+                sessions={sessions ?? []}
+                tail={priceTail}
+                height={300}
+                markers={stageMarkers(row)}
+                live={{ symbol: row.symbol, barDate: row.price_bar_as_of ?? null }}
+              />
+            )}
           </div>
         </div>
 

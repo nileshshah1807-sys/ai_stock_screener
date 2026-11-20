@@ -273,6 +273,7 @@ class StockDataCollector:
         self.market_profile = active_profile(config)
         self.sme_symbols = frozenset()
         self.bse_session, self.bse_traded = "", frozenset()
+        self.bse_tickers = {}
         self.sme_names = {}
         # SME names with a price but too few sessions to score: shown, never scored.
         self.display_only = []
@@ -540,6 +541,7 @@ class StockDataCollector:
 
         self.sme_symbols = frozenset(result.sme_symbols)
         self.bse_session, self.bse_traded = result.bse_session, result.bse_traded
+        self.bse_tickers = dict(result.bse_tickers)
         self.sme_names = dict(result.sme_names)
         all_symbols = set(result.symbols)
         all_symbols.update(profile.safety_net_symbols)
