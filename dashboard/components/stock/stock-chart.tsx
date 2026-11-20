@@ -8,23 +8,23 @@ import { SegmentedControl } from "@/components/segmented-control";
 import type { MarketCode } from "@/lib/markets";
 
 const VIEWS = [
-  { value: "candles", label: "Candles" },
   { value: "line", label: "Line" },
+  { value: "candles", label: "Candles" },
 ] as const;
 
 type View = (typeof VIEWS)[number]["value"];
 
 /**
- * The stock page's chart: TradingView's candles where it serves the stock,
- * beside our own line (live point, averages, stage markers); the line alone
- * where TradingView has no symbol for it.
+ * The stock page's chart: our own line (live point, averages, stage markers)
+ * first, TradingView's candles one switch away where it serves the stock; the
+ * line alone where it has no symbol for it.
  */
 export function StockChart({
   tvSymbol,
   market,
   ...line
 }: { tvSymbol: string | null; market: MarketCode } & ComponentProps<typeof PriceChart>) {
-  const [view, setView] = useState<View>("candles");
+  const [view, setView] = useState<View>("line");
   if (!tvSymbol) return <PriceChart {...line} />;
   return (
     <div className="space-y-3">
