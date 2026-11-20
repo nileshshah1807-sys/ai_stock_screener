@@ -163,8 +163,8 @@ test("with no run to test against, rules are not applied rather than emptying th
 });
 
 test("each market's floor is stated in its own unit", () => {
-  assert.deepEqual(defaultRules("US", false), [{ metric: "mcap", op: "gte", value: 1000 }]);
-  assert.equal(ruleLabel(defaultRules("US", false)[0], "US"), "Market cap ≥ $1,000 M");
+  assert.deepEqual(defaultRules("US", false), [{ metric: "mcap", op: "gte", value: 100 }]);
+  assert.equal(ruleLabel(defaultRules("US", false)[0], "US"), "Market cap ≥ $100 M");
 });
 
 test("growth rules are read only where the page offers them, and never tested against the run", () => {

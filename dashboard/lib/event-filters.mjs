@@ -54,7 +54,7 @@ export const MAX_RULES = 10;
 const NO_RULES = "none";
 
 /** The size floor a whole-market feed opens with, in the market's unit. */
-const DEFAULT_MIN_CAP = { NSE: 1000, US: 1000 };
+const DEFAULT_MIN_CAP = { NSE: 1000, US: 100 };
 
 /** @typedef {"NSE" | "US"} MarketCode */
 /** @typedef {{ metric: string, op: string, value: number }} FilterRule */
