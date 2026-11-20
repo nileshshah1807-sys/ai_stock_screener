@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { liveFor, peerSlice, rebase, squarify } from "./sectors.mjs";
+import { liveFor, peerSlice, rebase, squarify, withLiveChange } from "./sectors.mjs";
 
 test("rebase starts at zero on the first point in range", () => {
   const out = rebase(
@@ -59,4 +59,21 @@ test("a live reading counts only from a later session than the close", () => {
   assert.equal(liveFor("2026-11-19", live), null); // the evening run already holds this session
   assert.equal(liveFor("2026-11-18", null), null);
   assert.equal(liveFor(null, live), null);
+});
+
+test("withLiveChange takes a member's 1D from a later-session quote, else keeps the close's", () => {
+  const members = [
+    { s: "A", d1: -2.33 },
+    { s: "B", d1: -1 },
+    { s: "C", d1: 0.5 },
+    { s: "D", d1: 3 },
+  ];
+  const quotes = {
+    A: { session: "2026-11-20", change_pct: 1.67 },
+    B: { session: "2026-11-19", change_pct: 9 }, // the close already holds this session
+    C: { session: "2026-11-20", change_pct: null }, // withheld as a unit change
+  };
+  const out = withLiveChange(members, "2026-11-19", (s) => quotes[s] ?? null);
+  assert.deepEqual(out.map((m) => m.d1), [1.67, -1, 0.5, 3]);
+  assert.equal(members[0].d1, -2.33); // input untouched
 });

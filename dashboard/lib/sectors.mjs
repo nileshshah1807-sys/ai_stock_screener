@@ -107,3 +107,20 @@ export function peerSlice(members, symbol, limit) {
 export function liveFor(lastSession, live) {
   return live && lastSession && live.session > lastSession ? live : null;
 }
+
+/**
+ * Members with each one's 1D taken from its live quote where `liveFor` counts
+ * it and the quote carries a change; the rest keep the close's.
+ *
+ * @template {{s: string, d1: number | null}} M
+ * @param {M[]} members
+ * @param {string | null} lastSession
+ * @param {(symbol: string) => {session: string, change_pct: number | null} | null} quote
+ * @returns {M[]}
+ */
+export function withLiveChange(members, lastSession, quote) {
+  return members.map((member) => {
+    const now = liveFor(lastSession, quote(member.s));
+    return now && now.change_pct !== null ? { ...member, d1: now.change_pct } : member;
+  });
+}

@@ -10,7 +10,7 @@ import { MembersMap, MembersTable } from "@/components/sectors/sector-views";
 import { formatDate, formatMoneyCompact, formatNumber, formatPercent, formatRatioAsPercent } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
 import type { SectorObject } from "@/lib/sector-objects";
-import { liveFor } from "@/lib/sectors.mjs";
+import { liveFor, withLiveChange } from "@/lib/sectors.mjs";
 import { useLiveQuotes } from "@/lib/use-live-quotes";
 import { useLiveSectors } from "@/lib/use-live-sectors";
 import { cn } from "@/lib/utils";
@@ -30,10 +30,7 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
   const live = liveFor(sector.last_session, useLiveSectors(market.code).get(sector.slug));
   const symbols = useMemo(() => sector.members.map((member) => member.s), [sector.members]);
   const quote = useLiveQuotes(market.code, symbols);
-  const members = sector.members.map((member) => {
-    const now = liveFor(sector.last_session, quote(member.s));
-    return now && now.change_pct !== null ? { ...member, d1: now.change_pct } : member;
-  });
+  const members = withLiveChange(sector.members, sector.last_session, quote);
   const d1 = live ? live.d1 : sector.d1;
   const breadth = live ?? summary;
   return (
