@@ -26,6 +26,11 @@ export function TradingViewChart({
   useEffect(() => {
     const node = container.current;
     if (!node || !resolvedTheme) return;
+    // The script restyles its container, so the height lives on our outer box
+    // and the container only fills it.
+    const host = document.createElement("div");
+    host.className = "tradingview-widget-container";
+    host.style.height = "100%";
     const widget = document.createElement("div");
     widget.className = "tradingview-widget-container__widget";
     widget.style.height = "100%";
@@ -33,14 +38,15 @@ export function TradingViewChart({
     script.src = WIDGET_SRC;
     script.async = true;
     script.text = JSON.stringify(widgetConfig(symbol, market, resolvedTheme === "dark"));
-    node.replaceChildren(widget, script);
+    host.append(widget, script);
+    node.replaceChildren(host);
     return () => node.replaceChildren();
   }, [symbol, market, resolvedTheme]);
 
   return (
     <div
       ref={container}
-      className="tradingview-widget-container overflow-hidden rounded-md"
+      className="overflow-hidden rounded-md"
       style={{ height }}
       aria-label={`${symbol} price chart`}
     />
