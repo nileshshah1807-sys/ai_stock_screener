@@ -333,6 +333,8 @@ def run_daily_analysis():
     # the symbol before ranking; the policy will cap it below BUY.
     merged_df = merge_research_universe(tech_df, fund_df)
     merged_df["Is_SME"] = merged_df["Symbol"].isin(collector.sme_symbols)
+    # Display only (the stock page's chart); never read by scoring.
+    merged_df["BSE_Symbol"] = merged_df["Symbol"].map(collector.bse_tickers)
     missing_fundamentals = int((~merged_df["Fundamental_Record_Available"]).sum())
     if missing_fundamentals:
         logger.warning(

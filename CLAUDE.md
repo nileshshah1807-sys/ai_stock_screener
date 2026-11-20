@@ -209,6 +209,13 @@ the scheduled workflows set the same flag.
   zero-volume bar at its last close (last bar within a week). A name BSE traded
   that Yahoo lacks stays behind: that is real lag. See
   `technical_quiet_session_carried_symbols`.
+- **The stock page's chart is TradingView's free widget, on the BSE listing.**
+  The widget refuses NSE symbols, so an Indian stock is drawn as `BSE:<ticker>`
+  (end-of-day): `screener/universe.py` matches each NSE symbol to its BSE
+  ticker by ISIN into the export's `BSE_Symbol` (payload only, never scored),
+  and `dashboard/lib/tradingview.mjs` builds the symbol. A stock with no BSE
+  listing keeps our own chart (`components/stock/price-chart.tsx`). Its prices
+  are TradingView's, not restated for demergers or rights issues.
 - **NSE prices are Yahoo's, with one bar from the bhavcopy when Yahoo lacks it.**
   `PRICE_BAR_FALLBACK_ENABLED` (set in the NSE workflow) lets
   `screener/session_bars.py` fill a symbol's missing expected-session bar from

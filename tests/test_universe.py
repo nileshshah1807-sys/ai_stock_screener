@@ -128,6 +128,16 @@ class BseOnlyUniverseTests(unittest.TestCase):
         self.assertEqual(result.status, "ok")
         self.assertEqual(result.notes, ("nse:2", "bse_only:1"))
 
+    def test_dual_listings_carry_their_bse_ticker_by_isin(self):
+        import io
+
+        import pandas as pd
+
+        # BSE calls Reliance "RELIANCEBSE" here: the ticker comes from the ISIN, not the name.
+        bhavcopy = pd.read_csv(io.StringIO(BSE_BHAVCOPY.replace(",RELIANCE,", ",RELIANCEBSE,")))
+        result = self._fetch(bhavcopy)
+        self.assertEqual(result.bse_tickers, (("RELIANCE", "RELIANCEBSE"),))
+
     def test_missing_bhavcopy_degrades_to_nse_alone(self):
         result = self._fetch(None)
         self.assertEqual(result.symbols, ("RELIANCE", "TCS"))
@@ -167,6 +177,10 @@ class SmeUniverseTests(unittest.TestCase):
         result = self._fetch(_response(csv))
         self.assertEqual(result.symbols.count("TCS"), 1)
         self.assertNotIn("TCS", result.sme_symbols)
+
+    def test_an_nse_sme_on_bse_carries_its_bse_ticker(self):
+        result = self._fetch(_response(SME_CSV))
+        self.assertIn(("BOTHSME", "YASHHV"), result.bse_tickers)
 
     def test_bse_sme_group_is_added_only_when_not_on_nse(self):
         csv = SME_CSV.replace("INE0SME01010", "INE0OTHER010")
