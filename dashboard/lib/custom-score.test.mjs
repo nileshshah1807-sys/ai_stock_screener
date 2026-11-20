@@ -65,7 +65,15 @@ test("points: valuation from 50; the Earnings call is a measure in the mix, not 
   assert.ok(Math.abs(signals.get("HIGH") - 75) < 1e-9, "first of three, at half weight after 90 days: 50 + 0.5 * 50");
   assert.equal(signals.has("OLD"), false, "past 180 days: no value");
   assert.equal(signals.has("NONE"), false);
-  assert.equal(callSignals(calls.slice(0, 29), new Map(calls.map((c) => [c.symbol, c.outlook]))).size, 0, "under 30 calls: no values");
+  // Under 30 calls (a new market): each blend against a fixed 50, faded by age, as the screener does.
+  const few = callSignals(calls.slice(0, 29), new Map(calls.map((c) => [c.symbol, c.outlook])));
+  assert.equal(few.size, 29);
+  assert.equal(few.get("LOW"), 41.5);
+  assert.equal(few.get("MID"), 58.5);
+  assert.ok(Math.abs(few.get("HIGH") - 62.75) < 1e-9, "75.5 at half weight after 90 days");
+  // Only the Earnings call weighted, few calls: the companies with a call are scored and ranked.
+  const onlyCalls = rawScores(calls.slice(0, 3), { c: 100 }, new Map(calls.map((c) => [c.symbol, c.outlook])));
+  assert.deepEqual([...onlyCalls.values()], [0, 50, 100]);
 
   // In the mix: a stock with no call sits in the middle on that measure, never at zero.
   const rowsWithCalls = calls.map((c) => ({ ...c, quality_score: 50 }));
