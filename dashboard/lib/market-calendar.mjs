@@ -18,6 +18,21 @@ export function localDay(now, timeZone) {
   return new Date(now).toLocaleDateString("en-CA", { timeZone });
 }
 
+/** The columns a `market_calendar` read selects, for marketDayFromRow. */
+export const MARKET_DAY_COLUMNS = "day,kind,reason,session_open,session_close";
+
+/**
+ * A `market_calendar` row as a MarketDay, or null for no row.
+ *
+ * @param {{ day: string, kind: MarketDay["kind"], reason: string, session_open: string | null, session_close: string | null } | null | undefined} row
+ * @returns {MarketDay | null}
+ */
+export function marketDayFromRow(row) {
+  return row
+    ? { day: row.day, kind: row.kind, reason: row.reason, sessionOpen: row.session_open, sessionClose: row.session_close }
+    : null;
+}
+
 /**
  * The calendar row that applies at `now`, or null. A page left open past
  * midnight holds yesterday's row, which says nothing about today.

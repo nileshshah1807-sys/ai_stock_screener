@@ -66,6 +66,8 @@ export function FpiSectorFlows({ market, table, pages }: { market: Market; table
         <span className="block max-w-[9rem] truncate sm:max-w-none" title={entry.sector}>
           {slug ? (
             <Link
+              // Each prefetch is a server render of a sector page, 22 to a load; open one when asked.
+              prefetch={false}
               href={marketPath(market.slug, `/sectors/${slug}`)}
               className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >

@@ -9,9 +9,9 @@
     "lint": "eslint",
     "test": "node --test lib/*.test.mjs lib/db/*.test.mjs",
     "typecheck": "next typegen && tsc --noEmit",
-    "cf:build": "opennextjs-cloudflare build",
-    "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
+    "cf:build": "opennextjs-cloudflare build && node scripts/static-pages.mjs",
+    "cf:preview": "opennextjs-cloudflare build && node scripts/static-pages.mjs && opennextjs-cloudflare preview",
+    "cf:deploy": "opennextjs-cloudflare build && node scripts/static-pages.mjs && opennextjs-cloudflare deploy"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

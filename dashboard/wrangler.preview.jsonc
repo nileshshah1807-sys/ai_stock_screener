@@ -6,7 +6,7 @@
   "keep_vars": true,
   // As in wrangler.jsonc: __name() helpers would break next-themes' inline script in the browser.
   "keep_names": false,
-  "main": ".open-next/worker.js",
+  "main": "worker.mjs",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },

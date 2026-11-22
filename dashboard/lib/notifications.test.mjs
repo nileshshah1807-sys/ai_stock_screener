@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  BELL_EVENTS,
   badgeText,
+  bellState,
   describeEvent,
   eventTime,
   groupByDay,
@@ -113,4 +115,28 @@ test("a stock with two events is one group, in order of its newest", async () =>
     { id: 3, symbol: "KMEW", kind: "results" },
   ]);
   assert.deepEqual(groups.map((g) => [g.symbol, g.events.map((e) => e.id)]), [["KMEW", [1, 3]], ["SAILIFE", [2]]]);
+});
+
+test("the bell is scoped to the viewer's watchlists when they have any, the market otherwise", async () => {
+  const calls = [];
+  const reads = (watched) => ({
+    seenAt: async () => "2026-11-20T00:00:00Z",
+    watched: async () => watched,
+    events: async (query) => (calls.push(["events", query]), [{ id: 1, symbol: "TCS", kind: "results", event_key: "q" }]),
+    unread: async (seenAt, symbols) => (calls.push(["unread", seenAt, symbols]), 3),
+  });
+
+  const watching = await bellState(reads(["TCS", "INFY"]));
+  assert.deepEqual(calls, [
+    ["events", { symbols: ["TCS", "INFY"], limit: BELL_EVENTS }],
+    ["unread", "2026-11-20T00:00:00Z", ["TCS", "INFY"]],
+  ]);
+  assert.equal(watching.watching, true);
+  assert.equal(watching.unread, 3);
+  assert.equal(watching.seenAt, "2026-11-20T00:00:00Z");
+
+  calls.length = 0;
+  const market = await bellState(reads([]));
+  assert.deepEqual(calls[0], ["events", { symbols: null, limit: BELL_EVENTS }]);
+  assert.equal(market.watching, false);
 });

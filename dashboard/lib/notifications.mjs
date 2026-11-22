@@ -170,3 +170,22 @@ export function groupBySymbol(events) {
   }
   return [...groups.values()];
 }
+
+/** Events in the header's bell. */
+export const BELL_EVENTS = 8;
+
+/**
+ * What the header's bell shows: the newest events and the unread count, both in the
+ * viewer's watchlists when they have any, the whole market otherwise. The reads are
+ * the caller's (lib/notifications.ts on the server, lib/bell-reads.ts in the browser).
+ *
+ * @param {{ seenAt: () => Promise<string | null>, watched: () => Promise<string[]>,
+ *   events: (query: { symbols: string[] | null, limit: number }) => Promise<any[]>,
+ *   unread: (seenAt: string | null, symbols: string[] | null) => Promise<number> }} reads
+ */
+export async function bellState(reads) {
+  const [seenAt, watched] = await Promise.all([reads.seenAt(), reads.watched()]);
+  const symbols = watched.length ? watched : null;
+  const [events, unread] = await Promise.all([reads.events({ symbols, limit: BELL_EVENTS }), reads.unread(seenAt, symbols)]);
+  return { events: dedupeEvents(events), unread, seenAt, watching: symbols !== null };
+}
