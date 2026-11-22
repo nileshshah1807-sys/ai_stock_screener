@@ -106,6 +106,21 @@ class RunTests(unittest.TestCase):
         self.assertEqual(counts["asked"], 0)
         self.assertIsNone(repo.written)  # nothing new learnt, nothing rewritten
 
+    def test_an_endpoint_that_classifies_nothing_stamps_nothing(self):
+        class Many(Repo):
+            def latest_snapshot_fields(self, fields):
+                return "2026-11-20", [{"symbol": f"S{i:03}", "is_sme": False} for i in range(50)]
+
+        def quote(symbol, series):
+            if symbol == "S000":
+                return quote_record()
+            raise json.JSONDecodeError("Expecting value", "", 0)  # a redirect's empty body, every time
+
+        repo = Many()
+        counts = nse_sectors.run(repo, quote, today=date(2026, 11, 22), pause=0)
+        self.assertEqual(counts["asked"], 1 + nse_sectors.FAILED_STREAK)
+        self.assertEqual([row["symbol"] for row in repo.written], ["S000"])  # the streak is not stamped
+
     def test_an_unreadable_object_is_never_overwritten(self):
         repo = Repo(unreadable=True)
         nse_sectors.run(repo, lambda symbol, series: quote_record(), today=date(2026, 11, 22), pause=0)

@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 RECHECK_DAYS = 30
 TIME_BUDGET_SECONDS = 150
+# This many symbols asked in a row with none classified means the endpoint, not the symbols, failed.
+FAILED_STREAK = 20
 REQUEST_PAUSE_SECONDS = 0.4
 MAINBOARD_SERIES = ("EQ", "BE", "BZ")
 SME_SERIES = ("SM", "ST", "SZ")
@@ -98,6 +100,8 @@ def run(
     _, snapshot = repo.latest_snapshot_fields(("is_sme",))
     todo = due(((row["symbol"], bool(row.get("is_sme"))) for row in snapshot), held, today)
     deadline = time.monotonic() + budget_seconds
+    learnt: dict[str, dict[str, Any]] = {}
+    streak = 0
     try:
         for symbol, sme in todo:
             if time.monotonic() > deadline:
@@ -105,11 +109,18 @@ def run(
             found = classify(quote, symbol, sme)
             counts["asked"] += 1
             counts["classified" if found else "unclassified"] += 1
+            streak = 0 if found else streak + 1
             # An unclassified symbol is stamped too, so it waits RECHECK_DAYS like the rest.
-            held[symbol] = {"symbol": symbol, **(found or {}), "checked": today.isoformat()}
+            learnt[symbol] = {"symbol": symbol, **(found or {}), "checked": today.isoformat()}
+            if streak >= FAILED_STREAK:
+                raise RuntimeError(f"{streak} symbols in a row unclassified")
             time.sleep(pause)
-    except Exception as exc:  # the session failed: keep what this run did learn
+    except Exception as exc:  # the session or the endpoint failed: keep what this run did learn
         logger.warning("NSE quotes stopped after %d symbols (%s)", counts["asked"], exc)
+        # The failed streak is the endpoint's doing, not the symbols': none of it is stamped.
+        for symbol in list(learnt)[len(learnt) - streak:] if streak else []:
+            del learnt[symbol]
+    held.update(learnt)
 
     counts["held"] = sum(1 for row in held.values() if row.get("sector"))
     logger.info(
@@ -117,7 +128,7 @@ def run(
         counts["asked"], counts["classified"], counts["unclassified"],
         len(todo) - counts["asked"], len(todo), counts["held"],
     )
-    if counts["asked"] and not dry_run:
+    if learnt and not dry_run:
         repo.put_nse_sectors_object(sorted(held.values(), key=lambda row: row["symbol"]))
     return counts
 
