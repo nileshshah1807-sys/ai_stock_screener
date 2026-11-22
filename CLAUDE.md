@@ -587,6 +587,17 @@ the scheduled workflows set the same flag.
     to the browser client. Until then, 1102 under a burst is expected. The
     dashboard stays on the Free plan: there is no budget for Workers Paid
     (owner, 11 Nov 2026), so do not propose it.
+    **The Flows page is the first (22 Nov 2026), and the pattern for the rest.** A page
+    under `app/(static)` is `force-static`, outside the `(app)` layouts, so no server
+    code runs for it; `scripts/static-pages.mjs` (after every `opennextjs-cloudflare
+    build`; `lib/static-pages.mjs` picks the pages, never an ISR one) copies its HTML
+    into `.open-next/assets`. `components/browser-shell.tsx` does the access check
+    (`lib/shell-access.mjs`, the proxy's and `requireAccess()`'s rule) and draws the
+    same header (`AppFrame`, which the server's `AppShell` wraps) from browser reads
+    under RLS. R2 objects are read through `/api/objects`, which `dashboard/worker.mjs`
+    (the Worker's `main`) answers before Next loads: a Bearer token checked locally,
+    a fixed list of objects (`lib/object-gate.mjs`), the body passed through unparsed.
+    A soft navigation to a static page is a full load (the RSC request gets HTML).
   - Before a production deploy, burst ~30 signed-in loads at `cupel-preview`
     with `npx wrangler tail --format json` and count `exceededCpu` against
     `main`. Rollback: `npx wrangler rollback <version> -y`.
