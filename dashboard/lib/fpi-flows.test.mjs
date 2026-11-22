@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { foreignDeals, fortnightLabel, gridScale, heatFill, sectorFlows, sectorPageSlug } from "./fpi-flows.mjs";
+import {
+  foreignDeals,
+  fortnightLabel,
+  gridScale,
+  heatFill,
+  sectorExtremes,
+  sectorFlows,
+  sectorPageSlug,
+} from "./fpi-flows.mjs";
 
 test("each NSDL sector links to the sector page that holds it", () => {
   assert.equal(sectorPageSlug("Financial Services"), "financial-services");
@@ -50,6 +58,18 @@ test("history and year windows count fortnights from the latest", () => {
 test("no fortnights is no table", () => {
   assert.equal(sectorFlows([]), null);
   assert.equal(sectorFlows(undefined), null);
+});
+
+test("sector extremes: the latest fortnight's largest buy and sale, none when a side is empty", () => {
+  assert.deepEqual(sectorExtremes(rows), {
+    start: "2026-11-01",
+    end: "2026-11-15",
+    bought: { sector: "Financial Services", net: 43102 },
+    sold: { sector: "Capital Goods", net: -3781 },
+  });
+  const allBought = [fortnight("2026-11-01", "2026-11-15", [{ sector: "Realty", net: 5, held: 10 }], {})];
+  assert.equal(sectorExtremes(allBought).sold, null);
+  assert.equal(sectorExtremes([]), null);
 });
 
 test("heat fill: sign picks the hue, a missing figure has none", () => {

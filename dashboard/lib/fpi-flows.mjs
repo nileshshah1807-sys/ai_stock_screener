@@ -77,6 +77,23 @@ export function sectorFlows(rows, { history = HISTORY, year = YEAR } = {}) {
 }
 
 /**
+ * The latest fortnight's most bought and most sold sector, for the Breadth
+ * page's summary: `{ start, end, bought, sold }`, each `{ sector, net }` or null
+ * when no sector was net bought (or sold). null when there are no fortnights.
+ */
+export function sectorExtremes(rows) {
+  const table = sectorFlows(rows, { history: 1, year: 1 });
+  if (!table) return null;
+  const pick = (entry) => (entry ? { sector: entry.sector, net: entry.net } : null);
+  const nets = table.sectors.filter((s) => s.net !== null);
+  return {
+    ...table.latest,
+    bought: pick(nets.find((s) => s.net > 0)),
+    sold: pick(nets.findLast((s) => s.net < 0)),
+  };
+}
+
+/**
  * The scale the grid's cells are coloured against: the 90th percentile of the
  * sector cells' absolute nets, so one outsized fortnight (a stake sale, a
  * large IPO) saturates on its own instead of washing out every other cell.
