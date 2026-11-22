@@ -20,6 +20,7 @@ nothing scores on it.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
 import time
 from collections.abc import Callable, Iterable
@@ -87,16 +88,48 @@ def due(universe: Iterable[tuple[str, bool]], held: dict[str, dict[str, Any]], t
     return fresh + [(symbol, sme) for _, symbol, sme in sorted(old)]
 
 
-def _patiently(retry_pause: float, ask: Callable[..., Any], *args: Any) -> Any:
-    """``ask(*args)``, again after a pause when the exchange times out or drops it; the last failure is raised."""
+class Exchange:
+    """NSE quotes over a session that is opened afresh when it stops answering.
+
+    NSE's session cookies last minutes: a run asked ~530 quotes over six
+    minutes, then every request timed out, however long it waited (22 Nov
+    2026). A new session (a new warm-up request) answers again.
+    """
+
+    def __init__(self, open_session: Callable[[], Any]):
+        self._open, self._nse = open_session, None
+
+    def open(self) -> None:
+        self.close()
+        self._nse = self._open()
+
+    def quote(self, symbol: str, series: str) -> dict[str, Any]:
+        if self._nse is None:
+            self.open()
+        return self._nse.quote(symbol, series)
+
+    def close(self) -> None:
+        if self._nse is not None:
+            with contextlib.suppress(Exception):  # closing a session that already failed
+                self._nse.exit()
+            self._nse = None
+
+
+def _patiently(retry_pause: float, renew: Callable[[], None] | None, ask: Callable[..., Any], *args: Any) -> Any:
+    """``ask(*args)``, again on a new session after a pause when the exchange times out or drops it.
+
+    The last failure is raised.
+    """
     for attempt in range(1, ATTEMPTS + 1):
         try:
             return ask(*args)
         except (TimeoutError, ConnectionError) as exc:
-            if attempt == ATTEMPTS:
+            if attempt == ATTEMPTS or " 404:" in str(exc):
                 raise
-            logger.info("NSE quote failed (%s); trying again", exc)
+            logger.info("NSE quote failed (%s); trying again on a new session", exc)
             time.sleep(retry_pause * attempt)
+            if renew is not None:
+                renew()
     return None
 
 
@@ -108,6 +141,7 @@ def run(
     budget_seconds: float = TIME_BUDGET_SECONDS,
     pause: float = REQUEST_PAUSE_SECONDS,
     retry_pause: float = RETRY_PAUSE_SECONDS,
+    renew: Callable[[], None] | None = None,
     dry_run: bool = False,
 ) -> dict[str, int]:
     today = today or date.today()
@@ -128,7 +162,7 @@ def run(
         for symbol, sme in todo:
             if time.monotonic() > deadline:
                 break
-            found = _patiently(retry_pause, classify, quote, symbol, sme)
+            found = _patiently(retry_pause, renew, classify, quote, symbol, sme)
             counts["asked"] += 1
             counts["classified" if found else "unclassified"] += 1
             streak = 0 if found else streak + 1
@@ -174,13 +208,16 @@ def main(argv: list[str] | None = None) -> int:
 
     repo = DashboardRepository.from_environment(args.market)
     with TemporaryDirectory(prefix="nse_sectors_") as folder:
+        exchange = Exchange(lambda: open_session(folder))
         try:
-            nse = open_session(folder)
+            exchange.open()
         except Exception as exc:  # a refused warm-up: nothing to read this run, not a failed step
             logger.warning("Exchange session not opened (%s); nothing read this run", exc)
             return 0
-        with nse:
-            run(repo, nse.quote, budget_seconds=args.budget_seconds, dry_run=args.dry_run)
+        try:
+            run(repo, exchange.quote, budget_seconds=args.budget_seconds, renew=exchange.open, dry_run=args.dry_run)
+        finally:
+            exchange.close()
     return 0
 
 

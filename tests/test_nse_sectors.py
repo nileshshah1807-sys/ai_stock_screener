@@ -142,6 +142,31 @@ class RunTests(unittest.TestCase):
         counts = nse_sectors.run(repo, quote, today=date(2026, 11, 22), pause=0, retry_pause=0)
         self.assertEqual(counts["classified"], 2)
 
+    def test_a_timeout_opens_a_new_session_and_carries_on(self):
+        sessions = []
+
+        class Session:
+            def __init__(self):
+                sessions.append(self)
+                self.asked = 0
+
+            def quote(self, symbol, series):
+                self.asked += 1
+                if len(sessions) == 1 and self.asked > 1:
+                    raise TimeoutError("The request timed out.")  # the first session's cookies run out
+                return quote_record()
+
+            def exit(self):
+                self.closed = True
+
+        exchange = nse_sectors.Exchange(Session)
+        exchange.open()
+        repo = Repo()
+        counts = nse_sectors.run(repo, exchange.quote, today=date(2026, 11, 22), pause=0, retry_pause=0,
+                                 renew=exchange.open)
+        self.assertEqual((counts["classified"], len(sessions)), (2, 2))
+        self.assertTrue(sessions[0].closed)
+
     def test_three_timeouts_in_a_row_stop_the_run(self):
         def quote(symbol, series):
             raise TimeoutError("The request timed out.")
