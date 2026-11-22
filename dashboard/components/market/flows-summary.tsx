@@ -51,12 +51,12 @@ export function FlowsSummary({
       </p>
       <dl className="tabular mt-2 space-y-0.5 text-xs">
         <div className="flex justify-between gap-3">
-          <dt className="text-muted-foreground">5 sessions</dt>
-          <dd className={cn("font-mono", tone(summary?.fiveDay[field]))}>{signed(summary?.fiveDay[field])}</dd>
+          <dt className="text-muted-foreground" title="Last 5 sessions">5D</dt>
+          <dd className={cn("font-mono whitespace-nowrap", tone(summary?.fiveDay[field]))}>{signed(summary?.fiveDay[field])}</dd>
         </div>
         <div className="flex justify-between gap-3">
-          <dt className="text-muted-foreground">{month} to date</dt>
-          <dd className={cn("font-mono", tone(summary?.monthToDate[field]))}>{signed(summary?.monthToDate[field])}</dd>
+          <dt className="text-muted-foreground" title={`${month} to date`}>MTD</dt>
+          <dd className={cn("font-mono whitespace-nowrap", tone(summary?.monthToDate[field]))}>{signed(summary?.monthToDate[field])}</dd>
         </div>
       </dl>
     </div>
