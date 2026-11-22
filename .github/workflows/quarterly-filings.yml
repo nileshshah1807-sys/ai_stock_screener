@@ -185,19 +185,19 @@ jobs:
 
       # NSE's sector classification per stock (workers/nse_sectors.py), for the
       # sector pages: one quote a symbol, unclassified first, each again monthly,
-      # 150 s a run and 25 minutes in the daily full run, which catches up a cold
-      # start (~2,700 symbols) in one go. R2 only. Market breadth groups the pages
+      # 150 s a run and 40 minutes in the daily full run, which catches up a cold
+      # start (~3,100 symbols) in one go. R2 only. Market breadth groups the pages
       # by it once it covers 90% of the NSE symbols.
       - name: Store NSE sectors
         if: ${{ !cancelled() }}
-        timeout-minutes: ${{ inputs.full && 30 || 5 }}
+        timeout-minutes: ${{ inputs.full && 45 || 5 }}
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
-          BUDGET: ${{ inputs.full && 1500 || 150 }}
+          BUDGET: ${{ inputs.full && 2400 || 150 }}
         run: python -m workers.nse_sectors --market NSE --budget-seconds "${BUDGET}" ${DRY_RUN}
 
       # NSE IPOs (workers/ipos.py), to D1 and R2 only, as the flows above: the
