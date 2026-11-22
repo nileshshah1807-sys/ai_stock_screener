@@ -3,7 +3,9 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { BrandMark } from "@/components/brand-mark";
+import { Calls } from "@/components/landing/calls";
 import { Evening } from "@/components/landing/evening";
+import { MarketGlance } from "@/components/landing/market-glance";
 import { FactorBar } from "@/components/landing/factor-bar";
 import { HeroGrid } from "@/components/landing/hero-grid";
 import { LandingMarket } from "@/components/landing/landing-market";
@@ -42,14 +44,14 @@ export const revalidate = 300;
 
 const COVERAGE = [
   ["Quarterly results", "Exchange filing", "Financial statements"],
-  ["Earnings calls", "Usually read that evening", "Not covered"],
-  ["Management guidance", "Read from the call", "Not covered"],
+  ["Earnings calls", "Usually read that evening", "S&P 500 transcripts"],
+  ["Management guidance", "Read from the call", "Read from the call"],
 ] as const;
 
 const NAV = [
   { href: "#how", label: "How it works" },
   { href: "#ranking", label: "Measures" },
-  { href: "#stage", label: "Stage" },
+  { href: "#market", label: "Calls & market" },
   { href: "#pricing", label: "Pricing" },
   { href: "#faq", label: "FAQ" },
 ];
@@ -86,7 +88,7 @@ export default async function LandingPage() {
             </span>
             <span className="text-lead font-semibold tracking-[-0.011em]">Cupel</span>
           </Link>
-          <nav aria-label="Sections" className="ml-4 hidden items-center gap-1 md:flex">
+          <nav aria-label="Sections" className="ml-4 hidden items-center gap-1 lg:flex">
             {NAV.map((item) => (
               <a key={item.href} href={item.href} className={ghost}>{item.label}</a>
             ))}
@@ -194,6 +196,17 @@ export default async function LandingPage() {
             <div className="mt-10 max-w-4xl">
               <Evening />
             </div>
+          </div>
+        </section>
+
+        <section id="market" className="scroll-mt-16 border-b">
+          <div className={cn(section, "py-14 sm:py-20")}>
+            <h2 data-reveal className={h2}>Every call read. The whole market, one tab.</h2>
+            <figure className="mt-10 space-y-3">
+              <Calls />
+              <MarketGlance />
+              <figcaption className="text-xs text-muted-foreground">Invented companies and figures.</figcaption>
+            </figure>
           </div>
         </section>
 

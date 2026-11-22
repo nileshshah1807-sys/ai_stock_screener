@@ -198,3 +198,56 @@ export const TONE = {
 
 /** The word a score reads as: the last cut it reaches, as stance_from_score does. */
 export const toneName = (score) => TONE.cuts.reduce((name, [cut, word]) => (score >= Number(cut) ? String(word) : name), TONE.first);
+
+/** Invented sectors for the heatmap picture: [name, share of market cap, 1D change in %]. */
+export const SAMPLE_SECTORS = [
+  ["Financials", 31, 1.39], ["Industrials", 12, -0.31], ["Technology", 11, 0.75], ["Consumer", 10, 0.17],
+  ["Energy", 9, 0.23], ["Healthcare", 7, 0.57], ["Materials", 7, -0.06], ["Staples", 5, -0.42],
+  ["Utilities", 4, 0.19], ["Telecom", 3, 0.46], ["Real estate", 1.5, -1.2],
+];
+
+/**
+ * The heatmap tile's fill, the rule components/sectors/treemap.tsx colours a 1D
+ * change by: positive or negative ink mixed into the control colour, up to 58%
+ * at `scale` percent so the label stays readable.
+ */
+export function heatFill(change, scale = 2) {
+  const share = Math.min(Math.abs(change) / scale, 1) * 58;
+  return `color-mix(in oklab, ${change >= 0 ? "var(--positive)" : "var(--negative)"} ${share.toFixed(0)}%, var(--control))`;
+}
+
+/** Invented breadth: advancing / declining shares of the day, and 60 sessions of the share above the 200-day average. */
+export function sampleBreadth(sessions = 60) {
+  const rand = seeded(2026_11_20);
+  let level = 41;
+  const above200 = Array.from({ length: sessions }, (_, i) => {
+    level += (rand() - 0.47) * 3.2 + (i > sessions * 0.6 ? 0.35 : 0);
+    return Math.max(20, Math.min(80, level));
+  });
+  return { up: 58, down: 38, above200 };
+}
+
+/** Invented FII and DII net cash flows, ₹ crore, one pair per session. */
+export function sampleFlows(sessions = 20) {
+  const rand = seeded(1807);
+  return Array.from({ length: sessions }, () => {
+    const fii = Math.round((rand() - 0.55) * 9000);
+    return { fii, dii: Math.round(-fii * (0.5 + rand() * 0.5) + (rand() - 0.3) * 2500) };
+  });
+}
+
+/** An invented IPO in its bidding window: subscription by category (times), and the unofficial grey-market premium. */
+export const SAMPLE_IPO = {
+  name: "Sahyadri Renewables",
+  board: "Mainboard",
+  closes: "26 Nov",
+  band: "₹212–224",
+  book: [["QIB", 12.4], ["NII", 6.1], ["Retail", 3.2], ["Total", 7.8]],
+  gmp: "+₹38 · +17%",
+};
+
+/** Two invented earnings calls, one per market, as the Concalls page shows a call. */
+export const SAMPLE_CALLS = [
+  { market: "ind", where: "India · NSE", name: "Aarav Industries", quarter: "Sep 2026", signals: ["Guidance raised", "Order book ₹8,400 Cr", "New capacity producing"], score: 66 },
+  { market: "us", where: "US · S&P 500", name: "Northbay Systems", quarter: "Q3 FY26", signals: ["Guided revenue growth 3–5%", "Demand softening", "Margin guidance held"], score: 47 },
+];

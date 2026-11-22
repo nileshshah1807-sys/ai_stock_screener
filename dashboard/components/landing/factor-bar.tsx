@@ -17,7 +17,7 @@ export function FactorBar() {
         ))}
       </ul>
       <figcaption className="mt-5 text-xs text-muted-foreground">
-        The same five in both markets, and in Your score you choose how much each counts. India adds the tone of the latest earnings call.
+        The same five in both markets, and in Your score you choose how much each counts. Both add the tone of the latest earnings call.
       </figcaption>
     </figure>
   );

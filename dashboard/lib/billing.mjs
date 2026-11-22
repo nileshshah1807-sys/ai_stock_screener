@@ -444,3 +444,22 @@ export function customerNeedsName(customer, name, email) {
   const has = typeof customer?.name === "string" && customer.name.trim() !== "";
   return !has && typeof name === "string" && name.trim() !== "" && name !== email;
 }
+
+/**
+ * What every plan includes, and in which market: the pricing card lists these
+ * (components/billing/plan-includes.tsx). One plan covers both markets, so a
+ * feature's markets say where the data exists, not what is paid for.
+ */
+export const PLAN_INCLUDES = [
+  { key: "screener", label: "Screener with Your score", markets: ["ind", "us"] },
+  { key: "results", label: "Results as filed", markets: ["ind", "us"] },
+  { key: "calls", label: "Earnings calls", markets: ["ind", "us"] },
+  { key: "charts", label: "Stock pages & charts", markets: ["ind", "us"] },
+  { key: "sectors", label: "Sector heatmap", markets: ["ind", "us"] },
+  { key: "breadth", label: "Market breadth", markets: ["ind", "us"] },
+  { key: "live", label: "Live prices", markets: ["ind", "us"] },
+  { key: "watch", label: "Watchlists & alerts", markets: ["ind", "us"] },
+  { key: "flows", label: "FII / DII flows", markets: ["ind"] },
+  { key: "ipos", label: "IPOs · book & GMP", markets: ["ind"] },
+  { key: "holding", label: "Shareholding & deals", markets: ["ind"] },
+];
