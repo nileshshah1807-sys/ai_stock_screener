@@ -169,6 +169,20 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: python -m workers.market_flows --market NSE ${DRY_RUN}
 
+      # FPI flows by sector, from NSDL's fortnightly report, and the largest
+      # foreign deals from the deals stored above (workers/fpi_flows.py). R2
+      # only: the object is its own store. On with the FII/DII flows.
+      - name: Store FPI sector flows
+        if: ${{ !cancelled() && vars.MARKET_FLOWS_ENABLED == 'true' }}
+        timeout-minutes: 5
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.fpi_flows --market NSE ${DRY_RUN}
+
       # NSE IPOs (workers/ipos.py), to D1 and R2 only, as the flows above: the
       # table is D1's (TABLE_BACKEND_D1). Every run refreshes the books still
       # bidding. Off until IPO_CENTRE_ENABLED is true; GMP, read from the public
