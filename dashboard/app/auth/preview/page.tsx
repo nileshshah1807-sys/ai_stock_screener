@@ -322,15 +322,13 @@ export default function PreviewPage() {
                 <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
                   <FilterBar sectors={["Financials", "Information Technology", "Industrials"]} factorModel />
                 </div>
+                <SavedViews factorModel />
                 <ScoreBuilder factorModel />
                 <ViewOptions factorModel />
                 <StockSearch />
                 <ExportLink />
               </div>
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
-                <SavedViews factorModel />
-                <ActiveFilters />
-              </div>
+              <ActiveFilters />
             </div>
           </Suspense>
         </section>

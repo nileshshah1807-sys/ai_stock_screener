@@ -222,3 +222,9 @@ test("nudges move a stock along 0-100, never past it, and never tie the top", ()
   // No nudge: the blend's percentile, untouched.
   assert.deepEqual(scoreRun(rows, { q: 100 }), rawScores(rows, { q: 100 }));
 });
+
+test("Your score sorts lowest first when the header asks for it, unscored stocks still last", () => {
+  const scores = new Map([["A", 90], ["B", 40], ["C", null], ["D", 40]]);
+  assert.deepEqual(rankScores(scores, ["C", "A", "B", "D"], "asc").map((r) => r.symbol), ["B", "D", "A", "C"]);
+  assert.deepEqual(rankScores(scores, ["C", "A", "B", "D"], "desc").map((r) => r.symbol), ["A", "B", "D", "C"]);
+});

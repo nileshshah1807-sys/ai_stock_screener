@@ -9,25 +9,24 @@ import {
   useTransition,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BookmarkPlus, Check, ChevronDown, Link2, Star, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkPlus, ChevronDown, Link2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   applyView,
   removeView,
@@ -46,15 +45,7 @@ import { useMarket, useShowRatings } from "@/components/market-provider";
 import { usesRatingFilter, usesVerdict } from "@/lib/ratings.mjs";
 import { deleteView, loadSavedViews, saveView } from "@/app/(app)/[market]/screener/actions";
 import { SAVED_VIEWS_MAX, unsentViews } from "@/lib/saved-views.mjs";
-
-const CHIP =
-  "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium " +
-  "transition-colors duration-(--duration-fast) ease-(--ease-standard) " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-
-const CHIP_ACTIVE = "border-primary bg-primary text-primary-foreground";
-const CHIP_IDLE =
-  "bg-muted text-muted-foreground hover:bg-accent hover:text-foreground";
+import { groupViews, viewsButtonLabel } from "@/lib/view-groups.mjs";
 
 /**
  * Named views: built-in presets, then whatever the reader saved.
@@ -235,154 +226,113 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
         }}
         placeholder="Name this view…"
         aria-label="Name for the saved view"
-        className="h-8 w-40 text-xs"
+        className="w-44"
       />
-      <Button variant="outline" className="h-8 px-2.5 text-xs" onClick={saveCurrent}>
+      <Button variant="outline" onClick={saveCurrent}>
         Save
       </Button>
     </span>
   ) : null;
 
-  const activeView =
-    presets.find((preset) => viewIsActive(searchParams, preset.query)) ??
-    saved.find((view) => viewIsActive(searchParams, view.query));
+  const grouped = groupViews(presets);
+  const activeLabels = [...presets, ...saved]
+    .filter((view) => viewIsActive(searchParams, view.query))
+    .map((view) => view.label);
 
   return (
     <>
       <PendingMarker pending={pending} />
       {/*
-        Phone: one menu instead of a wrapping row of chips. Five presets plus
-        Save and Copy link took three rows above the grid; the trigger names the
-        active view, so what is applied is still visible at a glance.
+        One button beside Filters and Your score rather than a row of chips: twelve equal pills
+        wrapped to two rows (four at the pane's default width) and read as noise. The menu groups
+        the views, states each one's rule, and stays open so views can be combined; the active
+        filter chips beside the grid say what is applied.
       */}
-      <div className="flex items-center gap-1.5 sm:hidden">
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <button
-                type="button"
-                className={cn(CHIP, activeView ? CHIP_ACTIVE : CHIP_IDLE, "max-w-[14rem]")}
-              />
-            }
-          >
-            <Star className="size-3 shrink-0" aria-hidden />
-            <span className="truncate">{activeView ? activeView.label : "Views"}</span>
-            <ChevronDown className="size-3 shrink-0 opacity-70" aria-hidden />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-64">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>Views</DropdownMenuLabel>
-              {presets.map((preset) => (
-                <DropdownMenuItem key={preset.id} onClick={() => apply(preset.query)}>
-                  <span className="flex-1">{preset.label}</span>
-                  {viewIsActive(searchParams, preset.query) ? (
-                    <Check className="size-3.5" aria-hidden />
-                  ) : null}
-                </DropdownMenuItem>
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={
+            <Button
+              variant="outline"
+              className="relative max-w-[16rem] gap-1.5 max-sm:size-9 max-sm:px-0"
+              aria-label={activeLabels.length ? `Views, on: ${activeLabels.join(", ")}` : "Views"}
+            />
+          }
+        >
+          <Bookmark className="size-3.5 shrink-0" aria-hidden />
+          <span className="hidden truncate sm:inline">{viewsButtonLabel(activeLabels)}</span>
+          {activeLabels.length ? (
+            <span
+              className={cn(
+                "tabular ml-0.5 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground",
+                "max-sm:absolute max-sm:-top-1 max-sm:-right-1 max-sm:ml-0 max-sm:min-w-4 max-sm:leading-4",
+                activeLabels.length === 1 && "sm:hidden",
+              )}
+            >
+              {activeLabels.length}
+            </span>
+          ) : null}
+          <ChevronDown className="hidden size-3 shrink-0 opacity-60 sm:block" aria-hidden />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="max-h-[min(var(--available-height),34rem)] w-80">
+          {grouped.map(({ group, views }, at) => (
+            <DropdownMenuGroup key={group}>
+              {at ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuLabel>{group}</DropdownMenuLabel>
+              {views.map((preset) => (
+                <DropdownMenuCheckboxItem
+                  key={preset.id}
+                  checked={viewIsActive(searchParams, preset.query)}
+                  onCheckedChange={() => apply(preset.query)}
+                  className="items-start py-2"
+                >
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span>{preset.label}</span>
+                    <span className="line-clamp-2 text-xs text-muted-foreground">{preset.description}</span>
+                  </span>
+                </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuGroup>
-            {saved.length ? (
-              <DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel>Saved</DropdownMenuLabel>
-                {saved.map((view) => (
-                  <DropdownMenuItem key={view.id} onClick={() => apply(view.query)}>
-                    <span className="flex-1 truncate">{view.label}</span>
-                    {viewIsActive(searchParams, view.query) ? (
-                      <Check className="size-3.5" aria-hidden />
-                    ) : null}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuGroup>
-            ) : null}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setNaming(true)}>
-              <BookmarkPlus aria-hidden />
-              Save current view
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={copyLink}>
-              <Link2 aria-hidden />
-              Copy link
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {nameInput}
-      </div>
-
-    <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
-      <span className="mr-0.5 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <Star className="size-3" aria-hidden />
-        Views
-      </span>
-
-      {presets.map((preset) => {
-        const active = viewIsActive(searchParams, preset.query);
-        return (
-          <Tooltip key={preset.id}>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => apply(preset.query)}
-                  className={cn(CHIP, active ? CHIP_ACTIVE : CHIP_IDLE)}
-                />
-              }
-            >
-              {preset.label}
-            </TooltipTrigger>
-            <TooltipContent className="max-w-72">
-              <p className="text-xs">{preset.description}</p>
-            </TooltipContent>
-          </Tooltip>
-        );
-      })}
-
-      {saved.map((view) => {
-        const active = viewIsActive(searchParams, view.query);
-        return (
-          <span
-            key={view.id}
-            className={cn(
-              CHIP,
-              "pr-1",
-              active ? CHIP_ACTIVE : CHIP_IDLE,
-            )}
-          >
-            <button
-              type="button"
-              aria-pressed={active}
-              onClick={() => apply(view.query)}
-              className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {view.label}
-            </button>
-            <button
-              type="button"
-              aria-label={`Delete saved view ${view.label}`}
-              onClick={() => remove(view)}
-              className="rounded-md p-0.5 opacity-60 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Trash2 className="size-3" aria-hidden />
-            </button>
-          </span>
-        );
-      })}
-
-      {naming ? (
-        nameInput
-      ) : (
-        <button type="button" onClick={() => setNaming(true)} className={cn(CHIP, CHIP_IDLE)}>
-          <BookmarkPlus className="size-3" aria-hidden />
-          Save current
-        </button>
-      )}
-
-      <button type="button" onClick={copyLink} className={cn(CHIP, CHIP_IDLE)}>
-        <Link2 className="size-3" aria-hidden />
-        Copy link
-      </button>
-    </div>
+          ))}
+          {saved.length ? (
+            <DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Saved</DropdownMenuLabel>
+              {saved.map((view) => (
+                <DropdownMenuCheckboxItem
+                  key={view.id}
+                  checked={viewIsActive(searchParams, view.query)}
+                  onCheckedChange={() => apply(view.query)}
+                >
+                  <span className="truncate">{view.label}</span>
+                </DropdownMenuCheckboxItem>
+              ))}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Trash2 aria-hidden />
+                  Delete a saved view
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56">
+                  {saved.map((view) => (
+                    <DropdownMenuItem key={view.id} onClick={() => remove(view)}>
+                      <span className="truncate">{view.label}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            </DropdownMenuGroup>
+          ) : null}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setNaming(true)}>
+            <BookmarkPlus aria-hidden />
+            Save current view
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={copyLink}>
+            <Link2 aria-hidden />
+            Copy link
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {nameInput}
     </>
   );
 }
