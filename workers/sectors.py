@@ -185,7 +185,19 @@ def nse_sector_rows(rows, classified: dict[str, dict]):
     of the NSE symbols, ``rows`` are returned unchanged, so the pages never mix
     the two schemes.
     """
-    sector_of = {symbol: entry.get("sector") for symbol, entry in classified.items() if entry.get("sector")}
+    # NSE spells some sectors two ways across quotes (punctuation, case): one sector
+    # per slug, under the spelling most of its stocks carry.
+    spellings: dict[str, Counter] = {}
+    for entry in classified.values():
+        if entry.get("sector"):
+            spellings.setdefault(sector_slug(entry["sector"]), Counter())[entry["sector"]] += 1
+    canonical = {slug: counter.most_common(1)[0][0] for slug, counter in spellings.items()}
+    for counter in spellings.values():
+        if len(counter) > 1:
+            logger.info("NSE sector spelt %d ways, read as one: %s", len(counter), dict(counter))
+    sector_of = {
+        symbol: canonical[sector_slug(entry["sector"])] for symbol, entry in classified.items() if entry.get("sector")
+    }
     nse = [row for row in rows if not is_bse_only(row["symbol"])]
     covered = sum(1 for row in nse if sector_of.get(row["symbol"]))
     if not nse or covered < NSE_SECTOR_COVERAGE * len(nse):

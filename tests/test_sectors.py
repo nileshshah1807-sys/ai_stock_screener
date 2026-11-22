@@ -194,6 +194,15 @@ class NseSectorRowsTests(unittest.TestCase):
         out = {row["symbol"]: row["sector"] for row in sectors.nse_sector_rows(rows, classified)}
         self.assertIsNone(out["X.BO"])  # 2 Capital Goods against 2 Power: no majority
 
+    def test_two_spellings_of_one_sector_are_one_sector(self):
+        classified = {
+            **self.CLASSIFIED,
+            "BHEL": {"sector": "CAPITAL GOODS", "industry": "Electrical Equipment"},
+        }
+        out = {row["symbol"]: row["sector"] for row in sectors.nse_sector_rows(self.ROWS, classified)}
+        self.assertEqual(out["BHEL"], "Capital Goods")  # the spelling most of its stocks carry
+        self.assertEqual(out["POWERX.BO"], "Capital Goods")
+
     def test_rows_stay_on_yahoo_until_nse_covers_the_market(self):
         partial = {"TDPOWERSYS": self.CLASSIFIED["TDPOWERSYS"]}
         self.assertEqual(sectors.nse_sector_rows(self.ROWS, partial), self.ROWS)
