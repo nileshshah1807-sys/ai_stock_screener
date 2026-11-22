@@ -19,6 +19,8 @@ export NEXT_PUBLIC_GOOGLE_CLIENT_ID="${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}"
 export NEXT_TELEMETRY_DISABLED=1
 log="${TMPDIR:-/tmp}/cupel-cf-build.log"
 npx opennextjs-cloudflare build > "$log" 2>&1 || { tail -30 "$log"; exit 1; }
+# app/(static) pages into the assets directory, served without the Worker (lib/static-pages.mjs).
+node scripts/static-pages.mjs
 npx wrangler deploy --dry-run > "$log" 2>&1 || { tail -30 "$log"; exit 1; }
 grep "Total Upload" "$log"
 npx opennextjs-cloudflare deploy > "$log" 2>&1 || { tail -30 "$log"; exit 1; }

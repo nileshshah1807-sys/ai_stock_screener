@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { inSession, quoteFreshness } from "./live-quotes.mjs";
-import { dayAt, localDay, noticeDismissKey, noticeText, tradingHours } from "./market-calendar.mjs";
+import { dayAt, localDay, marketDayFromRow, noticeDismissKey, noticeText, tradingHours } from "./market-calendar.mjs";
 
 const NSE = {
   timezone: "Asia/Kolkata",
@@ -82,4 +82,16 @@ test("a US evening is still that day in New York, already the next in India", ()
   const evening = Date.UTC(2026, 10, 20, 1, 30);
   assert.equal(localDay(evening, "America/New_York"), "2026-11-19");
   assert.equal(localDay(evening, "Asia/Kolkata"), "2026-11-20");
+});
+
+test("a calendar row becomes a MarketDay; no row is null", () => {
+  const row = { day: "2026-11-08", kind: "special_session", reason: "Muhurat trading", session_open: "18:00", session_close: "19:00" };
+  assert.deepEqual(marketDayFromRow(row), {
+    day: "2026-11-08",
+    kind: "special_session",
+    reason: "Muhurat trading",
+    sessionOpen: "18:00",
+    sessionClose: "19:00",
+  });
+  assert.equal(marketDayFromRow(null), null);
 });

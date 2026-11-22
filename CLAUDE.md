@@ -594,7 +594,7 @@ the scheduled workflows set the same flag.
     The Worker serves one build, so one branch's `deploy` replaces another's
     (19 Nov 2026: an IPO build replaced the sector pages mid-check). From
     `dashboard/`, with `.env.production` loaded (`set -a; . ./.env.production; set +a`):
-    `npx opennextjs-cloudflare build -c wrangler.preview.jsonc`, then
+    `npx opennextjs-cloudflare build -c wrangler.preview.jsonc && node scripts/static-pages.mjs`, then
     `npx opennextjs-cloudflare upload -c wrangler.preview.jsonc --preview-alias <branch>`
     (lowercase letters, digits, dashes). That uploads a version at
     `https://<branch>-cupel-preview.<account>.workers.dev` without changing what

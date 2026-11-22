@@ -7,7 +7,7 @@
   // wrangler's esbuild would wrap functions in __name() helpers; next-themes sends one of them to the browser as
   // inline script text, where __name does not exist ("ReferenceError: __name is not defined", theme script dead).
   "keep_names": false,
-  "main": ".open-next/worker.js",
+  "main": "worker.mjs",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   // With routes set, wrangler turns the workers.dev address off unless told otherwise; Creed's smoke runs there.

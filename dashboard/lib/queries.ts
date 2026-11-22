@@ -29,7 +29,7 @@ import { readCallOutlooks } from "@/lib/concalls";
 import { outlookSince } from "@/lib/concalls.mjs";
 import type { Reader } from "@/lib/results";
 import { sharedMemo } from "@/lib/shared-memo.mjs";
-import { createDayMemo, localDay, type MarketDay } from "@/lib/market-calendar.mjs";
+import { createDayMemo, localDay, MARKET_DAY_COLUMNS, marketDayFromRow, type MarketDay } from "@/lib/market-calendar.mjs";
 import type { MarketCode } from "@/lib/markets";
 import type {
   HistoryRow,
@@ -1866,19 +1866,11 @@ export const getMarketDay = cache(
       const supabase = await createClient();
       const { data, error } = await supabase
         .from("market_calendar")
-        .select("day,kind,reason,session_open,session_close")
+        .select(MARKET_DAY_COLUMNS)
         .eq("market", market)
         .eq("day", day)
         .maybeSingle();
-      const row: MarketDay | null = data
-        ? {
-            day: data.day,
-            kind: data.kind,
-            reason: data.reason,
-            sessionOpen: data.session_open,
-            sessionClose: data.session_close,
-          }
-        : null;
+      const row = marketDayFromRow(data);
       return { row, keep: !error || TABLE_MISSING.has(error.code) };
     });
   },

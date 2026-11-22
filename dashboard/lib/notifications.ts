@@ -2,12 +2,11 @@ import "server-only";
 
 import { cache } from "react";
 
+import { countUnread, queryEvents, querySeenAt, type BellState, type EventQuery, type MarketEvent } from "@/lib/bell-reads";
 import { digest, sharedRead } from "@/lib/home-cache";
 import type { MarketCode } from "@/lib/markets";
-import type { Reader } from "@/lib/results";
 import { createClient } from "@/lib/supabase/server";
-import { readForSymbols } from "@/lib/symbol-scope.mjs";
-import { dedupeEvents } from "@/lib/notifications.mjs";
+import { bellState } from "@/lib/notifications.mjs";
 import { getWatchlists } from "@/lib/watchlists";
 
 /**
@@ -23,104 +22,29 @@ import { getWatchlists } from "@/lib/watchlists";
  * must not take the header -- which every page renders -- down with it.
  */
 
-export type MarketEvent = {
-  id: number;
-  symbol: string;
-  company: string | null;
-  /** `results` | `transcript`; an unknown kind still renders by name. */
-  kind: string;
-  event_key: string;
-  /** When it happened at the source. */
-  occurred_at: string;
-  /** When a worker recorded it; unread is measured against this. */
-  detected_at: string;
-  detail: Record<string, string | null | undefined>;
-};
-
-const EVENT_COLUMNS = "id, symbol, company, kind, event_key, occurred_at, detected_at, detail";
-
-export type EventQuery = {
-  /** Restrict to these symbols. An empty list matches nothing. */
-  symbols?: string[] | null;
-  /** Restrict to these kinds. Empty means every kind. */
-  kinds?: string[];
-  limit?: number;
-};
+export type { BellState, EventQuery, MarketEvent };
 
 /** Events for one market, newest first. Baselines are never returned. */
 export async function getEvents(market: MarketCode, query: EventQuery = {}): Promise<MarketEvent[]> {
   const { symbols = null, kinds = [], limit = 200 } = query;
   // `market_events` is the same for every viewer: one cross-instance entry per scope, two minutes old at most.
-  return sharedRead("events", market, 120, (db) => readEvents(market, query, db), [
-    symbols ? await digest(symbols) : "all",
-    kinds.join(","),
-    String(limit),
-  ]);
-}
-
-async function readEvents(
-  market: MarketCode,
-  { symbols = null, kinds = [], limit = 200 }: EventQuery,
-  db?: Reader,
-): Promise<MarketEvent[]> {
-  const supabase = db ?? (await createClient());
-  const { rows, error } = await readForSymbols<MarketEvent>(symbols, limit, (pushed, from, to) => {
-    let query = supabase
-      .from("market_events")
-      .select(EVENT_COLUMNS)
-      .eq("market", market)
-      .eq("baseline", false);
-    if (pushed) query = query.in("symbol", pushed);
-    if (kinds.length) query = query.in("kind", kinds);
-    return query
-      .order("occurred_at", { ascending: false })
-      .order("id", { ascending: false })
-      .range(from, to);
-  });
-  if (error) {
-    if (db) throw new Error(String(error));
-    console.error("getEvents failed", error);
-  }
-  return rows;
+  return sharedRead(
+    "events",
+    market,
+    120,
+    async (db) => {
+      const { rows, error } = await queryEvents(db ?? (await createClient()), market, query);
+      // Inside the cache a failure must not be kept; read directly, it degrades to what was found.
+      if (error && db) throw new Error(error);
+      if (error) console.error("getEvents failed", error);
+      return rows;
+    },
+    [symbols ? await digest(symbols) : "all", kinds.join(","), String(limit)],
+  );
 }
 
 /** When the viewer last opened this market's feed, or null if never. */
-export const getSeenAt = cache(async (market: MarketCode): Promise<string | null> => {
-  const supabase = await createClient();
-  // RLS returns only the caller's row, so there is no owner filter to get wrong.
-  const { data, error } = await supabase
-    .from("notification_reads")
-    .select("seen_at")
-    .eq("market", market)
-    .maybeSingle();
-  if (error) {
-    console.error("getSeenAt failed", error.message);
-    return null;
-  }
-  return (data as { seen_at: string } | null)?.seen_at ?? null;
-});
-
-async function countUnread(
-  market: MarketCode,
-  seenAt: string | null,
-  symbols: string[] | null,
-): Promise<number> {
-  if (symbols && symbols.length === 0) return 0;
-  const supabase = await createClient();
-  let query = supabase
-    .from("market_events")
-    .select("id", { count: "exact", head: true })
-    .eq("market", market)
-    .eq("baseline", false);
-  if (seenAt) query = query.gt("detected_at", seenAt);
-  if (symbols) query = query.in("symbol", symbols);
-  const { count, error } = await query;
-  if (error) {
-    console.error("countUnread failed", error.message);
-    return 0;
-  }
-  return count ?? 0;
-}
+export const getSeenAt = cache(async (market: MarketCode): Promise<string | null> => querySeenAt(await createClient(), market));
 
 /** Every symbol on any of the viewer's lists in this market. */
 export const getWatchedSymbols = cache(async (market: MarketCode): Promise<string[]> => {
@@ -128,32 +52,17 @@ export const getWatchedSymbols = cache(async (market: MarketCode): Promise<strin
   return [...new Set(lists.flatMap((list) => list.symbols))];
 });
 
-export type BellState = {
-  /** The newest few events in the bell's scope. */
-  events: MarketEvent[];
-  unread: number;
-  seenAt: string | null;
-  /**
-   * Whether the bell is scoped to the viewer's watchlists. It is whenever they
-   * have any: in a results season the whole market files hundreds of results a
-   * day, and a badge that is always full says nothing.
-   */
-  watching: boolean;
-};
-
-const BELL_EVENTS = 8;
-
 /**
  * What the header's bell shows. Read in the market layout, which does not
  * re-render on navigation, so this costs its three small reads once per market
  * visit rather than once per page.
  */
-export const getBellState = cache(async (market: MarketCode): Promise<BellState> => {
-  const [seenAt, watched] = await Promise.all([getSeenAt(market), getWatchedSymbols(market)]);
-  const symbols = watched.length ? watched : null;
-  const [events, unread] = await Promise.all([
-    getEvents(market, { symbols, limit: BELL_EVENTS }),
-    countUnread(market, seenAt, symbols),
-  ]);
-  return { events: dedupeEvents(events), unread, seenAt, watching: symbols !== null };
-});
+export const getBellState = cache(
+  async (market: MarketCode): Promise<BellState> =>
+    (await bellState({
+      seenAt: () => getSeenAt(market),
+      watched: () => getWatchedSymbols(market),
+      events: (query) => getEvents(market, query),
+      unread: async (seenAt, symbols) => countUnread(await createClient(), market, seenAt, symbols),
+    })) as BellState,
+);

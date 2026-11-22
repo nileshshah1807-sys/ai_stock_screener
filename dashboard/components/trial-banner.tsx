@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { Hourglass } from "lucide-react";
 
-import { daysLeftLabel, trialStartLine } from "@/lib/billing.mjs";
-import { getPlans, getSubscription } from "@/lib/plans";
+import { daysLeftLabel } from "@/lib/billing.mjs";
 import { cn } from "@/lib/utils";
 
 /**
@@ -35,12 +34,4 @@ export function TrialBanner({ days, setUp }: { days: number; setUp?: string | nu
       </Link>
     </div>
   );
-}
-
-/** The banner for a signed-in trial user: says so when a plan is already set up. */
-export async function TrialBannerFor({ days, userId }: { days: number; userId: string }) {
-  const subscription = await getSubscription(userId);
-  const plans = subscription?.plan_id ? await getPlans() : null;
-  const plan = plans?.find((candidate) => candidate.id === subscription?.plan_id) ?? null;
-  return <TrialBanner days={days} setUp={trialStartLine(subscription, plan)} />;
 }
