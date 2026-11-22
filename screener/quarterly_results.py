@@ -224,6 +224,8 @@ GROWTH_COLUMNS = (
     "Symbol",
     "Revenue_Growth",
     "Earnings_Growth",
+    "OPM_Latest_Q_Pct",
+    "OPM_Change_YoY_Pp",
     "Quarter_Period_End",
     "Quarter_Basis",
 )
@@ -712,6 +714,7 @@ def quarter_growth(facts, symbols, *, today, max_age_days):
                 "Is_Consolidated": working["Is_Consolidated"],
                 "Revenue": working["Revenue"],
                 "PAT": working["PAT"],
+                "EBITDA": working.get("EBITDA"),
             }
         )
     )
@@ -868,6 +871,9 @@ class QuarterlyResultsCollector:
                 )
                 filed = keys.map(by_symbol[column]).astype(float)
                 enriched[column] = filed.where(served, vendor)
+            # The vendor has no quarter margin: a filed pair or nothing.
+            for column in ("OPM_Latest_Q_Pct", "OPM_Change_YoY_Pp"):
+                enriched[column] = keys.map(by_symbol[column]).astype(float).where(served)
 
         # The vendor's trailing EPS, EBITDA and margins trail a result by days
         # or weeks, and P/E and EV/EBITDA are worked out from them.

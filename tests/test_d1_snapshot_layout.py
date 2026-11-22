@@ -25,14 +25,15 @@ class SnapshotLayoutTest(unittest.TestCase):
     def test_fits_d1_column_cap(self):
         self.assertLessEqual(len(_snapshot_columns()), 100)
 
-    def test_grid_fields_sorts_and_ranges_are_real_columns(self):
+    def test_grid_fields_and_sorts_are_real_columns(self):
+        # Range filters may be keys of "extra": the D1 compiler reads those through
+        # json_extract (dashboard/lib/db/table-query.mjs), so a filter needs no column.
         columns = (LIB / "columns.ts").read_text()
         queries = (LIB / "queries.ts").read_text()
         wanted = set().union(
             *(_quoted(block) for block in re.findall(r"fields:\s*\[([^\]]*)\]", columns)),
             _quoted(re.search(r"BASE_FIELDS[^=]*=\s*\[(.*?)\]", columns, re.S).group(1)),
             _quoted(re.search(r"const SORTABLE = new Set\(\[(.*?)\]\)", queries, re.S).group(1)),
-            re.findall(r'column:\s*"([a-z0-9_]+)"', (LIB / "screener-ranges.mjs").read_text()),
         )
         self.assertEqual(wanted - _snapshot_columns(), set())
 

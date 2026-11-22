@@ -29,4 +29,5 @@ export const SNAPSHOT_COLUMNS = `market run_date symbol company logo_domain sect
   rs_market_6m_pct volatility_ann_pct max_drawdown_1y_pct roic stage days_in_stage advance_age_days
   price_to_ma150_pct rs_rating rs_rating_change_1m entry_state breakdown_date breakdown_age_days breakdown_from
   stage2_entry_date stage2_entry_censored advance_age_censored pct_from_52w_high is_sme unrated_reason
-  primary_gate`.split(/\s+/);
+  primary_gate promoter_pct fii_pct dii_pct promoter_change_qoq fii_change_qoq dii_change_qoq
+  sector_fpi_vs_avg_cr`.split(/\s+/);

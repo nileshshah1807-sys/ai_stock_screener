@@ -82,6 +82,64 @@ export const PRESETS: readonly Preset[] = [
     query: "cap=1000~",
     market: "NSE",
   },
+  {
+    id: "institutions-accumulating",
+    label: "FII + DII buying",
+    description:
+      "FII and DII holdings both above the previous quarter's in the latest shareholding pattern.",
+    query: "fiich=0.01~&diich=0.01~",
+    market: "NSE",
+  },
+  {
+    id: "foreign-tailwind",
+    label: "Foreign tailwind",
+    description:
+      "FPI buying in the stock's sector ran above its six-month average in NSDL's latest fortnight, and FII holding is above the previous quarter's.",
+    query: "sfpi=0~&fiich=0.01~",
+    market: "NSE",
+  },
+  {
+    id: "promoters-adding",
+    label: "Promoters adding",
+    description: "Promoter holding above the previous quarter's in the latest shareholding pattern.",
+    query: "promoterch=0.01~",
+    market: "NSE",
+  },
+  {
+    id: "under-owned-quality",
+    label: "Under-owned quality",
+    description:
+      "FII and DII holdings each under 2%, return on equity 15% or more, debt under half of equity, ₹500 Cr or more of market cap.",
+    query: "fii=~2&dii=~2&roe=15~&de=~0.5&cap=500~",
+    market: "NSE",
+  },
+  {
+    id: "guidance-raised",
+    label: "Guidance raised",
+    description: "Management raised guidance on the latest earnings call, and profit grew 15% or more year on year.",
+    query: "guide=raised&epsg=15~",
+  },
+  {
+    id: "results-this-week",
+    label: "Results this week",
+    description: "Companies whose announced results date falls in the next seven days.",
+    query: "dtr=0~7",
+  },
+  {
+    id: "margin-expansion",
+    label: "Margin expansion",
+    description:
+      "Operating margin in the latest filed quarter above the same quarter a year earlier, and revenue up 10% or more year on year.",
+    query: "opmch=0.01~&revg=10~",
+    market: "NSE",
+  },
+  {
+    id: "foreign-funds-buying",
+    label: "Foreign funds buying",
+    description: "Foreign funds bought more than they sold in bulk and block deals over the last month.",
+    query: "fdeals=0.01~",
+    market: "NSE",
+  },
 ];
 
 export type SavedView = { id: string; label: string; query: string };

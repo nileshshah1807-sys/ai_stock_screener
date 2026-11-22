@@ -361,6 +361,26 @@ create table if not exists screener_snapshot (
     pct_from_52w_high numeric(10,3),
     is_sme boolean,
     unrated_reason text,
+    -- Screener filters from stored data (the alter blocks below say where each comes from).
+    promoter_pct numeric(6,2),
+    fii_pct numeric(6,2),
+    dii_pct numeric(6,2),
+    promoter_change_qoq numeric(6,2),
+    fii_change_qoq numeric(6,2),
+    dii_change_qoq numeric(6,2),
+    sector_fpi_vs_avg_cr numeric(14,2),
+    retail_pct numeric(6,2),
+    promoter_change_1y numeric(6,2),
+    fii_change_1y numeric(6,2),
+    dii_change_1y numeric(6,2),
+    deals_net_cr_1m numeric(14,2),
+    foreign_deals_net_cr_1m numeric(14,2),
+    days_since_result integer,
+    days_to_result integer,
+    ev_ebitda numeric(12,2),
+    ps_ratio numeric(12,2),
+    opm_latest_q_pct numeric(8,2),
+    opm_change_yoy_pp numeric(8,2),
 
     -- Complete source row. Every column above also appears in it; the typed
     -- copies exist for indexing, not as the record of truth. Null on new runs:
@@ -457,6 +477,45 @@ alter table screener_snapshot alter column payload drop not null;
 alter table screener_snapshot
     add column if not exists is_sme boolean,
     add column if not exists unrated_reason text;
+
+-- Ownership and foreign flows (Nov 2026, workers/ownership_flows.py): the
+-- latest shareholding pattern's group percentages and their move from the
+-- quarter before (percentage points), and the stock's NSE sector's FPI net in
+-- NSDL's latest fortnight less its six-month average (rupees crore). NSE only;
+-- screener filters, nothing scores them. Apply this file, then
+-- rating_access_schema.sql so the views carry them, and the ALTERs at the top
+-- of storage/d1/screener_snapshot.sql on D1, before the publisher that writes them.
+alter table screener_snapshot
+    add column if not exists promoter_pct numeric(6,2),
+    add column if not exists fii_pct numeric(6,2),
+    add column if not exists dii_pct numeric(6,2),
+    add column if not exists promoter_change_qoq numeric(6,2),
+    add column if not exists fii_change_qoq numeric(6,2),
+    add column if not exists dii_change_qoq numeric(6,2),
+    add column if not exists sector_fpi_vs_avg_cr numeric(14,2);
+
+-- More screener filters from stored data (22 Nov 2026), nothing scores them.
+-- workers/ownership_flows.py: retail (public) holding, each group's move from
+-- the same quarter a year earlier (points), and bulk/block deals in the last 30
+-- days, bought less sold (rupees crore; foreign clients apart). NSE only.
+-- workers/results_timing.py: days since the latest quarter was announced and
+-- to the announced results date, both markets. The scored frame: EV/EBITDA and
+-- P/S at the close, and the latest filed quarter's operating margin with its
+-- move from the year-ago quarter (screener/quarterly_results.py). D1 holds all
+-- of them in "extra". Apply this, then rating_access_schema.sql.
+alter table screener_snapshot
+    add column if not exists retail_pct numeric(6,2),
+    add column if not exists promoter_change_1y numeric(6,2),
+    add column if not exists fii_change_1y numeric(6,2),
+    add column if not exists dii_change_1y numeric(6,2),
+    add column if not exists deals_net_cr_1m numeric(14,2),
+    add column if not exists foreign_deals_net_cr_1m numeric(14,2),
+    add column if not exists days_since_result integer,
+    add column if not exists days_to_result integer,
+    add column if not exists ev_ebitda numeric(12,2),
+    add column if not exists ps_ratio numeric(12,2),
+    add column if not exists opm_latest_q_pct numeric(8,2),
+    add column if not exists opm_change_yoy_pp numeric(8,2);
 
 -- Last completed session's move, added after the Model 5.0 block because it is
 -- not factor evidence: it is display-only and applies to both models. Null on

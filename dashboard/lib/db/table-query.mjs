@@ -223,12 +223,19 @@ function sqlNode(node, ref) {
  * The plan as SQLite: `data` for the rows (absent for a head request) and
  * `count` for an exact count. `from` is a quoted table name or a subquery.
  *
+ * `extraKeys` (from `splitExtra`) are filter and sort columns that are keys of
+ * "extra", read through json_extract; one marked hidden is NULL, like a hidden column.
+ *
  * @param {object} plan
  * @param {string} from
  * @param {(column: string) => boolean} [hide]
+ * @param {Map<string, boolean>} [extraKeys] key -> hidden
  */
-export function compile(plan, from, hide = () => false) {
-  const ref = (column) => (hide(column) ? "NULL" : `"${name(column)}"`);
+export function compile(plan, from, hide = () => false, extraKeys = new Map()) {
+  const ref = (column) => {
+    if (hide(column) || extraKeys.get(column)) return "NULL";
+    return extraKeys.has(column) ? `json_extract("${EXTRA}", '$.${name(column)}')` : `"${name(column)}"`;
+  };
   const where = plan.filters.map((node) => sqlNode(node, ref));
   const whereSql = where.length ? ` WHERE ${where.map((part) => part.sql).join(" AND ")}` : "";
   const args = where.flatMap((part) => part.args);
@@ -333,7 +340,8 @@ function filterColumns(node) {
 /**
  * The plan as SQL on `real` columns: a selected field that is not one is read
  * from "extra" instead (`picks`: its name -> its key; null = every key, for
- * `select *`). Filters and sorts name real columns only, as D1 has no JSON paths here.
+ * `select *`). A filter or sort on a key of "extra" is read through json_extract
+ * (`extraKeys`: key -> hidden, for `compile`), so a filter needs no real column.
  *
  * @param {object} plan
  * @param {string[]} real
@@ -341,15 +349,15 @@ function filterColumns(node) {
 export function splitExtra(plan, real, hidden = () => false) {
   const isReal = new Set(real);
   const loose = [...plan.filters.flatMap(filterColumns), ...plan.orders.map((o) => o.column)].filter((c) => !isReal.has(c));
-  if (loose.length) throw new UnsupportedQuery(`filter or sort on ${loose.join(", ")}: not a column in D1, only a key of "${EXTRA}"`);
-  if (plan.columns.trim() === "*") return { plan: { ...plan, columns: [...real, EXTRA].join(",") }, picks: null };
+  const extraKeys = new Map(loose.map((key) => [name(key), Boolean(hidden(key))]));
+  if (plan.columns.trim() === "*") return { plan: { ...plan, columns: [...real, EXTRA].join(",") }, picks: null, extraKeys };
   const items = parseSelect(plan.columns);
   // A hidden key is never picked, under any name: redaction reads output names, so "x:investment_rating" would pass it.
   const picks = new Map(items.filter((item) => !isReal.has(item.column)).map((item) => [item.name, hidden(item.column) ? null : item.column]));
   const kept = items
     .filter((item) => isReal.has(item.column))
     .map(({ name: as, column, path }) => (as === column && !path.length ? column : `${as}:${[column, ...path].join("->")}`));
-  return { plan: { ...plan, columns: [...kept, ...(picks.size ? [EXTRA] : [])].join(",") }, picks };
+  return { plan: { ...plan, columns: [...kept, ...(picks.size ? [EXTRA] : [])].join(",") }, picks, extraKeys };
 }
 
 /** A row with the keys `picks` asked for (null: all) read out of its "extra", which is dropped; a real column wins. */

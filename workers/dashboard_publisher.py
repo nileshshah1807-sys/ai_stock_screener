@@ -31,6 +31,7 @@ from screener.markets import DEFAULT_MARKET
 from screener.markets import resolve as resolve_market
 from screener.numeric import round_half_up
 from storage.dashboard_repository import DashboardRepository
+from workers import ownership_flows, results_timing
 
 logger = logging.getLogger("dashboard_publisher")
 
@@ -113,6 +114,11 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("market_cap", "Market_Cap", "num:20,2"),
     ("pe_ratio", "PE_Ratio", "num:12,2"),
     ("pb_ratio", "PB_Ratio", "num:12,2"),
+    ("ev_ebitda", "EV_EBITDA", "num:12,2"),
+    ("ps_ratio", "PS_Ratio", "num:12,2"),
+    # The latest filed quarter's operating margin and its move from the year-ago quarter (NSE filings).
+    ("opm_latest_q_pct", "OPM_Latest_Q_Pct", "num:8,2"),
+    ("opm_change_yoy_pp", "OPM_Change_YoY_Pp", "num:8,2"),
     ("roe", "ROE", "num:12,4"),
     ("debt_to_equity", "Debt_to_Equity", "num:12,2"),
     ("revenue_growth", "Revenue_Growth", "num:12,4"),
@@ -800,6 +806,23 @@ def build_run_row(
     return run
 
 
+def _stamp(snapshot_rows: list[dict[str, Any]], fields: dict[str, dict[str, Any]], columns: tuple[str, ...]) -> None:
+    """Every row gets every key, null where there is nothing: a bulk upsert needs one shape."""
+    for row in snapshot_rows:
+        found = fields.get(row["symbol"], {})
+        row.update({column: found.get(column) for column in columns})
+
+
+def stamp_ownership_flows(repository: Any, snapshot_rows: list[dict[str, Any]], run_date: str) -> None:
+    """Shareholding, deal and sector FPI flow columns (workers/ownership_flows.py) on every row."""
+    _stamp(snapshot_rows, ownership_flows.snapshot_fields(repository, snapshot_rows, run_date), ownership_flows.COLUMNS)
+
+
+def stamp_results_timing(repository: Any, snapshot_rows: list[dict[str, Any]], run_date: str, timezone: str) -> None:
+    """Days since and to results (workers/results_timing.py) on every row."""
+    _stamp(snapshot_rows, results_timing.snapshot_fields(repository, run_date, timezone), results_timing.COLUMNS)
+
+
 def publish(
     csv_path: Path,
     manifest_path: Path | None = None,
@@ -941,6 +964,10 @@ def publish(
             f"the last published run ({previous_run.get('run_date')}); refusing to "
             "replace it with a shrunken universe"
         )
+
+    if market == "NSE":
+        stamp_ownership_flows(repository, snapshot_rows, run_date)
+    stamp_results_timing(repository, snapshot_rows, run_date, resolve_market(market).timezone)
 
     # screener_snapshot has a foreign key to screener_runs, so a minimal parent
     # must exist before the chunked dependent writes. It is only a reservation:

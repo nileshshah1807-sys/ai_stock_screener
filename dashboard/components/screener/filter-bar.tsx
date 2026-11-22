@@ -12,10 +12,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { SheetClose, SheetTrigger } from "@/components/ui/sheet";
 import { PanelSheet } from "@/components/panel-sheet";
 import { ELIGIBILITY_CLASSES, RATINGS, STAGES } from "@/lib/types";
-import { useShowRatings } from "@/components/market-provider";
+import { useMarket, useShowRatings } from "@/components/market-provider";
 import { PendingMarker } from "@/components/nav-pending";
 import { RATING_FILTER_KEYS, publicText } from "@/lib/ratings.mjs";
-import { RANGE_GROUPS, formatRange, readRanges, type RangeFilter } from "@/lib/screener-ranges.mjs";
+import { RANGE_GROUPS, formatRange, rangeShown, readRanges, type RangeFilter } from "@/lib/screener-ranges.mjs";
 import { asText, trimmed } from "@/lib/url-draft.mjs";
 import { useUrlDraft } from "@/lib/use-url-draft";
 import { cn } from "@/lib/utils";
@@ -205,14 +205,16 @@ function RangeRow({
           </button>
         ) : null}
       </div>
-      <div className="grid grid-cols-[1fr_auto_1fr_2.75rem] items-center gap-1.5">
-        <BoundInput value={value?.min} placeholder="Min" label={`${range.label}, minimum`} onCommit={(min) => onChange({ ...value, min })} />
-        <span className="text-xs text-muted-foreground" aria-hidden>
-          to
-        </span>
-        <BoundInput value={value?.max} placeholder="Max" label={`${range.label}, maximum`} onCommit={(max) => onChange({ ...value, max })} />
-        <span className="truncate text-xs text-muted-foreground">{unit}</span>
-      </div>
+      {range.direction ? null : (
+        <div className="grid grid-cols-[1fr_auto_1fr_2.75rem] items-center gap-1.5">
+          <BoundInput value={value?.min} placeholder="Min" label={`${range.label}, minimum`} onCommit={(min) => onChange({ ...value, min })} />
+          <span className="text-xs text-muted-foreground" aria-hidden>
+            to
+          </span>
+          <BoundInput value={value?.max} placeholder="Max" label={`${range.label}, maximum`} onCommit={(max) => onChange({ ...value, max })} />
+          <span className="truncate text-xs text-muted-foreground">{unit}</span>
+        </div>
+      )}
       {range.presets?.length ? (
         <div className="flex flex-wrap gap-1">
           {range.presets.map((preset) => {
@@ -305,6 +307,7 @@ export function FilterBar({
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const showRatings = useShowRatings();
+  const market = useMarket();
   // "Executable only" filters on portfolio_actionable, which tracks a BUY-grade rating.
   const toggles = TOGGLES.filter(
     (toggle) => showRatings || !(RATING_FILTER_KEYS.includes(toggle.key) || toggle.key === "actionable"),
@@ -436,7 +439,7 @@ export function FilterBar({
     sectors.length > 0 && matches(needle, "sector", "industry", ...sectors, ...industries.flatMap((entry) => entry.industries));
   const groups = RANGE_GROUPS.map((group) => ({
     ...group,
-    ranges: group.ranges.filter((range) => (factorModel || !range.factor) && matches(needle, range.label, range.key, group.label)),
+    ranges: group.ranges.filter((range) => rangeShown(range, { market: market.code, factorModel }) && matches(needle, range.label, range.key, group.label)),
   })).filter((group) => group.ranges.length);
   const showStage = factorModel && matches(needle, "stage", "trend", "200-day average", ...STAGES.map((item) => item.value));
   const shownChoices = CHOICES.filter((choice) => matches(needle, choice.label, ...choice.options.map((option) => option.label)));

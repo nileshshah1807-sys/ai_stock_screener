@@ -155,12 +155,14 @@ def apply_trailing_year(frame, keys, trailing, served):
     return enriched
 
 
-def price_ratios(price, *, eps, book_value, shares, ebitda, debt, cash):
+def price_ratios(price, *, eps, book_value, shares, ebitda, debt, cash, revenue):
     """The price ratios, each where its inputs allow, else NaN.
 
     The one definition of the arithmetic; ``live_valuation`` repeats it in SQL
     and tests/test_valuation_basis.py holds the two equal. A zero denominator
     has no ratio; a negative one does (a loss-making P/E), as before.
+    shortcut: P/S is not in ``live_valuation``, so it is the close's only; add it there
+    (and to lib/live-compute.mjs) when a live surface shows it.
     """
     valid_price = price.gt(0)
     market_cap = (price * shares).where(valid_price & shares.gt(0))
@@ -169,6 +171,8 @@ def price_ratios(price, *, eps, book_value, shares, ebitda, debt, cash):
         "PB_Ratio": (price / book_value).where(valid_price & book_value.ne(0)),
         "Market_Cap": market_cap,
         "EV_EBITDA": ((market_cap + debt - cash) / ebitda).where(ebitda.ne(0)),
+        # A company with no sales has no P/S, not an infinite one.
+        "PS_Ratio": (market_cap / revenue).where(revenue.gt(0)),
     }
 
 

@@ -295,6 +295,22 @@ class QuarterPanelTests(unittest.TestCase):
         self.assertAlmostEqual(row["Earnings_Growth"], 1.5)
         self.assertEqual(row["Quarter_Period_End"], "2024-06-30")
 
+    def test_operating_margin_and_its_move_on_the_same_pair(self):
+        rows = [{**row, "EBITDA": ebitda} for row, ebitda in zip(self.base(), (20.0, 22.0, 45.0), strict=True)]
+        row = self.panel(*rows).growth_as_of("INE001A01", "2024-08-30")
+        self.assertAlmostEqual(row["OPM_Latest_Q_Pct"], 30.0)
+        self.assertAlmostEqual(row["OPM_Change_YoY_Pp"], 10.0)
+
+    def test_no_margin_without_operating_profit_or_on_no_sales(self):
+        row = self.panel(*self.base()).growth_as_of("INE001A01", "2024-08-30")
+        self.assertTrue(np.isnan(row["OPM_Latest_Q_Pct"]))
+        rows = self.base()
+        rows[0] = {**rows[0], "Revenue": 0.0, "EBITDA": 5.0}
+        rows[2] = {**rows[2], "EBITDA": 45.0}
+        row = self.panel(*rows).growth_as_of("INE001A01", "2024-08-30")
+        self.assertAlmostEqual(row["OPM_Latest_Q_Pct"], 30.0)
+        self.assertTrue(np.isnan(row["OPM_Change_YoY_Pp"]))
+
     def test_a_quarter_is_invisible_before_it_was_filed(self):
         panel = self.panel(*self.base())
         # The June quarter was filed on 9 August; the day before, the newest
