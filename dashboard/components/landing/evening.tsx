@@ -83,7 +83,10 @@ export function Evening() {
                 i === EVENING.length - 1 && "md:-translate-x-full",
               )}
             >
-              <span aria-hidden data-dot className="absolute left-0 top-1/2 size-[0.9rem] -translate-y-1/2 rounded-full border-2 border-brand bg-background md:left-1/2 md:-translate-x-1/2" />
+              {/* The outer span places the dot; gsap scales only the inner one, so it never caches (and keeps) a breakpoint's translate. */}
+              <span aria-hidden className="absolute left-0 top-1/2 size-[0.9rem] -translate-y-1/2 md:left-1/2 md:-translate-x-1/2">
+                <span data-dot className="block size-full rounded-full border-2 border-brand bg-background" />
+              </span>
               <span
                 className={cn(
                   "ml-7 block whitespace-nowrap max-md:relative max-md:top-(--shift) text-sm leading-5 md:absolute md:ml-0 md:w-40 md:whitespace-normal md:text-center",

@@ -441,3 +441,9 @@ test("a reused customer without a name gets ours; one with a name is never overw
   assert.equal(customerNeedsName({ id: "c", name: null }, "a@b.co", "a@b.co"), false); // only an email: nothing worth setting
   assert.equal(customerNeedsName({ id: "c", name: null }, "", "a@b.co"), false);
 });
+
+test("every included feature names a known market and a unique key", async () => {
+  const { PLAN_INCLUDES } = await import("./billing.mjs");
+  assert.equal(new Set(PLAN_INCLUDES.map((f) => f.key)).size, PLAN_INCLUDES.length);
+  assert.ok(PLAN_INCLUDES.every((f) => f.markets.length > 0 && f.markets.every((m) => m === "ind" || m === "us")));
+});

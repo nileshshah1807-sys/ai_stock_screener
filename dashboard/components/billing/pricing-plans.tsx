@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
+import { PlanIncludes } from "@/components/billing/plan-includes";
 import { PERIOD_LABEL, planTitle, priceLabel } from "@/lib/billing.mjs";
 import type { Plan } from "@/lib/plans";
 import { cn } from "@/lib/utils";
@@ -133,6 +134,7 @@ export function PricingPlans({
               <Panel key={panel.plan.id} panel={panel} active={index === selected} />
             ))}
           </div>
+          <PlanIncludes />
         </div>
       </div>
 

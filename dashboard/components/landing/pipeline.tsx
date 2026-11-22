@@ -1,7 +1,7 @@
 import { ArrowRight, Bell, Cog, FileText, Table2 } from "lucide-react";
 
 const NODES = [
-  { icon: FileText, name: "Sources", text: "Filings, prices, call recordings (India only)" },
+  { icon: FileText, name: "Sources", text: "Filings, prices, earnings calls" },
   { icon: Cog, name: "Nightly run", text: "Every stock measured against its own market" },
   { icon: Table2, name: "Ranked grid", text: "Filter, sort, open a stock" },
   { icon: Bell, name: "Bell", text: "Tells you when a company you follow reports" },

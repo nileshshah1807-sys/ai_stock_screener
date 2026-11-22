@@ -65,3 +65,19 @@ test("a tone score reads as the word whose cut it has reached", async () => {
   });
   assert.deepEqual([toneName(TONE.median), toneName(TONE.sample)], ["Neutral", "Optimistic"]);
 });
+
+test("the market pictures are deterministic and keep to their scales", async () => {
+  const { heatFill, sampleBreadth, sampleFlows, SAMPLE_CALLS, toneName } = await import("./landing.mjs");
+  assert.match(heatFill(1), /var\(--positive\) 29%/);
+  assert.match(heatFill(-5), /var\(--negative\) 58%/);
+  assert.match(heatFill(0), /var\(--positive\) 0%/);
+  const breadth = sampleBreadth();
+  assert.deepEqual(sampleBreadth(), breadth);
+  assert.ok(breadth.above200.every((v) => v >= 20 && v <= 80));
+  assert.ok(breadth.up + breadth.down <= 100);
+  assert.deepEqual(sampleFlows(), sampleFlows());
+  assert.equal(sampleFlows().length, 20);
+  assert.deepEqual(SAMPLE_CALLS.map((c) => c.market), ["ind", "us"]);
+  // One call each way, so the picture shows a reading, not a verdict.
+  assert.notEqual(toneName(SAMPLE_CALLS[0].score), toneName(SAMPLE_CALLS[1].score));
+});
