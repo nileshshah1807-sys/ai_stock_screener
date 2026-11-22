@@ -555,7 +555,7 @@ export async function getSnapshotPage(
       return { rows: [], total: 0 };
     }
     const symbols = results.flatMap((result) => ((result.data ?? []) as unknown as { symbol: string }[]).map((row) => row.symbol));
-    const ranked = rankScores(scores, symbols);
+    const ranked = rankScores(scores, symbols, filters.dir);
     const slice = ranked.slice(from, from + PAGE_SIZE);
     if (!slice.length) return { rows: [], total: ranked.length };
     const { data, error } = await build(projection, false).in("symbol", slice.map((entry) => entry.symbol));

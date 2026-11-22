@@ -332,6 +332,22 @@ class GrowthTests(unittest.TestCase):
         self.assertEqual(row["Quarter_Period_End"], "2026-09-30")
         self.assertEqual(row["Quarter_Basis"], "consolidated")
 
+    def test_the_operating_margin_comes_with_the_growth(self):
+        facts = pd.DataFrame(
+            {
+                "Symbol": ["AAA", "AAA"],
+                "Period_End": ["2026-09-30", "2025-09-30"],
+                "Is_Consolidated": [True, True],
+                "Filed_On": [TODAY.isoformat(), "2025-10-10"],
+                "Revenue": [120.0, 100.0],
+                "PAT": [30.0, 20.0],
+                "EBITDA": [30.0, 20.0],
+            }
+        )
+        row = quarter_growth(facts, ["AAA"], today=TODAY, max_age_days=200).iloc[0]
+        self.assertAlmostEqual(row["OPM_Latest_Q_Pct"], 25.0)
+        self.assertAlmostEqual(row["OPM_Change_YoY_Pp"], 5.0)
+
     def test_no_facts_is_an_empty_frame_with_the_growth_columns(self):
         growth = quarter_growth(None, ["AAA"], today=TODAY, max_age_days=200)
         self.assertTrue(growth.empty)
@@ -380,7 +396,8 @@ class OverlayTests(CollectorCase):
         frame = _frame(BBB=(0.08, -0.04), AAA=(0.02, 0.03))
         enriched = collector.enrich(frame)
         self.assertEqual(enriched["Symbol"].tolist(), ["BBB", "AAA"])
-        self.assertEqual(list(enriched.columns), list(frame.columns))
+        # The filed quarter's operating margin is the one column the vendor has no counterpart for.
+        self.assertEqual(list(enriched.columns), [*frame.columns, "OPM_Latest_Q_Pct", "OPM_Change_YoY_Pp"])
         # The caller's frame is not modified in place.
         self.assertAlmostEqual(frame.loc[1, "Revenue_Growth"], 0.02)
 

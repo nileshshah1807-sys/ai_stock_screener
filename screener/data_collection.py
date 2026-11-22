@@ -203,7 +203,7 @@ def align_valuation_to_completed_price_bar(merged_df):
 
     ratios = price_ratios(
         price, eps=eps, book_value=book_value, shares=shares, ebitda=ebitda,
-        debt=debt, cash=cash,
+        debt=debt, cash=cash, revenue=numeric("Total_Revenue"),
     )
     for metric, value in ratios.items():
         frame[metric] = value.where(value.notna(), numeric(metric))

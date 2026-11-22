@@ -330,6 +330,8 @@ class QuarterPanel:
         working["_consolidated"] = consolidated.astype(str).str.lower().isin({"true", "1"})
         for column in ("Revenue", "PAT"):
             working[column] = pd.to_numeric(working.get(column), errors="coerce")
+        # Optional: operating profit (EBITDA), for the margin on the same pair of quarters.
+        working["EBITDA"] = pd.to_numeric(working["EBITDA"], errors="coerce") if "EBITDA" in working else np.nan
         working = working.sort_values(["Security_ID", "_period", "_available"])
         for security_id, group in working.groupby("Security_ID", sort=False):
             self._by_security[str(security_id)] = list(
@@ -339,6 +341,7 @@ class QuarterPanel:
                     group["_consolidated"],
                     group["Revenue"],
                     group["PAT"],
+                    group["EBITDA"],
                 )
             )
 
@@ -366,9 +369,9 @@ class QuarterPanel:
         for basis in (True, False):
             # Latest version of each period published by the decision date.
             visible = {}
-            for period, available, consolidated, revenue, pat in records:
+            for period, available, consolidated, revenue, pat, ebitda in records:
                 if consolidated == basis and available <= cutoff:
-                    visible[period] = (revenue, pat)
+                    visible[period] = (revenue, pat, ebitda)
             for period in sorted(visible, reverse=True):
                 if period < oldest:
                     break
@@ -381,17 +384,24 @@ class QuarterPanel:
         if best is None:
             return None
 
-        period, basis, (revenue, pat), (revenue_prior, pat_prior) = best
+        period, basis, (revenue, pat, ebitda), (revenue_prior, pat_prior, ebitda_prior) = best
 
         def growth(now, prior):
             if pd.isna(now) or pd.isna(prior) or prior <= 0:
                 return np.nan
             return float(now / prior - 1.0)
 
+        def margin(profit, sales):
+            return np.nan if pd.isna(profit) or pd.isna(sales) or sales <= 0 else float(profit / sales * 100.0)
+
+        opm, opm_prior = margin(ebitda, revenue), margin(ebitda_prior, revenue_prior)
         return {
             "Security_ID": str(security_id),
             "Revenue_Growth": growth(revenue, revenue_prior),
             "Earnings_Growth": growth(pat, pat_prior),
+            # Operating margin, percent, and its move from the year-ago quarter in points.
+            "OPM_Latest_Q_Pct": opm,
+            "OPM_Change_YoY_Pp": opm - opm_prior,
             "Quarter_Period_End": period.date().isoformat(),
             "Quarter_Basis": "consolidated" if basis else "standalone",
         }

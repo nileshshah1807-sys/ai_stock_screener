@@ -155,7 +155,7 @@ function executor(source: Source, reading: Reading) {
     const hide = redacts ? (column: string) => column === "*" || isRatingField(column) : () => false;
     const db = binding(source.database);
     const split = source.real ? splitExtra(plan, source.real, redacts ? isAdminOnlyField : undefined) : null;
-    const { data, count } = compile(split?.plan ?? plan, source.from, hide);
+    const { data, count } = compile(split?.plan ?? plan, source.from, hide, split?.extraKeys);
     const [rows, counted] = await Promise.all([
       data ? query(db, data.sql, data.args) : Promise.resolve([]),
       count ? query(db, count.sql, count.args) : Promise.resolve(null),

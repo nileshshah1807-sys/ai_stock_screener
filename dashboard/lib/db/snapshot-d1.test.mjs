@@ -32,7 +32,7 @@ const reader = (db, admin) => () =>
   new TableQuery(async (plan) => {
     const split = splitExtra(plan, SNAPSHOT_COLUMNS, admin ? undefined : isAdminOnlyField);
     const hide = admin ? () => false : (column) => column === "*" || isRatingField(column);
-    const { data } = compile(split.plan, '"screener_snapshot"', hide);
+    const { data } = compile(split.plan, '"screener_snapshot"', hide, split.extraKeys);
     const rows = db.prepare(data.sql).all(...data.args).map((row) => ({ ...row }));
     return { rows: rows.map((row) => readRow(row, BOOLEANS, split.picks, admin ? null : withoutRatings)), count: null };
   });
@@ -64,8 +64,20 @@ test("an admin reads extra's fields merged into the row, booleans decoded", asyn
   assert.deepEqual(data, { symbol: "TCS", rating: "BUY", buy_eligible: true, investment_rating: "BUY", adx_14: 22, nope: null });
 });
 
-test("filtering or sorting on a key of extra is refused, not guessed", async () => {
+test("a filter or sort on a key of extra reads it through json_extract", async () => {
   const db = database();
-  assert.equal((await reader(db, true)().select("symbol").eq("adx_14", 22)).error.code, "UNSUPPORTED");
-  assert.equal((await reader(db, true)().select("symbol").order("adx_14")).error.code, "UNSUPPORTED");
+  db.prepare(
+    `INSERT INTO screener_snapshot (market, run_date, symbol, company, extra) VALUES ('NSE', '2026-11-13', 'INFY', 'Infosys', ?)`,
+  ).run(JSON.stringify({ adx_14: 30, investment_rating: "SELL" }));
+  const symbols = (result) => result.data.map((row) => row.symbol);
+  assert.deepEqual(symbols(await reader(db, true)().select("symbol").eq("adx_14", 22)), ["TCS"]);
+  assert.deepEqual(symbols(await reader(db, true)().select("symbol").gte("adx_14", 25)), ["INFY"]);
+  assert.deepEqual(symbols(await reader(db, true)().select("symbol").order("adx_14", { ascending: false })), ["INFY", "TCS"]);
+  // A key a non-admin may not read is NULL in the filter too, so filtering cannot reveal it.
+  assert.deepEqual(symbols(await reader(db, false)().select("symbol").eq("investment_rating", "SELL")), []);
+  assert.deepEqual(symbols(await reader(db, true)().select("symbol").eq("investment_rating", "SELL")), ["INFY"]);
+});
+
+test("an extra key that is not a plain name is refused before any SQL is built", () => {
+  assert.throws(() => reader(database(), true)().select("symbol").eq("adx'); --", 1), /not a plain column name/);
 });

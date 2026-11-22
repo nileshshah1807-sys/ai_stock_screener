@@ -24,6 +24,18 @@
 -- (market, run_date, symbol) bounds every other sort and filter to one run's
 -- rows; the grid's page cache keeps those reads per run, not per viewer.
 -- tests/test_d1_snapshot_layout.py holds this file to the dashboard's reads.
+--
+-- Since 22 Nov 2026 a filter or sort may name a key of "extra": the dashboard reads it through
+-- json_extract (table-query.mjs splitExtra/compile), so a new range needs no column here.
+--
+-- Ownership and flow ranges (added 22 Nov 2026; 99 of 100 columns):
+--   ALTER TABLE "screener_snapshot" ADD COLUMN "promoter_pct" REAL;
+--   ALTER TABLE "screener_snapshot" ADD COLUMN "fii_pct" REAL;
+--   ALTER TABLE "screener_snapshot" ADD COLUMN "dii_pct" REAL;
+--   ALTER TABLE "screener_snapshot" ADD COLUMN "promoter_change_qoq" REAL;
+--   ALTER TABLE "screener_snapshot" ADD COLUMN "fii_change_qoq" REAL;
+--   ALTER TABLE "screener_snapshot" ADD COLUMN "dii_change_qoq" REAL;
+--   ALTER TABLE "screener_snapshot" ADD COLUMN "sector_fpi_vs_avg_cr" REAL;
 
 CREATE TABLE IF NOT EXISTS "screener_snapshot" (
     "market" TEXT NOT NULL,
@@ -117,6 +129,13 @@ CREATE TABLE IF NOT EXISTS "screener_snapshot" (
     "is_sme" INTEGER,
     "unrated_reason" TEXT,
     "primary_gate" TEXT,
+    "promoter_pct" REAL,
+    "fii_pct" REAL,
+    "dii_pct" REAL,
+    "promoter_change_qoq" REAL,
+    "fii_change_qoq" REAL,
+    "dii_change_qoq" REAL,
+    "sector_fpi_vs_avg_cr" REAL,
     "extra" TEXT,
     PRIMARY KEY ("market", "run_date", "symbol")
 ) WITHOUT ROWID;

@@ -330,12 +330,15 @@ export function scoreRun(rows, weights, outlooks = new Map()) {
 }
 
 /**
- * Symbols ordered by score, highest first; unscored last, ties by symbol.
+ * Symbols ordered by score, highest first (lowest first for "asc"); unscored last either way,
+ * ties by symbol.
  * @param {Map<string, number | null>} scores
  * @param {Iterable<string>} symbols
+ * @param {"asc" | "desc"} [dir]
  * @returns {{ symbol: string, score: number | null }[]}
  */
-export function rankScores(scores, symbols) {
+export function rankScores(scores, symbols, dir = "desc") {
+  const sign = dir === "asc" ? -1 : 1;
   return [...symbols]
     .map((symbol) => ({ symbol, score: scores.get(symbol) ?? null }))
     .sort((a, b) => {
@@ -343,7 +346,7 @@ export function rankScores(scores, symbols) {
         if (a.score === b.score) return a.symbol < b.symbol ? -1 : 1;
         return a.score === null ? 1 : -1;
       }
-      return b.score - a.score || (a.symbol < b.symbol ? -1 : 1);
+      return sign * (b.score - a.score) || (a.symbol < b.symbol ? -1 : 1);
     });
 }
 

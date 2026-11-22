@@ -10,9 +10,15 @@
 
 /**
  * @typedef {{ key: string, column: string, label: string, unit: string, scale?: number,
- *   size?: boolean, factor?: boolean, legacyMin?: string,
+ *   size?: boolean, factor?: boolean, market?: string, direction?: boolean, legacyMin?: string,
  *   presets?: { label: string, min?: number, max?: number }[] }} RangeFilter
  */
+
+// A `direction` range is only "went up" or "went down": no bounds to type. The column is stored to
+// two decimals, so 0.01 is "above the earlier figure" and -0.01 "below it". The chip reads the words.
+const direction = (/** @type {string} */ up, /** @type {string} */ down) => [{ label: up, min: 0.01 }, { label: down, max: -0.01 }];
+const DIRECTION = direction("Increased", "Decreased");
+const NET = direction("Net bought", "Net sold");
 
 /** @type {{ id: string, label: string, ranges: RangeFilter[] }[]} */
 export const RANGE_GROUPS = [
@@ -53,6 +59,8 @@ export const RANGE_GROUPS = [
     ranges: [
       { key: "pe", column: "pe_ratio", label: "P/E", unit: "×", presets: [{ label: "0–15", min: 0, max: 15 }, { label: "0–25", min: 0, max: 25 }, { label: "> 50", min: 50 }] },
       { key: "pb", column: "pb_ratio", label: "P/B", unit: "×", presets: [{ label: "< 1", max: 1 }, { label: "< 3", max: 3 }] },
+      { key: "evebitda", column: "ev_ebitda", label: "EV/EBITDA", unit: "×", presets: [{ label: "0–10", min: 0, max: 10 }, { label: "0–20", min: 0, max: 20 }] },
+      { key: "ps", column: "ps_ratio", label: "Price to sales", unit: "×", presets: [{ label: "< 1", max: 1 }, { label: "< 3", max: 3 }] },
       { key: "dy", column: "dividend_yield", label: "Dividend yield", unit: "%", presets: [{ label: "≥ 1", min: 1 }, { label: "≥ 3", min: 3 }] },
     ],
   },
@@ -63,6 +71,10 @@ export const RANGE_GROUPS = [
       { key: "roe", column: "roe", label: "Return on equity", unit: "%", scale: 0.01, presets: [{ label: "≥ 15", min: 15 }, { label: "≥ 25", min: 25 }] },
       { key: "roic", column: "roic", label: "Return on capital", unit: "%", scale: 0.01, presets: [{ label: "≥ 15", min: 15 }] },
       { key: "de", column: "debt_to_equity", label: "Debt to equity", unit: "×", scale: 100, presets: [{ label: "< 0.5", max: 0.5 }, { label: "< 1", max: 1 }] },
+      // The latest filed quarter (NSE filings, screener/quarterly_results.py), in percent, and its move
+      // from the same quarter a year earlier in points.
+      { key: "opm", column: "opm_latest_q_pct", label: "Operating margin, latest quarter", unit: "%", market: "NSE", presets: [{ label: "≥ 15", min: 15 }, { label: "≥ 25", min: 25 }] },
+      { key: "opmch", column: "opm_change_yoy_pp", label: "Operating margin vs same quarter last year", unit: "pp", market: "NSE", direction: true, presets: direction("Expanded", "Contracted") },
     ],
   },
   {
@@ -106,7 +118,49 @@ export const RANGE_GROUPS = [
       { key: "pr", column: "risk_percentile", label: "Steadiness", unit: "P", factor: true, presets: [{ label: "≥ 70", min: 70 }] },
     ],
   },
+  {
+    // Stamped on each NSE row by workers/ownership_flows.py: the latest shareholding pattern, its move
+    // from the quarter before in percentage points, and the sector's FPI net in NSDL's latest
+    // fortnight less its six-month average, in crore.
+    id: "ownership",
+    label: "Ownership and flows",
+    ranges: [
+      { key: "promoter", column: "promoter_pct", label: "Promoter holding", unit: "%", market: "NSE", presets: [{ label: "≥ 50", min: 50 }, { label: "≥ 70", min: 70 }] },
+      { key: "fii", column: "fii_pct", label: "FII holding", unit: "%", market: "NSE", presets: [{ label: "≥ 10", min: 10 }, { label: "≥ 20", min: 20 }, { label: "< 2", max: 2 }] },
+      { key: "dii", column: "dii_pct", label: "DII holding", unit: "%", market: "NSE", presets: [{ label: "≥ 10", min: 10 }, { label: "≥ 20", min: 20 }] },
+      { key: "promoterch", column: "promoter_change_qoq", label: "Promoter holding vs previous quarter", unit: "pp", market: "NSE", direction: true, presets: DIRECTION },
+      { key: "fiich", column: "fii_change_qoq", label: "FII holding vs previous quarter", unit: "pp", market: "NSE", direction: true, presets: DIRECTION },
+      { key: "diich", column: "dii_change_qoq", label: "DII holding vs previous quarter", unit: "pp", market: "NSE", direction: true, presets: DIRECTION },
+      { key: "retail", column: "retail_pct", label: "Retail holding", unit: "%", market: "NSE", presets: [{ label: "< 20", max: 20 }, { label: "≥ 40", min: 40 }] },
+      { key: "promoter1y", column: "promoter_change_1y", label: "Promoter holding vs a year ago", unit: "pp", market: "NSE", direction: true, presets: DIRECTION },
+      { key: "fii1y", column: "fii_change_1y", label: "FII holding vs a year ago", unit: "pp", market: "NSE", direction: true, presets: DIRECTION },
+      { key: "dii1y", column: "dii_change_1y", label: "DII holding vs a year ago", unit: "pp", market: "NSE", direction: true, presets: DIRECTION },
+      { key: "sfpi", column: "sector_fpi_vs_avg_cr", label: "Sector FPI flow vs 6-month average", unit: "Cr", market: "NSE", presets: [{ label: "Above average", min: 0 }, { label: "Below average", max: 0 }] },
+      // Bulk and block deals in the last 30 days, bought less sold, crore; null where there were none.
+      { key: "deals", column: "deals_net_cr_1m", label: "Bulk/block deals, last month", unit: "Cr", market: "NSE", direction: true, presets: NET },
+      { key: "fdeals", column: "foreign_deals_net_cr_1m", label: "Foreign funds' deals, last month", unit: "Cr", market: "NSE", direction: true, presets: NET },
+    ],
+  },
+  {
+    // workers/results_timing.py: from the latest quarter's announcement, and to the announced date.
+    id: "results",
+    label: "Results",
+    ranges: [
+      { key: "dsr", column: "days_since_result", label: "Days since results", unit: "days", presets: [{ label: "Last 7 days", max: 7 }, { label: "Last 30 days", max: 30 }] },
+      { key: "dtr", column: "days_to_result", label: "Days to results", unit: "days", presets: [{ label: "Next 7 days", min: 0, max: 7 }, { label: "Next 14 days", min: 0, max: 14 }] },
+    ],
+  },
 ];
+
+/**
+ * Whether the filter panel offers a range: factor ranges on a factor-model run only, and a
+ * market's own evidence (shareholding, FPI flows) in that market only.
+ * @param {RangeFilter} range
+ * @param {{ market: string, factorModel: boolean }} context
+ */
+export function rangeShown(range, { market, factorModel }) {
+  return (factorModel || !range.factor) && (!range.market || range.market === market);
+}
 
 export const RANGES = RANGE_GROUPS.flatMap((group) => group.ranges);
 
@@ -182,7 +236,13 @@ export function columnBounds(range, value, sizeFactor) {
  * @param {string} sizeSuffix "Cr" or "M"
  */
 export function rangeLabel(range, value, sizeSuffix) {
-  const unit = range.size ? ` ${sizeSuffix}` : range.unit === "P" || range.unit === "" ? "" : range.unit;
+  if (range.direction) {
+    const up = value.min !== undefined && value.min > 0;
+    const word = up || (value.max !== undefined && value.max < 0) ? range.presets?.[up ? 0 : 1]?.label : undefined;
+    if (word) return `${range.label}: ${word}`;
+  }
+  // A word unit takes a space ("0.5 pp", "0 Cr"); a sign does not ("15%").
+  const unit = range.size ? ` ${sizeSuffix}` : range.unit === "P" || range.unit === "" ? "" : /^[a-z]/i.test(range.unit) ? ` ${range.unit}` : range.unit;
   const show = (/** @type {number} */ n) => `${range.unit === "P" ? "P" : ""}${n.toLocaleString("en-IN")}${unit}`;
   if (value.min !== undefined && value.max !== undefined) return `${range.label} ${show(value.min)}–${show(value.max)}`;
   if (value.min !== undefined) return `${range.label} ≥ ${show(value.min)}`;

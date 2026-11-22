@@ -682,6 +682,11 @@ class DashboardRepository:
             found.setdefault(str(row["symbol"]), []).append(row)
         return found
 
+    def result_broadcasts_since(self, since: str) -> list[dict[str, Any]]:
+        """Each stored filing first announced at or after ``since``: symbol and time only."""
+        return self._paged("quarterly_filings", {
+            "select": "symbol,broadcast_at", "broadcast_at": f"gte.{since}", "order": "symbol.asc,broadcast_at.asc"})
+
     def recent_filed_results(self, since: str) -> list[dict[str, Any]]:
         """Stored filings of quarters first announced at or after ``since``."""
         return self._paged(
@@ -717,6 +722,14 @@ class DashboardRepository:
             symbols,
         )
         return {(str(row["symbol"]), str(row["period_end"])[:10]): row for row in rows}
+
+    def shareholding_since(self, since: str) -> list[dict[str, Any]]:
+        """Every stored quarter ending on or after ``since``: the group percentages only."""
+        return self._paged("shareholding_patterns", {
+            "select": "symbol,period_end,promoter,fii,dii,public",
+            "period_end": f"gte.{since}",
+            "order": "symbol.asc,period_end.asc",
+        })
 
     def upsert_shareholding_patterns(self, rows: list[dict[str, Any]], chunk_size: int = 100) -> int:
         written = 0

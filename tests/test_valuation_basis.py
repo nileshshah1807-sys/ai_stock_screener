@@ -86,6 +86,12 @@ class ParityTests(unittest.TestCase):
             with self.subTest(metric=metric):
                 self.assertAlmostEqual(view[column], record[metric], places=6)
 
+    def test_price_to_sales_is_market_cap_over_trailing_revenue(self):
+        record = scored(Total_Revenue=8.0e10)
+        self.assertAlmostEqual(record["PS_Ratio"], record["Market_Cap"] / 8.0e10, places=9)
+        self.assertTrue(pd.isna(scored(Total_Revenue=0.0)["PS_Ratio"]))
+        self.assertTrue(pd.isna(scored()["PS_Ratio"]))
+
     def test_a_loss_has_a_negative_pe_in_both(self):
         record = scored(EPS=-4.0)
         self.assertLess(record["PE_Ratio"], 0)

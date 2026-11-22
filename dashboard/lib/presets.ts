@@ -31,11 +31,25 @@ export type Preset = {
   factorOnly?: boolean;
   /** Shown only in this market: the view is stated in its currency units. */
   market?: MarketCode;
+  /** Its heading in the Views menu: one of VIEW_GROUPS (lib/view-groups.mjs). */
+  group: string;
 };
 
 export const PRESETS: readonly Preset[] = [
   {
+    // The owner's own mix (saved as "GOAT", 22 Nov 2026): a third on the latest earnings call,
+    // the rest spread over the five factor blocks. A score mix only: it filters nothing.
+    id: "cupel-blend",
+    group: "Score",
+    label: "Cupel blend",
+    description:
+      "Every stock ranked by Cupel's own mix: earnings call 33%, momentum 20%, quality 17%, growth 17%, value 10%, steadiness 3%.",
+    query: "sort=custom_score&w=q25.g25.m30.v15.r5.c50",
+    factorOnly: true,
+  },
+  {
     id: "clears-every-gate",
+    group: "Ratings",
     label: "Clears every gate",
     description:
       "Eligibility class 0: no BUY or STRONG BUY gate fired at all. The published rating is the model's own view, not a ceiling.",
@@ -44,6 +58,7 @@ export const PRESETS: readonly Preset[] = [
   },
   {
     id: "actionable-buy",
+    group: "Ratings",
     label: "Actionable BUY",
     description:
       "Rated BUY or STRONG BUY, passing the BUY gates, and executable at the configured target position and participation rate.",
@@ -52,6 +67,7 @@ export const PRESETS: readonly Preset[] = [
   },
   {
     id: "quality-momentum-leaders",
+    group: "Ratings",
     label: "Quality + momentum leaders",
     description:
       "Quality and momentum both in the top 30% of the cross-section. A relative view: it says nothing about whether the market itself is cheap.",
@@ -61,6 +77,7 @@ export const PRESETS: readonly Preset[] = [
   },
   {
     id: "uncapped-conviction",
+    group: "Ratings",
     label: "Uncapped conviction",
     description:
       "Score of 60 or better with no policy ceiling applied, so the score and the rating agree with each other.",
@@ -68,6 +85,7 @@ export const PRESETS: readonly Preset[] = [
   },
   {
     id: "fresh-stage-2",
+    group: "Ratings",
     label: "Fresh Stage 2 leaders",
     description:
       "Score 70+, in Stage 2 with an RS rating of 70+, most recent stage entry first. Context, not a signal: blending stage into the rank lowered returns in every validation window (P3), so this narrows the list without evidence that it improves it.",
@@ -76,10 +94,77 @@ export const PRESETS: readonly Preset[] = [
   },
   {
     id: "above-1000-cr",
+    group: "Size",
     label: "≥ ₹1,000 Cr",
     description:
       "Companies of ₹1,000 Cr or more of market cap. A narrower list, not a better one: on the backtest the smaller names earned more, with more single-stock blow-ups and higher trading costs.",
     query: "cap=1000~",
+    market: "NSE",
+  },
+  {
+    id: "institutions-accumulating",
+    group: "Ownership and flows",
+    label: "FII + DII buying",
+    description:
+      "FII and DII holdings both above the previous quarter's in the latest shareholding pattern.",
+    query: "fiich=0.01~&diich=0.01~",
+    market: "NSE",
+  },
+  {
+    id: "foreign-tailwind",
+    group: "Ownership and flows",
+    label: "Foreign tailwind",
+    description:
+      "FPI buying in the stock's sector ran above its six-month average in NSDL's latest fortnight, and FII holding is above the previous quarter's.",
+    query: "sfpi=0~&fiich=0.01~",
+    market: "NSE",
+  },
+  {
+    id: "promoters-adding",
+    group: "Ownership and flows",
+    label: "Promoters adding",
+    description: "Promoter holding above the previous quarter's in the latest shareholding pattern.",
+    query: "promoterch=0.01~",
+    market: "NSE",
+  },
+  {
+    id: "under-owned-quality",
+    group: "Ownership and flows",
+    label: "Under-owned quality",
+    description:
+      "FII and DII holdings each under 2%, return on equity 15% or more, debt under half of equity, ₹500 Cr or more of market cap.",
+    query: "fii=~2&dii=~2&roe=15~&de=~0.5&cap=500~",
+    market: "NSE",
+  },
+  {
+    id: "guidance-raised",
+    group: "Results and fundamentals",
+    label: "Guidance raised",
+    description: "Management raised guidance on the latest earnings call, and profit grew 15% or more year on year.",
+    query: "guide=raised&epsg=15~",
+  },
+  {
+    id: "results-this-week",
+    group: "Results and fundamentals",
+    label: "Results this week",
+    description: "Companies whose announced results date falls in the next seven days.",
+    query: "dtr=0~7",
+  },
+  {
+    id: "margin-expansion",
+    group: "Results and fundamentals",
+    label: "Margin expansion",
+    description:
+      "Operating margin in the latest filed quarter above the same quarter a year earlier, and revenue up 10% or more year on year.",
+    query: "opmch=0.01~&revg=10~",
+    market: "NSE",
+  },
+  {
+    id: "foreign-funds-buying",
+    group: "Ownership and flows",
+    label: "Foreign funds buying",
+    description: "Foreign funds bought more than they sold in bulk and block deals over the last month.",
+    query: "fdeals=0.01~",
     market: "NSE",
   },
 ];

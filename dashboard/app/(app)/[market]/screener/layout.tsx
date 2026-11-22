@@ -94,20 +94,14 @@ export default async function ScreenerLayout({
           <div className="min-w-0 basis-full sm:flex-1 sm:basis-auto">
             <FilterBar sectors={sectors} industries={industries} factorModel={factorModel} exchanges={bseOnly > 0} sizeSuffix={market.code === "US" ? "M" : "Cr"} />
           </div>
+          <SavedViews factorModel={factorModel} />
           <ScoreBuilder factorModel={factorModel} />
           <ViewOptions factorModel={factorModel} />
           <StockSearch />
           <ExportLink />
         </div>
 
-        {/* Views and the active-filter readout share a line rather than taking
-            one each. Both are chip rows of unpredictable length, so they wrap
-            independently when long and cost a single row when short -- which is
-            the common case. */}
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
-          <SavedViews factorModel={factorModel} />
-          <ActiveFilters />
-        </div>
+        <ActiveFilters />
       </div>
 
       {children}
