@@ -97,7 +97,7 @@ class RunTests(unittest.TestCase):
             return quote_record()
 
         repo = Repo()
-        counts = nse_sectors.run(repo, quote, today=date(2026, 11, 22), pause=0)
+        counts = nse_sectors.run(repo, quote, today=date(2026, 11, 22), pause=0, retry_pause=0)
         self.assertEqual((counts["classified"], counts["unclassified"], counts["held"]), (1, 1, 1))
         self.assertEqual(repo.written[0], {"symbol": "GONE", "checked": "2026-11-22"})
         self.assertEqual(repo.written[1]["sector"], "Capital Goods")
@@ -110,7 +110,7 @@ class RunTests(unittest.TestCase):
 
         held = {"rows": [{"symbol": "GONE", "sector": "Power", "checked": "2026-01-01"}]}
         repo = Repo(held)
-        counts = nse_sectors.run(repo, quote, today=date(2026, 11, 22), pause=0)
+        counts = nse_sectors.run(repo, quote, today=date(2026, 11, 22), pause=0, retry_pause=0)
         self.assertEqual(counts["asked"], 0)
         self.assertIsNone(repo.written)  # nothing new learnt, nothing rewritten
 
@@ -125,9 +125,31 @@ class RunTests(unittest.TestCase):
             raise json.JSONDecodeError("Expecting value", "", 0)  # a redirect's empty body, every time
 
         repo = Many()
-        counts = nse_sectors.run(repo, quote, today=date(2026, 11, 22), pause=0)
+        counts = nse_sectors.run(repo, quote, today=date(2026, 11, 22), pause=0, retry_pause=0)
         self.assertEqual(counts["asked"], 1 + nse_sectors.FAILED_STREAK)
         self.assertEqual([row["symbol"] for row in repo.written], ["S000"])  # the streak is not stamped
+
+    def test_a_timeout_is_tried_again(self):
+        calls = {"n": 0}
+
+        def quote(symbol, series):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise TimeoutError("The request timed out.")
+            return quote_record()
+
+        repo = Repo()
+        counts = nse_sectors.run(repo, quote, today=date(2026, 11, 22), pause=0, retry_pause=0)
+        self.assertEqual(counts["classified"], 2)
+
+    def test_three_timeouts_in_a_row_stop_the_run(self):
+        def quote(symbol, series):
+            raise TimeoutError("The request timed out.")
+
+        repo = Repo()
+        counts = nse_sectors.run(repo, quote, today=date(2026, 11, 22), pause=0, retry_pause=0)
+        self.assertEqual(counts["asked"], 0)
+        self.assertIsNone(repo.written)
 
     def test_an_unreadable_object_is_never_overwritten(self):
         repo = Repo(unreadable=True)

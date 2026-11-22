@@ -34,6 +34,9 @@ RECHECK_DAYS = 30
 TIME_BUDGET_SECONDS = 150
 # This many symbols asked in a row with none classified means the endpoint, not the symbols, failed.
 FAILED_STREAK = 20
+# A timed-out or dropped request is tried this many times in all, RETRY_PAUSE_SECONDS longer each time.
+ATTEMPTS = 3
+RETRY_PAUSE_SECONDS = 10.0
 REQUEST_PAUSE_SECONDS = 0.4
 MAINBOARD_SERIES = ("EQ", "BE", "BZ")
 SME_SERIES = ("SM", "ST", "SZ")
@@ -84,6 +87,19 @@ def due(universe: Iterable[tuple[str, bool]], held: dict[str, dict[str, Any]], t
     return fresh + [(symbol, sme) for _, symbol, sme in sorted(old)]
 
 
+def _patiently(retry_pause: float, ask: Callable[..., Any], *args: Any) -> Any:
+    """``ask(*args)``, again after a pause when the exchange times out or drops it; the last failure is raised."""
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            return ask(*args)
+        except (TimeoutError, ConnectionError) as exc:
+            if attempt == ATTEMPTS:
+                raise
+            logger.info("NSE quote failed (%s); trying again", exc)
+            time.sleep(retry_pause * attempt)
+    return None
+
+
 def run(
     repo,
     quote: Callable[[str, str], dict[str, Any]],
@@ -91,6 +107,7 @@ def run(
     today: date | None = None,
     budget_seconds: float = TIME_BUDGET_SECONDS,
     pause: float = REQUEST_PAUSE_SECONDS,
+    retry_pause: float = RETRY_PAUSE_SECONDS,
     dry_run: bool = False,
 ) -> dict[str, int]:
     today = today or date.today()
@@ -111,7 +128,7 @@ def run(
         for symbol, sme in todo:
             if time.monotonic() > deadline:
                 break
-            found = classify(quote, symbol, sme)
+            found = _patiently(retry_pause, classify, quote, symbol, sme)
             counts["asked"] += 1
             counts["classified" if found else "unclassified"] += 1
             streak = 0 if found else streak + 1
