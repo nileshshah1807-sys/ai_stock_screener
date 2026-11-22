@@ -76,10 +76,18 @@ export function sectorFlows(rows, { history = HISTORY, year = YEAR } = {}) {
   };
 }
 
-/** The largest absolute sector net in the grid: the scale every cell and bar is drawn against. */
+/**
+ * The scale the grid's cells are coloured against: the 90th percentile of the
+ * sector cells' absolute nets, so one outsized fortnight (a stake sale, a
+ * large IPO) saturates on its own instead of washing out every other cell.
+ */
 export function gridScale(table) {
-  const values = (table?.sectors ?? []).flatMap((s) => [s.net, ...s.history]).filter((v) => v !== null);
-  return Math.max(1, ...values.map(Math.abs));
+  const values = (table?.sectors ?? [])
+    .flatMap((s) => s.history)
+    .filter((v) => v !== null && v !== undefined)
+    .map(Math.abs)
+    .sort((a, b) => a - b);
+  return Math.max(1, values[Math.floor(0.9 * (values.length - 1))] ?? 1);
 }
 
 /**
@@ -89,8 +97,43 @@ export function gridScale(table) {
  */
 export function heatFill(net, scale) {
   if (net === null || net === undefined || !Number.isFinite(net)) return "transparent";
-  const share = Math.round(Math.sqrt(Math.min(1, Math.abs(net) / Math.max(1, scale))) * 72);
+  const share = Math.round(Math.sqrt(Math.min(1, Math.abs(net) / Math.max(1, scale))) * 85);
   return `color-mix(in oklab, ${net >= 0 ? "var(--positive)" : "var(--negative)"} ${share}%, var(--control))`;
+}
+
+/**
+ * NSDL names sectors by NSE's classification; the Sectors pages are built on
+ * the snapshot's Yahoo sectors (workers/sectors.py). Each NSE sector links to
+ * the Yahoo sector that holds it, a broader page for most of them; Diversified
+ * and Others have none.
+ */
+const SECTOR_PAGE = {
+  "Automobile and Auto Components": "consumer-cyclical",
+  "Capital Goods": "industrials",
+  Chemicals: "basic-materials",
+  Construction: "industrials",
+  "Construction Materials": "basic-materials",
+  "Consumer Durables": "consumer-cyclical",
+  "Consumer Services": "consumer-cyclical",
+  "Fast Moving Consumer Goods": "consumer-defensive",
+  "Financial Services": "financial-services",
+  "Forest Materials": "basic-materials",
+  Healthcare: "healthcare",
+  "Information Technology": "technology",
+  "Media, Entertainment & Publication": "communication-services",
+  "Metals & Mining": "basic-materials",
+  "Oil, Gas & Consumable Fuels": "energy",
+  Power: "utilities",
+  Realty: "real-estate",
+  Services: "industrials",
+  Telecommunication: "communication-services",
+  Textiles: "consumer-cyclical",
+  Utilities: "utilities",
+};
+
+/** The Sectors page slug for an NSDL sector, or null when no page covers it. */
+export function sectorPageSlug(sector) {
+  return SECTOR_PAGE[sector] ?? null;
 }
 
 /** The object's foreign deals: `{ bought, sold, since }`, each side kept to rows with a symbol and a net. */

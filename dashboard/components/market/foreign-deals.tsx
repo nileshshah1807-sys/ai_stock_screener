@@ -41,7 +41,6 @@ export function ForeignDeals({
                   symbol={deal.symbol}
                   company={deal.company}
                   emphasis="company"
-                  subtitle={deal.client}
                   className="min-w-0 flex-1"
                 />
                 <span className="tabular shrink-0 text-right text-xs">
@@ -49,6 +48,9 @@ export function ForeignDeals({
                   <span className="text-muted-foreground">{span(deal.first, deal.last)}</span>
                 </span>
               </div>
+              <p className="mt-1.5 truncate text-xs text-muted-foreground" title={deal.client}>
+                {deal.client}
+              </p>
               <Bar value={deal.net} scale={scale} tone={deal.net >= 0 ? "positive" : "negative"} className="mt-1.5" />
             </li>
           ))}

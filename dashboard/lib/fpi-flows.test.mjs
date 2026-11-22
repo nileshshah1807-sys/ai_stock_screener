@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { foreignDeals, fortnightLabel, gridScale, heatFill, sectorFlows } from "./fpi-flows.mjs";
+import { foreignDeals, fortnightLabel, gridScale, heatFill, sectorFlows, sectorPageSlug } from "./fpi-flows.mjs";
+
+test("each NSDL sector links to the sector page that holds it", () => {
+  assert.equal(sectorPageSlug("Financial Services"), "financial-services");
+  assert.equal(sectorPageSlug("Information Technology"), "technology");
+  assert.equal(sectorPageSlug("Automobile and Auto Components"), "consumer-cyclical");
+  assert.equal(sectorPageSlug("Others"), null);
+  assert.equal(sectorPageSlug("All sectors"), null);
+});
 
 const fortnight = (start, end, sectors, total) => ({ period_start: start, period_end: end, sectors, total });
 const rows = [
@@ -45,10 +53,17 @@ test("no fortnights is no table", () => {
 });
 
 test("heat fill: sign picks the hue, a missing figure has none", () => {
-  assert.match(heatFill(100, 100), /var\(--positive\) 72%/);
-  assert.match(heatFill(-25, 100), /var\(--negative\) 36%/);
+  assert.match(heatFill(100, 100), /var\(--positive\) 85%/);
+  assert.match(heatFill(-25, 100), /var\(--negative\) 43%/);
+  assert.match(heatFill(500, 100), /var\(--positive\) 85%/);
   assert.equal(heatFill(null, 100), "transparent");
-  assert.equal(gridScale(sectorFlows(rows)), 43102);
+});
+
+test("grid scale is the 90th percentile, so one outlier does not wash out the rest", () => {
+  const history = [...Array(9).fill(100), 10000];
+  assert.equal(gridScale({ sectors: [{ history }] }), 100);
+  assert.equal(gridScale({ sectors: [{ history: [null, -883, 43102] }] }), 883);
+  assert.equal(gridScale({ sectors: [] }), 1);
 });
 
 test("foreign deals keep usable rows only", () => {
