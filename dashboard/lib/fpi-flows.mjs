@@ -7,6 +7,8 @@
  * can exercise it. Display only: nothing scores on it.
  */
 
+import { indexSlug } from "./indices.mjs";
+
 /** Fortnights in the history grid (six months), and in the one-year total. */
 export const HISTORY = 12;
 export const YEAR = 24;
@@ -119,38 +121,15 @@ export function heatFill(net, scale) {
 }
 
 /**
- * NSDL names sectors by NSE's classification; the Sectors pages are built on
- * the snapshot's Yahoo sectors (workers/sectors.py). Each NSE sector links to
- * the Yahoo sector that holds it, a broader page for most of them; Diversified
- * and Others have none.
+ * The Sectors page for an NSDL sector, or null when there is none. NSDL names
+ * sectors as NSE classifies them, and the pages are grouped by NSE's sector
+ * (workers/nse_sectors.py), so a sector's page is its own slug; `pages` is the
+ * slugs the directory lists, so a sector without one (Others, Sovereign, or
+ * every sector while the pages are still Yahoo's) is plain text.
  */
-const SECTOR_PAGE = {
-  "Automobile and Auto Components": "consumer-cyclical",
-  "Capital Goods": "industrials",
-  Chemicals: "basic-materials",
-  Construction: "industrials",
-  "Construction Materials": "basic-materials",
-  "Consumer Durables": "consumer-cyclical",
-  "Consumer Services": "consumer-cyclical",
-  "Fast Moving Consumer Goods": "consumer-defensive",
-  "Financial Services": "financial-services",
-  "Forest Materials": "basic-materials",
-  Healthcare: "healthcare",
-  "Information Technology": "technology",
-  "Media, Entertainment & Publication": "communication-services",
-  "Metals & Mining": "basic-materials",
-  "Oil, Gas & Consumable Fuels": "energy",
-  Power: "utilities",
-  Realty: "real-estate",
-  Services: "industrials",
-  Telecommunication: "communication-services",
-  Textiles: "consumer-cyclical",
-  Utilities: "utilities",
-};
-
-/** The Sectors page slug for an NSDL sector, or null when no page covers it. */
-export function sectorPageSlug(sector) {
-  return SECTOR_PAGE[sector] ?? null;
+export function sectorPageSlug(sector, pages) {
+  const slug = typeof sector === "string" ? indexSlug(sector) : "";
+  return slug && pages?.includes(slug) ? slug : null;
 }
 
 /** The object's foreign deals: `{ bought, sold, since }`, each side kept to rows with a symbol and a net. */

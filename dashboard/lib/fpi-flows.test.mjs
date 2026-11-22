@@ -11,12 +11,14 @@ import {
   sectorPageSlug,
 } from "./fpi-flows.mjs";
 
-test("each NSDL sector links to the sector page that holds it", () => {
-  assert.equal(sectorPageSlug("Financial Services"), "financial-services");
-  assert.equal(sectorPageSlug("Information Technology"), "technology");
-  assert.equal(sectorPageSlug("Automobile and Auto Components"), "consumer-cyclical");
-  assert.equal(sectorPageSlug("Others"), null);
-  assert.equal(sectorPageSlug("All sectors"), null);
+test("each NSDL sector links to its own Sectors page when there is one", () => {
+  const pages = ["financial-services", "media-entertainment-publication", "oil-gas-consumable-fuels"];
+  assert.equal(sectorPageSlug("Financial Services", pages), "financial-services");
+  assert.equal(sectorPageSlug("Media, Entertainment & Publication", pages), "media-entertainment-publication");
+  assert.equal(sectorPageSlug("Oil, Gas & Consumable Fuels", pages), "oil-gas-consumable-fuels");
+  assert.equal(sectorPageSlug("Others", pages), null);
+  assert.equal(sectorPageSlug("Financial Services", ["financial-services-yahoo"]), null);
+  assert.equal(sectorPageSlug("Financial Services", null), null);
 });
 
 const fortnight = (start, end, sectors, total) => ({ period_start: start, period_end: end, sectors, total });

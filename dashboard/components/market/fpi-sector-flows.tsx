@@ -21,7 +21,7 @@ export type SectorTable = { latest: Period; periods: Period[]; yearSpan: number;
  * The cell under the pointer or focus gets a tooltip with its figure, so no
  * figure lives only in a colour. Client-side for that tooltip alone.
  */
-export function FpiSectorFlows({ market, table }: { market: Market; table: SectorTable }) {
+export function FpiSectorFlows({ market, table, pages }: { market: Market; table: SectorTable; pages: string[] }) {
   const [active, setActive] = useState<{ row: SectorRow; index: number; x: number; y: number } | null>(null);
   // Fixed to the viewport at the cell, so the table's horizontal scroller cannot clip it.
   const point = (row: SectorRow, index: number) => (event: React.SyntheticEvent<HTMLElement>) => {
@@ -38,7 +38,7 @@ export function FpiSectorFlows({ market, table }: { market: Market; table: Secto
   const activePeriod = active ? table.periods[active.index] : null;
   const yearLabel = table.yearSpan >= 24 ? "1Y" : `${table.yearSpan} fortnights`;
 
-  const row = (entry: SectorRow, total = false, slug = total ? null : sectorPageSlug(entry.sector)) => (
+  const row = (entry: SectorRow, total = false, slug = total ? null : sectorPageSlug(entry.sector, pages)) => (
     <tr key={entry.sector} className={cn("border-t", total ? "border-border" : "border-border/60")}>
       <th
         scope="row"

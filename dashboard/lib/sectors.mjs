@@ -6,7 +6,19 @@
  * Kept free of React so `node --test` can exercise it directly.
  */
 
+import { indexSlug } from "./indices.mjs";
+
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
+
+/**
+ * The slug of a stock's sector page. Where the publisher wrote
+ * `sectors/{MARKET}/symbols.json` (`symbols`, symbol to slug) it decides, and a
+ * stock it left off has no page; without it, the snapshot sector's slug.
+ */
+export function stockSectorSlug(symbols, symbol, sector) {
+  if (symbols && typeof symbols === "object") return symbols[symbol] ?? null;
+  return sector ? indexSlug(sector) : null;
+}
 
 /**
  * Points rebased to percent change from the first one at or after `from`:

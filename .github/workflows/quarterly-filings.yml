@@ -183,6 +183,21 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
         run: python -m workers.fpi_flows --market NSE ${DRY_RUN}
 
+      # NSE's sector classification per stock (workers/nse_sectors.py), for the
+      # sector pages: one quote a symbol, unclassified first, each again monthly,
+      # 150 s a run. R2 only. Market breadth groups the pages by it once it
+      # covers 90% of the NSE symbols.
+      - name: Store NSE sectors
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          DRY_RUN: ${{ inputs.dry_run && '--dry-run' || '' }}
+        run: python -m workers.nse_sectors --market NSE ${DRY_RUN}
+
       # NSE IPOs (workers/ipos.py), to D1 and R2 only, as the flows above: the
       # table is D1's (TABLE_BACKEND_D1). Every run refreshes the books still
       # bidding. Off until IPO_CENTRE_ENABLED is true; GMP, read from the public

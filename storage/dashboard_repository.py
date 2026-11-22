@@ -782,6 +782,16 @@ class DashboardRepository:
     def put_fpi_flows_object(self, rows: list[dict[str, Any]], **extra: Any) -> bool:
         return self._cloudflare_put("fpi-flows", rows, **extra)
 
+    # NSE's industry classification per symbol (workers/nse_sectors.py): R2 only.
+    def nse_sectors_object(self) -> dict[str, Any] | None:
+        """The object's body; None when R2 is off or it is absent. An unreadable object raises."""
+        store = self._cloudflare()
+        body = store.get(self._live_path("nse-sectors")) if store is not None else None
+        return json.loads(body) if body else None
+
+    def put_nse_sectors_object(self, rows: list[dict[str, Any]]) -> bool:
+        return self._cloudflare_put("nse-sectors", rows)
+
     def bulk_block_deals_since(self, since: str) -> list[dict[str, Any]]:
         return self._paged("bulk_block_deals", self._scoped({
             "select": "deal_date,symbol,client_name,side,quantity,price",
@@ -876,9 +886,13 @@ class DashboardRepository:
         return str(run["run_date"]), rows
 
     def put_sector_objects(
-        self, directory: dict[str, Any], sectors: dict[str, dict[str, Any]], weights: dict[str, Any] | None = None
+        self,
+        directory: dict[str, Any],
+        sectors: dict[str, dict[str, Any]],
+        weights: dict[str, Any] | None = None,
+        symbols: dict[str, str] | None = None,
     ) -> bool:
-        """``sectors/{market}/{slug}.json`` for each sector and ``weights.json``, then ``directory.json``.
+        """``sectors/{market}/{slug}.json`` for each sector, ``weights.json`` and ``symbols.json``, then ``directory.json``.
 
         R2 only; no table. The directory goes last, so it never names a sector
         whose object is not there yet. Without R2 secrets nothing is written.
@@ -895,7 +909,18 @@ class DashboardRepository:
             put(slug, body)
         if weights is not None:
             put("weights", weights)
+        if symbols is not None:
+            put("symbols", {"market": self.market, "symbols": symbols})
         put("directory", directory)
+        # After the directory, so it never names a removed sector: a sector no longer
+        # grouped (Yahoo's, once NSE's replace them) must not stay readable at its old URL.
+        keep = {f"sectors/{self.market}/{name}.json" for name in (*sectors, "weights", "symbols", "directory")}
+        try:
+            stale = [path for path in store.list(f"sectors/{self.market}/") if path not in keep]
+            if stale:
+                logger.info("Removed %d stale sector objects", store.remove(stale))
+        except Exception as exc:  # noqa: BLE001 - a stale object is unlinked; never fail the publish for it
+            logger.warning("Stale sector objects not removed: %s", exc)
         return True
 
     def sector_weights(self) -> dict[str, Any] | None:

@@ -7,6 +7,7 @@ import { FpiSectorFlows, type SectorTable } from "@/components/market/fpi-sector
 import { foreignDeals, sectorFlows } from "@/lib/fpi-flows.mjs";
 import { readLiveBody, readLiveObject } from "@/lib/live-objects";
 import { marketFromSlug } from "@/lib/markets";
+import { readSectorDirectory } from "@/lib/sector-objects";
 
 export const metadata: Metadata = { title: "Investor flows" };
 export const dynamic = "force-dynamic";
@@ -32,10 +33,12 @@ export default async function FlowsPage({ params }: PageProps<"/[market]/flows">
     );
   }
 
-  const [flows, fpi] = await Promise.all([
+  const [flows, fpi, directory] = await Promise.all([
     readLiveObject(market.code, "fii-dii-flows").catch(() => null),
     readLiveBody(market.code, "fpi-flows").catch(() => null),
+    readSectorDirectory(market.code).catch(() => null),
   ]);
+  const pages = directory?.sectors.map((sector) => sector.slug) ?? [];
   const table = sectorFlows(fpi?.rows) as SectorTable | null;
   const deals = foreignDeals(fpi);
 
@@ -47,7 +50,7 @@ export default async function FlowsPage({ params }: PageProps<"/[market]/flows">
       {flows?.length ? <FiiDiiFlows market={market} rows={flows} /> : null}
 
       {table ? (
-        <FpiSectorFlows market={market} table={table} />
+        <FpiSectorFlows market={market} table={table} pages={pages} />
       ) : (
         <div className="panel px-5 py-12 text-center">
           <p className="text-sm font-medium">FPI flows by sector are not published yet.</p>

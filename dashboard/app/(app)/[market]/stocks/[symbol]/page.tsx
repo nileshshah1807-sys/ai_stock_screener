@@ -17,7 +17,6 @@ import { decodeSymbolParam } from "@/lib/symbol.mjs";
 import { isAdmin } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { PUBLISHED_SCORE_INFO, SHOW_VERDICT, publicText } from "@/lib/ratings.mjs";
-import { indexSlug } from "@/lib/indices.mjs";
 import { marketFromSlug, marketPath } from "@/lib/markets";
 import { ZoomIn } from "@/components/motion";
 import { DecisionScore } from "@/components/stock/decision-score";
@@ -39,7 +38,8 @@ import { NotRatedBadge } from "@/components/new-listing";
 import { HalfYearResults } from "@/components/stock/half-year-results";
 import { NewListingView } from "@/components/stock/new-listing-view";
 import { SectorPeers } from "@/components/stock/sector-peers";
-import { readSector } from "@/lib/sector-objects";
+import { readSector, readSectorSymbols } from "@/lib/sector-objects";
+import { stockSectorSlug } from "@/lib/sectors.mjs";
 import {
   Tabs,
   TabsContent,
@@ -267,7 +267,12 @@ export default async function StockPage({
     runRead.then((r) => (r ? getRankedCount(market.code, r.run_date, r.row_count) : 0)),
     getHalfYears(market.code, symbol),
     // The stock's sector, for the peers panel; display evidence, so a failed read only drops it.
-    rowRead.then((r) => (r?.sector ? readSector(market.code, indexSlug(r.sector)) : null)).catch(() => null),
+    rowRead
+      .then(async (r) => {
+        const slug = r && stockSectorSlug(await readSectorSymbols(market.code).catch(() => null), r.symbol, r.sector);
+        return slug ? readSector(market.code, slug) : null;
+      })
+      .catch(() => null),
   ]);
   if (!run) notFound();
 

@@ -105,8 +105,14 @@ export function readSectorDirectory(market: MarketCode): Promise<SectorDirectory
   return read<SectorDirectory>(market, "directory");
 }
 
+/** `{ symbol: slug }` from `symbols.json`, or null when it has not been published. */
+export async function readSectorSymbols(market: MarketCode): Promise<Record<string, string> | null> {
+  const body = await read<{ symbols?: Record<string, string> }>(market, "symbols");
+  return body?.symbols ?? null;
+}
+
 /** One sector by its slug, or null when there is none. */
 export function readSector(market: MarketCode, slug: string): Promise<SectorObject | null> {
-  if (!SLUG.test(slug) || slug === "directory") return Promise.resolve(null);
+  if (!SLUG.test(slug) || ["directory", "weights", "symbols"].includes(slug)) return Promise.resolve(null);
   return read<SectorObject>(market, slug);
 }

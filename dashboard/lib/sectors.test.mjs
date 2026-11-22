@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { liveFor, peerSlice, rebase, squarify, withLiveChange } from "./sectors.mjs";
+import { liveFor, peerSlice, rebase, squarify, stockSectorSlug, withLiveChange } from "./sectors.mjs";
+
+test("a stock's sector page: the published map decides, else the snapshot sector", () => {
+  const symbols = { TDPOWERSYS: "capital-goods" };
+  assert.equal(stockSectorSlug(symbols, "TDPOWERSYS", "Industrials"), "capital-goods");
+  assert.equal(stockSectorSlug(symbols, "ODDCO.BO", "Industrials"), null);
+  assert.equal(stockSectorSlug(null, "AAPL", "Technology"), "technology");
+  assert.equal(stockSectorSlug(null, "AAPL", null), null);
+});
 
 test("rebase starts at zero on the first point in range", () => {
   const out = rebase(
