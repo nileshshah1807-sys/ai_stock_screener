@@ -105,8 +105,14 @@ export function readSectorDirectory(market: MarketCode): Promise<SectorDirectory
   return read<SectorDirectory>(market, "directory");
 }
 
+/** `symbols.json`: each member's page slug and, for NSE, its NSE industry; null when not published. */
+export type SectorSymbols = { symbols?: Record<string, string>; industries?: Record<string, string> };
+export function readSectorSymbols(market: MarketCode): Promise<SectorSymbols | null> {
+  return read<SectorSymbols>(market, "symbols");
+}
+
 /** One sector by its slug, or null when there is none. */
 export function readSector(market: MarketCode, slug: string): Promise<SectorObject | null> {
-  if (!SLUG.test(slug) || slug === "directory") return Promise.resolve(null);
+  if (!SLUG.test(slug) || ["directory", "weights", "symbols"].includes(slug)) return Promise.resolve(null);
   return read<SectorObject>(market, slug);
 }

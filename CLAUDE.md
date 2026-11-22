@@ -401,7 +401,7 @@ the scheduled workflows set the same flag.
   `storage/company_documents_schema.sql`, applied by hand. The backfill (`--backfill-days 365`) is run by hand, never scheduled.
 - **Sector pages are display evidence, on R2 only.** `workers/sectors.py`, run by
   `tools/publish_market_breadth.py`, writes `sectors/{MARKET}/directory.json` and one
-  `sectors/{MARKET}/{slug}.json` per snapshot sector: our own cap-weighted level (base 100,
+  `sectors/{MARKET}/{slug}.json` per sector: our own cap-weighted level (base 100,
   previous-session cap weights, today's share count), its 1D/1M/1Y, valuation medians, P/E
   buckets and every member's snapshot fields (no rating). Each sector object is written before
   the directory. `/[market]/sectors` and `/[market]/sectors/[slug]` read them
@@ -412,6 +412,15 @@ the scheduled workflows set the same flag.
   into `live/{MARKET}/sectors.json` (`live_sector_changes`, the level's own weighting), read through `/api/live?kind=sectors`
   whatever `TABLE_BACKEND` says. A member's live 1D is its quote. A live figure counts only from a
   later session than the objects' close (`liveFor`, `dashboard/lib/sectors.mjs`). Nothing scores it.
+  NSE's pages are NSE's 22 sectors, the scheme NSDL's FPI report uses, not Yahoo's 11:
+  `workers/nse_sectors.py` (a step of the Quarterly filings workflow, 150 s a run) asks each NSE and
+  SME stock's quote for its classification (`secInfo.sector`, with macro, industry and basic
+  industry) into `live/NSE/nse-sectors.json`, unclassified first, each again monthly; the publisher
+  groups by it (`nse_sector_rows`) once it covers 90% of the NSE symbols, and Yahoo's until then. A
+  BSE-only name takes the NSE sector most of its Yahoo industry's classified members share, or is
+  left off. `sectors/{MARKET}/symbols.json` maps each member to its page and, where NSE classified it,
+  its NSE industry (the stock page's sector link and the industry beside it, `stockIndustry`); a sector no longer grouped is removed from R2 after the directory is written. The screener's
+  sector filter, sector models and breadth's sector groups stay on Yahoo's `sector`.
 - **NSE FII/DII cash flows are display evidence, on Cloudflare only.**
   `workers/market_flows.py` (a step of the Quarterly filings workflow, on when the
   `MARKET_FLOWS_ENABLED` repository variable is `true`) writes the evening's provisional

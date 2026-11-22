@@ -3,14 +3,16 @@ import type { Metadata } from "next";
 import { MarketDayNotice } from "@/components/market-day-notice";
 import { MarketDashboard, type BreadthList } from "@/components/market/market-dashboard";
 import type { GroupKey } from "@/components/market/group-picker";
-import { FiiDiiFlows } from "@/components/market/fii-dii-flows";
+import { FlowsSummary } from "@/components/market/flows-summary";
 import { Pagination } from "@/components/screener/pagination";
 import { ScreenerTable } from "@/components/screener/screener-table";
 import { parseFilters, toSearchParams } from "@/lib/filters";
 import { formatDate } from "@/lib/format";
+import { sectorExtremes } from "@/lib/fpi-flows.mjs";
 import { LIST_METRICS } from "@/lib/market-breadth.mjs";
-import { readLiveObject } from "@/lib/live-objects";
-import { marketFromSlug, type Market } from "@/lib/markets";
+import { flowSummary } from "@/lib/market-flows.mjs";
+import { readLiveBody, readLiveObject } from "@/lib/live-objects";
+import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
 import {
   getLatestRun,
   getMarketBreadth,
@@ -40,9 +42,10 @@ function selectedGroup(query: Record<string, string | string[] | undefined>): Gr
  * a trend is broad. Every series is rebuilt daily by
  * tools/publish_market_breadth.py from the same closes the model scores on.
  *
- * Above the charts, NSE's FII/DII cash flows: who was buying, beside how
- * broadly. Read from the R2 object workers/market_flows.py writes; absent
- * for the US, and until the step has run.
+ * Above the charts, investor flows in brief: who was buying, beside how
+ * broadly. Read from the R2 objects workers/market_flows.py and
+ * workers/fpi_flows.py write; the detail is the Flows page's. Absent for the
+ * US, and until the steps have run.
  */
 export default async function BreadthPage({ params, searchParams }: PageProps<"/[market]/breadth">) {
   const market = marketFromSlug((await params).market)!;
@@ -51,11 +54,13 @@ export default async function BreadthPage({ params, searchParams }: PageProps<"/
   const listed = Array.isArray(query.list) ? query.list[0] : query.list;
   const metric = listed && LIST_METRICS.includes(listed) ? listed : null;
 
-  const [{ groups, group, indices, failed }, list, flows] = await Promise.all([
+  const nse = market.code === "NSE";
+  const [{ groups, group, indices, failed }, list, flows, fpi] = await Promise.all([
     getMarketBreadth(market.code, selected),
     metric ? breadthList(market, metric, selected, query) : Promise.resolve(null),
     // Display evidence: a failed read drops the panel, never the page.
-    market.code === "NSE" ? readLiveObject(market.code, "fii-dii-flows").catch(() => null) : null,
+    nse ? readLiveObject(market.code, "fii-dii-flows").catch(() => null) : null,
+    nse ? readLiveBody(market.code, "fpi-flows").catch(() => null) : null,
   ]);
 
   return (
@@ -63,7 +68,14 @@ export default async function BreadthPage({ params, searchParams }: PageProps<"/
       <MarketDayNotice />
       <h1 className="text-title font-semibold">Market breadth</h1>
 
-      {flows?.length ? <FiiDiiFlows market={market} rows={flows} /> : null}
+      {nse ? (
+        <FlowsSummary
+          market={market}
+          summary={flowSummary(flows)}
+          sectors={sectorExtremes(fpi?.rows)}
+          href={marketPath(market.slug, "/flows")}
+        />
+      ) : null}
 
       <MarketDashboard
         // Remount per group so a new row starts from a clean scrub.

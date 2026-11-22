@@ -32,13 +32,16 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections import Counter
 from datetime import date
 
 import numpy as np
 import pandas as pd
 
+from screener.markets import is_bse_only
 from screener.numeric import round_half_up, round_series_half_up, safe_float
 from workers.market_breadth import _as_series, _delta_list, encode_sessions
+from workers.nse_sectors import SECTORS as NSE_SECTORS
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +59,10 @@ FIELDS = {
     "pct_change_12m": "y1",
     "median_turnover_20d_inr": "tv",
 }
-SNAPSHOT_FIELDS = ("sector", *FIELDS)
+SNAPSHOT_FIELDS = ("sector", "industry", *FIELDS)
+
+# NSE's classification replaces Yahoo's sectors once it covers this share of the NSE symbols.
+NSE_SECTOR_COVERAGE = 0.9
 
 # P/E bucket upper bounds; the last bucket is open.
 PE_EDGES = (10, 15, 20, 30, 50, 100)
@@ -163,7 +169,75 @@ def _member(row) -> dict:
     for field, key in FIELDS.items():
         value = row.get(field)
         out[key] = value if field == "company" else safe_float(value)
+    if row.get("nse_industry"):
+        out["in"] = row["nse_industry"]
     return out
+
+
+def nse_sector_rows(rows, classified: dict[str, dict]):
+    """``rows`` grouped by NSE's sector (``workers/nse_sectors.py``) instead of Yahoo's.
+
+    ``classified`` is ``{symbol: {"sector", "industry", ...}}``, the worker's rows;
+    each row gains ``nse_industry`` (None where NSE did not classify it). A symbol NSE has not classified
+    (a BSE-only name, which NSE does not quote, or one not asked yet) takes the
+    NSE sector most of its Yahoo industry's classified members are in, when at
+    least two are and over half of them agree; otherwise it has no sector and
+    is left off the pages. Until the classification covers NSE_SECTOR_COVERAGE
+    of the NSE symbols, ``rows`` are returned unchanged, so the pages never mix
+    the two schemes.
+    """
+    # NSE spells some sectors two ways across quotes (punctuation, case): one sector
+    # per slug, under the spelling most of its stocks carry.
+    # A retired sector name (not one of NSE's 22) counts as unclassified.
+    current = {sector_slug(name) for name in NSE_SECTORS}
+    classified = {
+        symbol: entry for symbol, entry in classified.items() if sector_slug(entry.get("sector") or "") in current
+    }
+    spellings: dict[str, Counter] = {}
+    for entry in classified.values():
+        spellings.setdefault(sector_slug(entry["sector"]), Counter())[entry["sector"]] += 1
+    canonical = {slug: counter.most_common(1)[0][0] for slug, counter in spellings.items()}
+    for counter in spellings.values():
+        if len(counter) > 1:
+            logger.info("NSE sector spelt %d ways, read as one: %s", len(counter), dict(counter))
+    sector_of = {symbol: canonical[sector_slug(entry["sector"])] for symbol, entry in classified.items()}
+    nse = [row for row in rows if not is_bse_only(row["symbol"])]
+    covered = sum(1 for row in nse if sector_of.get(row["symbol"]))
+    if not nse or covered < NSE_SECTOR_COVERAGE * len(nse):
+        logger.info("NSE sectors cover %d of %d NSE symbols: sector pages stay on Yahoo's", covered, len(nse))
+        return rows
+
+    votes: dict[str, Counter] = {}
+    for row in rows:
+        if sector_of.get(row["symbol"]) and row.get("industry"):
+            votes.setdefault(row["industry"], Counter())[sector_of[row["symbol"]]] += 1
+    by_industry = {}
+    for industry, counter in votes.items():
+        sector, count = counter.most_common(1)[0]
+        if count >= 2 and count > counter.total() / 2:
+            by_industry[industry] = sector
+
+    out, inferred, dropped = [], 0, 0
+    for row in rows:
+        sector = sector_of.get(row["symbol"])
+        if not sector:
+            sector = by_industry.get(row.get("industry"))
+            inferred += sector is not None
+            dropped += sector is None
+        industry = (classified.get(row["symbol"]) or {}).get("industry") or None
+        out.append({**row, "sector": sector, "nse_industry": industry})
+    logger.info("NSE sectors: %d classified, %d by their industry, %d left off", covered, inferred, dropped)
+    return out
+
+
+def member_symbols(objects) -> dict:
+    """``{symbol: slug}`` over every sector object: how a stock page finds its sector."""
+    return {member["s"]: slug for slug, body in objects.items() for member in body["members"]}
+
+
+def member_industries(objects) -> dict:
+    """``{symbol: NSE industry}`` for every member NSE classified: the stock page's industry."""
+    return {member["s"]: member["in"] for body in objects.values() for member in body["members"] if member.get("in")}
 
 
 def build_sector_objects(observations, sessions, rows, *, market, run_date):

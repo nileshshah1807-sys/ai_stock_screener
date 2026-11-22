@@ -6,7 +6,28 @@
  * Kept free of React so `node --test` can exercise it directly.
  */
 
+import { indexSlug } from "./indices.mjs";
+
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
+
+/**
+ * The slug of a stock's sector page. Where the publisher wrote
+ * `sectors/{MARKET}/symbols.json` (`symbols`, symbol to slug) it decides, and a
+ * stock it left off has no page; without it, the snapshot sector's slug.
+ */
+export function stockSectorSlug(symbols, symbol, sector) {
+  if (symbols && typeof symbols === "object") return symbols[symbol] ?? null;
+  return sector ? indexSlug(sector) : null;
+}
+
+/**
+ * The industry a stock page names beside its sector: NSE's where the publisher
+ * wrote it to `symbols.json` (`industries`), so it reads with NSE's sector;
+ * otherwise the snapshot's (Yahoo's, for a name NSE does not classify).
+ */
+export function stockIndustry(industries, symbol, fallback) {
+  return (industries && typeof industries === "object" && industries[symbol]) || fallback || null;
+}
 
 /**
  * Points rebased to percent change from the first one at or after `from`:

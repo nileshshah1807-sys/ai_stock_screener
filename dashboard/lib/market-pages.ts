@@ -1,4 +1,4 @@
-import { Activity, ArrowUpDown, Grid3x3, type LucideIcon } from "lucide-react";
+import { Activity, ArrowLeftRight, ArrowUpDown, Grid3x3, type LucideIcon } from "lucide-react";
 
 /**
  * The Market tab's pages: what is moving now, how each sector is doing, and
@@ -13,4 +13,5 @@ export const MARKET_PAGES: readonly { path: string; label: string; icon: LucideI
   { path: "/market", label: "Today’s movers", icon: ArrowUpDown },
   { path: "/sectors", label: "Sectors", icon: Grid3x3 },
   { path: "/breadth", label: "Breadth", icon: Activity },
+  { path: "/flows", label: "Flows", icon: ArrowLeftRight },
 ];

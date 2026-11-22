@@ -334,10 +334,16 @@ def main(argv=None):
         return 1 if stale else 0
     if sector_objects:
         # R2 only, no table; an R2 error must not cost the breadth publish below.
-        from workers.sectors import member_weights
+        from workers.sectors import member_industries, member_symbols, member_weights
 
         try:
-            if repository.put_sector_objects(sector_directory, sector_objects, member_weights(sector_objects)):
+            if repository.put_sector_objects(
+                sector_directory,
+                sector_objects,
+                member_weights(sector_objects),
+                member_symbols(sector_objects),
+                member_industries(sector_objects),
+            ):
                 logger.info("Published %d sector objects to R2", len(sector_objects))
             else:
                 logger.warning("No R2 secrets: sector pages not published")
@@ -366,11 +372,19 @@ def main(argv=None):
 
 def build_sector_pages(repository, observations, sessions, market):
     """The sector pages' R2 objects from the newest run (workers/sectors.py)."""
-    from workers.sectors import SNAPSHOT_FIELDS, build_sector_objects
+    from workers.sectors import SNAPSHOT_FIELDS, build_sector_objects, nse_sector_rows
 
     run_date, rows = repository.latest_snapshot_fields(SNAPSHOT_FIELDS)
     if not rows:
         return None, {}
+    # NSE's 22 sectors where workers/nse_sectors.py has classified the market; Yahoo's otherwise (the US).
+    try:
+        body = repository.nse_sectors_object() if market == "NSE" else None
+    except Exception as exc:  # noqa: BLE001 - display evidence: an unreadable object keeps Yahoo's sectors
+        logger.warning("NSE sectors unreadable (%s): sector pages stay on Yahoo's", exc)
+        body = None
+    if body:
+        rows = nse_sector_rows(rows, {r["symbol"]: r for r in body.get("rows") or [] if r.get("sector")})
     started = time.monotonic()
     directory, objects = build_sector_objects(observations, sessions, rows, market=market, run_date=run_date)
     logger.info("Built %d sector objects in %.0fs", len(objects), time.monotonic() - started)

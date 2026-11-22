@@ -5,7 +5,7 @@ NSE moved www.nseindia.com to www.nseindia.in (301 on every path, seen 13 Nov
 failed and every NSE() raised ConnectionError. Import ``NSE`` from here, never
 from ``nse``.
 
-shortcut: patches the three places nse 4.0.1 names the host; drop it when the
+shortcut: patches the places nse 4.0.1 names the host; drop it when the
 lock moves to nse>=5.1.3, which has the new host but no ``boardMeetings``,
 ``equityBhavcopy`` or ``server=``.
 """
@@ -19,6 +19,8 @@ from nse import NSE, transport
 HOST = "https://www.nseindia.in"
 
 NSE.base_url = f"{HOST}/api"
+# Built from the old base_url when the class was defined, so set again: the quote endpoint.
+NSE.next_api_url = f"{HOST}/api/NextApi/apiClient/GetQuoteApi"
 
 
 def _set_cookies(self):

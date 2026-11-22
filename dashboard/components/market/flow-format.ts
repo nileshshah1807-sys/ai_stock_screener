@@ -7,7 +7,8 @@ export type FlowSession = { session: string; FII: Flow | null; DII: Flow | null 
 export type FlowCategory = "FII" | "DII";
 
 export const FLOW_LABEL: Record<FlowCategory, string> = { FII: "FII / FPI", DII: "DII" };
-export const FLOW_INK: Record<FlowCategory, string> = { FII: "var(--series-1)", DII: "var(--series-2)" };
+// Not --series-2: its teal is the gain colour's, and a DII sale would read as buying.
+export const FLOW_INK: Record<FlowCategory, string> = { FII: "var(--series-1)", DII: "var(--series-3)" };
 
 /**
  * How a flow figure is written, shared by the server table and the client
