@@ -26,7 +26,9 @@ export function FpiSectorFlows({ market, table }: { market: Market; table: Secto
   // Fixed to the viewport at the cell, so the table's horizontal scroller cannot clip it.
   const point = (row: SectorRow, index: number) => (event: React.SyntheticEvent<HTMLElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
-    setActive({ row, index, x: box.left + box.width / 2, y: box.top });
+    // Kept 110px (half the widest tooltip, plus a gutter) inside the viewport on a phone.
+    const x = Math.min(Math.max(box.left + box.width / 2, 110), window.innerWidth - 110);
+    setActive({ row, index, x, y: box.top });
   };
   const { money, signed, tone } = flowFormat(market);
   const scale = gridScale(table);
