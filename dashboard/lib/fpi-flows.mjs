@@ -111,13 +111,33 @@ export function gridScale(table) {
 
 /**
  * A grid cell's fill: buying green, selling red, the strength by the square
- * root of its share of the scale so a modest fortnight still shows; a missing
- * figure gets no fill.
+ * root of its share of the scale so a modest fortnight still shows. Any flow
+ * starts at a 20% mix, so a small one is still told from none; zero is the
+ * bare cell, and a missing figure gets no fill.
  */
 export function heatFill(net, scale) {
   if (net === null || net === undefined || !Number.isFinite(net)) return "transparent";
-  const share = Math.round(Math.sqrt(Math.min(1, Math.abs(net) / Math.max(1, scale))) * 85);
+  const share = net === 0 ? 0 : Math.round(20 + Math.sqrt(Math.min(1, Math.abs(net) / Math.max(1, scale))) * 65);
   return `color-mix(in oklab, ${net >= 0 ? "var(--positive)" : "var(--negative)"} ${share}%, var(--control))`;
+}
+
+/**
+ * The heatmap cell a key moves focus to, or null for a key that does not move
+ * it: arrows step one cell, Home and End go to the ends of the row, and the
+ * edges hold. The grid is one tab stop; this is how a keyboard crosses it.
+ */
+export function gridMove({ row, col }, key, rows, cols) {
+  const moves = {
+    ArrowLeft: [row, col - 1],
+    ArrowRight: [row, col + 1],
+    ArrowUp: [row - 1, col],
+    ArrowDown: [row + 1, col],
+    Home: [row, 0],
+    End: [row, cols - 1],
+  };
+  const next = moves[key];
+  if (!next) return null;
+  return { row: Math.min(Math.max(next[0], 0), rows - 1), col: Math.min(Math.max(next[1], 0), cols - 1) };
 }
 
 /**

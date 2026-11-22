@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { DivBar } from "@/components/home/bar";
 import { flowFormat } from "@/components/market/flow-format";
-import { fortnightLabel, fortnightMonth, gridScale, heatFill, sectorPageSlug } from "@/lib/fpi-flows.mjs";
+import { fortnightLabel, fortnightMonth, gridMove, gridScale, heatFill, sectorPageSlug } from "@/lib/fpi-flows.mjs";
 import { formatDate } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,16 @@ export type SectorTable = { latest: Period; periods: Period[]; yearSpan: number;
  */
 export function FpiSectorFlows({ market, table, pages }: { market: Market; table: SectorTable; pages: string[] }) {
   const [active, setActive] = useState<{ row: SectorRow; index: number; x: number; y: number } | null>(null);
+  // The grid is one tab stop (the latest fortnight of the top sector); arrows move within it.
+  const [cursor, setCursor] = useState({ row: 0, col: table.periods.length - 1 });
+  const gridRef = useRef<HTMLTableElement>(null);
+  const onCellKey = (event: React.KeyboardEvent<HTMLElement>) => {
+    const next = gridMove(cursor, event.key, table.sectors.length + 1, table.periods.length);
+    if (!next) return;
+    event.preventDefault();
+    setCursor(next);
+    gridRef.current?.querySelector<HTMLElement>(`[data-cell="${next.row}:${next.col}"]`)?.focus();
+  };
   // Fixed to the viewport at the cell, so the table's horizontal scroller cannot clip it.
   const point = (row: SectorRow, index: number) => (event: React.SyntheticEvent<HTMLElement>) => {
     const box = event.currentTarget.getBoundingClientRect();
@@ -38,7 +48,12 @@ export function FpiSectorFlows({ market, table, pages }: { market: Market; table
   const activePeriod = active ? table.periods[active.index] : null;
   const yearLabel = table.yearSpan >= 24 ? "1Y" : `${table.yearSpan} fortnights`;
 
-  const row = (entry: SectorRow, total = false, slug = total ? null : sectorPageSlug(entry.sector, pages)) => (
+  const row = (
+    entry: SectorRow,
+    rowIndex: number,
+    total = false,
+    slug = total ? null : sectorPageSlug(entry.sector, pages),
+  ) => (
     <tr key={entry.sector} className={cn("border-t", total ? "border-border" : "border-border/60")}>
       <th
         scope="row"
@@ -47,16 +62,19 @@ export function FpiSectorFlows({ market, table, pages }: { market: Market; table
           total ? "font-semibold" : "font-medium",
         )}
       >
-        {slug ? (
-          <Link
-            href={marketPath(market.slug, `/sectors/${slug}`)}
-            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {entry.sector}
-          </Link>
-        ) : (
-          entry.sector
-        )}
+        {/* Capped on a phone so the net column stays beside the name. */}
+        <span className="block max-w-[9rem] truncate sm:max-w-none" title={entry.sector}>
+          {slug ? (
+            <Link
+              href={marketPath(market.slug, `/sectors/${slug}`)}
+              className="rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {entry.sector}
+            </Link>
+          ) : (
+            entry.sector
+          )}
+        </span>
       </th>
       <td
         className={cn(
@@ -79,10 +97,15 @@ export function FpiSectorFlows({ market, table, pages }: { market: Market; table
               <span
                 key={period.end}
                 role="img"
-                tabIndex={0}
+                data-cell={`${rowIndex}:${index}`}
+                tabIndex={cursor.row === rowIndex && cursor.col === index ? 0 : -1}
                 aria-label={`${entry.sector}, ${fortnightLabel(period.start, period.end)}: ${signed(net)}`}
                 onPointerEnter={point(entry, index)}
-                onFocus={point(entry, index)}
+                onFocus={(event) => {
+                  setCursor({ row: rowIndex, col: index });
+                  point(entry, index)(event);
+                }}
+                onKeyDown={onCellKey}
                 onBlur={() => setActive(null)}
                 className={cn(
                   "h-5 min-w-5 flex-1 rounded-[3px] outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -116,14 +139,25 @@ export function FpiSectorFlows({ market, table, pages }: { market: Market; table
         <h2 id="fpi-sectors-title" className="text-lead font-semibold tracking-[-0.011em]">
           FPI flows by sector
         </h2>
-        <p className="tabular text-xs text-muted-foreground">
-          NSDL fortnightly · as of {formatDate(table.latest.end)}
-        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          {/* The cells' scale; values past either end saturate. Each cell's own figure is in its label. */}
+          <span className="tabular flex items-center gap-1.5 font-mono" aria-hidden>
+            {signed(-scale)}
+            <span className="flex gap-0.5">
+              {[-1, -0.25, 0, 0.25, 1].map((step) => (
+                <span key={step} className="size-3 rounded-[2px]" style={{ background: heatFill(step * scale, scale) }} />
+              ))}
+            </span>
+            {signed(scale)}
+          </span>
+          <p className="tabular">NSDL fortnightly · as of {formatDate(table.latest.end)}</p>
+        </div>
       </div>
 
       <div className="panel p-4 sm:p-5">
-        <div className="overflow-x-auto" onPointerLeave={() => setActive(null)}>
-          <table className="w-full min-w-[48rem] text-sm">
+        {/* relative: the header's sr-only labels are absolute, and would otherwise widen the page past the scroller. */}
+        <div className="relative overflow-x-auto" onPointerLeave={() => setActive(null)}>
+          <table ref={gridRef} className="w-full min-w-[48rem] text-sm">
             <thead className="text-xs text-muted-foreground">
               <tr>
                 <th scope="col" className="sticky left-0 z-10 bg-card pb-2 text-left font-medium">
@@ -157,8 +191,8 @@ export function FpiSectorFlows({ market, table, pages }: { market: Market; table
                 </th>
               </tr>
             </thead>
-            <tbody>{table.sectors.map((entry) => row(entry))}</tbody>
-            <tfoot>{row(table.total, true)}</tfoot>
+            <tbody>{table.sectors.map((entry, index) => row(entry, index))}</tbody>
+            <tfoot>{row(table.total, table.sectors.length, true)}</tfoot>
           </table>
         </div>
 

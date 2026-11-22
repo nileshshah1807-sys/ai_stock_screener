@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   foreignDeals,
   fortnightLabel,
+  gridMove,
   gridScale,
   heatFill,
   sectorExtremes,
@@ -74,11 +75,24 @@ test("sector extremes: the latest fortnight's largest buy and sale, none when a 
   assert.equal(sectorExtremes([]), null);
 });
 
-test("heat fill: sign picks the hue, a missing figure has none", () => {
+test("heat fill: sign picks the hue, any flow shows, zero is bare, a missing figure has none", () => {
   assert.match(heatFill(100, 100), /var\(--positive\) 85%/);
-  assert.match(heatFill(-25, 100), /var\(--negative\) 43%/);
+  assert.match(heatFill(-25, 100), /var\(--negative\) 53%/);
   assert.match(heatFill(500, 100), /var\(--positive\) 85%/);
+  assert.match(heatFill(1, 100), /var\(--positive\) 27%/);
+  assert.match(heatFill(0, 100), /var\(--positive\) 0%/);
   assert.equal(heatFill(null, 100), "transparent");
+});
+
+test("grid keys: arrows step, Home and End reach the row's ends, edges hold, other keys do nothing", () => {
+  const at = { row: 1, col: 5 };
+  assert.deepEqual(gridMove(at, "ArrowRight", 3, 12), { row: 1, col: 6 });
+  assert.deepEqual(gridMove(at, "ArrowUp", 3, 12), { row: 0, col: 5 });
+  assert.deepEqual(gridMove(at, "Home", 3, 12), { row: 1, col: 0 });
+  assert.deepEqual(gridMove(at, "End", 3, 12), { row: 1, col: 11 });
+  assert.deepEqual(gridMove({ row: 0, col: 0 }, "ArrowLeft", 3, 12), { row: 0, col: 0 });
+  assert.deepEqual(gridMove({ row: 2, col: 11 }, "ArrowDown", 3, 12), { row: 2, col: 11 });
+  assert.equal(gridMove(at, "Tab", 3, 12), null);
 });
 
 test("grid scale is the 90th percentile, so one outlier does not wash out the rest", () => {

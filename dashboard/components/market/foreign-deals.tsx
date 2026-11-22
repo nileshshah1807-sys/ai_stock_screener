@@ -71,7 +71,7 @@ export function ForeignDeals({
           Bulk &amp; block{deals.since ? ` · since ${formatDate(deals.since)}` : ""}
         </p>
       </div>
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {side("Bought", deals.bought, "No foreign buying in bulk or block deals in the last 30 days.")}
         {side("Sold", deals.sold, "No foreign selling in bulk or block deals in the last 30 days.")}
       </div>
