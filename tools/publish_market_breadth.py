@@ -334,11 +334,15 @@ def main(argv=None):
         return 1 if stale else 0
     if sector_objects:
         # R2 only, no table; an R2 error must not cost the breadth publish below.
-        from workers.sectors import member_symbols, member_weights
+        from workers.sectors import member_industries, member_symbols, member_weights
 
         try:
             if repository.put_sector_objects(
-                sector_directory, sector_objects, member_weights(sector_objects), member_symbols(sector_objects)
+                sector_directory,
+                sector_objects,
+                member_weights(sector_objects),
+                member_symbols(sector_objects),
+                member_industries(sector_objects),
             ):
                 logger.info("Published %d sector objects to R2", len(sector_objects))
             else:
@@ -380,7 +384,7 @@ def build_sector_pages(repository, observations, sessions, market):
         logger.warning("NSE sectors unreadable (%s): sector pages stay on Yahoo's", exc)
         body = None
     if body:
-        rows = nse_sector_rows(rows, {r["symbol"]: r["sector"] for r in body.get("rows") or [] if r.get("sector")})
+        rows = nse_sector_rows(rows, {r["symbol"]: r for r in body.get("rows") or [] if r.get("sector")})
     started = time.monotonic()
     directory, objects = build_sector_objects(observations, sessions, rows, market=market, run_date=run_date)
     logger.info("Built %d sector objects in %.0fs", len(objects), time.monotonic() - started)

@@ -39,7 +39,7 @@ import { HalfYearResults } from "@/components/stock/half-year-results";
 import { NewListingView } from "@/components/stock/new-listing-view";
 import { SectorPeers } from "@/components/stock/sector-peers";
 import { readSector, readSectorSymbols } from "@/lib/sector-objects";
-import { stockSectorSlug } from "@/lib/sectors.mjs";
+import { stockIndustry, stockSectorSlug } from "@/lib/sectors.mjs";
 import {
   Tabs,
   TabsContent,
@@ -215,6 +215,8 @@ export default async function StockPage({
     run ? getStock(market.code, run.run_date, symbol) : null,
   );
   const seriesRead = getPriceSeries(market.code, symbol);
+  // Which sector page and NSE industry the stock has; display evidence, so a failed read drops only them.
+  const sectorSymbolsRead = readSectorSymbols(market.code).catch(() => null);
   const historyRead = getStockHistory(market.code, symbol);
   // Sessions since the base series was last rebuilt. The cutoff is the base's
   // own last_session; with no base there is nothing to append to, and the
@@ -245,6 +247,7 @@ export default async function StockPage({
     rankedCount,
     halfYears,
     sector,
+    sectorSymbols,
   ] = await Promise.all([
     runRead,
     rowRead,
@@ -267,12 +270,13 @@ export default async function StockPage({
     runRead.then((r) => (r ? getRankedCount(market.code, r.run_date, r.row_count) : 0)),
     getHalfYears(market.code, symbol),
     // The stock's sector, for the peers panel; display evidence, so a failed read only drops it.
-    rowRead
-      .then(async (r) => {
-        const slug = r && stockSectorSlug(await readSectorSymbols(market.code).catch(() => null), r.symbol, r.sector);
+    Promise.all([rowRead, sectorSymbolsRead])
+      .then(([r, index]) => {
+        const slug = r && stockSectorSlug(index?.symbols, r.symbol, r.sector);
         return slug ? readSector(market.code, slug) : null;
       })
       .catch(() => null),
+    sectorSymbolsRead,
   ]);
   if (!run) notFound();
 
@@ -321,6 +325,7 @@ export default async function StockPage({
         })()
       : null;
   const change1d = row.pct_change_1d ?? derivedChange1d;
+  const industry = stockIndustry(sectorSymbols?.industries, row.symbol, row.industry);
 
   const payload = row.payload ?? {};
   // TradingView where it serves the stock; our own chart where it does not.
@@ -893,7 +898,7 @@ export default async function StockPage({
             ) : (
               (row.sector ?? MISSING)
             )}
-            {row.industry ? ` · ${row.industry}` : ""} · Market cap{" "}
+            {industry ? ` · ${industry}` : ""} · Market cap{" "}
             {formatMoneyCompact(row.market_cap, market)} · Prices as of{" "}
             {formatDate(row.price_bar_as_of ?? run.price_bar_as_of)}
           </p>

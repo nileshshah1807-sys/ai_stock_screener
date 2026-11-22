@@ -891,6 +891,7 @@ class DashboardRepository:
         sectors: dict[str, dict[str, Any]],
         weights: dict[str, Any] | None = None,
         symbols: dict[str, str] | None = None,
+        industries: dict[str, str] | None = None,
     ) -> bool:
         """``sectors/{market}/{slug}.json`` for each sector, ``weights.json`` and ``symbols.json``, then ``directory.json``.
 
@@ -910,7 +911,7 @@ class DashboardRepository:
         if weights is not None:
             put("weights", weights)
         if symbols is not None:
-            put("symbols", {"market": self.market, "symbols": symbols})
+            put("symbols", {"market": self.market, "symbols": symbols, "industries": industries or {}})
         put("directory", directory)
         # After the directory, so it never names a removed sector: a sector no longer
         # grouped (Yahoo's, once NSE's replace them) must not stay readable at its old URL.

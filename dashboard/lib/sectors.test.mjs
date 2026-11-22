@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { liveFor, peerSlice, rebase, squarify, stockSectorSlug, withLiveChange } from "./sectors.mjs";
+import { liveFor, peerSlice, rebase, squarify, stockIndustry, stockSectorSlug, withLiveChange } from "./sectors.mjs";
+
+test("a stock's industry: NSE's where published, else the snapshot's", () => {
+  const industries = { TDPOWERSYS: "Electrical Equipment" };
+  assert.equal(stockIndustry(industries, "TDPOWERSYS", "Specialty Industrial Machinery"), "Electrical Equipment");
+  assert.equal(stockIndustry(industries, "X.BO", "Specialty Industrial Machinery"), "Specialty Industrial Machinery");
+  assert.equal(stockIndustry(null, "AAPL", "Consumer Electronics"), "Consumer Electronics");
+  assert.equal(stockIndustry(null, "AAPL", null), null);
+});
 
 test("a stock's sector page: the published map decides, else the snapshot sector", () => {
   const symbols = { TDPOWERSYS: "capital-goods" };

@@ -168,13 +168,16 @@ def _member(row) -> dict:
     for field, key in FIELDS.items():
         value = row.get(field)
         out[key] = value if field == "company" else safe_float(value)
+    if row.get("nse_industry"):
+        out["in"] = row["nse_industry"]
     return out
 
 
-def nse_sector_rows(rows, classified: dict[str, str]):
+def nse_sector_rows(rows, classified: dict[str, dict]):
     """``rows`` grouped by NSE's sector (``workers/nse_sectors.py``) instead of Yahoo's.
 
-    ``classified`` is ``{symbol: NSE sector}``. A symbol NSE has not classified
+    ``classified`` is ``{symbol: {"sector", "industry", ...}}``, the worker's rows;
+    each row gains ``nse_industry`` (None where NSE did not classify it). A symbol NSE has not classified
     (a BSE-only name, which NSE does not quote, or one not asked yet) takes the
     NSE sector most of its Yahoo industry's classified members are in, when at
     least two are and over half of them agree; otherwise it has no sector and
@@ -182,16 +185,17 @@ def nse_sector_rows(rows, classified: dict[str, str]):
     of the NSE symbols, ``rows`` are returned unchanged, so the pages never mix
     the two schemes.
     """
+    sector_of = {symbol: entry.get("sector") for symbol, entry in classified.items() if entry.get("sector")}
     nse = [row for row in rows if not is_bse_only(row["symbol"])]
-    covered = sum(1 for row in nse if classified.get(row["symbol"]))
+    covered = sum(1 for row in nse if sector_of.get(row["symbol"]))
     if not nse or covered < NSE_SECTOR_COVERAGE * len(nse):
         logger.info("NSE sectors cover %d of %d NSE symbols: sector pages stay on Yahoo's", covered, len(nse))
         return rows
 
     votes: dict[str, Counter] = {}
     for row in rows:
-        if classified.get(row["symbol"]) and row.get("industry"):
-            votes.setdefault(row["industry"], Counter())[classified[row["symbol"]]] += 1
+        if sector_of.get(row["symbol"]) and row.get("industry"):
+            votes.setdefault(row["industry"], Counter())[sector_of[row["symbol"]]] += 1
     by_industry = {}
     for industry, counter in votes.items():
         sector, count = counter.most_common(1)[0]
@@ -200,12 +204,13 @@ def nse_sector_rows(rows, classified: dict[str, str]):
 
     out, inferred, dropped = [], 0, 0
     for row in rows:
-        sector = classified.get(row["symbol"])
+        sector = sector_of.get(row["symbol"])
         if not sector:
             sector = by_industry.get(row.get("industry"))
             inferred += sector is not None
             dropped += sector is None
-        out.append({**row, "sector": sector})
+        industry = (classified.get(row["symbol"]) or {}).get("industry") or None
+        out.append({**row, "sector": sector, "nse_industry": industry})
     logger.info("NSE sectors: %d classified, %d by their industry, %d left off", covered, inferred, dropped)
     return out
 
@@ -213,6 +218,11 @@ def nse_sector_rows(rows, classified: dict[str, str]):
 def member_symbols(objects) -> dict:
     """``{symbol: slug}`` over every sector object: how a stock page finds its sector."""
     return {member["s"]: slug for slug, body in objects.items() for member in body["members"]}
+
+
+def member_industries(objects) -> dict:
+    """``{symbol: NSE industry}`` for every member NSE classified: the stock page's industry."""
+    return {member["s"]: member["in"] for body in objects.values() for member in body["members"] if member.get("in")}
 
 
 def build_sector_objects(observations, sessions, rows, *, market, run_date):

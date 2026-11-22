@@ -21,6 +21,15 @@ export function stockSectorSlug(symbols, symbol, sector) {
 }
 
 /**
+ * The industry a stock page names beside its sector: NSE's where the publisher
+ * wrote it to `symbols.json` (`industries`), so it reads with NSE's sector;
+ * otherwise the snapshot's (Yahoo's, for a name NSE does not classify).
+ */
+export function stockIndustry(industries, symbol, fallback) {
+  return (industries && typeof industries === "object" && industries[symbol]) || fallback || null;
+}
+
+/**
  * Points rebased to percent change from the first one at or after `from`:
  * TradingView's compare scale, so series of any price level share an axis.
  *

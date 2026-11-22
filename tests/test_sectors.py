@@ -153,7 +153,7 @@ class PutObjectsTests(unittest.TestCase):
                 "sectors/NSE/directory.json",
             ],
         )
-        self.assertEqual(written[2][1], {"market": "NSE", "symbols": {"ONGC": "energy"}})
+        self.assertEqual(written[2][1], {"market": "NSE", "symbols": {"ONGC": "energy"}, "industries": {}})
         self.assertEqual(removed, ["sectors/NSE/consumer-cyclical.json"])  # a sector no longer grouped
 
         repository._r2 = None
@@ -170,10 +170,10 @@ class NseSectorRowsTests(unittest.TestCase):
         {"symbol": "ODDCO.BO", "sector": "Industrials", "industry": "Conglomerates"},
     ]
     CLASSIFIED = {
-        "TDPOWERSYS": "Capital Goods",
-        "BHEL": "Capital Goods",
-        "SIEMENS": "Capital Goods",
-        "HDFCBANK": "Financial Services",
+        "TDPOWERSYS": {"sector": "Capital Goods", "industry": "Electrical Equipment"},
+        "BHEL": {"sector": "Capital Goods", "industry": "Electrical Equipment"},
+        "SIEMENS": {"sector": "Capital Goods", "industry": "Electrical Equipment"},
+        "HDFCBANK": {"sector": "Financial Services", "industry": "Banks"},
     }
 
     def test_nse_sectors_replace_yahoos_and_a_bse_name_takes_its_industrys(self):
@@ -182,17 +182,28 @@ class NseSectorRowsTests(unittest.TestCase):
         self.assertEqual(out["HDFCBANK"], "Financial Services")
         self.assertEqual(out["POWERX.BO"], "Capital Goods")
         self.assertIsNone(out["ODDCO.BO"])  # no classified member of its industry: left off
+        industries = {row["symbol"]: row["nse_industry"] for row in sectors.nse_sector_rows(self.ROWS, self.CLASSIFIED)}
+        self.assertEqual(industries["TDPOWERSYS"], "Electrical Equipment")
+        self.assertIsNone(industries["POWERX.BO"])  # its sector is inferred, its industry is not
 
     def test_an_industry_split_between_sectors_infers_nothing(self):
         rows = [*self.ROWS[:4], {"symbol": "ABB", "sector": "Industrials", "industry": "Electrical Equipment"}]
-        classified = {**self.CLASSIFIED, "ABB": "Power", "SIEMENS": "Power"}
+        power = {"sector": "Power", "industry": "Power"}
+        classified = {**self.CLASSIFIED, "ABB": power, "SIEMENS": power}
         rows.append({"symbol": "X.BO", "industry": "Electrical Equipment"})
         out = {row["symbol"]: row["sector"] for row in sectors.nse_sector_rows(rows, classified)}
         self.assertIsNone(out["X.BO"])  # 2 Capital Goods against 2 Power: no majority
 
     def test_rows_stay_on_yahoo_until_nse_covers_the_market(self):
-        partial = {"TDPOWERSYS": "Capital Goods"}
+        partial = {"TDPOWERSYS": self.CLASSIFIED["TDPOWERSYS"]}
         self.assertEqual(sectors.nse_sector_rows(self.ROWS, partial), self.ROWS)
+
+    def test_members_carry_their_nse_industry(self):
+        member = sectors._member({"symbol": "TDPOWERSYS", "nse_industry": "Electrical Equipment"})
+        self.assertEqual(member["in"], "Electrical Equipment")
+        self.assertNotIn("in", sectors._member({"symbol": "X.BO", "nse_industry": None}))
+        objects = {"capital-goods": {"members": [member, {"s": "X.BO"}]}}
+        self.assertEqual(sectors.member_industries(objects), {"TDPOWERSYS": "Electrical Equipment"})
 
     def test_member_symbols_names_each_stocks_page(self):
         objects = {"capital-goods": {"members": [{"s": "BHEL"}, {"s": "SIEMENS"}]}, "power": {"members": [{"s": "NTPC"}]}}

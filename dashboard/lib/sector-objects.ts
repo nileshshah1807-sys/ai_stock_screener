@@ -105,10 +105,10 @@ export function readSectorDirectory(market: MarketCode): Promise<SectorDirectory
   return read<SectorDirectory>(market, "directory");
 }
 
-/** `{ symbol: slug }` from `symbols.json`, or null when it has not been published. */
-export async function readSectorSymbols(market: MarketCode): Promise<Record<string, string> | null> {
-  const body = await read<{ symbols?: Record<string, string> }>(market, "symbols");
-  return body?.symbols ?? null;
+/** `symbols.json`: each member's page slug and, for NSE, its NSE industry; null when not published. */
+export type SectorSymbols = { symbols?: Record<string, string>; industries?: Record<string, string> };
+export function readSectorSymbols(market: MarketCode): Promise<SectorSymbols | null> {
+  return read<SectorSymbols>(market, "symbols");
 }
 
 /** One sector by its slug, or null when there is none. */

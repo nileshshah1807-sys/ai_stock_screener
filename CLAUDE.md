@@ -418,8 +418,8 @@ the scheduled workflows set the same flag.
   industry) into `live/NSE/nse-sectors.json`, unclassified first, each again monthly; the publisher
   groups by it (`nse_sector_rows`) once it covers 90% of the NSE symbols, and Yahoo's until then. A
   BSE-only name takes the NSE sector most of its Yahoo industry's classified members share, or is
-  left off. `sectors/{MARKET}/symbols.json` maps each member to its page (the stock page's sector
-  link); a sector no longer grouped is removed from R2 after the directory is written. The screener's
+  left off. `sectors/{MARKET}/symbols.json` maps each member to its page and, where NSE classified it,
+  its NSE industry (the stock page's sector link and the industry beside it, `stockIndustry`); a sector no longer grouped is removed from R2 after the directory is written. The screener's
   sector filter, sector models and breadth's sector groups stay on Yahoo's `sector`.
 - **NSE FII/DII cash flows are display evidence, on Cloudflare only.**
   `workers/market_flows.py` (a step of the Quarterly filings workflow, on when the
