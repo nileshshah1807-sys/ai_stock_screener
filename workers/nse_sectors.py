@@ -50,15 +50,20 @@ def classification(quote: dict[str, Any]) -> dict[str, str] | None:
 def classify(quote: Callable[[str, str], dict[str, Any]], symbol: str, sme: bool) -> dict[str, str] | None:
     """The symbol's classification from the first series NSE quotes it under, or None.
 
-    A series the symbol does not trade in answers with an empty body, which the
-    client raises as a decode or lookup error; anything else (a dropped
-    session, a refusal) is not about this symbol and is raised.
+    A series the symbol does not trade in answers with an empty body or a 404,
+    which the client raises as a decode or lookup error or as a ConnectionError
+    naming the 404; anything else (a dropped session, a refusal) is not about
+    this symbol and is raised.
     """
     for series in (*SME_SERIES, *MAINBOARD_SERIES) if sme else (*MAINBOARD_SERIES, *SME_SERIES):
         try:
             found = classification(quote(symbol, series))
         except (ValueError, KeyError, IndexError, TypeError):
             continue
+        except ConnectionError as exc:
+            if " 404:" in str(exc):
+                continue
+            raise
         if found:
             return found
     return None

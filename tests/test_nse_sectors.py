@@ -42,6 +42,14 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(nse_sectors.classify(quote, "SHREEOSFM", sme=False)["sector"], "Services")
         self.assertEqual(asked, ["EQ", "BE", "BZ", "SM"])
 
+    def test_a_404_is_a_series_it_does_not_trade_in(self):
+        def quote(symbol, series):
+            if series == "SM":
+                raise ConnectionError("https://www.nseindia.in/api/NextApi/apiClient/GetQuoteApi 404: Not Found")
+            return quote_record("Services")
+
+        self.assertEqual(nse_sectors.classify(quote, "AARADHYA", sme=True)["sector"], "Services")
+
     def test_a_failed_session_is_raised_not_read_as_unclassified(self):
         def quote(symbol, series):
             raise ConnectionError("refused")
