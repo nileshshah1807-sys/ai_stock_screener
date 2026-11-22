@@ -11,6 +11,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "fpi_flows"
 SELECTION = """
 <select id="ddlfortnighly">
 <option value="~/StaticReports/Fortnightly_Sector_wise_FII_Investment_Data/FIIInvestSector_Nov152026.html">NOV 15, 2026</option>
+<option value="~/StaticReports/Fortnightly_Sector_wise_FII_Investment_Data/FIIInvestSector_June302026.html">JUNE 30, 2026</option>
 <option value="~/StaticReports/Fortnightly_Sector_wise_FII_Investment_Data/FIIInvestSector_Jan152023.html">JAN 15, 2023</option>
 <option value="~/StaticReports/Fortnightly_Sector_wise_FII_Investment_Data/FIIInvestSector_Dec312022.html">DEC 31, 2022</option>
 </select>"""
@@ -47,7 +48,8 @@ class ParseReportTest(unittest.TestCase):
 class ReportLinksTest(unittest.TestCase):
     def test_links_and_period_ends(self):
         links = fpi_flows.report_links(SELECTION)
-        self.assertEqual(links[0][0], date(2026, 11, 15))
+        self.assertEqual([link[0] for link in links],
+                         [date(2026, 11, 15), date(2026, 6, 30), date(2023, 1, 15), date(2022, 12, 31)])
         self.assertTrue(links[0][1].endswith("/web/StaticReports/Fortnightly_Sector_wise_FII_Investment_Data/"
                                              "FIIInvestSector_Nov152026.html"))
 
@@ -58,7 +60,7 @@ class ReportLinksTest(unittest.TestCase):
             fetched.append(url)
             return SELECTION if url == fpi_flows.SELECTION_URL else report("sector_jan152023.html")
 
-        added = fpi_flows.new_fortnights({"2026-11-15"}, fetch, pause=0)
+        added = fpi_flows.new_fortnights({"2026-11-15", "2026-06-30"}, fetch, pause=0)
         self.assertEqual([row["period_end"] for row in added], ["2023-01-15"])
         self.assertEqual(len(fetched), 2)  # the list, then the one report; Dec 2022 predates the sectors
 
@@ -124,7 +126,11 @@ class Repo:
 
 class RunTest(unittest.TestCase):
     def fetch(self, url):
-        return SELECTION if url == fpi_flows.SELECTION_URL else report("sector_nov152026.html")
+        if url == fpi_flows.SELECTION_URL:
+            return SELECTION
+        if url.endswith("Nov152026.html"):
+            return report("sector_nov152026.html")
+        raise ConnectionError(url)  # any other report fails and is left for the next run
 
     def test_adds_new_fortnights_to_the_object_and_names_the_deals(self):
         held = {"period_start": "2023-01-01", "period_end": "2023-01-15", "sectors": [], "total": {}}

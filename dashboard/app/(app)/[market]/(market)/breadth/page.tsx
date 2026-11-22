@@ -10,7 +10,7 @@ import { parseFilters, toSearchParams } from "@/lib/filters";
 import { formatDate } from "@/lib/format";
 import { LIST_METRICS } from "@/lib/market-breadth.mjs";
 import { readLiveObject } from "@/lib/live-objects";
-import { marketFromSlug, type Market } from "@/lib/markets";
+import { marketFromSlug, marketPath, type Market } from "@/lib/markets";
 import {
   getLatestRun,
   getMarketBreadth,
@@ -63,7 +63,7 @@ export default async function BreadthPage({ params, searchParams }: PageProps<"/
       <MarketDayNotice />
       <h1 className="text-title font-semibold">Market breadth</h1>
 
-      {flows?.length ? <FiiDiiFlows market={market} rows={flows} /> : null}
+      {flows?.length ? <FiiDiiFlows market={market} rows={flows} href={marketPath(market.slug, "/flows")} /> : null}
 
       <MarketDashboard
         // Remount per group so a new row starts from a clean scrub.

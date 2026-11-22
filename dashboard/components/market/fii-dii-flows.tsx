@@ -1,3 +1,6 @@
+import { ChevronRight } from "lucide-react";
+import Link from "next/link";
+
 import { FlowBars } from "@/components/market/flow-bars";
 import { FLOW_INK, FLOW_LABEL, flowFormat, type FlowCategory, type FlowSession } from "@/components/market/flow-format";
 import { CATEGORIES, flowSessions, netOver } from "@/lib/fii-dii.mjs";
@@ -17,7 +20,7 @@ const RUN = 20;
  * day the worker was switched on, and the chart says so rather than
  * implying a longer record.
  */
-export function FiiDiiFlows({ market, rows }: { market: Market; rows: Record<string, unknown>[] }) {
+export function FiiDiiFlows({ market, rows, href }: { market: Market; rows: Record<string, unknown>[]; href?: string }) {
   const sessions = flowSessions(rows) as FlowSession[];
   const latest = sessions.at(-1);
   if (!latest) return null;
@@ -29,7 +32,17 @@ export function FiiDiiFlows({ market, rows }: { market: Market; rows: Record<str
     <section aria-labelledby="flows-title" className="space-y-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2 id="flows-title" className="text-lead font-semibold tracking-[-0.011em]">
-          FII / DII cash flows
+          {href ? (
+            <Link
+              href={href}
+              className="group inline-flex items-center gap-1 rounded hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              FII / DII cash flows
+              <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden />
+            </Link>
+          ) : (
+            "FII / DII cash flows"
+          )}
         </h2>
         <p className="tabular text-xs text-muted-foreground">NSE provisional · {formatDate(latest.session)}</p>
       </div>

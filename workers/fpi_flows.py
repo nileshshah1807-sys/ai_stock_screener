@@ -66,8 +66,12 @@ def report_links(selection_html: str) -> list[tuple[date, str]]:
     """Each report's period end and URL, from the selection page's dropdown."""
     links = []
     for value, label in re.findall(r'<option[^>]*value="([^"]+)"[^>]*>([^<]+)</option>', selection_html):
+        # "NOV 15, 2026", but also "JUNE 30, 2026": the first three letters name the month.
+        match = re.fullmatch(r"([A-Za-z]{3})[A-Za-z]*\s+(\d{1,2}),\s*(\d{4})", " ".join(label.split()))
+        if not match:
+            continue
         try:
-            period_end = datetime.strptime(" ".join(label.split()).title(), "%b %d, %Y").date()
+            period_end = datetime.strptime(" ".join(match.groups()).title(), "%b %d %Y").date()
         except ValueError:
             continue
         links.append((period_end, f"{SITE}/{value.removeprefix('~/')}"))
