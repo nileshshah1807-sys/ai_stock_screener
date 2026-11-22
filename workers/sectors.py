@@ -41,6 +41,7 @@ import pandas as pd
 from screener.markets import is_bse_only
 from screener.numeric import round_half_up, round_series_half_up, safe_float
 from workers.market_breadth import _as_series, _delta_list, encode_sessions
+from workers.nse_sectors import SECTORS as NSE_SECTORS
 
 logger = logging.getLogger(__name__)
 
@@ -187,17 +188,19 @@ def nse_sector_rows(rows, classified: dict[str, dict]):
     """
     # NSE spells some sectors two ways across quotes (punctuation, case): one sector
     # per slug, under the spelling most of its stocks carry.
+    # A retired sector name (not one of NSE's 22) counts as unclassified.
+    current = {sector_slug(name) for name in NSE_SECTORS}
+    classified = {
+        symbol: entry for symbol, entry in classified.items() if sector_slug(entry.get("sector") or "") in current
+    }
     spellings: dict[str, Counter] = {}
     for entry in classified.values():
-        if entry.get("sector"):
-            spellings.setdefault(sector_slug(entry["sector"]), Counter())[entry["sector"]] += 1
+        spellings.setdefault(sector_slug(entry["sector"]), Counter())[entry["sector"]] += 1
     canonical = {slug: counter.most_common(1)[0][0] for slug, counter in spellings.items()}
     for counter in spellings.values():
         if len(counter) > 1:
             logger.info("NSE sector spelt %d ways, read as one: %s", len(counter), dict(counter))
-    sector_of = {
-        symbol: canonical[sector_slug(entry["sector"])] for symbol, entry in classified.items() if entry.get("sector")
-    }
+    sector_of = {symbol: canonical[sector_slug(entry["sector"])] for symbol, entry in classified.items()}
     nse = [row for row in rows if not is_bse_only(row["symbol"])]
     covered = sum(1 for row in nse if sector_of.get(row["symbol"]))
     if not nse or covered < NSE_SECTOR_COVERAGE * len(nse):

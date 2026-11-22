@@ -917,7 +917,7 @@ class DashboardRepository:
         # grouped (Yahoo's, once NSE's replace them) must not stay readable at its old URL.
         keep = {f"sectors/{self.market}/{name}.json" for name in (*sectors, "weights", "symbols", "directory")}
         try:
-            stale = [path for path in store.list(f"sectors/{self.market}/") if path not in keep]
+            stale = [path for path in store.list(f"sectors/{self.market}") if path not in keep]
             if stale:
                 logger.info("Removed %d stale sector objects", store.remove(stale))
         except Exception as exc:  # noqa: BLE001 - a stale object is unlinked; never fail the publish for it

@@ -41,6 +41,17 @@ RETRY_PAUSE_SECONDS = 10.0
 REQUEST_PAUSE_SECONDS = 0.4
 MAINBOARD_SERIES = ("EQ", "BE", "BZ")
 SME_SERIES = ("SM", "ST", "SZ")
+# NSE's sectors since its 2023 classification: the 22 the sector pages are. A few quotes
+# still carry a retired name (AUTOMOBILE, CONSUMER GOODS, HEALTHCARE SERVICES, 22 Nov 2026),
+# which the pages treat as unclassified.
+SECTORS = (
+    "Automobile and Auto Components", "Capital Goods", "Chemicals", "Construction",
+    "Construction Materials", "Consumer Durables", "Consumer Services", "Diversified",
+    "Fast Moving Consumer Goods", "Financial Services", "Forest Materials", "Healthcare",
+    "Information Technology", "Media Entertainment & Publication", "Metals & Mining",
+    "Oil Gas & Consumable Fuels", "Power", "Realty", "Services", "Telecommunication",
+    "Textiles", "Utilities",
+)
 LEVELS = {"macro": "macro", "sector": "sector", "industry": "industryInfo", "basic": "basicIndustry"}
 
 

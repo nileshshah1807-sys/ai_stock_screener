@@ -3,6 +3,7 @@
 import json
 import unittest
 from datetime import date, timedelta
+from unittest import mock
 
 import numpy as np
 
@@ -125,14 +126,15 @@ class PutObjectsTests(unittest.TestCase):
 
         written = []
 
-        removed = []
+        removed, listed = [], []
 
         class Store:
             def put(self, path, body, content_type):
                 written.append((path, json.loads(body), content_type))
 
             def list(self, prefix):
-                return [path for path, _, _ in written] + [f"{prefix}consumer-cyclical.json"]
+                listed.append(prefix)
+                return [path for path, _, _ in written] + [f"{prefix}/consumer-cyclical.json"]
 
             def remove(self, paths):
                 removed.extend(paths)
@@ -155,6 +157,7 @@ class PutObjectsTests(unittest.TestCase):
         )
         self.assertEqual(written[2][1], {"market": "NSE", "symbols": {"ONGC": "energy"}, "industries": {}})
         self.assertEqual(removed, ["sectors/NSE/consumer-cyclical.json"])  # a sector no longer grouped
+        self.assertEqual(listed, ["sectors/NSE"])  # the store adds the folder's slash itself
 
         repository._r2 = None
         self.assertFalse(repository.put_sector_objects({}, {"x": {}}))
@@ -202,6 +205,16 @@ class NseSectorRowsTests(unittest.TestCase):
         out = {row["symbol"]: row["sector"] for row in sectors.nse_sector_rows(self.ROWS, classified)}
         self.assertEqual(out["BHEL"], "Capital Goods")  # the spelling most of its stocks carry
         self.assertEqual(out["POWERX.BO"], "Capital Goods")
+
+    def test_a_retired_sector_name_is_not_a_sector(self):
+        classified = {
+            **self.CLASSIFIED,
+            "OLDCO": {"sector": "AUTOMOBILE", "industry": "Auto Components"},
+        }
+        rows = [*self.ROWS, {"symbol": "OLDCO", "sector": "Consumer Cyclical", "industry": "Electrical Equipment"}]
+        with mock.patch.object(sectors, "NSE_SECTOR_COVERAGE", 0.5):  # 4 of 5 is this sample's coverage
+            out = {row["symbol"]: row["sector"] for row in sectors.nse_sector_rows(rows, classified)}
+        self.assertEqual(out["OLDCO"], "Capital Goods")  # placed by its industry, as an unclassified name
 
     def test_rows_stay_on_yahoo_until_nse_covers_the_market(self):
         partial = {"TDPOWERSYS": self.CLASSIFIED["TDPOWERSYS"]}
