@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { liveFor, peerSlice, rebase, squarify, stockIndustry, stockSectorSlug, withLiveChange } from "./sectors.mjs";
+import {
+  liveFor,
+  peerSlice,
+  rebase,
+  sectorLevelQuote,
+  squarify,
+  stockIndustry,
+  stockSectorSlug,
+  withLiveChange,
+} from "./sectors.mjs";
 
 test("a stock's industry: NSE's where published, else the snapshot's", () => {
   const industries = { TDPOWERSYS: "Electrical Equipment" };
@@ -92,4 +101,17 @@ test("withLiveChange takes a member's 1D from a later-session quote, else keeps 
   const out = withLiveChange(members, "2026-11-19", (s) => quotes[s] ?? null);
   assert.deepEqual(out.map((m) => m.d1), [1.67, -1, 0.5, 3]);
   assert.equal(members[0].d1, -2.33); // input untouched
+});
+
+test("a sector's live level: the last published level moved by the live change", () => {
+  const last = { time: "2026-11-20", value: 377.32 };
+  const live = { session: "2026-11-23", d1: 9.12, written_at: "2026-11-23T14:55:41+00:00" };
+  const quote = sectorLevelQuote("Technology", last, live);
+  assert.ok(Math.abs(quote.price - 377.32 * 1.0912) < 1e-9);
+  assert.equal(quote.session, "2026-11-23");
+  assert.equal(quote.fetched_at, live.written_at);
+  assert.equal(sectorLevelQuote("Technology", last, null), null);
+  assert.equal(sectorLevelQuote("Technology", undefined, live), null);
+  assert.equal(sectorLevelQuote("Technology", last, { ...live, d1: null }), null);
+  assert.equal(sectorLevelQuote("Technology", { ...last, time: "2026-11-23" }, live), null); // the close covers it
 });
