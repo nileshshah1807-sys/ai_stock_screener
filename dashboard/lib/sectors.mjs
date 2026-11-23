@@ -130,6 +130,35 @@ export function liveFor(lastSession, live) {
 }
 
 /**
+ * A sector's live level as a quote for its chart: the last published level
+ * moved by the live change. The live change is weighted as the level is
+ * (caps at the last close), so the point is the close tonight's run would
+ * publish at these prices. Null without a live change or a level to move.
+ *
+ * @param {string} name
+ * @param {{time: string, value: number} | undefined} last the level's last point
+ * @param {{session: string, d1: number | null, written_at?: string | null} | null} live from `liveFor`
+ */
+export function sectorLevelQuote(name, last, live) {
+  if (!live || !finite(live.d1) || !last || !finite(last.value) || live.session <= last.time) return null;
+  const at = live.written_at ?? "";
+  return {
+    symbol: name,
+    price: last.value * (1 + live.d1 / 100),
+    change_pct: live.d1,
+    volume: null,
+    traded_at: at,
+    session: live.session,
+    fetched_at: at,
+    market_cap: null,
+    pe_ratio: null,
+    pb_ratio: null,
+    ev_ebitda: null,
+    tick: null,
+  };
+}
+
+/**
  * Members with each one's 1D taken from its live quote where `liveFor` counts
  * it and the quote carries a change; the rest keep the close's.
  *

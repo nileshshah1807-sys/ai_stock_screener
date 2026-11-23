@@ -14,9 +14,11 @@ export type LiveSector = {
   advancing: number;
   declining: number;
   traded: number;
+  /** When the worker wrote the object: the reading's time and freshness. */
+  written_at: string | null;
 };
 
-type Answer = { rows: LiveSector[]; written_at: string | null };
+type Answer = { rows: Omit<LiveSector, "written_at">[]; written_at: string | null };
 
 /**
  * Each sector's live change by slug, from `live/{MARKET}/sectors.json`
@@ -37,7 +39,7 @@ export function useLiveSectors(market: MarketCode | null): Map<string, LiveSecto
       const { data, error } = await liveApi({ market, kind: "sectors" });
       if (stopped) return;
       const answer = error ? null : (data as Answer | null);
-      if (answer) setLive(new Map(answer.rows.map((row) => [row.slug, row])));
+      if (answer) setLive(new Map(answer.rows.map((row) => [row.slug, { ...row, written_at: answer.written_at }])));
       clearTimeout(timer);
       timer = setTimeout(tick, nextPollDelay(answer?.written_at ?? null, Date.now()));
     };

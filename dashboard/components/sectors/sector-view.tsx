@@ -1,12 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 
 import { IndexOverview } from "@/components/indices/index-overview";
 import { KpiBand, PeDistribution } from "@/components/sectors/kpi";
-import { MembersMap, MembersTable } from "@/components/sectors/sector-views";
+import { MembersMap } from "@/components/sectors/sector-views";
 import { formatDate, formatMoneyCompact, formatNumber, formatPercent, formatRatioAsPercent } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
 import type { SectorObject } from "@/lib/sector-objects";
@@ -21,11 +21,20 @@ const times = (value: number | null) => (value === null ? "—" : `${formatNumbe
 /**
  * One sector: our cap-weighted index of its members with a compare list
  * beside it, what the sector costs (cap-weighted and median), its P/E
- * spread, a heatmap and every member. All of it from one R2 object written
- * by workers/sectors.py; no Supabase read, no rating. During the session
+ * spread and a heatmap, from one R2 object written by workers/sectors.py
+ * (no rating), then every member in the screener's table (`table`). During the session
  * the 1D figures (the sector's, its breadth, each member's) are live.
  */
-export function SectorView({ market, sector }: { market: Market; sector: SectorObject }) {
+export function SectorView({
+  market,
+  sector,
+  table,
+}: {
+  market: Market;
+  sector: SectorObject;
+  /** The members in the screener's table (components/screener/member-table), rendered on the server. */
+  table: ReactNode;
+}) {
   const { summary } = sector;
   const live = liveFor(sector.last_session, useLiveSectors(market.code).get(sector.slug));
   const symbols = useMemo(() => sector.members.map((member) => member.s), [sector.members]);
@@ -93,7 +102,7 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
             market={market}
             name={sector.name}
             row={sector.level}
-            live={false}
+            liveChange={live}
             members={sector.members.map((member) => ({ symbol: member.s, company: member.c, d1: member.d1 }))}
           />
         </section>
@@ -129,12 +138,7 @@ export function SectorView({ market, sector }: { market: Market; sector: SectorO
         <MembersMap market={market} members={members} />
       </section>
 
-      <section aria-labelledby="members-title" className="space-y-3">
-        <h2 id="members-title" className="text-lead font-semibold tracking-[-0.011em]">
-          All {summary.count.toLocaleString(market.locale)} stocks
-        </h2>
-        <MembersTable market={market} members={members} />
-      </section>
+      {table}
     </div>
   );
 }

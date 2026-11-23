@@ -319,17 +319,25 @@ export function PriceChart({
       setEdge(null);
       return;
     }
+    // The chart applies an update and rescales on its next frame, so the
+    // coordinates are read a frame later; read at once, the ring sat at the
+    // previous quote's place (or vanished on a new bar, which had no x yet).
+    let frame = 0;
     const place = () => {
-      const point = livePoint.current;
-      const x = point ? timeScale.timeToCoordinate(point.time as unknown as UTCTimestamp) : null;
-      const y = point ? (priceSeries.current?.priceToCoordinate(point.price) ?? null) : null;
-      setEdge(x === null || y === null ? null : { x, y });
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const point = livePoint.current;
+        const x = point ? timeScale.timeToCoordinate(point.time as unknown as UTCTimestamp) : null;
+        const y = point ? (priceSeries.current?.priceToCoordinate(point.price) ?? null) : null;
+        setEdge(x === null || y === null ? null : { x, y });
+      });
     };
     place();
     timeScale.subscribeVisibleLogicalRangeChange(place);
     const resize = new ResizeObserver(place);
     resize.observe(node);
     return () => {
+      cancelAnimationFrame(frame);
       timeScale.unsubscribeVisibleLogicalRangeChange(place);
       resize.disconnect();
     };
@@ -377,15 +385,16 @@ export function PriceChart({
       <div className="relative">
         <div ref={container} style={{ height }} />
         {pulsing && edge ? (
+          // As the breadth chart draws it: a ring swelling from the end (r 3),
+          // over it a dot (r 2) in a 2px ring of the card's colour.
           <span
             aria-hidden
-            className="pointer-events-none absolute size-1.5 rounded-full animate-heartbeat"
-            style={{
-              left: edge.x - 3,
-              top: edge.y - 3,
-              background: palette(resolvedTheme === "dark").price,
-            }}
-          />
+            className="pointer-events-none absolute"
+            style={{ left: edge.x, top: edge.y, color: palette(resolvedTheme === "dark").price }}
+          >
+            <span className="absolute -left-[3px] -top-[3px] size-1.5 rounded-full bg-current animate-heartbeat" />
+            <span className="absolute -left-[2px] -top-[2px] size-1 rounded-full bg-current ring-2 ring-(--card)" />
+          </span>
         ) : null}
       </div>
 

@@ -2,28 +2,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-import { LiveSearch } from "@/components/filters/live-search";
 import { IndexLevel, IndexOverview } from "@/components/indices/index-overview";
-import { Pagination } from "@/components/screener/pagination";
-import { ScreenerTable } from "@/components/screener/screener-table";
-import { ViewOptions } from "@/components/screener/view-options";
-import { parseFilters, toSearchParams } from "@/lib/filters";
+import { MemberTable, readMembers } from "@/components/screener/member-table";
 import { formatDate } from "@/lib/format";
 import { marketFromSlug, marketPath } from "@/lib/markets";
-import {
-  getIndexChart,
-  getIndexDirectory,
-  getIndexMembers,
-  getLatestRun,
-  getRatedSymbols,
-  getSnapshotPage,
-  PAGE_SIZE,
-} from "@/lib/queries";
+import { getIndexChart, getIndexDirectory, getIndexMembers, getLatestRun } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
-
-/** Page and search are about the list before a new search or sort. */
-const SEARCH_RESETS = ["page"];
 
 export async function generateMetadata({ params }: PageProps<"/[market]/indices/[index]">) {
   const { market: slug, index } = await params;
@@ -57,25 +42,12 @@ export default async function IndexPage({ params, searchParams }: PageProps<"/[m
   const info = directory.find((entry) => entry.slug === indexSlug);
   if (!info) notFound();
 
-  const query = await searchParams;
-  const filters = parseFilters(query);
-  const urlParams = toSearchParams(query);
-
   const [members, chart] = await Promise.all([
     info.members !== null ? getIndexMembers(market.code, info.name) : Promise.resolve([]),
     info.chart ? getIndexChart(market.code, info.name) : Promise.resolve(null),
   ]);
-  const symbols = members.map((member) => member.symbol);
-
-  const [page, rated] =
-    run && symbols.length
-      ? await Promise.all([
-          getSnapshotPage(market.code, run.run_date, filters, { symbols }),
-          getRatedSymbols(market.code, run.run_date, symbols),
-        ])
-      : [{ rows: [], total: 0 }, new Set<string>()];
-  const unrated = members.filter((member) => !rated.has(member.symbol));
-  const sort = filters.sort ?? "market_cap";
+  const table = await readMembers(market.code, run, members, await searchParams);
+  const { rated } = table;
 
   return (
     <div className="space-y-6 px-4 py-5 sm:px-6">
@@ -117,76 +89,7 @@ export default async function IndexPage({ params, searchParams }: PageProps<"/[m
       ) : null}
 
       {info.members !== null ? (
-        <section aria-labelledby="constituents-title" className="space-y-3">
-          <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
-            <div>
-              <h2 id="constituents-title" className="text-lead font-semibold tracking-[-0.011em]">
-                Constituents
-              </h2>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                Ranked and scored by the screener, in its own columns. Sort by any column.
-              </p>
-            </div>
-            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-              <LiveSearch
-                label={`Search ${info.name}`}
-                placeholder="Search constituents…"
-                resets={SEARCH_RESETS}
-                className="min-w-0 flex-1 sm:w-64 sm:flex-none"
-              />
-              <ViewOptions factorModel={run?.factor_model_applied ?? false} />
-            </div>
-          </div>
-
-          <ScreenerTable
-            rows={page.rows}
-            params={urlParams}
-            sort={sort}
-            dir={filters.dir ?? (sort.endsWith("rank") ? "asc" : "desc")}
-            hiddenColumns={filters.hiddenColumns}
-            density={filters.density}
-            emptyState={
-              <div className="panel py-16 text-center">
-                <p className="text-sm font-medium">
-                  {filters.q ? `No constituent matches “${filters.q}”` : "No constituent is in the latest run"}
-                </p>
-                <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-                  {filters.q
-                    ? "Search by ticker or company name."
-                    : "The screener has not rated any of this index's stocks yet."}
-                </p>
-              </div>
-            }
-          />
-          {page.total > PAGE_SIZE ? (
-            <Pagination page={filters.page ?? 1} pageSize={PAGE_SIZE} total={page.total} params={urlParams} />
-          ) : null}
-
-          {unrated.length ? (
-            <details className="group/unrated text-sm">
-              <summary className="w-fit cursor-pointer rounded text-xs font-medium text-muted-foreground marker:content-none hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-                {unrated.length} {unrated.length === 1 ? "constituent" : "constituents"} the screener does not rate
-                <span className="ml-1 font-normal opacity-70 group-open/unrated:hidden">
-                  — too new or too thinly traded to score; no stock page
-                </span>
-              </summary>
-              <ul className="mt-2 flex flex-wrap gap-1.5">
-                {unrated.map((member) => (
-                  <li
-                    key={member.symbol}
-                    title={member.company ?? undefined}
-                    className="rounded-md bg-(--control) px-2.5 py-1 text-xs"
-                  >
-                    <span className="font-mono font-semibold">{member.symbol}</span>
-                    {member.company ? (
-                      <span className="ml-1.5 text-muted-foreground">{member.company}</span>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-        </section>
+        <MemberTable id="constituents-title" title="Constituents" noun="constituent" data={table} />
       ) : null}
     </div>
   );

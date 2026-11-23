@@ -12,7 +12,9 @@ import { isLive, liveOverlay, quoteTime } from "@/lib/live-quotes.mjs";
 import { RANGES, decodeRow, indexPoints, rangeStart, sliceFrom } from "@/lib/market-breadth.mjs";
 import type { Market } from "@/lib/markets";
 import type { BreadthRow } from "@/lib/queries";
+import { sectorLevelQuote } from "@/lib/sectors.mjs";
 import { useLiveQuotes, useNow } from "@/lib/use-live-quotes";
+import type { LiveSector } from "@/lib/use-live-sectors";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_RANGE = "1Y";
@@ -26,20 +28,21 @@ const DEFAULT_RANGE = "1Y";
  *
  * Given `members`, a list beside the chart lays any of them over the index;
  * with one picked the chart turns into a compare chart (CompareLines). A
- * sector's own index has no live quote (`live={false}`).
+ * sector's own index has no quote: `liveChange` (its live 1D, or null)
+ * moves the last level instead.
  */
 export function IndexOverview({
   market,
   name,
   row,
   members,
-  live = true,
+  liveChange,
 }: {
   market: Market;
   name: string;
   row: Pick<BreadthRow, "sessions" | "series">;
   members?: CompareMember[];
-  live?: boolean;
+  liveChange?: LiveSector | null;
 }) {
   const [range, setRange] = useState(DEFAULT_RANGE);
   const [scrub, setScrub] = useState<string | null>(null);
@@ -47,9 +50,15 @@ export function IndexOverview({
 
   const points = useMemo(() => indexPoints(decodeRow(row)) as ChartPoint[], [row]);
   const last = points.at(-1)?.time;
-  const lookup = useLiveQuotes(live ? market.code : null, live ? [name] : [], "index");
+  const quoted = liveChange === undefined;
+  const lookup = useLiveQuotes(quoted ? market.code : null, quoted ? [name] : [], "index");
   const compare = useCompare(market);
-  const quote = liveOverlay(lookup(name), last);
+  // Memoised so scrubbing keeps handing the chart the same quote object.
+  const sectorQuote = useMemo(
+    () => (quoted ? null : sectorLevelQuote(name, points.at(-1), liveChange ?? null)),
+    [quoted, name, points, liveChange],
+  );
+  const quote = quoted ? liveOverlay(lookup(name), last) : sectorQuote;
 
   const { from, to } = useMemo(() => {
     const end = [last, quote?.session].filter(Boolean).sort().at(-1) ?? "";
