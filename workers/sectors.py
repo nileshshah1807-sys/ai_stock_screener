@@ -241,7 +241,15 @@ def member_industries(objects) -> dict:
 
 
 def build_sector_objects(observations, sessions, rows, *, market, run_date):
-    """``(directory, {slug: sector})`` for every sector in the run's ``rows``."""
+    """``(directory, {slug: sector})`` for every sector in the run's ``rows``.
+
+    The level ends on the run's session (``run_date``), whatever later bars the
+    price source already has: the members' figures and caps are that run's, so
+    a level a session ahead of them would read green over red tiles, size each
+    share count by a close from another day, and hide the live session.
+    """
+    if run_date:
+        sessions = [day for day in sessions if day.isoformat() <= run_date]
     by_sector: dict[str, list[dict]] = {}
     for row in rows:
         if row.get("sector"):

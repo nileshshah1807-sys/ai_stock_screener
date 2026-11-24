@@ -114,6 +114,20 @@ class ObjectTests(unittest.TestCase):
         self.assertIsNotNone(energy["y1"])
         self.assertIsNone(directory["sectors"][1]["y1"])
 
+    def test_level_ends_on_the_runs_session_when_prices_are_ahead(self):
+        # US, 23 Nov 2026: yfinance had the 23rd while the latest run was the 20th,
+        # so the level read +8.27% over members whose 1D were all the 20th's.
+        run_session = SESSIONS[-2]
+        directory, objects = sectors.build_sector_objects(
+            self.points, SESSIONS, self.rows, market="NSE", run_date=run_session.isoformat()
+        )
+        energy = directory["sectors"][0]
+        a = self.paths["A"]
+        self.assertEqual(energy["last_session"], run_session.isoformat())
+        self.assertAlmostEqual(energy["d1"], (a[-2] / a[-3] - 1) * 100, delta=0.01)
+        self.assertEqual(decode_sessions(objects["energy"]["level"]["sessions"])[-1], run_session)
+        self.assertEqual(sectors.member_weights(objects)["energy"]["last_session"], run_session.isoformat())
+
 
 class FlatSessionTests(unittest.TestCase):
     def test_a_flat_session_is_zero_not_negative_zero(self):
