@@ -452,6 +452,18 @@ def _claim(points, reason, full, quote):
         points.append((f"{reason}, no figure given", full / 2, quote))
 
 
+def guidance_direction(verified: dict[str, Any]) -> str:
+    """What the call did to guidance, as the outlook reads it: one of
+    `GUIDANCE_DIRECTIONS`, or "" when the reading has none.
+
+    The one rule for it: `outlook_items` scores it (the stock page's "Guidance
+    raised") and the screener's Concall guidance filter selects on it.
+    """
+    guidance = verified.get("guidance") if isinstance(verified, dict) else None
+    direction = guidance.get("direction") if isinstance(guidance, dict) else None
+    return direction if direction in GUIDANCE_DIRECTIONS else ""
+
+
 def outlook_items(
     verified: dict[str, Any], call_date: str | None = None
 ) -> list[tuple[str, float, str | None]]:
@@ -475,7 +487,7 @@ def outlook_items(
     points: list[tuple[str, float, str | None]] = []
 
     guidance = verified["guidance"]
-    direction = guidance.get("direction")
+    direction = guidance_direction(verified)
     quote = guidance.get("quote")
     if direction == "raised":
         points.append(("guidance raised", 15.0, quote))

@@ -13,6 +13,7 @@ from screener.numeric import round_half_up, round_series_half_up
 from sentiment.outlook import (
     OUTLOOK_VERSION,
     compare_outlooks,
+    guidance_direction,
     outlook_items,
     summarise_changes,
 )
@@ -74,6 +75,7 @@ class TranscriptSentimentEnricher:
         enriched["Transcript_Cycle_Transition_Date"] = ""
         enriched["Transcript_Days_To_Cycle_Transition"] = np.nan
         enriched["Transcript_Guidance"] = ""
+        enriched["Concall_Guidance"] = ""
         enriched["Transcript_Risk"] = np.nan
         enriched["Transcript_Management_Confidence"] = np.nan
         enriched["Transcript_Optimism_QoQ_Delta"] = np.nan
@@ -210,6 +212,9 @@ class TranscriptSentimentEnricher:
                 evidence.status,
             )
 
+        # The screener's Concall guidance: the keyword reader's, unless the
+        # call has an outlook, whose reading the stock page shows instead.
+        enriched["Concall_Guidance"] = enriched["Transcript_Guidance"]
         self._attach_outlooks(enriched, repository, by_symbol)
 
         priority_weight = _weight(
@@ -333,6 +338,7 @@ class TranscriptSentimentEnricher:
             enriched.at[index, "Transcript_Outlook_Score"] = round_half_up(score, 2)
             enriched.at[index, "Transcript_Outlook_Verified_Fields"] = verified
             extraction = record.get("extraction") or {}
+            enriched.at[index, "Concall_Guidance"] = guidance_direction(extraction)
             enriched.at[index, "Transcript_Outlook_Summary"] = _outlook_summary(
                 extraction.get("points")
             )

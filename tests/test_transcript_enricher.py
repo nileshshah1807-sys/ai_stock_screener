@@ -441,6 +441,30 @@ class TranscriptEnricherTests(unittest.TestCase):
 
         self.assertIsNone(repository.requested)
         self.assertTrue(pd.isna(result.loc[0, "Transcript_Outlook_Score"]))
+        self.assertEqual(result.loc[0, "Concall_Guidance"], "maintained")
+
+    def test_concall_guidance_is_the_outlooks_where_the_call_has_one(self):
+        # KMEW, Nov 2026: the keyword reader read "revising guidance from 30-40%
+        # to 60%" as unclear; the outlook, and the stock page, read it as raised.
+        # The screener's "Guidance raised" view must find it.
+        repository = OutlookRepository()
+        repository.outlook["extraction"]["guidance"] = {
+            "direction": "raised", "metric": "revenue", "growth_pct": 60.0,
+            "quote": "We are revising our guidance from 30-40% to 60% revenue growth.",
+        }
+        repository.latest_sentiments = lambda symbols: [
+            {**FakeRepository().latest_sentiments(symbols)[0], "guidance_direction": "unclear"},
+            {"symbol": "TCS", "call_date": str(date.today() - timedelta(days=31)),
+             "overall_score": 60, "guidance_direction": "raised"},
+        ]
+        result = self.enrich_with_outlook(repository)
+
+        points = json.loads(result.loc[0, "Transcript_Outlook_Points"])
+        self.assertEqual(points[0]["reason"], "guidance raised")
+        self.assertEqual(result.loc[0, "Transcript_Guidance"], "unclear")
+        self.assertEqual(result.loc[0, "Concall_Guidance"], "raised")
+        # No outlook for TCS's call: the keyword reader's word stands.
+        self.assertEqual(result.loc[1, "Concall_Guidance"], "raised")
 
     def test_email_report_includes_transcript_summary_column(self):
         config = SimpleNamespace(
