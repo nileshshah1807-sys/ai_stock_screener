@@ -237,6 +237,17 @@ class MappingTests(unittest.TestCase):
 
         self.assertEqual(mapped["logo_domain"], "infosys.com")
 
+    def test_the_guidance_filter_column_carries_the_outlooks_reading(self):
+        # TDPOWERSYS, Nov 2026: the stock page showed "Guidance raised" from the
+        # outlook while the keyword reader said unclear, so the filter missed it.
+        mapped = map_row(
+            {"Symbol": "TDPOWERSYS", "Transcript_Guidance": "unclear", "Concall_Guidance": "raised"},
+            SNAPSHOT_COLUMNS,
+            CoercionReport(),
+        )
+
+        self.assertEqual(mapped["transcript_guidance"], "raised")
+
 
 class FactorModelMappingTests(unittest.TestCase):
     """Model 5.0 evidence has to survive the trip into the read model."""

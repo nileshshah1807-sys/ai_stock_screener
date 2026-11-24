@@ -134,7 +134,8 @@ SNAPSHOT_COLUMNS: list[tuple[str, str, str]] = [
     ("transcript_status", "Transcript_Status", "text"),
     ("transcript_score", "Transcript_Score", "num:6,2"),
     ("transcript_scoring_eligible", "Transcript_Scoring_Eligible", "bool"),
-    ("transcript_guidance", "Transcript_Guidance", "text"),
+    # The Concall guidance filter's column: the outlook's reading where the call has one.
+    ("transcript_guidance", "Concall_Guidance", "text"),
     ("transcript_age_days", "Transcript_Age_Days", "int"),
 
     ("red_flag_status", "Red_Flag_Status", "text"),
