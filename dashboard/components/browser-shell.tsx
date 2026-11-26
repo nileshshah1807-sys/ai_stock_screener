@@ -53,7 +53,8 @@ async function readMarketDay(supabase: Client, market: MarketCode, timeZone: str
  * Access is lib/shell-access.mjs, the proxy's and requireAccess()'s rule; it decides
  * only what this tab shows. What it may read is still decided where the data is: RLS
  * on every Supabase read here, and the token check in /api/objects (lib/object-gate.mjs).
- * Until the check is done the page shows `fallback`, its own skeleton.
+ * Until the check is done the frame is drawn without the viewer (its account zone holding
+ * its place) around `fallback`, the page's own skeleton, so nothing moves when it lands.
  */
 export function BrowserShell({ slug, fallback, children }: { slug: MarketSlug; fallback: ReactNode; children: ReactNode }) {
   const market = marketFromSlug(slug)!;
@@ -89,21 +90,19 @@ export function BrowserShell({ slug, fallback, children }: { slug: MarketSlug; f
     };
   }, [market.code, market.timezone]);
 
-  if (!ready) return <>{fallback}</>;
-  const { viewer, run, marketDay, bell } = ready;
   return (
     <AppFrame
-      run={run}
-      marketDay={marketDay}
-      viewer={viewer}
+      run={ready?.run ?? null}
+      marketDay={ready?.marketDay ?? null}
+      viewer={ready?.viewer ?? null}
       market={market}
-      notifications={bell}
+      notifications={ready?.bell ?? null}
       // shortcut: TABLE_BACKEND is a Worker variable the static HTML cannot see; no static page reads live quotes yet.
       liveFromR2={false}
       // shortcut: no subscription read, so a trial viewer who already set up a plan sees "See the plan", not "Manage".
-      trialBanner={viewer.access.kind === "trial" && viewer.access.daysLeft ? <TrialBanner days={viewer.access.daysLeft} /> : null}
+      trialBanner={ready?.viewer.access.kind === "trial" && ready.viewer.access.daysLeft ? <TrialBanner days={ready.viewer.access.daysLeft} /> : null}
     >
-      {children}
+      {ready ? children : fallback}
     </AppFrame>
   );
 }

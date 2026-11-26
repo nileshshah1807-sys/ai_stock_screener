@@ -22,21 +22,25 @@ export function generateStaticParams() {
 
 export default async function FlowsPage({ params }: PageProps<"/[market]/flows">) {
   const market = marketFromSlug((await params).market)!;
+  // The Market tab's row of pages, as app/(app)/[market]/(market)/layout.tsx draws it; in the
+  // skeleton too, so it does not move when the access check lands.
+  const subNav = (
+    <div className="px-4 pt-5 sm:px-6">
+      <SubNav group="Market" market={market} admin={false} />
+    </div>
+  );
 
   return (
     <BrowserShell
       slug={market.slug}
       fallback={
         <>
-          <div className="h-14 border-b bg-card" />
+          {subNav}
           <FlowsSkeleton />
         </>
       }
     >
-      {/* The Market tab's row of pages, as app/(app)/[market]/(market)/layout.tsx draws it. */}
-      <div className="px-4 pt-5 sm:px-6">
-        <SubNav group="Market" market={market} admin={false} />
-      </div>
+      {subNav}
       <FlowsView />
     </BrowserShell>
   );
