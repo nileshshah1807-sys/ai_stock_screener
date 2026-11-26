@@ -72,7 +72,9 @@ export function LiveTicker({ initial }: { initial: LiveMarket | null }) {
     <div
       role="region"
       aria-label={`${index} movers today`}
-      className="group mt-4 overflow-hidden border-t border-border pt-3 [mask-image:linear-gradient(to_right,transparent,black_2rem,black_calc(100%-2rem),transparent)] motion-reduce:overflow-x-auto"
+      // contain:inline-size: the strip is both lists side by side; without it that width sizes the
+      // panel and the home grid's auto column on a phone (6,000 px, 26 Nov 2026).
+      className="group mt-4 overflow-hidden [contain:inline-size] border-t border-border pt-3 [mask-image:linear-gradient(to_right,transparent,black_2rem,black_calc(100%-2rem),transparent)] motion-reduce:overflow-x-auto"
     >
       <div className="flex w-max animate-marquee group-hover:[animation-play-state:paused] group-focus-within:[animation-play-state:paused] motion-reduce:animate-none">
         {list(false)}
