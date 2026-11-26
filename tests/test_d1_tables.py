@@ -102,12 +102,28 @@ class BackfillTests(unittest.TestCase):
         self.state = Path(tempfile.mkdtemp()) / "state.json"
         self.store = d1_tables.FileState(self.state)
 
-    def fetch(self, table, keys, offset, columns=None):
-        return self.source[offset:offset + d1_tables.PAGE]
+    def fetch(self, table, keys, after, columns=None):
+        rest = [row for row in self.source if after is None or [row[key] for key in keys] > list(after)]
+        return rest[:d1_tables.PAGE]
 
-    def run_once(self, ceiling, counts=None):
+    def run_once(self, ceiling, counts=None, seek=None):
         session = D1Session(self.execute, max_rows_written=ceiling)
-        return d1_tables.backfill(["valuation_basis"], session, self.store, DEFINITIONS, fetch=self.fetch, counts=counts)
+        return d1_tables.backfill(["valuation_basis"], session, self.store, DEFINITIONS, fetch=self.fetch,
+                                  counts=counts, seek=seek)
+
+    def test_progress_saved_by_offset_alone_resumes_at_the_last_row_copied(self):
+        full, self.source = self.source, self.source[:500]
+        self.run_once(10_000)
+        self.state.write_text(json.dumps({"tables": {"valuation_basis": {"offset": 500, "done": False}}, "days": {}}))
+        self.source = full
+
+        def seek(table, keys, offset):
+            return d1_tables.last_copied(self.execute, table, keys, offset)
+
+        self.assertEqual(self.run_once(10_000, seek=seek), 0)
+        progress = json.loads(self.state.read_text())["tables"]["valuation_basis"]
+        self.assertEqual((progress["offset"], progress["sent"]), (1200, 700))  # not re-read from the start
+        self.assertEqual(self.db.execute("select count(*) from valuation_basis").fetchone()[0], 1200)
 
     def test_a_short_copy_is_read_again_from_the_start(self):
         del self.source[3]  # deleted in Supabase behind the offset: D1 still has it
@@ -183,6 +199,55 @@ class BackfillTests(unittest.TestCase):
         self.state.unlink()
         self.assertEqual(self.run_once(10_000), 0)
         self.assertEqual(next(iter(json.loads(self.state.read_text())["days"].values())), 0)
+
+
+class PageTests(unittest.TestCase):
+    """_page against a fake PostgREST that answers eq./gt. filters, order and limit."""
+
+    KEYS = ["market", "observed_on", "symbol"]
+
+    def setUp(self):
+        self.table = sorted(
+            ({"market": m, "observed_on": f"2026-11-{d:02d}", "symbol": s, "flag": d % 2 == 0}
+             for m in ("NSE", "US") for d in (17, 18) for s in ("A", "M&M", "Z")),
+            key=lambda row: [row[k] for k in self.KEYS],
+        )
+        self.asked = []
+
+    def get(self, url, params, headers, timeout):
+        self.asked.append(params)
+        rows = self.table
+        for column, condition in params.items():
+            if column in self.KEYS:
+                op, value = condition.split(".", 1)
+                rows = [r for r in rows if (r[column] == value if op == "eq" else r[column] > value)]
+        reply = mock.Mock()
+        reply.json.return_value = rows[:int(params["limit"])]
+        return reply
+
+    def pages(self, size):
+        with mock.patch.object(d1_tables, "PAGE", size), \
+                mock.patch.object(d1_tables, "_supabase", return_value=("https://sb/rest/v1", {})), \
+                mock.patch.object(d1_tables.requests, "get", side_effect=self.get):
+            after, out = None, []
+            while True:
+                page = d1_tables._page("screener_history", self.KEYS, after)
+                out += page
+                if len(page) < size:
+                    return out
+                after = [page[-1][k] for k in self.KEYS]
+
+    def test_pages_by_key_cover_every_row_once_in_order_across_group_ends(self):
+        self.assertEqual(self.pages(4), self.table)  # 4 does not divide a 3-row date or 6-row market
+        self.assertFalse(any("offset" in params for params in self.asked))
+
+    def test_the_rest_of_a_group_is_asked_before_the_next_group(self):
+        self.pages(4)
+        second = [p for p in self.asked if "symbol" in p][0]
+        self.assertEqual((second["market"], second["observed_on"], second["symbol"]), ("eq.NSE", "eq.2026-11-18", "gt.A"))
+
+    def test_a_boolean_key_is_written_as_postgres_reads_it(self):
+        self.assertEqual((d1_tables._literal(True), d1_tables._literal(False), d1_tables._literal(7)), ("true", "false", "7"))
 
 
 if __name__ == "__main__":
