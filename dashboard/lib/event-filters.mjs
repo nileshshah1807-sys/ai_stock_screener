@@ -303,6 +303,20 @@ export function withLists(filters, lists, market) {
 }
 
 /**
+ * The search-param entries for the same view widened to the whole market: the
+ * way on from a watchlist feed that has nothing yet. Only the scope changes;
+ * a kind or industry the viewer chose stays chosen, and a default floor follows
+ * the scope as `withLists` says.
+ *
+ * @param {EventFilters} filters
+ * @param {FilterContext} context
+ * @returns {Array<[string, string]>}
+ */
+export function wholeMarketEntries(filters, context) {
+  return eventFilterEntries(withLists(filters, [], context.market), context);
+}
+
+/**
  * The symbols a feed is read for, or null for all of them.
  *
  * `watchlists` is the viewer's lists, `[{ id, symbols }]`. `companies` is the

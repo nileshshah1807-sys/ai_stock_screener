@@ -10,6 +10,7 @@ import {
   groupByDay,
   isUnread,
   quarterLabel,
+  titleWithUnread,
 } from "./notifications.mjs";
 
 const event = (values) => ({
@@ -139,4 +140,12 @@ test("the bell is scoped to the viewer's watchlists when they have any, the mark
   const market = await bellState(reads([]));
   assert.deepEqual(calls[0], ["events", { symbols: null, limit: BELL_EVENTS }]);
   assert.equal(market.watching, false);
+});
+
+test("the tab title carries the unread count, replaced rather than stacked", () => {
+  assert.equal(titleWithUnread("Screener · Cupel", 3), "(3) Screener · Cupel");
+  assert.equal(titleWithUnread("(3) Screener · Cupel", 12), "(9+) Screener · Cupel");
+  assert.equal(titleWithUnread("(9+) Screener · Cupel", 0), "Screener · Cupel");
+  // A title that only starts with a bracket is not a count.
+  assert.equal(titleWithUnread("(Q2) Results · Cupel", 0), "(Q2) Results · Cupel");
 });

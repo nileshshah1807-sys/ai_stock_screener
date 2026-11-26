@@ -76,6 +76,17 @@ export function badgeText(count) {
   return count > 9 ? "9+" : String(count);
 }
 
+/**
+ * The browser tab's title with the unread count in front, "(3) Notifications · Cupel",
+ * so a result reaches a reader who is in another tab. An earlier count is replaced,
+ * never stacked; none leaves the bare title.
+ */
+export function titleWithUnread(title, count) {
+  const bare = String(title ?? "").replace(/^\(\d+\+?\) /, "");
+  const badge = badgeText(count);
+  return badge ? `(${badge}) ${bare}` : bare;
+}
+
 function parts(value, timeZone, options) {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;

@@ -1,4 +1,5 @@
 import { LiveSearch } from "@/components/filters/live-search";
+import { ClearFiltersLink } from "@/components/screener/clear-filters-link";
 import { Pagination } from "@/components/screener/pagination";
 import { ScreenerTable } from "@/components/screener/screener-table";
 import { ViewOptions } from "@/components/screener/view-options";
@@ -81,9 +82,11 @@ export function MemberTable({
             <p className="text-sm font-medium">
               {filters.q ? `No ${noun} matches “${filters.q}”` : `No ${noun} is in the latest run`}
             </p>
-            <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-              {filters.q ? "Search by ticker or company name." : "The screener has not rated any of these stocks yet."}
-            </p>
+            {filters.q ? (
+              <ClearFiltersLink drop={["q", ...SEARCH_RESETS]}>Clear search</ClearFiltersLink>
+            ) : (
+              <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">The screener has not rated any of these stocks yet.</p>
+            )}
           </div>
         }
       />

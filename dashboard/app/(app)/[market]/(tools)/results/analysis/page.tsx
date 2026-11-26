@@ -3,9 +3,10 @@ import type { Metadata } from "next";
 import { PageTitle } from "@/components/page-title";
 import { EventFilterBar } from "@/components/filters/event-filter-bar";
 import { AnalysisChart } from "@/components/results/analysis-chart";
+import { ClearFiltersLink } from "@/components/screener/clear-filters-link";
 import { QuarterPicker } from "@/components/results/quarter-picker";
 import { SpanControl } from "@/components/results/span-control";
-import { intersectSymbols } from "@/lib/event-filters.mjs";
+import { eventFilterParams, intersectSymbols } from "@/lib/event-filters.mjs";
 import { loadFeedFilters } from "@/lib/feed-filters";
 import { monthsBefore } from "@/lib/financials.mjs";
 import { formatInteger } from "@/lib/format";
@@ -223,6 +224,8 @@ export default async function ResultsAnalysisPage({
       ) : (
         <div className="panel px-5 py-10 text-center">
           <p className="text-sm font-medium">No results for these filters.</p>
+          {/* The span (`n`) is how much history, not a filter: it stays. */}
+          <ClearFiltersLink drop={[...eventFilterParams({ market: market.code }), "index"]} />
         </div>
       )}
     </div>

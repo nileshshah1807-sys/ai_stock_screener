@@ -19,6 +19,7 @@ import {
 import {
   addToWatchlist,
   createWatchlist,
+  quickAddToWatchlist,
   removeFromWatchlist,
 } from "@/app/(app)/[market]/watchlists/actions";
 import { WATCHLIST_MAX_LISTS, type Watchlist } from "@/lib/types";
@@ -88,6 +89,19 @@ export function AddToWatchlist({
     });
   };
 
+  const quickAdd = () =>
+    startTransition(async () => {
+      const form = new FormData();
+      form.set("market", market.slug);
+      form.set("symbol", symbol);
+      const result = await quickAddToWatchlist(form);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      router.refresh();
+    });
+
   const submitCreate = () => {
     const name = draft.trim();
     if (!name) return;
@@ -153,9 +167,12 @@ export function AddToWatchlist({
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              No lists yet. Create one to start tracking {symbol}.
-            </p>
+            // No list to tick yet: one tap makes the first and puts the stock on it,
+            // as the home page's quick watch does, rather than asking for a name first.
+            <Button className="w-full gap-1.5" disabled={pending} onClick={quickAdd}>
+              <BookmarkPlus className="size-3.5" aria-hidden />
+              Add {symbol} to a watchlist
+            </Button>
           )}
 
           {creating ? (

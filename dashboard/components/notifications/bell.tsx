@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { formatRelativeAge } from "@/lib/format";
 import { marketPath, type Market } from "@/lib/markets";
-import { badgeText, isUnread } from "@/lib/notifications.mjs";
+import { badgeText, isUnread, titleWithUnread } from "@/lib/notifications.mjs";
 import type { BellState } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +53,22 @@ export function NotificationBell({
     window.addEventListener(NOTIFICATIONS_SEEN_EVENT, clear);
     return () => window.removeEventListener(NOTIFICATIONS_SEEN_EVENT, clear);
   }, []);
+
+  // The count in the tab title too. Next rewrites the <title> on every navigation
+  // (and late, for streamed metadata), so the count is put back whenever it changes.
+  useEffect(() => {
+    const apply = () => {
+      const next = titleWithUnread(document.title, unread);
+      if (next !== document.title) document.title = next;
+    };
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(document.head, { subtree: true, childList: true, characterData: true });
+    return () => {
+      observer.disconnect();
+      document.title = titleWithUnread(document.title, 0);
+    };
+  }, [unread]);
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);

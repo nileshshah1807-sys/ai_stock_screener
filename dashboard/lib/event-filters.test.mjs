@@ -11,6 +11,7 @@ import {
   matchSymbols,
   parseEventFilters,
   ruleLabel,
+  wholeMarketEntries,
   withLists,
 } from "./event-filters.mjs";
 
@@ -177,4 +178,12 @@ test("growth rules are read only where the page offers them, and never tested ag
   assert.deepEqual([...matchSymbols(companies, withGrowth, "NSE")], ["A"]);
   assert.equal(matchSymbols(companies, { rules: [withGrowth.rules[1]], industries: [] }, "NSE"), null);
   assert.equal(ruleLabel({ metric: "patqoq", op: "lte", value: -5 }, "NSE"), "PAT growth QoQ ≤ -5%");
+});
+
+test("a watchlist feed widens to the whole market, keeping the viewer's own choices", () => {
+  const scoped = parseEventFilters({ kind: "results" }, watchlistsFirst);
+  assert.deepEqual(wholeMarketEntries(scoped, watchlistsFirst), [["scope", "all"], ["kind", "results"]]);
+  // The page that opens on the whole market needs no param to say so.
+  const chosen = parseEventFilters({ list: "a" }, wholeMarket);
+  assert.deepEqual(wholeMarketEntries(chosen, wholeMarket), []);
 });
