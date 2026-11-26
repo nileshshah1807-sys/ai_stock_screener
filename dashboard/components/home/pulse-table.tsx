@@ -2,15 +2,18 @@
 
 import Link from "next/link";
 
+import { IntradayLine } from "@/components/home/intraday-line";
 import { Sparkline } from "@/components/home/sparkline";
 import { TickFlash } from "@/components/tick-flash";
 import { useMarket, useMarketDay } from "@/components/market-provider";
 import { formatPercent } from "@/lib/format";
 import { pctChange } from "@/lib/home-market.mjs";
 import { indexSlug } from "@/lib/indices.mjs";
+import { dayBase, intradayFor, marketDate, withLivePoint } from "@/lib/intraday.mjs";
 import { inSession, liveOverlay } from "@/lib/live-quotes.mjs";
 import { marketPath } from "@/lib/markets";
 import type { PulseIndex } from "@/lib/home-market";
+import { useIntraday } from "@/lib/use-intraday";
 import { useLiveQuotes, useNow } from "@/lib/use-live-quotes";
 import { cn } from "@/lib/utils";
 
@@ -28,7 +31,7 @@ function Delta({ label, value }: { label: string; value: number | null }) {
 /**
  * The headline indices as tiles: level now (the live quote once it is from a
  * later session than the last close), the day's change large, the week and
- * month beneath, and a month of closes as a line. 1W and 1M are measured from
+ * month beneath, and today's line (a month of closes before the session opens). 1W and 1M are measured from
  * the closes the server sent, to the live level.
  */
 export function PulseTiles({ indices }: { indices: PulseIndex[] }) {
@@ -37,9 +40,11 @@ export function PulseTiles({ indices }: { indices: PulseIndex[] }) {
   const now = useNow();
   const lookup = useLiveQuotes(market.code, indices.map((index) => index.name), "index");
   const open = inSession(now, market, marketDay);
+  const intraday = useIntraday(market.code);
+  const today = marketDate(now, market.timezone);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-1 flex-col">
       <p suppressHydrationWarning className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
         <span className={cn("size-2 rounded-full", open ? "bg-positive" : "border border-border")} aria-hidden />
         {open ? "Market open" : "Market closed"}
@@ -50,6 +55,9 @@ export function PulseTiles({ indices }: { indices: PulseIndex[] }) {
           const level = quote?.price ?? index.last.value;
           const day = quote ? quote.change_pct : pctChange(index.prev ?? NaN, index.last.value);
           const trend = index.trend ?? [];
+          // Today's line once the session has bars; the month's closes before it opens.
+          const session = intradayFor(intraday, index.name, today);
+          const line = session ? withLivePoint(session.points, quote?.price, quote?.traded_at) : null;
           return (
             <li key={index.name} className="animate-rise" style={{ animationDelay: `${position * 60}ms` }}>
               <Link prefetch={false}
@@ -71,8 +79,18 @@ export function PulseTiles({ indices }: { indices: PulseIndex[] }) {
                   {formatPercent(day ?? null, 2, true)}
                 </span>
                 <div className="relative mb-1 mt-auto pt-1">
-                  <Sparkline values={trend} />
-                  <span className="absolute left-0 top-0 text-[10px] text-muted-foreground">1M</span>
+                  {line && session ? (
+                    <IntradayLine
+                      points={line}
+                      base={dayBase(level, day)}
+                      sessionOpen={market.sessionOpen}
+                      sessionClose={market.sessionClose}
+                      live={open}
+                    />
+                  ) : (
+                    <Sparkline values={trend} />
+                  )}
+                  <span className="absolute left-0 top-0 text-[10px] text-muted-foreground">{line ? "1D" : "1M"}</span>
                 </div>
                 <span className="flex justify-between gap-2 text-[11px]">
                   <Delta label="1W" value={pctChange(index.week ?? NaN, level)} />

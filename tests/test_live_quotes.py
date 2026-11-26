@@ -18,10 +18,12 @@ from screener.numeric import round_half_up
 from storage.dashboard_repository import DashboardRepository
 from workers.live_quotes import (
     in_session,
+    intraday_series,
     member_rows,
     members_due,
     quote_row,
     run,
+    yahoo_intraday,
     yahoo_quotes,
 )
 
@@ -93,6 +95,11 @@ class FakeRepo:
 
     def put_live_sectors_object(self, rows):
         self.live_sectors = rows
+
+    intraday = None
+
+    def put_live_intraday_object(self, rows, session):
+        self.intraday = (session, rows)
 
 
 def fetcher(quotes):
@@ -418,3 +425,67 @@ class RunTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def chart(stamps, closes, previous=24900.0):
+    return {"chart": {"result": [{"meta": {"chartPreviousClose": previous}, "timestamp": stamps, "indicators": {"quote": [{"close": closes}]}}]}}
+
+
+class IntradayTests(unittest.TestCase):
+    def test_a_chart_response_becomes_points_with_empty_bars_skipped(self):
+        series = intraday_series(chart([100, 400, 700], [25001.234, None, 25010.0]))
+        self.assertEqual(series, {"points": [[100, 25001.23], [700, 25010.0]]})
+
+    def test_no_bars_is_no_series(self):
+        self.assertIsNone(intraday_series(chart([], [])))
+        self.assertIsNone(intraday_series({"chart": {"result": None, "error": {"code": "Not Found"}}}))
+        self.assertIsNone(intraday_series(None))
+
+    def test_a_ticker_that_fails_is_left_out(self):
+        class Response:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def raise_for_status(self):
+                if self.payload is None:
+                    raise RuntimeError("500")
+
+            def json(self):
+                return self.payload
+
+        answers = {"^NSEI": chart([100], [25000.0]), "^CRSLDX": None}
+        get = lambda url, params, timeout: Response(answers[url.rsplit("/", 1)[1]])  # noqa: E731
+        series = yahoo_intraday(["^NSEI", "^CRSLDX"], get=get)
+        self.assertEqual(list(series), ["^NSEI"])
+
+    def test_the_run_publishes_each_headline_index_under_its_tile_name(self):
+        repo = FakeRepo(snapshot=["AAA"])
+        fetch, _ = fetcher({"AAA.NS": quote(101)})
+        asked = []
+
+        def intraday(tickers):
+            asked.extend(tickers)
+            return {"^NSEI": {"points": [[1, 25000.0]]}}
+
+        run(repo, NSE, now=IN_SESSION, fetch_quotes=fetch, fetch_members=must_not_fetch, fetch_intraday=intraday)
+        self.assertEqual(asked, [ticker for ticker, _ in NSE.headline_indices])
+        session, rows = repo.intraday
+        self.assertEqual(session, "2026-10-16")
+        self.assertEqual(rows, [{"name": "Nifty 50", "points": [[1, 25000.0]]}])
+
+    def test_a_failing_intraday_read_still_writes_the_quotes(self):
+        repo = FakeRepo(snapshot=["AAA"])
+        fetch, _ = fetcher({"AAA.NS": quote(101)})
+
+        def broken(tickers):
+            raise RuntimeError("vendor down")
+
+        summary = run(repo, NSE, now=IN_SESSION, fetch_quotes=fetch, fetch_members=must_not_fetch, fetch_intraday=broken)
+        self.assertEqual(summary["status"], "written")
+        self.assertIsNone(repo.intraday)
+
+    def test_without_a_fetcher_no_line_is_published(self):
+        repo = FakeRepo(snapshot=["AAA"])
+        fetch, _ = fetcher({"AAA.NS": quote(101)})
+        run(repo, NSE, now=IN_SESSION, fetch_quotes=fetch, fetch_members=must_not_fetch)
+        self.assertIsNone(repo.intraday)

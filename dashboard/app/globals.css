@@ -191,6 +191,8 @@
   --animate-tick-up: tick-up 3s var(--ease-standard) both;
   --animate-tick-down: tick-down 3s var(--ease-standard) both;
   --animate-heartbeat: heartbeat 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+  /* The home page's ticker: one copy of its list per cycle (the list is drawn twice). */
+  --animate-marquee: marquee 60s linear infinite;
 
   @keyframes rise {
     from {
@@ -261,6 +263,12 @@
   }
 
   /* The end of a live chart's line: a ring that swells and fades, once a beat. */
+  @keyframes marquee {
+    to {
+      transform: translate3d(-50%, 0, 0);
+    }
+  }
+
   @keyframes heartbeat {
     from {
       transform: scale(1);
