@@ -9,7 +9,12 @@
   "main": "worker.mjs",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  // run_worker_first: the static pages (lib/static-pages.mjs), so worker.mjs can answer a client
+  // navigation's RSC request, which asks the page's own URL, with the payload instead of the HTML.
+  // scripts/static-pages.mjs fails the build if a static page is missing here. OpenNext then requires
+  // html_handling "none" (no /foo for foo.html); the static pages are the only HTML in the assets, and
+  // the Worker asks for their .html by name.
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS", "html_handling": "none", "run_worker_first": ["/ind/flows", "/us/flows"] },
   // Run the Worker near the database (the Supabase project is in ap-northeast-1, Tokyo).
   "placement": { "hostname": "aeikzaubhepxjxqdhkjz.supabase.co" },
   "r2_buckets": [

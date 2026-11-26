@@ -86,7 +86,8 @@ function PrimaryNav({ market, className, phone = false }: { market: Market; clas
   );
 }
 
-function Brand({ run, market }: { run: ShellRun | null; market: Market }) {
+/** `pending`: the browser shell has not read the run yet, so neither the date nor "no run" is known. */
+function Brand({ run, market, pending }: { run: ShellRun | null; market: Market; pending: boolean }) {
   return (
     <Link prefetch={false}
       href={marketPath(market.slug)}
@@ -109,7 +110,7 @@ function Brand({ run, market }: { run: ShellRun | null; market: Market }) {
           of trailing room gives the last glyph somewhere to land.
         */}
         <span className="tabular hidden truncate pr-px text-xs text-muted-foreground lg:inline">
-          {run ? formatDate(run.price_bar_as_of ?? run.run_date) : "no run"}
+          {pending ? null : run ? formatDate(run.price_bar_as_of ?? run.run_date) : "no run"}
           {run?.model_version ? ` · v${run.model_version}` : ""}
         </span>
       </span>
@@ -191,9 +192,10 @@ export function AppFrame({
 }: {
   run: ShellRun | null;
   marketDay: MarketDay | null;
-  viewer: Viewer;
+  /** null while a static page's browser shell checks access: the frame is drawn, the account zone holds its place. */
+  viewer: Viewer | null;
   market: Market;
-  notifications: Promise<BellState>;
+  notifications: Promise<BellState> | null;
   /** Under the header for a trial viewer (TrialBannerFor on the server, TrialBanner in the browser shell). */
   trialBanner?: React.ReactNode;
   /** Whether live reads go to /api/live: the server's TABLE_BACKEND (readsFromCloudflare). */
@@ -207,7 +209,7 @@ export function AppFrame({
           {/* min-w-0 so a long brand can truncate instead of forcing the bar
               wider than the viewport. */}
           <div className="flex h-14 min-w-0 flex-1 items-center gap-3">
-            <Brand run={run} market={market} />
+            <Brand run={run} market={market} pending={!viewer} />
             <span aria-hidden className="hidden h-5 w-px shrink-0 bg-border sm:block" />
             <MarketSwitch current={market} />
           </div>
@@ -242,9 +244,13 @@ export function AppFrame({
           */}
           <div className="flex h-14 shrink-0 items-center justify-end gap-0.5 xl:flex-1">
             <GlobalSearchButton />
-            <Suspense key={market.slug} fallback={<NotificationBellFallback />}>
-              <NotificationBell market={market} state={notifications} />
-            </Suspense>
+            {notifications ? (
+              <Suspense key={market.slug} fallback={<NotificationBellFallback />}>
+                <NotificationBell market={market} state={notifications} />
+              </Suspense>
+            ) : (
+              <NotificationBellFallback />
+            )}
             {/*
               Not on a phone: the theme toggle and run health. The theme still
               follows the phone's own setting, and run health is linked from
@@ -254,13 +260,19 @@ export function AppFrame({
               <HealthLink href={marketPath(market.slug, "/health")} />
               <ThemeToggle />
             </span>
-            {viewer.role === "admin" ? (
+            {viewer?.role === "admin" ? (
               <Link prefetch={false} href="/admin" aria-label="Admin: users" title="Admin: users" className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "hidden text-muted-foreground hover:text-foreground sm:inline-flex")}>
                 <Users className="size-4" aria-hidden />
               </Link>
             ) : null}
-            <SignOut viewer={viewer} />
-            <Avatar viewer={viewer} />
+            {viewer ? (
+              <>
+                <SignOut viewer={viewer} />
+                <Avatar viewer={viewer} />
+              </>
+            ) : (
+              <span aria-hidden className="size-9 shrink-0 rounded-full bg-muted ring-1 ring-border sm:ml-1 sm:size-7" />
+            )}
           </div>
         </div>
       </header>
@@ -281,7 +293,7 @@ export function AppFrame({
             market={market}
             runDate={run?.run_date ?? null}
             marketDay={marketDay}
-            showRatings={viewer.role === "admin"}
+            showRatings={viewer?.role === "admin"}
             liveFromR2={liveFromR2}
           >
             {children}

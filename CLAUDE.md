@@ -597,7 +597,11 @@ the scheduled workflows set the same flag.
     under RLS. R2 objects are read through `/api/objects`, which `dashboard/worker.mjs`
     (the Worker's `main`) answers before Next loads: a Bearer token checked locally,
     a fixed list of objects (`lib/object-gate.mjs`), the body passed through unparsed.
-    A soft navigation to a static page is a full load (the RSC request gets HTML).
+    A link to a static page is a client navigation (26 Nov 2026): the build also copies its RSC
+    payload and segments (segments under flat base64url names), the page is `run_worker_first` in both
+    wrangler configs (so `html_handling` is `"none"`; the build fails if a page is missing there), and
+    `worker.mjs` answers the router's `rsc: 1` request from those files, never loading Next. Until the
+    access check lands, `BrowserShell` draws the whole frame with the account zone holding its place.
   - Before a production deploy, burst ~30 signed-in loads at `cupel-preview`
     with `npx wrangler tail --format json` and count `exceededCpu` against
     `main`. Rollback: `npx wrangler rollback <version> -y`.

@@ -1,6 +1,8 @@
 import { Suspense, type ComponentProps } from "react";
 
 import { AppFrame } from "@/components/app-frame";
+import type { Viewer } from "@/lib/auth";
+import type { BellState } from "@/lib/notifications";
 import { TrialBanner } from "@/components/trial-banner";
 import { trialStartLine } from "@/lib/billing.mjs";
 import { readsFromCloudflare } from "@/lib/db/market-repository";
@@ -11,7 +13,9 @@ import { getPlans, getSubscription } from "@/lib/plans";
  * server can read, the trial banner's subscription and the Worker's TABLE_BACKEND.
  * A static page draws AppFrame from the browser instead (components/browser-shell.tsx).
  */
-export function AppShell(props: Omit<ComponentProps<typeof AppFrame>, "trialBanner" | "liveFromR2">) {
+type FrameProps = Omit<ComponentProps<typeof AppFrame>, "trialBanner" | "liveFromR2" | "viewer" | "notifications">;
+
+export function AppShell(props: FrameProps & { viewer: Viewer; notifications: Promise<BellState> }) {
   const { access, id } = props.viewer;
   return (
     <AppFrame
