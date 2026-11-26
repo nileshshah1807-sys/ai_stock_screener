@@ -7,6 +7,7 @@ import {
   isDefaultView,
   parseEventFilters,
   eventFilterEntries,
+  wholeMarketEntries,
 } from "@/lib/event-filters.mjs";
 import type { MarketCode } from "@/lib/markets";
 import { getCompanyFacts } from "@/lib/queries";
@@ -44,6 +45,8 @@ export async function loadFeedFilters(
     isDefault: isDefaultView(filters, context),
     /** The filters as search-param pairs, for a form that must carry them. */
     entries: eventFilterEntries(filters, context),
+    /** The same view over the whole market, for a scoped feed with nothing in it. */
+    wholeMarket: wholeMarketEntries(filters, context),
     bar: {
       market,
       filters,

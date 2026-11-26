@@ -102,3 +102,21 @@ export function groupEventsByDate(events) {
   for (const event of events) days.set(event.event_date, [...(days.get(event.event_date) ?? []), event]);
   return [...days].sort(([a], [b]) => a.localeCompare(b)).map(([date, list]) => ({ date, events: list }));
 }
+
+/** Movers the home page's ticker carries from each side: enough to fill a wide screen twice over. */
+export const TICKER_SIDE = 8;
+
+/**
+ * The home page's ticker: the first index's gainers then its losers, from the
+ * live movers, only while they are today's (`today` in the exchange's clock).
+ * Before the next session opens it carries nothing rather than yesterday.
+ *
+ * @param {{ session: string | null, indices: Array<{ name: string, gainers: any[], losers: any[] }> } | null | undefined} live
+ * @param {string} today
+ */
+export function tickerRows(live, today) {
+  if (!live || live.session !== today) return { index: null, rows: [] };
+  const first = live.indices?.[0];
+  if (!first) return { index: null, rows: [] };
+  return { index: first.name, rows: [...first.gainers.slice(0, TICKER_SIDE), ...first.losers.slice(0, TICKER_SIDE)] };
+}

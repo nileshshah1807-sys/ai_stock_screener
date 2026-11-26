@@ -53,6 +53,7 @@ export default async function NotificationsPage({
     limit: FEED_LIMIT,
   });
   const timeZone = MARKET_TIME_ZONE[market.code];
+  const base = marketPath(market.slug, "/notifications");
   const groups = groupByDay(events, timeZone);
 
   return (
@@ -111,11 +112,14 @@ export default async function NotificationsPage({
                 ? "Nothing recorded yet."
                 : "Nothing matches these filters."}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {feed.scoped
-              ? `Results and transcripts appear here as they are recorded. Untick the lists under Watchlist for all of ${market.label}.`
-              : "Results and transcripts appear here as they are recorded."}
-          </p>
+          {feed.scoped || !feed.isDefault ? (
+            <Link
+              href={feed.scoped ? `${base}?${new URLSearchParams(feed.wholeMarket)}` : base}
+              className="mt-3 inline-block rounded text-xs font-medium underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {feed.scoped ? `Show all of ${market.label}` : "Clear filters"}
+            </Link>
+          ) : null}
         </div>
       )}
     </div>

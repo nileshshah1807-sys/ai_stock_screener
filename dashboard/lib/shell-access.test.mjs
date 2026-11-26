@@ -51,6 +51,7 @@ test("loginPath matches the proxy's query", () => {
 test("only the listed objects have keys", () => {
   assert.equal(objectKey("NSE", "fpi-flows"), "live/NSE/fpi-flows.json");
   assert.equal(objectKey("NSE", "sector-directory"), "sectors/NSE/directory.json");
+  assert.equal(objectKey("US", "intraday"), "live/US/intraday.json");
   assert.equal(objectKey("NSE", "quotes"), null);
   assert.equal(objectKey("NSE", "constructor"), null);
   assert.equal(objectKey("LSE", "fpi-flows"), null);

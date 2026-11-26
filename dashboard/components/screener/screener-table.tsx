@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { ClearFiltersLink } from "@/components/screener/clear-filters-link";
 import { GridKeyboard } from "@/components/screener/grid-keyboard";
 import { GridScroll } from "@/components/screener/grid-scroll";
 import { ScreenerRows } from "@/components/screener/screener-rows";
@@ -79,9 +80,7 @@ export async function ScreenerTable({
       emptyState ?? (
         <div className="panel animate-rise py-16 text-center">
           <p className="text-sm font-medium">No stocks match these filters</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Try widening the rating selection or clearing the evidence filters.
-          </p>
+          <ClearFiltersLink />
         </div>
       )
     );

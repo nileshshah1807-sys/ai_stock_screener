@@ -953,6 +953,10 @@ class DashboardRepository:
         """``live/{market}/sectors.json``: each sector's change in the live session."""
         return self._cloudflare_put("sectors", rows)
 
+    def put_live_intraday_object(self, rows: list[dict[str, Any]], session: str) -> bool:
+        """``live/{market}/intraday.json``: today's line of each headline index (workers/live_quotes.py)."""
+        return self._cloudflare_put("intraday", rows, session=session)
+
     def latest_snapshot_unrated(self) -> frozenset[str]:
         """Symbols of this market's newest published run that carry no rating."""
         run = self.latest_completed_run()

@@ -74,7 +74,12 @@ MIN_COVERAGE = 0.5
 KIND_STOCK = "stock"
 KIND_INDEX = "index"
 
+#: Today's line of each headline index, for the home page's 1D charts.
+CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+INTRADAY_INTERVAL = "5m"
+
 QuoteFetcher = Callable[[list[str]], dict[str, dict[str, Any]]]
+IntradayFetcher = Callable[[list[str]], dict[str, dict[str, Any]]]
 MembersFetcher = Callable[[str], list[tuple[str, str | None]]]
 
 
@@ -163,6 +168,57 @@ def yahoo_quotes(
             if symbol:
                 quotes[str(symbol)] = quote
     return quotes
+
+
+def intraday_series(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    """One chart response as ``{"points": [[epoch seconds, level], ...]}``.
+
+    A bar the vendor left empty (no trade in those five minutes) is skipped,
+    not drawn as zero. None when the response holds no bar at all. The meta's
+    previous close is not carried: after a holiday it is two sessions old (26
+    Nov 2026), so the dashboard takes its baseline from the tile's own 1D.
+    """
+    results = ((payload or {}).get("chart") or {}).get("result") or []
+    if not results:
+        return None
+    result = results[0]
+    stamps = result.get("timestamp") or []
+    closes = (((result.get("indicators") or {}).get("quote") or [{}])[0] or {}).get("close") or []
+    points = [
+        [int(stamp), round_half_up(level, 2)]
+        for stamp, raw in zip(stamps, closes)
+        if (level := _positive(raw)) is not None
+    ]
+    if not points:
+        return None
+    return {"points": points}
+
+
+def yahoo_intraday(
+    tickers: list[str],
+    get: Callable[..., Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Today's five-minute levels keyed by vendor ticker; a ticker that fails is absent."""
+    if get is None:
+        from yfinance.data import YfData
+
+        get = YfData().get
+    series: dict[str, dict[str, Any]] = {}
+    for ticker in tickers:
+        try:
+            response = get(
+                CHART_URL.format(ticker=ticker),
+                params={"range": "1d", "interval": INTRADAY_INTERVAL},
+                timeout=30,
+            )
+            response.raise_for_status()
+            parsed = intraday_series(response.json())
+        except Exception as exc:  # noqa: BLE001 -- one index's line is not worth the run
+            logger.warning("Intraday line for %s not read: %s", ticker, exc)
+            continue
+        if parsed:
+            series[ticker] = parsed
+    return series
 
 
 def _positive(value: Any) -> float | None:
@@ -263,8 +319,13 @@ def run(
     force: bool = False,
     refresh_members: bool = False,
     fetch_holidays: Callable[[], dict[str, Any] | None] = fetch_nse_holidays,
+    fetch_intraday: IntradayFetcher | None = None,
 ) -> dict[str, Any]:
-    """Refresh one market's quotes. Returns a summary for the log and tests."""
+    """Refresh one market's quotes. Returns a summary for the log and tests.
+
+    ``fetch_intraday`` (main passes ``yahoo_intraday``) also publishes today's
+    line of each headline index; None leaves it out.
+    """
     entry = todays_calendar_entry(repo, profile, now, fetch_holidays, dry_run)
     if not force and not in_session(now, profile, entry):
         logger.info("Outside the %s session; nothing to do", profile.code)
@@ -329,6 +390,8 @@ def run(
         repo.prune_live_quotes(cutoff)
         repo.put_live_quotes_object(rows, cutoff)
         publish_live_sectors(repo, stocks)
+        if fetch_intraday is not None:
+            publish_intraday(repo, profile, fetch_intraday, today)
     logger.info("Live quotes for %s: %s", profile.code, summary)
     if stock_tickers and len(stocks) < MIN_COVERAGE * len(stock_tickers):
         summary["status"] = "low_coverage"
@@ -346,6 +409,19 @@ def publish_live_sectors(repo, stocks: list[dict[str, Any]]) -> None:
         repo.put_live_sectors_object(live_sector_changes(weights, {row["symbol"]: row for row in stocks}))
     except Exception as exc:  # noqa: BLE001 -- a reading aid must not cost the quotes
         logger.warning("Live sectors not written: %s", exc)
+
+
+def publish_intraday(repo, profile: MarketProfile, fetch: IntradayFetcher, session: str) -> None:
+    """``live/{MARKET}/intraday.json``: today's line of each headline index, under the
+    name the home page's tiles carry. Rebuilt whole each run, so a missed run leaves
+    no gap. Never fails the run."""
+    try:
+        series = fetch([ticker for ticker, _ in profile.headline_indices])
+        rows = [{"name": label, **series[ticker]} for ticker, label in profile.headline_indices if ticker in series]
+        if rows:
+            repo.put_live_intraday_object(rows, session)
+    except Exception as exc:  # noqa: BLE001 -- a reading aid must not cost the quotes
+        logger.warning("Intraday lines not written: %s", exc)
 
 
 def main(argv: Iterable[str] | None = None) -> int:
@@ -372,6 +448,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         dry_run=args.dry_run,
         force=args.force,
         refresh_members=args.refresh_members,
+        fetch_intraday=yahoo_intraday,
     )
     if summary["status"] == "low_coverage":
         logger.error("Fewer than %.0f%% of symbols were quoted", MIN_COVERAGE * 100)

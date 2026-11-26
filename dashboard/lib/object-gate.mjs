@@ -33,6 +33,8 @@ export function tokenVerifier(url, anonKey) {
 const OBJECTS = {
   "fii-dii-flows": (market) => `live/${market}/fii-dii-flows.json`,
   "fpi-flows": (market) => `live/${market}/fpi-flows.json`,
+  // Today's five-minute line of each headline index (workers/live_quotes.py publish_intraday).
+  intraday: (market) => `live/${market}/intraday.json`,
   "sector-directory": (market) => `sectors/${market}/directory.json`,
 };
 const MARKETS = new Set(["NSE", "US"]);
