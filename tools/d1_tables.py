@@ -240,14 +240,34 @@ def apply_schema(execute) -> None:
                 execute(route, statement, [])
 
 
-def _page(table: str, keys: list[str], offset: int, columns: list[str] | None = None) -> list[dict[str, Any]]:
+def _literal(value: Any) -> str:
+    return ("true" if value else "false") if isinstance(value, bool) else str(value)
+
+
+def _page(table: str, keys: list[str], after: list[Any] | None, columns: list[str] | None = None) -> list[dict[str, Any]]:
+    """The next PAGE rows after the key ``after`` (None: from the start), in key order.
+
+    By key, not offset: an offset makes Postgres sort and skip every row before it, which
+    timed out at row 190,000 of screener_history (24 Nov 2026). The rows after a key are
+    one plain range per key column, the deepest first, each an index range scan.
+    """
     base, headers = _supabase()
-    params = {"order": ",".join(f"{key}.asc" for key in keys), "limit": str(PAGE), "offset": str(offset)}
-    if columns:
-        params["select"] = ",".join(columns)
-    reply = requests.get(f"{base}/{table}", params=params, headers=headers, timeout=120)
-    reply.raise_for_status()
-    return reply.json()
+    ranges = [{}] if after is None else [
+        {**{key: f"eq.{_literal(value)}" for key, value in zip(keys[:depth], after)},
+         keys[depth]: f"gt.{_literal(after[depth])}"}
+        for depth in reversed(range(len(keys)))
+    ]
+    rows: list[dict[str, Any]] = []
+    for filters in ranges:
+        params = {**filters, "order": ",".join(f"{key}.asc" for key in keys), "limit": str(PAGE - len(rows))}
+        if columns:
+            params["select"] = ",".join(columns)
+        reply = requests.get(f"{base}/{table}", params=params, headers=headers, timeout=120)
+        reply.raise_for_status()
+        rows += reply.json()
+        if len(rows) >= PAGE:
+            break
+    return rows
 
 
 class FileState:
@@ -300,8 +320,8 @@ ORDER = (
     "transcript_sentiments", "transcript_outlooks", "estimate_history", "red_flag_snapshots",
     "screener_runs", "screener_snapshot", "screener_history",
 )
-#: A table re-read from the start when D1 ends up short of Supabase (a row deleted
-#: before the offset between two days of paging), at most this many times.
+#: A table re-read from the start when D1 ends up short of Supabase (a row added
+#: behind the key between two days of paging), at most this many times.
 MAX_PASSES = 3
 REPASS_MAX_WRITTEN_SHARE = 0.05  # of the rows a pass 2 or 3 sends
 
@@ -322,13 +342,16 @@ def write_cost(table: str) -> int:
 
 
 def backfill(
-    tables: list[str], session: D1Session, store, definitions: dict[str, Any], fetch=_page, counts=None
+    tables: list[str], session: D1Session, store, definitions: dict[str, Any], fetch=_page, counts=None,
+    seek=None,
 ) -> int:
     """Copy each table on from where the state left it. 0 when done, 2 at the day's ceiling,
     1 when a re-read rewrote unchanged rows (the table is stopped, not the run).
 
     ``counts(table) -> (supabase, d1)``, when given, checks a finished table: D1
     short of Supabase means a row was skipped, so the table is read again.
+    ``seek(table, keys, offset)`` gives the key of the last row copied for progress
+    saved by offset alone, before paging was by key.
     """
     state = store.load()
     day = datetime.now(UTC).date().isoformat()
@@ -340,8 +363,11 @@ def backfill(
             keys = primary_key(table, definitions[table])
             columns = _columns(table, definitions[table])
             progress = state["tables"].setdefault(table, {"offset": 0, "done": False})
+            if progress["offset"] and "after" not in progress and not progress["done"]:
+                progress["after"] = seek(table, keys, progress["offset"])
             while not progress["done"]:
-                rows = [to_d1(table, row) for row in fetch(table, keys, progress["offset"], columns)]
+                page = fetch(table, keys, progress.get("after"), columns)
+                rows = [to_d1(table, row) for row in page]
                 before = session.rows_written
                 if rows:
                     session.request(
@@ -351,6 +377,8 @@ def backfill(
                         headers={"Prefer": "resolution=merge-duplicates,return=minimal"},
                     ).raise_for_status()
                 progress["offset"] += len(rows)
+                if page:
+                    progress["after"] = [page[-1][key] for key in keys]
                 progress["sent"] = progress.get("sent", 0) + len(rows)
                 progress["written"] = progress.get("written", 0) + session.rows_written - before
                 progress["done"] = len(rows) < PAGE
@@ -368,7 +396,7 @@ def backfill(
                     source, copied = counts(table)
                     progress["counts"] = [source, copied]
                     if copied < source and progress.get("pass", 1) < MAX_PASSES:
-                        progress.update({"offset": 0, "done": False, "pass": progress.get("pass", 1) + 1,
+                        progress.update({"offset": 0, "after": None, "done": False, "pass": progress.get("pass", 1) + 1,
                                          "sent": 0, "written": 0, "missing": source - copied})
                 state["days"][day] = already + session.rows_written
                 store.save(state)
@@ -425,7 +453,8 @@ def main(argv: list[str] | None = None) -> int:
 
         session = D1Session(execute, max_rows_written=args.max_rows_written)
         store = D1State(execute) if args.state == "d1" else FileState(Path(args.state))
-        return backfill(tables, session, store, describe(), counts=counts)
+        return backfill(tables, session, store, describe(), counts=counts,
+                        seek=lambda table, keys, offset: last_copied(execute, table, keys, offset))
     for table in args.tables or list(ORDER):
         source, copied = count_supabase(table), count_d1(execute, table)
         print(f"{table}: supabase {source}, d1 {copied}, remaining {max(0, source - copied)}")
@@ -435,6 +464,14 @@ def main(argv: list[str] | None = None) -> int:
 def count_d1(execute, table: str) -> int:
     rows, _ = execute(table, f'SELECT count(*) AS n FROM "{table}"', [])
     return int(rows[0]["n"])
+
+
+def last_copied(execute, table: str, keys: list[str], offset: int) -> list[Any]:
+    """The key of row ``offset`` in D1, in key order: the last one copied while the
+    copy went in key order and nothing else wrote the table."""
+    quoted = ", ".join(f'"{key}"' for key in keys)
+    rows, _ = execute(table, f'SELECT {quoted} FROM "{table}" ORDER BY {quoted} LIMIT 1 OFFSET ?', [offset - 1])
+    return [rows[0][key] for key in keys]
 
 
 if __name__ == "__main__":  # pragma: no cover
