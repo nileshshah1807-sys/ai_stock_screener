@@ -12,10 +12,10 @@
  */
 
 import type { MarketCode } from "@/lib/markets";
-import { VIEW_KEYS, applyView, removeView, viewIsActive } from "@/lib/view-match.mjs";
+import { VIEW_KEYS, applyView, litViews, removeView, viewIsActive } from "@/lib/view-match.mjs";
 
 // Re-exported so callers keep importing view state from one place.
-export { applyView, removeView, viewIsActive };
+export { applyView, litViews, removeView, viewIsActive };
 
 export type Preset = {
   id: string;

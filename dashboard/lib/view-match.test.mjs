@@ -99,3 +99,28 @@ test("a view replaces the values of a key it sets", async () => {
   const { applyView } = await import("./view-match.mjs");
   assert.equal(applyView(url("cap=~500"), "cap=1000~").getAll("cap").join(), "1000~");
 });
+
+test("a saved view that carries presets lights alone, not the presets inside it", async () => {
+  // The reported bug: GOAT was saved with Cupel blend and the size floor on,
+  // so selecting it ticked all three.
+  const { litViews } = await import("./view-match.mjs");
+  const blend = { id: "cupel-blend", query: "sort=custom_score&w=q25.g25.m30.v15.r5.c50" };
+  const floor = { id: "above-1000-cr", query: "cap=1000~" };
+  const goat = { id: "goat", query: `${blend.query}&cap=1000~&density=compact` };
+  const views = [blend, floor, goat];
+  const ids = (query) => litViews(url(query), views).map((view) => view.id);
+
+  assert.deepEqual(ids(goat.query), ["goat"]);
+  assert.deepEqual(ids(`${goat.query}&sector=Energy`), ["goat"], "narrowing keeps it lit");
+  // Without the saved view's own extra, the two presets are what is on.
+  assert.deepEqual(ids(`${blend.query}&cap=1000~`), ["cupel-blend", "above-1000-cr"]);
+  assert.deepEqual(ids("cap=1000~"), ["above-1000-cr"]);
+  assert.deepEqual(ids(""), []);
+});
+
+test("two views with the same filters both light", async () => {
+  const { litViews } = await import("./view-match.mjs");
+  const a = { id: "a", query: "cap=1000~" };
+  const b = { id: "b", query: "cap=1000~" };
+  assert.deepEqual(litViews(url("cap=1000~"), [a, b]).map((view) => view.id), ["a", "b"]);
+});

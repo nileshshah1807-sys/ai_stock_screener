@@ -65,19 +65,42 @@ function canonical(params) {
   return pairs.sort();
 }
 
-export function viewIsActive(current, query) {
-  const wanted = canonical(new URLSearchParams(query));
-  if (!wanted.length) return false;
-
-  // Multiset containment: every pair the view sets must still be present, and
-  // a view asking for two ratings is not satisfied by only one of them.
-  const remaining = canonical(current);
+// Multiset containment: every wanted pair is present, and a view asking for
+// two ratings is not satisfied by only one of them.
+function contains(have, wanted) {
+  const remaining = [...have];
   for (const pair of wanted) {
     const at = remaining.indexOf(pair);
     if (at === -1) return false;
     remaining.splice(at, 1);
   }
   return true;
+}
+
+export function viewIsActive(current, query) {
+  const wanted = canonical(new URLSearchParams(query));
+  return wanted.length > 0 && contains(canonical(current), wanted);
+}
+
+/**
+ * The views the menu shows as on: every active view except one whose pairs all
+ * sit inside another active view's. A saved view is the whole screen at the
+ * time, so one saved with a preset on carries that preset's pairs; lighting
+ * both made one tap tick several views.
+ * @template {{ query: string }} V
+ * @param {URLSearchParams} current
+ * @param {readonly V[]} views
+ * @returns {V[]}
+ */
+export function litViews(current, views) {
+  const active = views
+    .filter((view) => viewIsActive(current, view.query))
+    .map((view) => ({ view, pairs: canonical(new URLSearchParams(view.query)) }));
+  return active
+    .filter(({ pairs }) =>
+      !active.some((other) => other.pairs.length > pairs.length && contains(other.pairs, pairs)),
+    )
+    .map(({ view }) => view);
 }
 
 /**
