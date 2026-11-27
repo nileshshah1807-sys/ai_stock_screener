@@ -191,6 +191,16 @@ the scheduled workflows set the same flag.
   figures as filed under `lines.cumulative` with `lines.period_days` (181/182). Growth, the
   trailing year and the feed read the quarter lines only, and `facts_frame` skips any row with
   `period_days` over `MAX_QUARTER_DAYS`; a dashboard that shows a half-year reads `cumulative`.
+- **A young listing is shown, not dropped.** Under `MIN_PRICE_SESSIONS_REQUIRED`
+  (60) sessions a name cannot be scored. On NSE, `workers/new_listings.py` lists
+  the mainboard ones apart (by listing date; a chart from the second session);
+  in every market without that worker (`MarketProfile.new_listings_worker`, the
+  US today) the run appends it to the export as an `UNRATED` row, so it is
+  searchable with a page and a chart (Anthropic, `ANT`, listed 19 Nov 2026). A
+  company that moves from BSE to NSE starts a new `.NS` line on Yahoo: under 60
+  sessions, its BSE bars (`BSE_Symbol`'s `.BO`) are put before its NSE ones
+  (`session_bars.prepend_earlier_listing`), so it stays rated; see
+  `technical_bse_history_spliced_symbols`.
 - **An NSE SME name Yahoo has no history for is priced from the bhavcopy.**
   With `SME_BHAVCOPY_PRICES_ENABLED` (NSE workflow) `screener/sme_bars.py` keeps
   the SM/ST/SZ rows of every daily file for ~2 years in `reports_advanced/sme_bars.csv.gz`

@@ -102,8 +102,8 @@ class UniverseResult:
     # Symbols that are SME listings, for display; empty for every other source.
     sme_symbols: tuple[str, ...] = ()
     # BSE-only symbols the exchange's file shows traded on ``bse_session``, its newest.
-    # (symbol, company name) for the SME listings, so a name Yahoo does not know can still be shown.
-    sme_names: tuple[tuple[str, str], ...] = ()
+    # (symbol, company name) for the listings, so a name shown unrated (no Yahoo profile read) is named.
+    names: tuple[tuple[str, str], ...] = ()
     bse_session: str = ""
     bse_traded: frozenset[str] = frozenset()
     # (NSE symbol, BSE ticker) for companies listed on both, matched by ISIN.
@@ -220,6 +220,15 @@ def _nse_sme():
     return frame
 
 
+def _names(symbols, names) -> tuple[tuple[str, str], ...]:
+    """(symbol, company name) pairs, skipping a row with no symbol or no name."""
+    return tuple(
+        (symbol.strip(), name.strip())
+        for symbol, name in zip(symbols, names, strict=True)
+        if isinstance(symbol, str) and isinstance(name, str) and symbol.strip() and name.strip()
+    )
+
+
 def _bse_tickers(bse, listings) -> tuple[tuple[str, str], ...]:
     """(NSE symbol, BSE ticker) for each listing whose ISIN BSE's file names.
 
@@ -246,19 +255,19 @@ def _nse_with_bse(groups, sme=None) -> UniverseResult:
         return result
     symbols_nse = list(result.symbols)
     sme_symbols = []
-    sme_names = ()
+    names = _names(nse["SYMBOL"], nse.get("NAME OF COMPANY", nse["SYMBOL"]))
     isins = set(nse["ISIN NUMBER"].dropna().str.strip())
     notes = [f"nse:{len(result.symbols)}"]
     if sme is not None:
         # A company that moved to the mainboard can linger in the SME list.
         sme = sme.loc[~sme["SYMBOL"].str.strip().isin(set(result.symbols))]
         sme_symbols = sme["SYMBOL"].dropna().str.strip().tolist()
-        sme_names = tuple(zip(sme["SYMBOL"].str.strip(), sme["NAME_OF_COMPANY"].fillna("").str.strip(), strict=True))
+        names += _names(sme["SYMBOL"], sme["NAME_OF_COMPANY"])
         symbols_nse += sme_symbols
         isins |= set(sme["ISIN_NUMBER"].dropna().str.strip())
         notes.append(f"nse_sme:{len(sme_symbols)}")
     result = replace(
-        result, symbols=tuple(dict.fromkeys(symbols_nse)), sme_symbols=tuple(sme_symbols), sme_names=sme_names
+        result, symbols=tuple(dict.fromkeys(symbols_nse)), sme_symbols=tuple(sme_symbols), names=names
     )
     bse = _recent_bse_bhavcopies()
     if bse is None:
@@ -284,20 +293,17 @@ def _nse_with_bse(groups, sme=None) -> UniverseResult:
         bse_session=session,
         bse_traded=frozenset(f"{x.strip().upper()}{BSE_SUFFIX}" for x in traded),
         bse_tickers=_bse_tickers(bse, listings),
+        names=(
+            *result.names,
+            *_names(bse_only["TckrSymb"].str.strip().str.upper() + BSE_SUFFIX, bse_only.get("FinInstrmNm", bse_only["TckrSymb"])),
+        ),
     )
     logger.info("NSE + BSE-only universe: %d symbols (%d BSE-only)", len(symbols), len(added))
     if sme is not None:
         added_sme = sorted(
             {f"{x.strip().upper()}{BSE_SUFFIX}" for x in bse_only.loc[bse_only["SctySrs"].isin(_BSE_SME_GROUPS), "TckrSymb"].dropna()}
         )
-        bse_sme = bse_only.loc[bse_only["SctySrs"].isin(_BSE_SME_GROUPS)].dropna(subset=["TckrSymb"])
-        bse_names = tuple(
-            (f"{x.strip().upper()}{BSE_SUFFIX}", str(n).strip())
-            for x, n in zip(bse_sme["TckrSymb"], bse_sme.get("FinInstrmNm", bse_sme["TckrSymb"]), strict=True)
-        )
-        result = replace(
-            result, sme_symbols=(*result.sme_symbols, *added_sme), sme_names=(*result.sme_names, *bse_names)
-        )
+        result = replace(result, sme_symbols=(*result.sme_symbols, *added_sme))
     return replace(
         result,
         symbols=symbols,
@@ -446,6 +452,7 @@ def all_listed(config=None) -> UniverseResult:
     fundamentals and statements fetches.
     """
     symbols: set[str] = set()
+    names: list[tuple[str, str]] = []
     notes: list[str] = []
 
     for url, symbol_column in (
@@ -479,6 +486,10 @@ def all_listed(config=None) -> UniverseResult:
         selected = selected[~selected.str.contains(r"[$]", regex=True, na=False)]
         notes.append(f"{url.rsplit('/', 1)[-1]}:{len(selected)}")
         symbols.update(selected.tolist())
+        if "Security Name" in frame.columns:
+            # "Anthropic, PBC - Class A Common Stock": the company is before the dash.
+            titles = frame.loc[selected.index, "Security Name"].str.split(" - ", n=1).str[0]
+            names += _names(selected, titles)
 
     if not symbols:
         return UniverseResult((), _NASDAQ_LISTED_URL, "error:no_symbols", notes=tuple(notes))
@@ -492,6 +503,7 @@ def all_listed(config=None) -> UniverseResult:
         source_sha256=_digest_symbols(symbols),
         source_symbol_count=len(symbols),
         notes=tuple(notes),
+        names=tuple(names),
     )
 
 

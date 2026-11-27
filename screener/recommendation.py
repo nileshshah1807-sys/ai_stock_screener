@@ -98,7 +98,7 @@ def rating_from_score(score):
 
 
 def unrated_rows(held_out, display_only, min_sessions):
-    """Display rows for SME names the run could not score, with the reason on each.
+    """Display rows for names the run could not score (new listings, SMEs), with the reason on each.
 
     The one place a name with no evidence gets its rating: ``UNRATED``, the same
     value ``rating_from_score`` gives a missing score. Scores and ranks are left

@@ -211,3 +211,19 @@ def carry_quiet_session(frame, expected_session, market_timezone, max_gap_days):
     carried = frame.copy()
     carried.loc[label] = row
     return carried.sort_index(), True
+
+
+def prepend_earlier_listing(frame, earlier):
+    """Return ``frame`` with ``earlier``'s bars from before its first bar, and whether any were added.
+
+    For a company that moved from BSE to NSE: Yahoo starts the ``.NS`` line on
+    the NSE listing day, so the years it traded on BSE are only on ``.BO``.
+    """
+    if earlier is None or earlier.empty or frame is None or frame.empty:
+        return frame, False
+    first = frame.dropna(how="all").index.min()
+    older = earlier.dropna(how="all")
+    older = older.loc[older.index < first, older.columns.intersection(frame.columns)]
+    if older.empty:
+        return frame, False
+    return pd.concat([older, frame]).sort_index(), True

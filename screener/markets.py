@@ -114,6 +114,10 @@ class MarketProfile:
         (2e12, -0.03), (2e11, -0.015), (5e10, 0.0),
     )
     dcf_small_cap_adjustment: float = 0.02
+    # True where ``workers/new_listings.py`` shows young mainboard listings apart
+    # (NSE, by listing date). Elsewhere the run itself publishes them unrated: a
+    # snapshot row would read as "rated" to that worker and drop it from its table.
+    new_listings_worker: bool = False
 
 
 _NSE_PROFILE = MarketProfile(
@@ -154,6 +158,7 @@ _NSE_PROFILE = MarketProfile(
     session_bar_fallback="nse_bhavcopy",
     action_ledger="nse_actions",
     max_open_gap=1.30,
+    new_listings_worker=True,
     session_open="09:15",
     session_close="15:30",
     # Nifty Microcap 250 has no Yahoo level (see headline_indices), so its
