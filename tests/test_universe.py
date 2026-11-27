@@ -138,6 +138,15 @@ class BseOnlyUniverseTests(unittest.TestCase):
         result = self._fetch(bhavcopy)
         self.assertEqual(result.bse_tickers, (("RELIANCE", "RELIANCEBSE"),))
 
+    def test_every_listing_carries_its_company_name(self):
+        import io
+
+        import pandas as pd
+
+        names = dict(self._fetch(pd.read_csv(io.StringIO(BSE_BHAVCOPY))).names)
+        self.assertEqual(names["RELIANCE"], "Reliance Industries Limited")
+        self.assertIn("TANFACIND.BO", names)
+
     def test_missing_bhavcopy_degrades_to_nse_alone(self):
         result = self._fetch(None)
         self.assertEqual(result.symbols, ("RELIANCE", "TCS"))
@@ -316,6 +325,12 @@ class AllListedUniverseTests(unittest.TestCase):
 
     def test_common_stock_is_kept(self):
         self.assertIn("AAPL", self._fetch().symbols)
+
+    def test_company_names_come_from_the_security_name(self):
+        names = dict(self._fetch().names)
+        self.assertEqual(names["AAPL"], "Apple Inc.")
+        self.assertEqual(names["BRK-B"], "Berkshire Hathaway Inc. Class B Common Stock")
+        self.assertNotIn("QQQ", names)
 
     def test_etfs_test_issues_warrants_and_preferred_are_dropped(self):
         symbols = self._fetch().symbols

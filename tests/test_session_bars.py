@@ -258,3 +258,24 @@ class FallbackWiringTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PrependEarlierListingTests(unittest.TestCase):
+    def test_only_bars_before_the_first_are_added(self):
+        from screener.session_bars import prepend_earlier_listing
+
+        later = _history(hole=False, live_row=False, periods=5)
+        earlier = _history(hole=False, live_row=False, periods=40) * 2
+        frame, spliced = prepend_earlier_listing(later, earlier)
+        self.assertTrue(spliced)
+        self.assertEqual(len(frame), 40)
+        pd.testing.assert_frame_equal(frame.tail(5), later)
+
+    def test_nothing_earlier_leaves_the_frame_alone(self):
+        from screener.session_bars import prepend_earlier_listing
+
+        later = _history(hole=False, live_row=False, periods=5)
+        for earlier in (None, later.iloc[0:0], later):
+            frame, spliced = prepend_earlier_listing(later, earlier)
+            self.assertFalse(spliced)
+            self.assertIs(frame, later)

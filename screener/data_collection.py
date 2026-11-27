@@ -27,7 +27,7 @@ from .market_data import (
     latest_expected_completed_nse_session,
     normalize_market_holidays,
 )
-from .markets import active_profile, bare_symbol, is_bse_only, ticker_for
+from .markets import BSE_SUFFIX, active_profile, bare_symbol, is_bse_only, ticker_for
 from .numeric import round_half_up
 from .price_basis import (
     CHANGE_BAD_PRINT,
@@ -37,7 +37,12 @@ from .price_basis import (
 )
 from .price_probe import probe_expected_session
 from .quarterly_results import VENDOR_QUARTER_COLUMN, vendor_quarter_end
-from .session_bars import SessionBarSource, carry_quiet_session, patch_expected_session_bar
+from .session_bars import (
+    SessionBarSource,
+    carry_quiet_session,
+    patch_expected_session_bar,
+    prepend_earlier_listing,
+)
 from .sme_bars import SmeBarHistory
 from .stage import stage_features
 from .valuation_basis import price_ratios
@@ -274,8 +279,8 @@ class StockDataCollector:
         self.sme_symbols = frozenset()
         self.bse_session, self.bse_traded = "", frozenset()
         self.bse_tickers = {}
-        self.sme_names = {}
-        # SME names with a price but too few sessions to score: shown, never scored.
+        self.names = {}
+        # Names with a price but too few sessions to score (new listings): shown, never scored.
         self.display_only = []
         self.collection_diagnostics = {
             "schema_version": 1,
@@ -403,8 +408,8 @@ class StockDataCollector:
         """
         return {
             "Symbol": symbol,
-            "Company": self.sme_names.get(symbol) or symbol,
-            "Is_SME": True,
+            "Company": self.names.get(symbol) or symbol,
+            "Is_SME": symbol in self.sme_symbols,
             "Current_Price": round_half_up(float(raw_closes.iloc[-1]), 2),
             "Price_Bar_As_Of": bar_date.isoformat() if bar_date is not None else None,
             "Expected_Price_Bar_As_Of": expected_session.isoformat(),
@@ -413,6 +418,18 @@ class StockDataCollector:
             "Analysis_As_Of": analysis_text,
             "Price_Fetched_At": fetched_text,
         }
+
+    def _bse_bars(self, symbol, period):
+        """Yahoo's bars for ``symbol``'s BSE listing, or None: its history before it joined NSE."""
+        ticker = f"{self.bse_tickers[symbol]}{BSE_SUFFIX}"
+        try:
+            data = yf.download(ticker, period=period, group_by="ticker", progress=False, auto_adjust=False)
+        except Exception as exc:
+            logger.warning("BSE history fetch failed for %s: %s", ticker, exc)
+            return None
+        if isinstance(data.columns, pd.MultiIndex):
+            return data[ticker] if ticker in data.columns.get_level_values(0) else None
+        return data
 
     def _quiet_on_bse(self, symbol, expected_session):
         """True when BSE's file for the expected session shows ``symbol`` did not trade."""
@@ -542,7 +559,7 @@ class StockDataCollector:
         self.sme_symbols = frozenset(result.sme_symbols)
         self.bse_session, self.bse_traded = result.bse_session, result.bse_traded
         self.bse_tickers = dict(result.bse_tickers)
-        self.sme_names = dict(result.sme_names)
+        self.names = dict(result.names)
         all_symbols = set(result.symbols)
         all_symbols.update(profile.safety_net_symbols)
         filtered = {
@@ -698,6 +715,7 @@ class StockDataCollector:
         sme_bars = self._sme_bar_source(expected_price_session)
         sme_bar_priced = []
         quiet_carried = []
+        bse_spliced = []
         action_ledger, max_open_gap = self._price_basis_rules(analysis_as_of.date())
         basis_restated = []
         bad_prints = []
@@ -749,6 +767,15 @@ class StockDataCollector:
                             ):
                                 failed.append(clean_sym)
                                 continue
+                        if (
+                            clean_sym in self.bse_tickers
+                            and price_data["Close"].notna().sum() < min_sessions
+                        ):
+                            price_data, spliced = prepend_earlier_listing(
+                                price_data, self._bse_bars(clean_sym, history_period)
+                            )
+                            if spliced:
+                                bse_spliced.append(clean_sym)
                         if session_bars is not None:
                             price_data, bar_patched = patch_expected_session_bar(
                                 price_data,
@@ -834,7 +861,12 @@ class StockDataCollector:
                             or len(raw_closes) < min_sessions
                             or len(volumes) == 0
                         ):
-                            if clean_sym in self.sme_symbols and len(raw_closes) and len(volumes):
+                            # A new listing (stale bars failed above): shown unrated until it has the history.
+                            if (
+                                (clean_sym in self.sme_symbols or not profile.new_listings_worker)
+                                and len(raw_closes)
+                                and len(volumes)
+                            ):
                                 self.display_only.append(
                                     self._display_only_record(
                                         clean_sym, raw_closes, price_bar_as_of, expected_price_session,
@@ -1076,6 +1108,9 @@ class StockDataCollector:
         )
         self.collection_diagnostics["technical_quiet_session_carried_symbols"] = sorted(
             set(quiet_carried) & fresh_symbols
+        )
+        self.collection_diagnostics["technical_bse_history_spliced_symbols"] = sorted(
+            set(bse_spliced) & fresh_symbols
         )
         if session_bar_patched:
             logger.warning(

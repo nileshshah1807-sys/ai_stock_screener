@@ -601,7 +601,7 @@ def run_daily_analysis():
     # (screener/valuation_basis.py); the publisher writes it from the export.
     scored_df = attach_basis(scored_df)
     csv_path = config.OUTPUT_DIR / f"advanced_analysis_{analysis_now.strftime('%Y%m%d')}.csv"
-    # SME names that could not be scored are appended to the export only, after
+    # Names that could not be scored (new listings, SMEs) are appended to the export only, after
     # every rank is fixed, so nothing computed above includes them; the
     # publisher ships them as UNRATED rows.
     unrated_df = unrated_rows(
@@ -611,7 +611,7 @@ def run_daily_analysis():
     )
     export_df = pd.concat([scored_df, unrated_df], ignore_index=True) if len(unrated_df) else scored_df
     if len(unrated_df):
-        logger.info("%d SME listing(s) published unrated", len(unrated_df))
+        logger.info("%d listing(s) published unrated", len(unrated_df))
         # A column gaining a missing value would turn its ranks into floats ("1.0").
         for column in scored_df.select_dtypes("integer").columns:
             export_df[column] = export_df[column].astype("Int64")

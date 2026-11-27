@@ -297,7 +297,7 @@ class DisplayOnlyTests(unittest.TestCase):
         )
         collector = StockDataCollector(config, clock=lambda: NOW)
         collector.sme_symbols = frozenset({"EXAMPLE"})
-        collector.sme_names = {"EXAMPLE": "Example Ltd"}
+        collector.names = {"EXAMPLE": "Example Ltd"}
         yahoo = pd.concat({"EXAMPLE.NS": _history(hole=False, live_row=False, periods=30)}, axis=1)
         yahoo.loc[pd.Timestamp("2026-10-05"), :] = yahoo.iloc[-1].to_numpy()
         with patch("screener.data_collection.yf.download", return_value=yahoo):
@@ -307,3 +307,57 @@ class DisplayOnlyTests(unittest.TestCase):
         self.assertEqual((record["Symbol"], record["Company"]), ("EXAMPLE", "Example Ltd"))
         self.assertEqual(record["Price_History_Sessions"], 31)
         self.assertEqual(collector.collection_diagnostics["technical_display_only_symbols"], ["EXAMPLE"])
+
+
+class NewListingTests(unittest.TestCase):
+    """A US new listing is shown unrated; an NSE one that moved from BSE keeps its BSE history."""
+
+    def _collect(self, downloads, *, bse_tickers=None, market="NSE"):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        config = SimpleNamespace(
+            OUTPUT_DIR=Path(directory.name), PRICE_CACHE_MAX_AGE_HOURS=18, FUND_CACHE_MAX_AGE_DAYS=7,
+            FACTOR_MODEL_ENABLED=False, NSE_MARKET_HOLIDAYS=HOLIDAYS, MARKET=market,
+        )
+        collector = StockDataCollector(config, clock=lambda: NOW)
+        collector.names = {"EXAMPLE": "Example Ltd"}
+        collector.bse_tickers = bse_tickers or {}
+        with patch("screener.data_collection.yf.download", side_effect=downloads) as download:
+            result = collector.download_stock_data(["EXAMPLE"])
+        return collector, result, download
+
+    @staticmethod
+    def _bars(ticker, periods):
+        frame = _history(hole=False, live_row=False, periods=periods)
+        frame.loc[pd.Timestamp("2026-10-05")] = frame.iloc[-1].to_numpy()
+        return pd.concat({ticker: frame}, axis=1)
+
+    def test_a_short_history_us_listing_is_shown_unrated(self):
+        collector, result, _ = self._collect([self._bars("EXAMPLE", 5)], market="US")
+        self.assertTrue(result.empty)
+        record = collector.display_only[0]
+        self.assertEqual((record["Company"], record["Is_SME"]), ("Example Ltd", False))
+        self.assertLess(record["Price_History_Sessions"], 60)
+
+    def test_a_short_history_nse_mainboard_listing_is_left_to_the_new_listings_worker(self):
+        collector, result, _ = self._collect([self._bars("EXAMPLE.NS", 5)])
+        self.assertTrue(result.empty)
+        self.assertEqual(collector.display_only, [])
+
+    def test_a_name_that_moved_from_bse_is_scored_on_its_bse_history(self):
+        collector, result, download = self._collect(
+            [self._bars("EXAMPLE.NS", 11), self._bars("EXAMPLEBSE.BO", 120)],
+            bse_tickers={"EXAMPLE": "EXAMPLEBSE"},
+        )
+        self.assertEqual(download.call_args_list[1].args[0], "EXAMPLEBSE.BO")
+        self.assertEqual(list(result["Symbol"]), ["EXAMPLE"])
+        self.assertEqual(collector.display_only, [])
+        self.assertEqual(collector.collection_diagnostics["technical_bse_history_spliced_symbols"], ["EXAMPLE"])
+
+    def test_a_bse_line_no_longer_than_the_nse_one_leaves_it_unscored(self):
+        collector, result, _ = self._collect(
+            [self._bars("EXAMPLE.NS", 11), self._bars("EXAMPLEBSE.BO", 11)],
+            bse_tickers={"EXAMPLE": "EXAMPLEBSE"},
+        )
+        self.assertTrue(result.empty)
+        self.assertEqual(collector.collection_diagnostics["technical_bse_history_spliced_symbols"], [])

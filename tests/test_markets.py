@@ -169,3 +169,11 @@ class ConfigDefaultTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewListingsWorkerTests(unittest.TestCase):
+    def test_only_nse_shows_young_listings_through_its_own_worker(self):
+        from screener.markets import resolve
+
+        self.assertTrue(resolve("NSE").new_listings_worker)
+        self.assertFalse(resolve("US").new_listings_worker)
