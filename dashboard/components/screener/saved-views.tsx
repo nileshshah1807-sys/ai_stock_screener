@@ -29,13 +29,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   applyView,
+  litViews,
   removeView,
   currentViewQuery,
   PRESETS,
   savedViewsServerSnapshot,
   savedViewsSnapshot,
   subscribeSavedViews,
-  viewIsActive,
   writeSavedViews,
   type SavedView,
 } from "@/lib/presets";
@@ -121,10 +121,10 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
   );
 
   const apply = useCallback(
-    (query: string) => {
+    (query: string, on: boolean) => {
       // A lit view's chip takes it off again; any other adds it to what is on.
       const current = new URLSearchParams(searchParams.toString());
-      const next = viewIsActive(searchParams, query) ? removeView(current, query) : applyView(current, query);
+      const next = on ? removeView(current, query) : applyView(current, query);
       startTransition(() => {
         router.push(
           next.toString() ? `${pathname}?${next.toString()}` : pathname,
@@ -235,9 +235,9 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
   ) : null;
 
   const grouped = groupViews(presets);
-  const activeLabels = [...presets, ...saved]
-    .filter((view) => viewIsActive(searchParams, view.query))
-    .map((view) => view.label);
+  const lit = litViews(searchParams, [...presets, ...saved]);
+  const isLit = (view: { id: string }) => lit.some((item) => item.id === view.id);
+  const activeLabels = lit.map((view) => view.label);
 
   return (
     <>
@@ -281,8 +281,8 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
               {views.map((preset) => (
                 <DropdownMenuCheckboxItem
                   key={preset.id}
-                  checked={viewIsActive(searchParams, preset.query)}
-                  onCheckedChange={() => apply(preset.query)}
+                  checked={isLit(preset)}
+                  onCheckedChange={() => apply(preset.query, isLit(preset))}
                   className="items-start py-2"
                 >
                   <span className="flex min-w-0 flex-col gap-0.5">
@@ -300,8 +300,8 @@ export function SavedViews({ factorModel = false }: { factorModel?: boolean }) {
               {saved.map((view) => (
                 <DropdownMenuCheckboxItem
                   key={view.id}
-                  checked={viewIsActive(searchParams, view.query)}
-                  onCheckedChange={() => apply(view.query)}
+                  checked={isLit(view)}
+                  onCheckedChange={() => apply(view.query, isLit(view))}
                 >
                   <span className="truncate">{view.label}</span>
                 </DropdownMenuCheckboxItem>
